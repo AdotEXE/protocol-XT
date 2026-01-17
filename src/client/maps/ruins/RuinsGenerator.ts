@@ -13,6 +13,7 @@ import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
+import { SeededRandom } from "../shared/SeededRandom";
 
 export interface RuinsConfig {
     destructionLevel: number;
@@ -45,80 +46,98 @@ export class RuinsGenerator extends BaseMapGenerator {
     }
     
     private generateRubble(context: ChunkGenerationContext): void {
-        const { size, random, chunkParent, chunkX, chunkZ } = context;
-        const rubbleCount = random.int(5, 15);
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        for (let i = 0; i < rubbleCount; i++) {
-            if (!random.chance(this.config.rubbleDensity)) continue;
-            
-            const rx = random.range(5, size - 5);
-            const rz = random.range(5, size - 5);
-            const rWorldX = chunkX * size + rx;
-            const rWorldZ = chunkZ * size + rz;
-            
-            if (this.isPositionInGarageArea(rWorldX, rWorldZ, 2)) continue;
-            
-            const rubbleSize = random.range(1, 4);
-            const rubbleHeight = random.range(0.5, 2);
-            
-            this.createBox(
-                "rubble",
-                { width: rubbleSize, height: rubbleHeight, depth: rubbleSize },
-                new Vector3(rx, rubbleHeight / 2, rz),
-                random.pick(["concrete", "brick", "brickDark"]),
-                chunkParent,
-                true
-            );
+        // Детерминированная генерация на основе world координат
+        const rubbleSpacing = 8; // Расстояние между обломками
+        const rubbleSize = 4;
+        
+        const startGridX = Math.floor(chunkMinX / rubbleSpacing) * rubbleSpacing;
+        const startGridZ = Math.floor(chunkMinZ / rubbleSpacing) * rubbleSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + rubbleSpacing; gridX += rubbleSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + rubbleSpacing; gridZ += rubbleSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, rubbleSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 2)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ);
+                if (!localRandom.chance(this.config.rubbleDensity)) continue;
+                
+                const rx = gridX - worldX;
+                const rz = gridZ - worldZ;
+                const rubbleSizeVal = localRandom.range(1, 4);
+                const rubbleHeight = localRandom.range(0.5, 2);
+                
+                this.createBox(
+                    "rubble",
+                    { width: rubbleSizeVal, height: rubbleHeight, depth: rubbleSizeVal },
+                    new Vector3(rx, rubbleHeight / 2, rz),
+                    localRandom.pick(["concrete", "brick", "brickDark"]),
+                    chunkParent,
+                    true
+                );
+            }
         }
     }
     
     private generateBuildings(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        // Все типы зданий: жилые, коммерческие, промышленные, военные
-        const buildingCount = random.int(6, 12);
+        // Детерминированная генерация на основе world координат
+        const buildingSpacing = 40; // Расстояние между зданиями
+        const buildingSize = 15;
         
-        for (let i = 0; i < buildingCount; i++) {
-            const x = random.range(10, size - 10);
-            const z = random.range(10, size - 10);
-            const worldX = chunkX * size + x;
-            const worldZ = chunkZ * size + z;
-            
-            if (this.isPositionInGarageArea(worldX, worldZ, 10)) continue;
-            
-            // Распределение: 40% жилые, 30% коммерческие, 20% промышленные, 10% военные
-            const buildingType = random.next();
-            let w: number, h: number, d: number;
-            let material: string;
-            
-            if (buildingType < 0.4) {
-                // Жилые: 6x6x4
-                w = random.range(5, 7);
-                h = random.range(3, 5);
-                d = random.range(5, 7);
-                material = random.pick(["brick", "plaster"]);
-            } else if (buildingType < 0.7) {
-                // Коммерческие: 12x12x8
-                w = random.range(10, 14);
-                h = random.range(6, 10);
-                d = random.range(10, 14);
-                material = random.pick(["concrete", "brick"]);
-            } else if (buildingType < 0.9) {
-                // Промышленные: 15x15x10
-                w = random.range(13, 17);
-                h = random.range(8, 12);
-                d = random.range(13, 17);
-                material = random.pick(["metal", "concrete"]);
-            } else {
-                // Военные: 10x10x6
-                w = random.range(8, 12);
-                h = random.range(4, 8);
-                d = random.range(8, 12);
-                material = random.pick(["concrete", "brickDark"]);
+        const startGridX = Math.floor(chunkMinX / buildingSpacing) * buildingSpacing;
+        const startGridZ = Math.floor(chunkMinZ / buildingSpacing) * buildingSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + buildingSpacing; gridX += buildingSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + buildingSpacing; gridZ += buildingSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, buildingSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 10)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ);
+                if (!localRandom.chance(this.config.buildingDensity)) continue;
+                
+                const x = gridX - worldX;
+                const z = gridZ - worldZ;
+                
+                // Распределение: 40% жилые, 30% коммерческие, 20% промышленные, 10% военные
+                const buildingType = localRandom.next();
+                let w: number, h: number, d: number;
+                let material: string;
+                
+                if (buildingType < 0.4) {
+                    w = localRandom.range(5, 7);
+                    h = localRandom.range(3, 5);
+                    d = localRandom.range(5, 7);
+                    material = localRandom.pick(["brick", "plaster"]);
+                } else if (buildingType < 0.7) {
+                    w = localRandom.range(10, 14);
+                    h = localRandom.range(6, 10);
+                    d = localRandom.range(10, 14);
+                    material = localRandom.pick(["concrete", "brick"]);
+                } else if (buildingType < 0.9) {
+                    w = localRandom.range(13, 17);
+                    h = localRandom.range(8, 12);
+                    d = localRandom.range(13, 17);
+                    material = localRandom.pick(["metal", "concrete"]);
+                } else {
+                    w = localRandom.range(8, 12);
+                    h = localRandom.range(4, 8);
+                    d = localRandom.range(8, 12);
+                    material = localRandom.pick(["concrete", "brickDark"]);
+                }
+                
+                this.createRuinedBuilding(x, z, w, h, d, localRandom, chunkParent, localRandom.range(0.3, 0.7));
             }
-            
-            // Создаём частично разрушенное здание (30-70% остаётся)
-            this.createRuinedBuilding(x, z, w, h, d, random, chunkParent, random.range(0.3, 0.7));
         }
     }
     
@@ -200,51 +219,73 @@ export class RuinsGenerator extends BaseMapGenerator {
     }
     
     private generateDebris(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        // Обломки и подбитая техника
-        // Обломки (5-12 на чанк)
-        for (let i = 0; i < random.int(5, 12); i++) {
-            const rx = random.range(5, size - 5);
-            const rz = random.range(5, size - 5);
-            const rWorldX = chunkX * size + rx;
-            const rWorldZ = chunkZ * size + rz;
-            
-            if (this.isPositionInGarageArea(rWorldX, rWorldZ, 2)) continue;
-            
-            const rubble = MeshBuilder.CreateBox("rubble", {
-                width: random.range(1, 4),
-                height: random.range(0.5, 2),
-                depth: random.range(1, 4)
-            }, this.scene);
-            rubble.position = new Vector3(rx, random.range(0.25, 1), rz);
-            rubble.rotation.y = random.range(0, Math.PI * 2);
-            rubble.material = this.getMat(random.pick(["concrete", "brick", "brickDark"]));
-            rubble.parent = chunkParent;
-            rubble.freezeWorldMatrix();
+        // Детерминированная генерация обломков
+        const debrisSpacing = 12;
+        const debrisSize = 4;
+        
+        const startGridX = Math.floor(chunkMinX / debrisSpacing) * debrisSpacing;
+        const startGridZ = Math.floor(chunkMinZ / debrisSpacing) * debrisSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + debrisSpacing; gridX += debrisSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + debrisSpacing; gridZ += debrisSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, debrisSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 2)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ, 1000);
+                if (!localRandom.chance(0.3)) continue; // 30% шанс создать обломок
+                
+                const rx = gridX - worldX;
+                const rz = gridZ - worldZ;
+                
+                const rubble = MeshBuilder.CreateBox("rubble", {
+                    width: localRandom.range(1, 4),
+                    height: localRandom.range(0.5, 2),
+                    depth: localRandom.range(1, 4)
+                }, this.scene);
+                rubble.position = new Vector3(rx, localRandom.range(0.25, 1), rz);
+                rubble.rotation.y = localRandom.range(0, Math.PI * 2);
+                rubble.material = this.getMat(localRandom.pick(["concrete", "brick", "brickDark"]));
+                rubble.parent = chunkParent;
+                rubble.freezeWorldMatrix();
+            }
         }
         
-        // Подбитая техника (2-5 на чанк)
-        for (let i = 0; i < random.int(2, 5); i++) {
-            const vx = random.range(10, size - 10);
-            const vz = random.range(10, size - 10);
-            const vWorldX = chunkX * size + vx;
-            const vWorldZ = chunkZ * size + vz;
-            
-            if (this.isPositionInGarageArea(vWorldX, vWorldZ, 4)) continue;
-            
-            // Подбитый танк
-            const hull = MeshBuilder.CreateBox("wreck_hull", {
-                width: random.range(4, 6),
-                height: random.range(1.5, 2.5),
-                depth: random.range(6, 9)
-            }, this.scene);
-            hull.position = new Vector3(vx, random.range(0.75, 1.25), vz);
-            hull.rotation.y = random.range(0, Math.PI * 2);
-            hull.material = this.getMat("metalRust");
-            hull.parent = chunkParent;
-            hull.freezeWorldMatrix();
-            new PhysicsAggregate(hull, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+        // Детерминированная генерация подбитой техники
+        const wreckSpacing = 60;
+        const wreckSize = 9;
+        
+        const startWreckX = Math.floor(chunkMinX / wreckSpacing) * wreckSpacing;
+        const startWreckZ = Math.floor(chunkMinZ / wreckSpacing) * wreckSpacing;
+        
+        for (let gridX = startWreckX; gridX < chunkMaxX + wreckSpacing; gridX += wreckSpacing) {
+            for (let gridZ = startWreckZ; gridZ < chunkMaxZ + wreckSpacing; gridZ += wreckSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, wreckSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 4)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ, 2000);
+                if (!localRandom.chance(0.2)) continue; // 20% шанс создать технику
+                
+                const vx = gridX - worldX;
+                const vz = gridZ - worldZ;
+                
+                const hull = MeshBuilder.CreateBox("wreck_hull", {
+                    width: localRandom.range(4, 6),
+                    height: localRandom.range(1.5, 2.5),
+                    depth: localRandom.range(6, 9)
+                }, this.scene);
+                hull.position = new Vector3(vx, localRandom.range(0.75, 1.25), vz);
+                hull.rotation.y = localRandom.range(0, Math.PI * 2);
+                hull.material = this.getMat("metalRust");
+                hull.parent = chunkParent;
+                hull.freezeWorldMatrix();
+                new PhysicsAggregate(hull, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            }
         }
     }
 }

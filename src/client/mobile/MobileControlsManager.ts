@@ -62,6 +62,14 @@ export interface MobileInputState {
     consumable7: boolean;
     consumable8: boolean;
     consumable9: boolean;
+
+    // New Actions
+    ult: boolean;        // 0
+    garage: boolean;     // B
+    drop: boolean;       // G
+    map: boolean;        // M
+    chat: boolean;       // T
+    send: boolean;       // Enter
 }
 
 /**
@@ -106,7 +114,13 @@ export class MobileControlsManager {
         consumable6: false,
         consumable7: false,
         consumable8: false,
-        consumable9: false
+        consumable9: false,
+        ult: false,
+        garage: false,
+        drop: false,
+        map: false,
+        chat: false,
+        send: false
     };
 
     // Callback
@@ -204,30 +218,64 @@ export class MobileControlsManager {
         const buttonSize = 50 * this.scale;
         const margin = 15 * this.scale;
 
-        // Кнопка паузы (левый верхний угол)
+        // === TOP LEFT GROUP (System) ===
+        // Pause (Esc)
         this.createButton('pause', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_TOP,
-            `${margin}px`, `${margin + 60}px`, "#ff3333", "⏸", 'Escape');
+            `${margin}px`, `${margin}px`, "#ff3333", "⏸", 'Escape');
 
-        // Кнопка центрирования башни
-        this.createButton('centerTurret', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_TOP,
-            `${margin + buttonSize + 10}px`, `${margin + 60}px`, "#00aaff", "C", 'KeyC');
+        // Chat (T) - Below Pause
+        this.createButton('chat', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_TOP,
+            `${margin}px`, `${margin + buttonSize + 10}px`, "#dddddd", "T", 'KeyT');
 
-        // Кнопки управления камерой
-        this.createButton('cameraUp', buttonSize * 0.9, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_TOP,
-            `${margin + (buttonSize + 10) * 2}px`, `${margin + 60}px`, "#ffaa00", "Q", 'KeyQ', true);
-        this.createButton('cameraDown', buttonSize * 0.9, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_TOP,
-            `${margin + (buttonSize + 10) * 2 + buttonSize * 0.9 + 5}px`, `${margin + 60}px`, "#ffaa00", "E", 'KeyE', true);
+        // Send (Enter) - Next to Chat
+        this.createButton('send', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_TOP,
+            `${margin + buttonSize + 10}px`, `${margin + buttonSize + 10}px`, "#00ff00", "⏎", 'Enter');
 
-        // Расходники 1-5 (нижний ряд)
+
+        // === TOP RIGHT GROUP (Gameplay) ===
+        // Map (M)
+        this.createButton('map', buttonSize, Control.HORIZONTAL_ALIGNMENT_RIGHT, Control.VERTICAL_ALIGNMENT_TOP,
+            `-${margin}px`, `${margin}px`, "#aaaaaa", "MAP", 'KeyM');
+
+        // Garage (B) - Below Map
+        this.createButton('garage', buttonSize, Control.HORIZONTAL_ALIGNMENT_RIGHT, Control.VERTICAL_ALIGNMENT_TOP,
+            `-${margin}px`, `${margin + buttonSize + 10}px`, "#ffaa00", "GAR", 'KeyB');
+
+        // Drop (G) - Left of Garage
+        this.createButton('drop', buttonSize, Control.HORIZONTAL_ALIGNMENT_RIGHT, Control.VERTICAL_ALIGNMENT_TOP,
+            `-${margin + buttonSize + 10}px`, `${margin + buttonSize + 10}px`, "#ff5555", "drp", 'KeyG');
+
+
+        // === BOTTOM LEFT GROUP (Camera & Movement Helpers) ===
+        // Center Turret (C)
+        this.createButton('centerTurret', buttonSize, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_BOTTOM,
+            `${margin}px`, `-${margin + 120 * this.scale}px`, "#00aaff", "C", 'KeyC');
+
+        // Camera Up (Q) - Next to C
+        this.createButton('cameraUp', buttonSize * 0.9, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_BOTTOM,
+            `${margin + buttonSize + 10}px`, `-${margin + 120 * this.scale}px`, "#ffaa00", "Q", 'KeyQ', true);
+
+        // Camera Down (E) - Next to Q
+        this.createButton('cameraDown', buttonSize * 0.9, Control.HORIZONTAL_ALIGNMENT_LEFT, Control.VERTICAL_ALIGNMENT_BOTTOM,
+            `${margin + (buttonSize + 10) + (buttonSize * 0.9 + 10)}px`, `-${margin + 120 * this.scale}px`, "#ffaa00", "E", 'KeyE', true);
+
+
+        // === CENTER BOTTOM (Consumables & Ult) ===
         const consumableSize = 40 * this.scale;
         const consumableGap = 5 * this.scale;
+
+        // Ult (0) - Big button above consumables
+        this.createButton('ult', buttonSize * 1.2, Control.HORIZONTAL_ALIGNMENT_CENTER, Control.VERTICAL_ALIGNMENT_BOTTOM,
+            "0px", "-260px", "#ff00ff", "ULT", 'Digit0');
+
+        // Расходники 1-5 (нижний ряд)
         const totalWidth = 5 * consumableSize + 4 * consumableGap;
         const startX = -totalWidth / 2;
 
         for (let i = 1; i <= 5; i++) {
             this.createButton(`consumable${i}`, consumableSize, Control.HORIZONTAL_ALIGNMENT_CENTER,
                 Control.VERTICAL_ALIGNMENT_BOTTOM,
-                `${startX + (i - 1) * (consumableSize + consumableGap)}px`, "-200px",
+                `${startX + (i - 1) * (consumableSize + consumableGap)}px`, "-10px", // moved down
                 "#00ff44", `${i}`, `Digit${i}`);
         }
 
@@ -236,7 +284,7 @@ export class MobileControlsManager {
         for (let i = 6; i <= 9; i++) {
             this.createButton(`consumable${i}`, consumableSize, Control.HORIZONTAL_ALIGNMENT_CENTER,
                 Control.VERTICAL_ALIGNMENT_BOTTOM,
-                `${row2StartX + (i - 6) * (consumableSize + consumableGap)}px`, "-250px",
+                `${row2StartX + (i - 6) * (consumableSize + consumableGap)}px`, "-60px", // moved down
                 "#00aaff", `${i}`, `Digit${i}`);
         }
     }
@@ -328,10 +376,10 @@ export class MobileControlsManager {
         const eventType = isDown ? 'keydown' : 'keyup';
         const keyMap: { [key: string]: string } = {
             'Digit1': '1', 'Digit2': '2', 'Digit3': '3', 'Digit4': '4', 'Digit5': '5',
-            'Digit6': '6', 'Digit7': '7', 'Digit8': '8', 'Digit9': '9',
+            'Digit6': '6', 'Digit7': '7', 'Digit8': '8', 'Digit9': '9', 'Digit0': '0',
             'Equal': '=', 'Minus': '-',
-            'KeyC': 'c', 'KeyQ': 'q', 'KeyE': 'e',
-            'Escape': 'Escape',
+            'KeyC': 'c', 'KeyQ': 'q', 'KeyE': 'e', 'KeyB': 'b', 'KeyG': 'g', 'KeyM': 'm', 'KeyT': 't',
+            'Escape': 'Escape', 'Enter': 'Enter',
             'ControlLeft': 'Control', 'Space': ' '
         };
 
@@ -427,4 +475,3 @@ export class MobileControlsManager {
 }
 
 export default MobileControlsManager;
-

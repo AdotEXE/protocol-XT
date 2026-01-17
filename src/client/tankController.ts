@@ -38,9 +38,12 @@ import { RicochetSystem, RicochetConfig, RICOCHET_CANNON_CONFIG, DEFAULT_RICOCHE
 import { upgradeManager, UpgradeBonuses } from "./upgrade";
 import { ClientMessageType } from "../shared/messages";
 import { createClientMessage } from "../shared/protocol";
+import { isMobileDevice } from "./mobile/MobileDetection";
 
 export class TankController {
     scene: Scene;
+    public isMovementEnabled: boolean = true;
+    public onShootCallback: ((data: any) => void) | null = null;
     chassis: Mesh;
     turret: Mesh;
     barrel: Mesh;
@@ -61,11 +64,11 @@ export class TankController {
     // Callback для получения позиции респавна (гараж)
     respawnPositionCallback: (() => Vector3 | null) | null = null;
 
-    // Callback для отправки выстрела на сервер (мультиплеер)
-    private onShootCallback: ((data: any) => void) | null = null;
-
     // Reference to network players for hit detection
     networkPlayers: Map<string, any> | null = null; // NetworkPlayerTank instances
+
+    // Callback for reporting network player hits (client-authoritative)
+    private onNetworkPlayerHitCallback: ((targetId: string, damage: number, hitPosition: Vector3, cannonType: string) => void) | null = null;
 
     // =========================================================================
     // МУЛЬТИПЛЕЕР: Флаг для отключения локальной физики движения
@@ -407,6 +410,10 @@ export class TankController {
     private _touchAimPitch = 0;  // -1..1 наклон пушки
     private _touchFire = false;
     private _touchAim = false;
+
+
+    // Callback for respawn request (multiplayer)
+    public onRespawnRequest: (() => void) | null = null;
 
     // Load tank configuration from localStorage (зарезервировано для будущего использования)
     // private loadTankConfig(): { color: string, turretColor: string, speed: number, armor: number, firepower: number } {
@@ -1767,6 +1774,8 @@ export class TankController {
         this.soundManager = soundManager;
     }
 
+
+
     /**
      * Применить настройки управления
      */
@@ -1879,6 +1888,11 @@ export class TankController {
         this.onShootCallback = callback;
     }
 
+    // Set callback for when player hits a network player (client-authoritative)
+    setOnNetworkPlayerHitCallback(callback: (targetId: string, damage: number, hitPosition: Vector3, cannonType: string) => void) {
+        this.onNetworkPlayerHitCallback = callback;
+    }
+
     // Запуск обратного отсчёта респавна
     startRespawnCountdown() {
         // Очищаем предыдущий таймер если есть
@@ -1920,7 +1934,56 @@ export class TankController {
     }
 
     heal(amount: number) {
-        return this.healthModule.heal(amount);
+        this.healthModule.heal(amount);
+    }
+
+    // Set health directly (used for multiplayer sync)
+    setHealth(current: number, max: number = 100): void {
+        this.healthModule.setHealth(current, max);
+    }
+
+    // Обработка смерти в мультиплеере
+    setDead(respawnDelay: number): void {
+        console.log(`[TankController] Setting state to DEAD. Respawn in ${respawnDelay}ms`);
+        // Вызываем логику смерти модуля здоровья, но со своим колбеком респавна
+        this.healthModule.die(() => {
+            console.log("[TankController] Death timer finished, requesting respawn...");
+            if (this.hud) this.hud.hideDeathScreen(); // Скрываем экран смерти
+            if (this.onRespawnRequest) {
+                this.onRespawnRequest();
+            } else {
+                console.warn("[TankController] No onRespawnRequest callback sent!");
+            }
+        });
+    }
+
+    // Респавн танка (вызывается при получении ответа от сервера)
+    respawn(position?: Vector3): void {
+        // If no position provided, use current chassis position (for garage respawn)
+        const respawnPos = position || (this.chassis ? this.chassis.position.clone() : new Vector3(0, 1, 0));
+        console.log(`[TankController] Respawning at (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)})`);
+
+        this.isAlive = true;
+        this.isMovementEnabled = true;
+
+        // Восстанавливаем физику и позицию
+        this.healthModule.restoreTankPhysics(respawnPos);
+
+        // Восстанавливаем здоровье
+        this.setHealth(this.maxHealth, this.maxHealth);
+
+        // Включаем защиту
+        this.healthModule.activateInvulnerability();
+
+        // Скрываем экран смерти на всякий случай
+        if (this.hud) {
+            this.hud.hideDeathScreen();
+        }
+
+        // Эффект телепортации
+        if (this.effectsManager) {
+            this.effectsManager.createTeleportEffect(respawnPos);
+        }
     }
 
     // Топливная система
@@ -1954,6 +2017,17 @@ export class TankController {
     }
 
     die() {
+        // In multiplayer, use the server-based respawn flow
+        if (this.onRespawnRequest) {
+            return this.healthModule.die(() => {
+                console.log("[TankController] Death timer finished, requesting respawn from server...");
+                if (this.hud) this.hud.hideDeathScreen();
+                if (this.onRespawnRequest) {
+                    this.onRespawnRequest();
+                }
+            });
+        }
+        // Fallback to garage respawn for single-player
         return this.healthModule.die();
     }
 
@@ -2138,203 +2212,7 @@ export class TankController {
         }
     }
 
-    respawn() {
-        logger.log("[TANK] Respawning...");
 
-        // Перезагружаем конфигурацию корпуса и пушки из localStorage (на случай если игрок выбрал новые)
-        const savedChassisId = localStorage.getItem("selectedChassis") || "medium";
-        const savedCannonId = localStorage.getItem("selectedCannon") || "standard";
-        const savedTrackId = localStorage.getItem("selectedTrack") || "standard";
-
-        logger.log(`[TANK] Respawn: current types - chassis=${this.chassisType?.id}, cannon=${this.cannonType?.id}, track=${this.trackType?.id}`);
-        logger.log(`[TANK] Respawn: saved types - chassis=${savedChassisId}, cannon=${savedCannonId}, track=${savedTrackId}`);
-
-        // Проверяем, изменились ли типы частей
-        // Сравниваем строки, приводим к нижнему регистру для надёжности
-        const currentChassisId = (this.chassisType?.id || "").toLowerCase();
-        const currentCannonId = (this.cannonType?.id || "").toLowerCase();
-        const currentTrackId = (this.trackType?.id || "").toLowerCase();
-        const savedChassisIdLower = savedChassisId.toLowerCase();
-        const savedCannonIdLower = savedCannonId.toLowerCase();
-        const savedTrackIdLower = savedTrackId.toLowerCase();
-
-        const chassisChanged = currentChassisId !== savedChassisIdLower;
-        const cannonChanged = currentCannonId !== savedCannonIdLower;
-        const trackChanged = currentTrackId !== savedTrackIdLower;
-        const needsRecreation = chassisChanged || cannonChanged || trackChanged;
-
-        logger.log(`[TANK] Parts comparison: current(${currentChassisId}, ${currentCannonId}, ${currentTrackId}) vs saved(${savedChassisIdLower}, ${savedCannonIdLower}, ${savedTrackIdLower})`);
-        logger.log(`[TANK] Parts changed: chassis=${chassisChanged}, cannon=${cannonChanged}, track=${trackChanged}, needsRecreation=${needsRecreation}`);
-
-        if (needsRecreation) {
-            logger.log(`[TANK] Recreating parts...`);
-
-            // Сохраняем текущую позицию
-            const currentPos = this.chassis?.position?.clone() || new Vector3(0, 1.2, 0);
-
-            // Обновляем типы
-            this.chassisType = getChassisById(savedChassisId);
-            this.cannonType = getCannonById(savedCannonId);
-            this.trackType = getTrackById(savedTrackId);
-
-            // Обновляем параметры
-            this.mass = this.chassisType.mass;
-            this.moveSpeed = this.chassisType.moveSpeed;
-            this.turnSpeed = this.chassisType.turnSpeed;
-            this.acceleration = this.chassisType.acceleration;
-            this.maxHealth = this.chassisType.maxHealth;
-            this.cooldown = this.cannonType.cooldown;
-            this.baseCooldown = this.cannonType.cooldown;
-            this.damage = this.cannonType.damage;
-            this.projectileSpeed = this.cannonType.projectileSpeed;
-            this.projectileSize = this.cannonType.projectileSize;
-
-            // Dispose старых частей
-            if (this.chassis && !this.chassis.isDisposed()) {
-                this.chassis.dispose();
-            }
-            if (this.turret && !this.turret.isDisposed()) {
-                this.turret.dispose();
-            }
-            if (this.barrel && !this.barrel.isDisposed()) {
-                this.barrel.dispose();
-            }
-            if (this.leftTrack && !this.leftTrack.isDisposed()) {
-                this.leftTrack.dispose();
-            }
-            if (this.rightTrack && !this.rightTrack.isDisposed()) {
-                this.rightTrack.dispose();
-            }
-
-            // Пересоздаём части
-            this.chassis = this.visualsModule.createUniqueChassis(this.scene, currentPos);
-            this.visualsModule.createVisualWheels();
-
-            // Пересоздаём башню и пушку
-            const turretWidth = this.chassisType.width * 0.65;
-            const turretHeight = this.chassisType.height * 0.75;
-            const turretDepth = this.chassisType.depth * 0.6;
-
-            const uniqueTurretId = `turret_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            this.turret = MeshBuilder.CreateBox(uniqueTurretId, {
-                width: turretWidth,
-                height: turretHeight,
-                depth: turretDepth
-            }, this.scene);
-            this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
-            this.turret.parent = this.chassis;
-
-            const turretMat = new StandardMaterial("turretMat", this.scene);
-            const selectedSkinId = loadSelectedSkin();
-            if (selectedSkinId) {
-                const skin = getSkinById(selectedSkinId);
-                if (skin) {
-                    const skinColors = applySkinToTank(skin);
-                    turretMat.diffuseColor = skinColors.turretColor;
-                }
-            } else {
-                turretMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
-            }
-            turretMat.specularColor = Color3.Black();
-            this.turret.material = turretMat;
-
-            // Пересоздаём пушку
-            const barrelWidth = this.cannonType.barrelWidth;
-            const barrelLength = this.cannonType.barrelLength;
-            const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
-            this.barrel = this.visualsModule.createUniqueCannon(this.scene, barrelWidth, barrelLength);
-            this.barrel.position = new Vector3(0, 0, baseBarrelZ);
-            this.barrel.parent = this.turret;
-            (this.barrel as any)._isChildMesh = true;
-            (this.barrel as any)._shouldBeChild = true;
-
-            // Применяем скин к корпусу
-            if (selectedSkinId && this.chassis.material) {
-                const skin = getSkinById(selectedSkinId);
-                if (skin) {
-                    const skinColors = applySkinToTank(skin);
-                    applySkinColorToMaterial(this.chassis.material as StandardMaterial, skinColors.chassisColor);
-                }
-            }
-
-            // Восстанавливаем физику (dispose старой, если есть)
-            if (this.physicsBody) {
-                try {
-                    (this.physicsBody as any).dispose();
-                } catch (e) {
-                    logger.warn(`[TANK] Error disposing old physics body: ${e}`);
-                }
-                (this as any).physicsBody = null;
-            }
-
-            // Также очищаем physicsBody из chassis, если есть
-            if ((this.chassis as any).physicsBody) {
-                (this.chassis as any).physicsBody = null;
-            }
-
-            logger.log(`[TANK] Parts recreated. Chassis: ${this.chassis?.name}, Turret: ${this.turret?.name}, Barrel: ${this.barrel?.name}`);
-        }
-
-        // КРИТИЧНО: НЕ применяем улучшения заново! Характеристики НЕ должны изменяться после смерти!
-        // Вместо этого восстанавливаем сохранённые характеристики из начала боя
-        if (this._characteristicsInitialized) {
-            this.maxHealth = this._initialMaxHealth;
-            this.moveSpeed = this._initialMoveSpeed;
-            this.turnSpeed = this._initialTurnSpeed;
-            this.damage = this._initialDamage;
-            this.cooldown = this._initialCooldown;
-            this.baseCooldown = this._initialCooldown;
-            this.projectileSpeed = this._initialProjectileSpeed;
-            this.turretSpeed = this._initialTurretSpeed;
-            this.baseTurretSpeed = this._initialBaseTurretSpeed;
-            logger.log(`[TANK] Characteristics restored from battle start: HP=${this.maxHealth}, Speed=${this.moveSpeed}, Damage=${this.damage}`);
-        } else {
-            // Fallback: если характеристики не были сохранены, применяем улучшения (только один раз)
-            logger.warn(`[TANK] Characteristics not initialized, applying upgrades as fallback`);
-            this.applyUpgrades();
-            // Сохраняем их для следующих респавнов
-            this._initialMaxHealth = this.maxHealth;
-            this._initialMoveSpeed = this.moveSpeed;
-            this._initialTurnSpeed = this.turnSpeed;
-            this._initialDamage = this.damage;
-            this._initialCooldown = this.cooldown;
-            this._initialProjectileSpeed = this.projectileSpeed;
-            this._initialTurretSpeed = this.turretSpeed;
-            this._initialBaseTurretSpeed = this.baseTurretSpeed;
-            this._characteristicsInitialized = true;
-        }
-
-        // ВОССТАНАВЛИВАЕМ здоровье и состояние
-        this.currentHealth = this.maxHealth;
-        this.currentFuel = this.maxFuel;
-        this.isFuelEmpty = false;
-        // КРИТИЧНО: НЕ устанавливаем isAlive = true здесь!
-        // isAlive будет установлен в completeRespawn() ПОСЛЕ завершения анимации сборки
-        // Это предотвращает конфликт между анимацией и updatePhysics/updateCamera
-        this.isReloading = false;
-        this.lastShotTime = 0;
-
-        // Получаем позицию респавна
-        let respawnPos: Vector3;
-        if (this.respawnPositionCallback) {
-            const garagePos = this.respawnPositionCallback();
-            respawnPos = garagePos ? garagePos.clone() : new Vector3(0, 1.2, 0);
-        } else {
-            respawnPos = new Vector3(0, 1.2, 0);
-        }
-
-        // Анимация сборки танка (если были разрушенные части)
-        if (this.healthModule && (this.healthModule as any).destroyedParts && (this.healthModule as any).destroyedParts.length > 0) {
-            // Запускаем анимацию сборки, после завершения выполняем остальную логику респавна
-            (this.healthModule as any).animateReassembly(respawnPos, () => {
-                this.completeRespawn(respawnPos);
-            });
-            return; // Выходим раньше, остальное сделает анимация
-        }
-
-        // Если анимации нет, выполняем обычный респавн
-        this.completeRespawn(respawnPos);
-    }
 
     /**
      * Завершает респавн - устанавливает позицию и восстанавливает физику
@@ -3213,9 +3091,13 @@ export class TankController {
                         // Pointer lock error - ignore
                     }
                 }
-                // Устанавливаем флаг зажатой ЛКМ и стреляем сразу
-                this.isMouseButtonPressed = true;
-                this.fire();
+                if (!isMobileDevice()) {
+                    // Устанавливаем флаг зажатой ЛКМ и стреляем сразу (ТОЛЬКО НА ПК)
+                    this.isMouseButtonPressed = true;
+                    this.fire();
+                } else {
+                    // На мобильных устройствах стрельба только через кнопку, но вход в Pointer Lock (если поддерживается) оставляем
+                }
             }
             if (evt.button === 2) { // Right click - AIM MODE
                 // RMB pressed - aim mode ON
@@ -3401,6 +3283,17 @@ export class TankController {
             // Устанавливаем перезарядку только если выстрел не заблокирован
             this.lastShotTime = now;
             this.isReloading = true;
+
+            // Notify multiplayer about the shot
+            if (this.onShootCallback) {
+                this.onShootCallback({
+                    position: { x: muzzlePos.x, y: muzzlePos.y, z: muzzlePos.z },
+                    direction: { x: forward.x, y: forward.y, z: forward.z },
+                    aimPitch: this.barrel.rotation.x,
+                    cannonType: this.cannonType.id,
+                    timestamp: now
+                });
+            }
 
             // Start reload on HUD
             if (this.hud) {
@@ -3760,6 +3653,70 @@ export class TankController {
                     }
                 }
 
+                // === NETWORK PLAYER HIT DETECTION (Capsule Cast - Client-Authoritative) ===
+                // Check hits against network players in multiplayer mode
+                if (this.networkPlayers && this.networkPlayers.size > 0 && moveDistance > 0.1) {
+                    const CAPSULE_RADIUS = 5.5; // Capsule radius for generous hit detection
+                    const CAPSULE_RADIUS_SQ = CAPSULE_RADIUS * CAPSULE_RADIUS;
+
+                    // DIAGNOSTIC: Log disabled for cleaner console
+                    // if (this._logFrameCounter % 60 === 0) {
+                    //     console.log(`[TankController] 🔍 Checking ${this.networkPlayers.size} network players for hit detection. Bullet at (${bulletPos.x.toFixed(1)}, ${bulletPos.y.toFixed(1)}, ${bulletPos.z.toFixed(1)})`);
+                    // }
+
+                    for (const [playerId, networkTank] of this.networkPlayers.entries()) {
+                        // FIXED: Use getHealth() method and check networkPlayer.status
+                        if (!networkTank || !networkTank.chassis) continue;
+                        const tankHealth = networkTank.getHealth ? networkTank.getHealth() : 100;
+                        const tankStatus = networkTank.networkPlayer?.status || "alive";
+                        if (tankHealth <= 0 || tankStatus === "dead") continue;
+
+                        const targetPos = networkTank.chassis.absolutePosition;
+
+                        // Calculate distance from bullet trajectory to tank center (Capsule Cast)
+                        const rayDir = bulletPos.subtract(prevBulletPos);
+                        const rayLengthSq = rayDir.lengthSquared();
+
+                        let distSqToSegment: number;
+                        let impactPoint: Vector3;
+
+                        if (rayLengthSq < 0.001) {
+                            distSqToSegment = Vector3.DistanceSquared(bulletPos, targetPos);
+                            impactPoint = bulletPos;
+                        } else {
+                            const w = targetPos.subtract(prevBulletPos);
+                            const t = Math.max(0, Math.min(1, Vector3.Dot(w, rayDir) / rayLengthSq));
+                            const closestPoint = prevBulletPos.add(rayDir.scale(t));
+                            distSqToSegment = Vector3.DistanceSquared(closestPoint, targetPos);
+                            impactPoint = closestPoint;
+                        }
+
+                        if (distSqToSegment < CAPSULE_RADIUS_SQ) {
+                            hasHit = true;
+                            console.log(`[TankController] 🎯 CAPSULE HIT on network player ${playerId}!`);
+
+                            // Get damage from projectile metadata
+                            const bulletDamage = bulletMeta?.damage || 25;
+                            const cannonTypeId = bulletMeta?.cannonType || this.cannonType.id || "standard";
+
+                            // CRITICAL: Send hit to server via callback
+                            if (this.onNetworkPlayerHitCallback) {
+                                this.onNetworkPlayerHitCallback(playerId, bulletDamage, impactPoint, cannonTypeId);
+                            }
+
+                            // Visual/audio feedback
+                            this.createHitEffect(impactPoint, cannonTypeId);
+                            if (this.soundManager) this.soundManager.playHit("normal", impactPoint);
+
+                            // Show hit marker
+                            if (this.hud) this.hud.showHitMarker(false);
+
+                            ball.dispose();
+                            return;
+                        }
+                    }
+                }
+
                 // Homing projectile guidance
                 if (bulletMeta?.isHoming && this.enemyTanks && this.enemyTanks.length > 0) {
                     // Find nearest enemy
@@ -3840,6 +3797,52 @@ export class TankController {
                         if (this.soundManager) this.soundManager.playHit("armor", bulletPos);
                         ball.dispose();
                         return;
+                    }
+                }
+
+                // === ПРОВЕРКА ПОПАДАНИЯ В СЕТЕВЫХ ИГРОКОВ (Capsule Cast) ===
+                // Используем "толстый луч" для надежного обнаружения попаданий в мультиплеере
+                if (this.networkPlayers && moveDistance > 0.1) {
+                    const CAPSULE_RADIUS = 5.5; // Радиус "капсулы" для попадания
+                    const CAPSULE_RADIUS_SQ = CAPSULE_RADIUS * CAPSULE_RADIUS;
+
+                    for (const [playerId, networkTank] of this.networkPlayers.entries()) {
+                        if (!networkTank || !networkTank.chassis || networkTank.health <= 0) continue;
+
+                        const targetPos = networkTank.chassis.absolutePosition;
+
+                        // Вычисляем расстояние от траектории пули до центра танка (Capsule Cast)
+                        const rayDir = bulletPos.subtract(prevBulletPos);
+                        const rayLengthSq = rayDir.lengthSquared();
+
+                        let distSqToSegment: number;
+                        let impactPoint: Vector3;
+
+                        if (rayLengthSq < 0.001) {
+                            distSqToSegment = Vector3.DistanceSquared(bulletPos, targetPos);
+                            impactPoint = bulletPos;
+                        } else {
+                            const w = targetPos.subtract(prevBulletPos);
+                            const t = Math.max(0, Math.min(1, Vector3.Dot(w, rayDir) / rayLengthSq));
+                            const closestPoint = prevBulletPos.add(rayDir.scale(t));
+                            distSqToSegment = Vector3.DistanceSquared(closestPoint, targetPos);
+                            impactPoint = closestPoint;
+                        }
+
+                        if (distSqToSegment < CAPSULE_RADIUS_SQ) {
+                            hasHit = true;
+                            console.log(`[TankController] 🎯 CAPSULE HIT on network player ${playerId}!`);
+
+                            // Визуальный эффект
+                            this.createHitEffect(impactPoint, bulletMeta?.cannonType || "standard");
+                            if (this.soundManager) this.soundManager.playHit("normal", impactPoint);
+
+                            // Show hit marker
+                            if (this.hud) this.hud.showHitMarker(false);
+
+                            ball.dispose();
+                            return;
+                        }
                     }
                 }
 

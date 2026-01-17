@@ -417,11 +417,11 @@ export class MainMenu {
     private allLobbyPlayers: any[] = []; // Все игроки для фильтрации
     private filteredLobbyPlayers: any[] = []; // Отфильтрованные игроки
     private friendsList: Set<string> = new Set(); // Список ID друзей
-    
+
     // Throttling для логирования updateRoomList
     private _lastRoomListLogTime: number = 0;
     private _lastRoomListCount: number = 0;
-    
+
     // Throttling для логирования updateLobbyPlayers
     private _lastLobbyPlayersLogTime: number = 0;
     private _lastLobbyPlayersCount: number = 0;
@@ -8656,13 +8656,13 @@ export class MainMenu {
 
     private async createMultiplayerRoom(mode: string, mapType?: string): Promise<void> {
         debugLog("[Menu] Creating multiplayer room for mode:", mode, "mapType:", mapType);
-        
+
         // КРИТИЧНО: Очищаем custom map данные при создании мультиплеер комнаты
         // Это гарантирует, что все игроки увидят одинаковую карту с сервера
         localStorage.removeItem("selectedCustomMapData");
         localStorage.removeItem("selectedCustomMapIndex");
         console.log("[Menu] 🗺️ Очищены данные custom карты при создании мультиплеер комнаты");
-        
+
         const game = (window as any).gameInstance as any;
         if (!game) {
             this.showMultiplayerError("Игра еще не инициализирована. Запустите игру сначала.");
@@ -9093,11 +9093,12 @@ export class MainMenu {
             if (isHost) {
                 // Хост видит "НАЧАТЬ ИГРУ"
                 if (btnTextEl) btnTextEl.textContent = "⚔️ НАЧАТЬ ИГРУ";
+                (startBtnElement as HTMLElement).style.display = "block";
             } else {
-                // Не-хост видит "В БОЙ!" (ожидание начала)
+                // Не-хост по умолчанию не видит кнопку (появится если игра станет активной через _updateMultiplayerStatus)
                 if (btnTextEl) btnTextEl.textContent = "⚔️ В БОЙ!";
+                (startBtnElement as HTMLElement).style.display = "none";
             }
-            (startBtnElement as HTMLElement).style.display = "block";
         }
 
 
@@ -9344,7 +9345,7 @@ export class MainMenu {
 
             const game = (window as any).gameInstance;
             const multiplayerManager = game?.multiplayerManager;
-            
+
             if (!multiplayerManager) {
                 console.warn("[Menu] MultiplayerManager not available");
                 return;
@@ -9407,17 +9408,17 @@ export class MainMenu {
         if (multiplayerManager) {
             // Сохраняем старый callback если есть
             const oldCallback = (multiplayerManager as any).onChatMessageCallback;
-            
+
             // Устанавливаем новый callback для комнаты
             multiplayerManager.onChatMessage((data: any) => {
                 console.log("[Menu] Room chat callback received:", { roomId, data, currentRoomId: multiplayerManager.getRoomId() });
-                
+
                 // Проверяем, находимся ли мы в комнате и что это та же комната
                 const currentRoomId = multiplayerManager.getRoomId();
                 const isInThisRoom = currentRoomId === roomId;
                 const currentPlayerId = multiplayerManager.getPlayerId();
                 const isOwnMessage = data.playerId === currentPlayerId;
-                
+
                 if (isInThisRoom && data && data.playerName && data.message) {
                     // Если это наше собственное сообщение, не добавляем его снова (оно уже добавлено локально при отправке)
                     if (!isOwnMessage) {
@@ -9430,7 +9431,7 @@ export class MainMenu {
                 } else {
                     console.log("[Menu] Message not for this room:", { isInThisRoom, currentRoomId, roomId });
                 }
-                
+
                 // Вызываем старый callback если он был (для лобби)
                 // Но только если мы не в комнате или это не сообщение для комнаты
                 if (oldCallback) {
@@ -9626,7 +9627,7 @@ export class MainMenu {
             console.warn("[Menu] Room chat messages container not found");
             return;
         }
-        
+
         console.log("[Menu] Adding room chat message:", { playerName, message, type });
 
         // Удаляем placeholder если есть
@@ -9844,7 +9845,7 @@ export class MainMenu {
      */
     updateReadyStatus(): void {
         const readyCount = (this as any).roomReadyPlayers?.size || 0;
-        
+
         // Получаем количество игроков из элемента или из multiplayerManager
         let currentPlayers = 1;
         const playersEl = document.getElementById("mp-room-panel-players");
@@ -9925,7 +9926,14 @@ export class MainMenu {
         console.log(`[Menu] 🔄 Обновляем панель комнаты: ${currentPlayers}/${maxPlayers} игроков`);
 
         this.updateRoomPanelPlayers(currentPlayers, maxPlayers);
-        this.updateRoomPanelPlayersList(currentPlayers);
+
+        // FIX: Call the correct method with required arguments
+        const roomId = multiplayerManager.getRoomId();
+        const networkPlayers = multiplayerManager.getPlayers();
+        if (roomId && networkPlayers) {
+            this.updateRoomPlayersList(roomId, networkPlayers);
+        }
+
         this.updateReadyStatus();
     }
 
@@ -11044,7 +11052,7 @@ export class MainMenu {
         localStorage.removeItem("selectedCustomMapData");
         localStorage.removeItem("selectedCustomMapIndex");
         console.log("[Menu] 🗺️ Очищены данные custom карты при входе в мультиплеер (joinRoom)");
-        
+
         const game = (window as any).gameInstance as any;
         const multiplayerManager = game?.multiplayerManager;
 
@@ -11537,7 +11545,7 @@ export class MainMenu {
      * Настройка callbacks для лобби
      */
     private _lobbyCallbackRetries: number = 0;
-    
+
     setupLobbyCallbacks(): void {
         const game = (window as any).gameInstance as any;
         const multiplayerManager = game?.multiplayerManager;
@@ -11557,7 +11565,7 @@ export class MainMenu {
 
         // Сбрасываем счётчик при успехе
         this._lobbyCallbackRetries = 0;
-        
+
         const isConnected = multiplayerManager.isConnected();
         console.log("[Menu] ✅ MultiplayerManager найден, подключен:", isConnected);
 
@@ -12330,7 +12338,7 @@ export class MainMenu {
                                     await game.init();
                                     game.gameInitialized = true;
                                     console.log("[Menu] ✅ Игра успешно инициализирована");
-                                    
+
                                     // КРИТИЧНО: Проверяем и исправляем mapType после init()
                                     // Это гарантирует синхронизацию карты с сервером
                                     const serverMapType = multiplayerManager.getMapType();
@@ -14616,13 +14624,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const botCountWrapper = document.getElementById("mp-bot-count-wrapper");
     const botCountSlider = document.getElementById("mp-bot-count") as HTMLInputElement;
     const botCountValue = document.getElementById("mp-bot-count-value");
-    
+
     if (enableBotsCheckbox && botCountWrapper) {
         enableBotsCheckbox.addEventListener("change", () => {
             botCountWrapper.style.display = enableBotsCheckbox.checked ? "block" : "none";
         });
     }
-    
+
     if (botCountSlider && botCountValue) {
         botCountSlider.addEventListener("input", () => {
             botCountValue.textContent = botCountSlider.value;
@@ -14633,13 +14641,13 @@ document.addEventListener("DOMContentLoaded", () => {
 // Глобальная функция для запуска создания комнаты
 (window as any).startMpCreateRoom = async function () {
     console.log("[Menu] startMpCreateRoom called");
-    
+
     // КРИТИЧНО: Очищаем custom map данные при создании мультиплеер комнаты
     // Это гарантирует, что все игроки увидят одинаковую карту с сервера
     localStorage.removeItem("selectedCustomMapData");
     localStorage.removeItem("selectedCustomMapIndex");
     console.log("[Menu] 🗺️ Очищены данные custom карты при создании комнаты (startMpCreateRoom)");
-    
+
     const game = (window as any).gameInstance;
     if (game && game.mainMenu) {
         const menu = game.mainMenu as MainMenu;
@@ -14721,9 +14729,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const botCountSlider = document.getElementById("mp-bot-count") as HTMLInputElement;
         const enableBots = enableBotsCheckbox?.checked || false;
         const botCount = enableBots ? parseInt(botCountSlider?.value || "4", 10) : 0;
-        
+
         console.log(`[Menu] 🤖 Bot settings: enableBots=${enableBots}, botCount=${botCount}`);
-        
+
         // Создаем комнату через multiplayerManager напрямую с mapType и настройками ботов
         try {
             const success = multiplayerManager.createRoom(mode as any, 32, false, mapType, enableBots, botCount);

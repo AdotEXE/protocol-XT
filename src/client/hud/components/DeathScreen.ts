@@ -27,20 +27,20 @@ export const DEFAULT_DEATH_SCREEN_CONFIG: DeathScreenConfig = {
 export class DeathScreen {
     private guiTexture: AdvancedDynamicTexture;
     private config: DeathScreenConfig;
-    
+
     private container: Rectangle | null = null;
     private statsContainer: Rectangle | null = null;
     private killsText: TextBlock | null = null;
     private damageText: TextBlock | null = null;
     private timeText: TextBlock | null = null;
     private respawnText: TextBlock | null = null;
-    
+
     private sessionKills = 0;
     private sessionDamage = 0;
     private sessionStartTime = Date.now();
-    
+
     private onRespawnCallback: (() => void) | null = null;
-    
+
     constructor(
         guiTexture: AdvancedDynamicTexture,
         config: Partial<DeathScreenConfig> = {}
@@ -49,7 +49,7 @@ export class DeathScreen {
         this.config = { ...DEFAULT_DEATH_SCREEN_CONFIG, ...config };
         this.create();
     }
-    
+
     private create(): void {
         // Основной контейнер экрана смерти
         this.container = new Rectangle("deathScreen");
@@ -60,7 +60,7 @@ export class DeathScreen {
         this.container.isVisible = false;
         this.container.zIndex = 500;
         this.guiTexture.addControl(this.container);
-        
+
         // Заголовок DESTROYED
         const title = new TextBlock("deathTitle");
         title.text = "💀 DESTROYED 💀";
@@ -73,7 +73,7 @@ export class DeathScreen {
         title.top = "-150px";
         title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.container.addControl(title);
-        
+
         // Контейнер для статистики
         this.statsContainer = new Rectangle("deathStats");
         this.statsContainer.width = "400px";
@@ -86,7 +86,7 @@ export class DeathScreen {
         this.statsContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.statsContainer.top = "0px";
         this.container.addControl(this.statsContainer);
-        
+
         // Заголовок статистики
         const statsTitle = new TextBlock("statsTitle");
         statsTitle.text = "📊 SESSION STATS";
@@ -98,7 +98,7 @@ export class DeathScreen {
         statsTitle.top = "-80px";
         statsTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.statsContainer.addControl(statsTitle);
-        
+
         // Убийства
         this.killsText = new TextBlock("deathKills");
         this.killsText.text = "☠ Kills: 0";
@@ -110,7 +110,7 @@ export class DeathScreen {
         this.killsText.left = "0px";
         this.killsText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.statsContainer.addControl(this.killsText);
-        
+
         // Урон
         this.damageText = new TextBlock("deathDamage");
         this.damageText.text = "💥 Damage: 0";
@@ -122,7 +122,7 @@ export class DeathScreen {
         this.damageText.left = "0px";
         this.damageText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.statsContainer.addControl(this.damageText);
-        
+
         // Время игры
         this.timeText = new TextBlock("deathTime");
         this.timeText.text = "⏱ Time: 0:00";
@@ -134,7 +134,7 @@ export class DeathScreen {
         this.timeText.left = "0px";
         this.timeText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.statsContainer.addControl(this.timeText);
-        
+
         // Таймер респавна
         this.respawnText = new TextBlock("deathRespawn");
         this.respawnText.text = "RESPAWN IN 3...";
@@ -147,17 +147,17 @@ export class DeathScreen {
         this.respawnText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.container.addControl(this.respawnText);
     }
-    
+
     show(onRespawn?: () => void): void {
         if (!this.container) return;
-        
+
         this.onRespawnCallback = onRespawn || null;
-        
+
         // Обновляем статистику
         const sessionTime = Math.floor((Date.now() - this.sessionStartTime) / 1000);
         const minutes = Math.floor(sessionTime / 60);
         const seconds = sessionTime % 60;
-        
+
         if (this.killsText) {
             this.killsText.text = `☠ Kills: ${this.sessionKills}`;
         }
@@ -167,9 +167,9 @@ export class DeathScreen {
         if (this.timeText) {
             this.timeText.text = `⏱ Time: ${minutes}:${seconds.toString().padStart(2, '0')}`;
         }
-        
+
         this.container.isVisible = true;
-        
+
         // Анимация обратного отсчёта
         let countdown = this.config.respawnTime;
         const updateCountdown = () => {
@@ -191,31 +191,31 @@ export class DeathScreen {
         };
         updateCountdown();
     }
-    
+
     hide(): void {
         if (this.container) {
             this.container.isVisible = false;
         }
     }
-    
+
     isVisible(): boolean {
         return this.container?.isVisible ?? false;
     }
-    
+
     addKill(): void {
         this.sessionKills++;
     }
-    
+
     addDamage(amount: number): void {
         this.sessionDamage += amount;
     }
-    
+
     resetSession(): void {
         this.sessionKills = 0;
         this.sessionDamage = 0;
         this.sessionStartTime = Date.now();
     }
-    
+
     getSessionStats(): { kills: number; damage: number; time: number } {
         return {
             kills: this.sessionKills,
@@ -223,7 +223,17 @@ export class DeathScreen {
             time: Math.floor((Date.now() - this.sessionStartTime) / 1000)
         };
     }
-    
+
+    updateTimer(seconds: number): void {
+        if (this.respawnText) {
+            if (seconds > 0) {
+                this.respawnText.text = `RESPAWN IN ${Math.ceil(seconds)}...`;
+            } else {
+                this.respawnText.text = "RESPAWNING...";
+            }
+        }
+    }
+
     dispose(): void {
         if (this.container) {
             this.guiTexture.removeControl(this.container);

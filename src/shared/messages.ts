@@ -36,6 +36,7 @@ export enum ClientMessageType {
     PLAYER_INPUT = "player_input",
     PLAYER_SHOOT = "player_shoot",
     PLAYER_RESPAWN_REQUEST = "player_respawn_request",
+    PLAYER_HIT = "player_hit", // Client reports hitting another player
     CHAT_MESSAGE = "chat_message",
 
     // World
@@ -131,6 +132,9 @@ export enum ServerMessageType {
     // Voice Chat
     VOICE_PLAYER_JOINED = "voice_player_joined",
     VOICE_PLAYER_LEFT = "voice_player_left",
+    VOICE_OFFER = "voice_offer",
+    VOICE_ANSWER = "voice_answer",
+    VOICE_ICE_CANDIDATE = "voice_ice_candidate",
 
     // Capture the Flag
     CTF_FLAG_UPDATE = "ctf_flag_update",
@@ -183,6 +187,15 @@ export interface PlayerShootData {
     aimPitch: number;
     cannonType: string;
     timestamp: number;
+}
+
+// Client-reported hit on another player
+export interface PlayerHitData {
+    targetId: string;      // ID of player that was hit
+    damage: number;        // Damage amount
+    hitPosition: Vector3;  // Where the hit occurred
+    cannonType: string;    // Type of weapon used
+    timestamp: number;     // When the hit occurred
 }
 
 export interface ChatMessageData {

@@ -11,6 +11,61 @@ import { InputValidator } from "./validation";
 import { logger, LogLevel, loggingSettings } from "../client/utils/logger";
 import { serverLogger } from "./logger";
 
+// Chassis dimensions lookup table (half-sizes for OBB check)
+// Format: { halfWidth, halfDepth, halfHeight }
+const CHASSIS_DIMENSIONS: Record<string, { halfWidth: number; halfDepth: number; halfHeight: number }> = {
+    racer: { halfWidth: 0.75, halfDepth: 1.3, halfHeight: 0.275 },
+    siege: { halfWidth: 1.5, halfDepth: 2.25, halfHeight: 0.55 },
+    amphibious: { halfWidth: 1.05, halfDepth: 1.8, halfHeight: 0.4 },
+    shield: { halfWidth: 1.15, halfDepth: 1.85, halfHeight: 0.45 },
+    artillery: { halfWidth: 1.4, halfDepth: 2.1, halfHeight: 0.5 },
+    light: { halfWidth: 0.9, halfDepth: 1.5, halfHeight: 0.35 },
+    medium: { halfWidth: 1.1, halfDepth: 1.75, halfHeight: 0.4 },
+    heavy: { halfWidth: 1.3, halfDepth: 2.0, halfHeight: 0.45 },
+    assault: { halfWidth: 1.2, halfDepth: 1.9, halfHeight: 0.425 },
+    scout: { halfWidth: 0.8, halfDepth: 1.4, halfHeight: 0.3 },
+    stealth: { halfWidth: 0.95, halfDepth: 1.6, halfHeight: 0.325 },
+    hover: { halfWidth: 1.0, halfDepth: 1.65, halfHeight: 0.375 },
+    destroyer: { halfWidth: 1.25, halfDepth: 2.0, halfHeight: 0.475 },
+    command: { halfWidth: 1.2, halfDepth: 1.95, halfHeight: 0.44 },
+    drone: { halfWidth: 1.1, halfDepth: 1.75, halfHeight: 0.425 },
+};
+
+/**
+ * Check OBB (Oriented Bounding Box) intersection with rotation
+ * Transforms projectile position into tank's local space and checks bounds
+ */
+function checkOBBHit(
+    projPos: Vector3,
+    tankPos: Vector3,
+    tankRotation: number,
+    halfW: number,
+    halfD: number,
+    halfH: number,
+    projRadius: number = 0.3
+): boolean {
+    // Transform projectile position into tank's local space (rotate by -rotation)
+    const cos = Math.cos(-tankRotation);
+    const sin = Math.sin(-tankRotation);
+
+    // Relative position
+    const relX = projPos.x - tankPos.x;
+    const relZ = projPos.z - tankPos.z;
+
+    // Rotated into local space
+    const localX = relX * cos - relZ * sin;
+    // OBB центр должен быть поднят на halfH, чтобы хитбокс стоял НА земле (от 0 до 2*halfH)
+    // Т.е. мы проверяем разницу между высотой снаряда и центом хитбокса (pos.y + halfH)
+    const localY = projPos.y - (tankPos.y + halfH);
+    const localZ = relX * sin + relZ * cos;
+
+    // Check if within OBB bounds (with projectile radius buffer)
+    return Math.abs(localX) <= halfW + projRadius &&
+        Math.abs(localY) <= halfH + projRadius &&
+        Math.abs(localZ) <= halfD + projRadius;
+}
+
+
 export class GameRoom {
     id: string;
     mode: GameMode;
@@ -43,6 +98,9 @@ export class GameRoom {
 
     // Game mode rules
     private gameModeRules: GameModeRules;
+
+    // Damage events queue for broadcasting
+    damageEvents: any[] = [];
 
     // CTF system
     ctfSystem: CTFSystem | null = null;
@@ -248,6 +306,7 @@ export class GameRoom {
             destroyedObjects: [],
             chunkUpdates: []
         };
+        this.damageEvents = [];
     }
 
     markObjectDestroyed(objectId: string): void {
@@ -394,7 +453,33 @@ export class GameRoom {
                     targetPos = player.position.clone();
                 }
 
-                if (projectile.checkHit(targetPos)) {
+                // КРИТИЧНО: Используем OBB (Oriented Bounding Box) для точного определения попадания
+                // OBB учитывает rotation танка в отличие от AABB
+
+                // Получаем размеры хитбокса
+                const dims = CHASSIS_DIMENSIONS[player.chassisType] || CHASSIS_DIMENSIONS.medium;
+                const halfW = dims.halfWidth;
+                const halfD = dims.halfDepth;
+                const halfH = dims.halfHeight; // This is half height, center should be up by this amount if pivot is bottom
+
+                // OBB Center: Tank position is usually ground center. 
+                // We need to raise it to the physical center of the box.
+                const tankCenterInfo = targetPos.clone().add(new Vector3(0, halfH, 0));
+
+                // Проверка попадания в OBB с учётом rotation
+                let isHit = this.checkOBBHit(projectile.position, tankCenterInfo, player.rotation, halfW, halfD, halfH, 0.5); // 0.5 radius tolerance
+
+                // DEBUG LOGGING
+                if (!isHit && Math.random() < 0.01) {
+                    // Log some misses to verify coordinates
+                    // serverLogger.log(`[HitCheck] MISS: Proj(${projectile.position.x.toFixed(1)},${projectile.position.z.toFixed(1)}) vs Tank(${targetPos.x.toFixed(1)},${targetPos.z.toFixed(1)}) Rot:${player.rotation.toFixed(2)}`);
+                }
+
+                if (isHit) {
+                    serverLogger.log(`[Room] 🎯 HIT CONFIRMED! ProjID=${projectile.id} on Player=${player.name}(${player.id})`);
+                }
+
+                if (isHit) {
                     // Hit!
                     const died = player.takeDamage(projectile.damage);
 
@@ -407,18 +492,21 @@ export class GameRoom {
                     }
 
                     // Store damage/kill event for broadcasting (will be sent by gameServer)
-                    (this as any).lastDamageEvent = {
+                    const damageEvent = {
+                        died: died,
                         victimId: player.id,
                         victimName: player.name,
                         attackerId: projectile.ownerId,
                         attackerName: this.players.get(projectile.ownerId)?.name || "Unknown",
                         damage: projectile.damage,
                         newHealth: player.health,
-                        died: died
+                        maxHealth: player.maxHealth
                     };
+                    this.damageEvents.push(damageEvent);
 
                     // Remove projectile
                     this.projectiles.delete(projId);
+                    this.worldUpdates.destroyedObjects.push(projId);
                     break;
                 }
             }
@@ -426,6 +514,7 @@ export class GameRoom {
             // Remove expired projectiles
             if (projectile.isExpired(currentTime)) {
                 this.projectiles.delete(projId);
+                this.worldUpdates.destroyedObjects.push(projId);
             }
         }
 
@@ -544,6 +633,43 @@ export class GameRoom {
         if (this.walls.length > 50) {
             this.walls.shift();
         }
+    }
+    /**
+     * Helper to check OBB (Oriented Bounding Box) intersection
+     * @param point Point to check (projectile pos)
+     * @param boxCenter Center of the OBB (tank center)
+     * @param boxRotation Y-axis rotation of the box
+     * @param halfW Half width
+     * @param halfD Half depth
+     * @param halfH Half height
+     * @param tolerance Radius of the point/tolerance
+     */
+    private checkOBBHit(point: Vector3, boxCenter: Vector3, boxRotation: number, halfW: number, halfD: number, halfH: number, tolerance: number): boolean {
+        // Transform the point into the OBB's local space
+
+        // 1. Translate point to OBB center relative
+        const dir = point.clone().subtract(boxCenter);
+
+        // 2. Rotate point by inverse of OBB rotation (to align OBB with axes)
+        // Tank rotates around Y axis.
+        // If tank rotation is 'rot', we rotate point by '-rot' to bring it to local axis-aligned system.
+        const cos = Math.cos(-boxRotation);
+        const sin = Math.sin(-boxRotation);
+
+        // Rotate around Y axis:
+        // x' = x*cos - z*sin
+        // z' = x*sin + z*cos
+        const localX = dir.x * cos - dir.z * sin;
+        const localZ = dir.x * sin + dir.z * cos;
+        const localY = dir.y; // Y is up, unaffected by yaw
+
+        // 3. Check AABB in local space
+        // Add tolerance (projectile radius) to dimensions
+        return (
+            Math.abs(localX) <= (halfW + tolerance) &&
+            Math.abs(localY) <= (halfH + tolerance) &&
+            Math.abs(localZ) <= (halfD + tolerance)
+        );
     }
 }
 

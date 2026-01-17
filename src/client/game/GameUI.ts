@@ -5,6 +5,7 @@
 import { logger } from "../utils/logger";
 import type { HUD } from "../hud";
 import type { GameSettings } from "../menu";
+import { setupHotReload } from "../hotReloadUtils";
 
 /**
  * GameUI - Управление пользовательским интерфейсом
@@ -17,63 +18,64 @@ import type { GameSettings } from "../menu";
 export class GameUI {
     private hud: HUD | undefined;
     private settings: GameSettings | undefined;
-    
+
     /**
      * Инициализация системы UI
      */
     initialize(hud: HUD): void {
         this.hud = hud;
+        setupHotReload(hud);
         logger.log("[GameUI] Initialized");
     }
-    
+
     /**
      * Обновление настроек
      */
     setSettings(settings: GameSettings): void {
         this.settings = settings;
     }
-    
+
     /**
      * Применение UI настроек
      */
     applySettings(): void {
         if (!this.hud || !this.settings) return;
-        
+
         // Show crosshair
         if (this.settings.showCrosshair !== undefined) {
             // HUD может иметь метод для управления видимостью прицела
             // this.hud.setCrosshairVisible(this.settings.showCrosshair);
         }
-        
+
         // Show health bar
         if (this.settings.showHealthBar !== undefined) {
             // this.hud.setHealthBarVisible(this.settings.showHealthBar);
         }
-        
+
         // Show ammo counter
         // showAmmo не существует в GameSettings, пропускаем
         // if (this.settings.showAmmo !== undefined) {
         //     this.hud.setAmmoVisible(this.settings.showAmmo);
         // }
-        
+
         // Crosshair style
         if (this.settings.crosshairStyle !== undefined) {
             // this.hud.setCrosshairStyle(this.settings.crosshairStyle);
         }
-        
+
         // HUD scale
         if (this.settings.uiScale !== undefined) {
             // this.hud.setScale(this.settings.hudScale);
         }
-        
+
         // Tank stats panel visibility
         if (this.settings.showTankStatsPanel !== undefined && this.hud.setDetailedStatsPanelVisible) {
             this.hud.setDetailedStatsPanelVisible(this.settings.showTankStatsPanel);
         }
-        
+
         logger.debug("[GameUI] Applied settings");
     }
-    
+
     /**
      * Показать сообщение
      */
@@ -82,7 +84,7 @@ export class GameUI {
             this.hud.showMessage(text, color, duration);
         }
     }
-    
+
     /**
      * Показать уведомление
      */
@@ -91,7 +93,7 @@ export class GameUI {
             this.hud.showNotification(text, type);
         }
     }
-    
+
     /**
      * Обновить кредиты
      */
@@ -100,7 +102,7 @@ export class GameUI {
             this.hud.setCurrency(amount);
         }
     }
-    
+
     /**
      * Добавить убийство
      */
@@ -109,7 +111,7 @@ export class GameUI {
             this.hud.addKill();
         }
     }
-    
+
     /**
      * Переключить полную карту
      */
@@ -118,14 +120,14 @@ export class GameUI {
             this.hud.toggleFullMap();
         }
     }
-    
+
     /**
      * Проверить видимость полной карты
      */
     isFullMapVisible(): boolean {
         return this.hud?.isFullMapVisible() || false;
     }
-    
+
     /**
      * Переключить панель миссий
      */
@@ -134,7 +136,7 @@ export class GameUI {
             this.hud.toggleMissionPanel();
         }
     }
-    
+
     /**
      * Установить систему прогресии игрока
      */
@@ -143,7 +145,7 @@ export class GameUI {
             this.hud.setPlayerProgression(progression);
         }
     }
-    
+
     /**
      * Установить систему опыта
      */
@@ -152,7 +154,7 @@ export class GameUI {
             this.hud.setExperienceSystem(experienceSystem);
         }
     }
-    
+
     /**
      * Установить систему миссий
      */
@@ -161,14 +163,14 @@ export class GameUI {
             (this.hud as any).setMissionSystem(missionSystem);
         }
     }
-    
+
     /**
      * Получение HUD
      */
     getHUD(): HUD | undefined {
         return this.hud;
     }
-    
+
     /**
      * Dispose
      */

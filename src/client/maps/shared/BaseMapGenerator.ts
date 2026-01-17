@@ -176,6 +176,47 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     }
     
     /**
+     * Универсальный метод для детерминированной генерации элементов на сетке
+     * @param context - Контекст генерации чанка
+     * @param spacing - Расстояние между элементами на сетке
+     * @param elementSize - Размер элемента (радиус)
+     * @param density - Плотность (0-1), вероятность создания элемента
+     * @param callback - Функция создания элемента (worldX, worldZ, localRandom, localX, localZ)
+     * @param baseSeed - Базовый seed для random
+     */
+    protected generateOnGrid(
+        context: ChunkGenerationContext,
+        spacing: number,
+        elementSize: number,
+        density: number,
+        callback: (worldX: number, worldZ: number, localRandom: SeededRandom, localX: number, localZ: number) => void,
+        baseSeed: number = 0
+    ): void {
+        const { worldX, worldZ, size } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        
+        const startGridX = Math.floor(chunkMinX / spacing) * spacing;
+        const startGridZ = Math.floor(chunkMinZ / spacing) * spacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + spacing; gridX += spacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + spacing; gridZ += spacing) {
+                if (!this.isElementInChunk(gridX, gridZ, elementSize / 2, context)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ, baseSeed);
+                if (!localRandom.chance(density)) continue;
+                
+                const localX = gridX - worldX;
+                const localZ = gridZ - worldZ;
+                
+                callback(gridX, gridZ, localRandom, localX, localZ);
+            }
+        }
+    }
+    
+    /**
      * Получить высоту рельефа в точке
      * @param x - Мировая X координата
      * @param z - Мировая Z координата

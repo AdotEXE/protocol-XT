@@ -42,25 +42,25 @@ async function findAvailablePort(startPort: number, maxAttempts: number = 10): P
  */
 function createHTTPServer(gameServer: GameServer): http.Server {
     const httpPort = process.env.HTTP_PORT ? parseInt(process.env.HTTP_PORT) : DEFAULT_HTTP_PORT;
-    
+
     const httpServer = http.createServer(async (req, res) => {
         // CORS headers
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-        
+
         if (req.method === 'OPTIONS') {
             res.writeHead(200);
             res.end();
             return;
         }
-        
+
         // API прокачки
         const handledByUpgrade = await handleUpgradeRequest(req, res);
         if (handledByUpgrade) {
             return;
         }
-        
+
         // API для мониторинга
         if (req.url === '/api/stats' && req.method === 'GET') {
             const stats = gameServer.getStats();
@@ -68,25 +68,25 @@ function createHTTPServer(gameServer: GameServer): http.Server {
             res.end(JSON.stringify(stats, null, 2));
             return;
         }
-        
+
         // Health check
         if (req.url === '/health' && req.method === 'GET') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
             return;
         }
-        
+
         // 404
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');
     });
-    
+
     httpServer.listen(httpPort, HOST, () => {
         serverLogger.log(`[Server] ✅ HTTP server started on http://${HOST}:${httpPort}`);
         serverLogger.log(`[Server]    - Health: http://localhost:${httpPort}/health`);
         serverLogger.log(`[Server]    - Stats: http://localhost:${httpPort}/api/stats`);
     });
-    
+
     httpServer.on('error', (error: NodeJS.ErrnoException) => {
         if (error.code === 'EADDRINUSE') {
             serverLogger.warn(`[Server] ⚠️ HTTP порт ${httpPort} занят, пропускаем HTTP сервер`);
@@ -94,25 +94,25 @@ function createHTTPServer(gameServer: GameServer): http.Server {
             serverLogger.error(`[Server] ❌ HTTP server error:`, error);
         }
     });
-    
+
     return httpServer;
 }
 
 async function startServer(): Promise<GameServer> {
     let wsPort = process.env.PORT ? parseInt(process.env.PORT) : DEFAULT_WS_PORT;
-    
+
     // Проверяем доступность WebSocket порта с повторными попытками
     let available = await isPortAvailable(wsPort);
     let attempts = 0;
     const maxAttempts = 3;
-    
+
     while (!available && attempts < maxAttempts) {
         attempts++;
         serverLogger.warn(`[Server] ⚠️ Порт ${wsPort} занят (попытка ${attempts}/${maxAttempts}), ждем 2 секунды...`);
         await new Promise(resolve => setTimeout(resolve, 2000));
         available = await isPortAvailable(wsPort);
     }
-    
+
     if (!available) {
         serverLogger.warn(`[Server] ⚠️ Порт ${wsPort} все еще занят после ${maxAttempts} попыток, ищем свободный порт...`);
         try {
@@ -130,12 +130,36 @@ async function startServer(): Promise<GameServer> {
             process.exit(1);
         }
     }
-    
+
     const gameServer = new GameServer(wsPort, HOST);
-    
+
     // Запускаем HTTP сервер для мониторинга на порту 7000
     createHTTPServer(gameServer);
-    
+
+    // --- Geckos.io UDP Integration ---
+    try {
+        // Find a port for UDP (default 9208)
+        const udpPort = await findAvailablePort(9208);
+
+        // Initialize Geckos
+        // @ts-ignore
+        const geckos = (await import('@geckos.io/server')).default;
+        const io = geckos({
+            cors: { allowAuthorization: true, origin: "*" },
+            // iceCandidates can be configured here if needed for NAT traversal
+        });
+
+        io.listen(udpPort);
+        serverLogger.log(`[Server] 🦎 UDP Signaling server started on http://${HOST}:${udpPort}`);
+        serverLogger.log(`[Server] 🦎 UDP Data port: ${udpPort}`); // Geckos uses same port number for UDP usually if using node-datachannel
+
+        gameServer.setGeckosServer(io);
+        gameServer.setUdpPort(udpPort);
+    } catch (error) {
+        serverLogger.error("[Server] ❌ Failed to start UDP server:", error);
+        // Continue without UDP
+    }
+
     return gameServer;
 }
 

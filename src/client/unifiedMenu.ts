@@ -43,12 +43,12 @@ export class UnifiedMenu {
     private container!: HTMLDivElement;
     private game: Game | null = null;
     private isVisible = false;
-    
+
     // Система вкладок
     private tabs: Map<string, MenuTab> = new Map();
     private activeTabId: string | null = null;
     private tabCounter = 0;
-    
+
     // DOM элементы
     private sidebarElement!: HTMLDivElement;
     private tabBarElement!: HTMLDivElement;
@@ -80,7 +80,7 @@ export class UnifiedMenu {
         this.container.classList.remove("hidden");
         this.container.classList.add("visible");
         this.container.style.display = "flex";
-        
+
         // Скрываем play-menu панель и все play-windows чтобы они не накладывались
         const playMenuPanel = document.getElementById("play-menu-panel");
         if (playMenuPanel) {
@@ -90,7 +90,7 @@ export class UnifiedMenu {
         document.querySelectorAll(".play-window").forEach(win => {
             (win as HTMLElement).classList.remove("visible");
         });
-        
+
         // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {
             document.exitPointerLock();
@@ -533,7 +533,12 @@ export class UnifiedMenu {
         const { NetworkMenu } = await import("./networkMenu");
         // embedded = true - не создаём отдельный overlay, только контент
         const networkMenu = new NetworkMenu(true);
-        networkMenu.setGame(this.game!);
+        networkMenu.setGame(this.game!); // Keep this for backward compatibility or internal usage
+
+        // Update game's reference to network menu for dependency injection
+        if (this.game) {
+            this.game.updateNetworkMenu(networkMenu);
+        }
         tab.instance = networkMenu;
         // Используем renderToContainer для встраивания контента
         networkMenu.renderToContainer(tab.container);

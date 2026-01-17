@@ -5,21 +5,41 @@
  * Использует ту же логику создания, что и локальный танк, но с уникальными именами мешей.
  */
 
-import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3 } from "@babylonjs/core";
+import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, Quaternion } from "@babylonjs/core";
 import type { NetworkPlayer } from "./multiplayer";
 import { getChassisById, getCannonById, type ChassisType, type CannonType } from "./tankTypes";
 import { createUniqueCannon, type CannonAnimationElements } from "./tank/tankCannon";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { MaterialFactory } from "./garage/materials";
+import type { EffectsManager } from "./effects";
+import { createUniqueChassis, type ChassisAnimationElements } from "./tank/tankChassis";
+import { createVisualTracks } from "./tank/tankTracks";
 
 export class NetworkPlayerTank {
     scene: Scene;
     playerId: string;
 
-    // Visuals
-    chassis: Mesh;
-    turret: Mesh;
-    barrel: Mesh;
+    // === ВИЗУАЛЬНЫЕ КОМПОНЕНТЫ ТАНКА ===
+    // Основные части
+    chassis: Mesh;           // Корпус танка
+    turret: Mesh;            // Башня
+    barrel: Mesh;            // Ствол пушки
+
+    // Дополнительные части (гусеницы, детали)
+    private leftTrack: Mesh | null = null;   // Левая гусеница
+    private rightTrack: Mesh | null = null;  // Правая гусеница
+
+    // === МОДУЛИ (ПОДГОТОВКА ДЛЯ БУДУЩЕГО) ===
+    // Модули крепятся на танк и отображаются только если приобретены и выбраны
+    private attachedModules: Map<string, Mesh> = new Map();
+    // Точки крепления для модулей (заполняются при создании танка)
+    private moduleAttachPoints: {
+        chassis: { front: Vector3; back: Vector3; left: Vector3; right: Vector3; top: Vector3 };
+        turret: { front: Vector3; back: Vector3; left: Vector3; right: Vector3; top: Vector3 };
+    } | null = null;
+
+    // Physics
+    physicsAggregate: PhysicsAggregate | null = null;
 
     // Tank types
     private chassisType: ChassisType;
@@ -38,7 +58,7 @@ export class NetworkPlayerTank {
     private readonly BUFFER_SIZE = 3; // Храним 3 последних позиции для сглаживания
 
     // КРИТИЧНО: Флаг для мгновенной телепортации при первом обновлении
-    private needsInitialSync: boolean = true;
+    needsInitialSync: boolean = true;
 
     // Cubic interpolation state
     private useCubicInterpolation: boolean = true; // Enable cubic interpolation
@@ -57,10 +77,21 @@ export class NetworkPlayerTank {
     // Unique ID for this tank (to avoid mesh name conflicts)
     private uniqueId: string;
 
-    constructor(scene: Scene, networkPlayer: NetworkPlayer) {
+    // Effects
+    private effectsManager: EffectsManager | null = null;
+    private prevStatus: string = "alive";
+
+    // Debug counter for rotation logging
+    private _rotLogCounter: number = 0;
+
+    // Animation elements for chassis (hover, stealth, etc.)
+    private chassisAnimationElements: ChassisAnimationElements = {};
+
+    constructor(scene: Scene, networkPlayer: NetworkPlayer, effectsManager?: EffectsManager) {
         this.scene = scene;
         this.playerId = networkPlayer.id;
         this.networkPlayer = networkPlayer;
+        this.effectsManager = effectsManager || null;
         this.uniqueId = `net_${this.playerId}_${Date.now()}`;
 
         // Validate scene
@@ -78,6 +109,21 @@ export class NetworkPlayerTank {
         // Get tank types from network player or use defaults
         this.chassisType = getChassisById(networkPlayer.chassisType || "medium");
         this.cannonType = getCannonById(networkPlayer.cannonType || "standard");
+
+        // DEBUG: Логируем полученные типы для диагностики синхронизации моделей
+        /*
+        console.log(`[NetworkPlayerTank] 🔧 Creating tank for ${networkPlayer.name || networkPlayer.id}:`, {
+            receivedChassisType: networkPlayer.chassisType,
+            receivedCannonType: networkPlayer.cannonType,
+            resolvedChassisType: this.chassisType.id,
+            resolvedCannonType: this.cannonType.id,
+            tankColor: networkPlayer.tankColor,
+            turretColor: networkPlayer.turretColor,
+            chassisPitch: networkPlayer.chassisPitch,
+            chassisRoll: networkPlayer.chassisRoll,
+            status: networkPlayer.status
+        });
+        */
 
         // Create tank visuals using REAL detailed models
         this.chassis = this.createDetailedChassis();
@@ -125,6 +171,34 @@ export class NetworkPlayerTank {
             });
         }
 
+        // Initialize Physics (CRITICAL for collisions)
+        // Use ANIMATED motion type so it moves via interpolation but still collides
+        this.physicsAggregate = new PhysicsAggregate(
+            this.chassis,
+            PhysicsShapeType.BOX,
+            { mass: 0, restitution: 0, friction: 0 },
+            this.scene
+        );
+        this.physicsAggregate.body.setMotionType(PhysicsMotionType.ANIMATED);
+        // Disable pre-step to save performance (we move it manually)
+        this.physicsAggregate.body.disablePreStep = false;
+
+        // КРИТИЧНО: Включаем checkCollisions для обнаружения попаданий через raycast
+        this.chassis.checkCollisions = true;
+        this.chassis.getChildMeshes().forEach(m => m.checkCollisions = true);
+        if (this.turret) {
+            this.turret.checkCollisions = true;
+            this.turret.getChildMeshes().forEach(m => m.checkCollisions = true);
+        }
+        if (this.barrel) {
+            this.barrel.checkCollisions = true;
+            this.barrel.getChildMeshes().forEach(m => m.checkCollisions = true);
+        }
+
+        // Инициализируем полоску здоровья
+        this.createHealthBar();
+        this.updateHealthBar();
+
         // Mark network update time
         this.lastNetworkUpdateTime = Date.now();
 
@@ -136,182 +210,59 @@ export class NetworkPlayerTank {
      * Создание ДЕТАЛИЗИРОВАННОГО корпуса танка (как у локального игрока)
      * НЕ удаляет старые меши - это критично для мультиплеера!
      */
+    /**
+     * Создание ДЕТАЛИЗИРОВАННОГО корпуса танка (как у локального игрока)
+     * НЕ удаляет старые меши - это критично для мультиплеера!
+     */
     private createDetailedChassis(): Mesh {
+        // Используем общую фабрику для создания корпуса, как у локального танка
+        this.chassisAnimationElements = {};
+
+        // createUniqueChassis возвращает готовый mesh с примененными материалами и деталями
+        const chassis = createUniqueChassis(
+            this.chassisType,
+            this.scene,
+            Vector3.Zero(), // Позиция будет установлена позже
+            this.chassisAnimationElements,
+            this.networkPlayer.tankColor, // Передаем цвет танка
+            `netTankHull_${this.uniqueId}` // Уникальный ID для сетевого танка
+        );
+
+        // ВАЖНО: createUniqueChassis генерирует случайное имя, но нам нужно сохранить ссылку
+        // Мы не меняем имя меша, так как фабрика заботится об уникальности
+
+        // Включаем физику (точнее, подготавливаем меш для неё, хотя у сетевых танков физика упрощена)
+        chassis.isVisible = true;
+        chassis.setEnabled(true);
+
         const w = this.chassisType.width;
         const h = this.chassisType.height;
         const d = this.chassisType.depth;
-        const tankColor = this.networkPlayer.tankColor || this.chassisType.color;
-        const color = Color3.FromHexString(tankColor);
 
-        // УНИКАЛЬНОЕ имя для сетевого танка (не tankHull_ чтобы не удаляться!)
-        const uniqueChassisId = `netTankHull_${this.uniqueId}`;
+        // Цвет для гусениц (обычно темно-серый)
+        // Если у типа гусениц есть цвет, можно использовать его, но в NetworkPlayerTank нет trackType
+        // Поэтому используем стандартный цвет
+        const trackColor = new Color3(0.15, 0.15, 0.15);
 
-        // Создаём корпус с правильными пропорциями по типу шасси
-        let chassis: Mesh;
+        // Используем общую логику создания гусениц
+        const tracks = createVisualTracks(
+            this.scene,
+            chassis,
+            w * 0.15, // ширина гусеницы
+            h * 0.8,  // высота гусеницы
+            d * 1.1,  // длина гусеницы
+            trackColor,
+            w,
+            h,
+            `net_${this.uniqueId}_` // префикс для уникальности
+        );
 
-        switch (this.chassisType.id) {
-            case "light":
-                chassis = MeshBuilder.CreateBox(uniqueChassisId, {
-                    width: w * 0.75, height: h * 0.7, depth: d * 1.2
-                }, this.scene);
-                break;
-            case "scout":
-                chassis = MeshBuilder.CreateBox(uniqueChassisId, {
-                    width: w * 0.7, height: h * 0.65, depth: d * 0.85
-                }, this.scene);
-                break;
-            case "heavy":
-                chassis = MeshBuilder.CreateBox(uniqueChassisId, {
-                    width: w * 1.08, height: h * 1.2, depth: d * 1.08
-                }, this.scene);
-                break;
-            case "assault":
-                chassis = MeshBuilder.CreateBox(uniqueChassisId, {
-                    width: w * 1.12, height: h * 1.1, depth: d * 1.05
-                }, this.scene);
-                break;
-            case "stealth":
-                chassis = MeshBuilder.CreateBox(uniqueChassisId, {
-                    width: w * 1.05, height: h * 0.7, depth: d * 1.15
-                }, this.scene);
-                break;
-            case "hover":
-                const hoverSize = Math.max(w, d) * 1.1;
-                chassis = MeshBuilder.CreateBox(uniqueChassisId, {
-                    width: hoverSize, height: h * 0.95, depth: hoverSize
-                }, this.scene);
-                break;
-            case "siege":
-                chassis = MeshBuilder.CreateBox(uniqueChassisId, {
-                    width: w * 1.25, height: h * 1.35, depth: d * 1.2
-                }, this.scene);
-                break;
-            case "racer":
-                chassis = MeshBuilder.CreateBox(uniqueChassisId, {
-                    width: w * 0.75, height: h * 0.55, depth: d * 1.3
-                }, this.scene);
-                break;
-            default: // medium и остальные
-                chassis = MeshBuilder.CreateBox(uniqueChassisId, {
-                    width: w, height: h, depth: d
-                }, this.scene);
-        }
-
-        // Материал корпуса
-        const mat = new StandardMaterial(`netChassisMat_${this.uniqueId}`, this.scene);
-        mat.diffuseColor = color;
-        mat.specularColor = Color3.Black();
-        mat.freeze();
-        chassis.material = mat;
-
-        // Добавляем детали корпуса
-        this.addChassisDetails(chassis, w, h, d, color);
-
-        chassis.isVisible = true;
-        chassis.setEnabled(true);
+        this.leftTrack = tracks.left;
+        this.rightTrack = tracks.right;
 
         return chassis;
     }
 
-    /**
-     * Добавление деталей корпуса (как у локального танка)
-     */
-    private addChassisDetails(chassis: Mesh, w: number, h: number, d: number, baseColor: Color3): void {
-        // Материалы для деталей
-        const armorMat = MaterialFactory.createArmorMaterial(this.scene, baseColor, `net_${this.uniqueId}`);
-        const accentMat = MaterialFactory.createAccentMaterial(this.scene, baseColor, `net_${this.uniqueId}`);
-
-        // Детали только для light, medium, racer, scout (как в оригинале)
-        const detailedChassis = ["light", "medium", "racer", "scout"];
-
-        if (detailedChassis.includes(this.chassisType.id)) {
-            switch (this.chassisType.id) {
-                case "light":
-                    ChassisDetailsGenerator.createSlopedArmor(this.scene, chassis, new Vector3(0, h * 0.15, d * 0.52), w * 0.88, h * 0.6, 0.2, -Math.PI / 6, armorMat, `net_${this.uniqueId}_light`);
-                    for (let i = 0; i < 2; i++) {
-                        ChassisDetailsGenerator.createIntake(this.scene, chassis, new Vector3((i === 0 ? -1 : 1) * w * 0.42, h * 0.2, d * 0.45), 0.3, h * 0.65, 0.35, accentMat, `net_${this.uniqueId}_light${i}`);
-                    }
-                    ChassisDetailsGenerator.createSpoiler(this.scene, chassis, new Vector3(0, h * 0.5, -d * 0.48), w * 1.2, 0.2, 0.25, accentMat, `net_${this.uniqueId}_light`);
-                    break;
-
-                case "medium":
-                    ChassisDetailsGenerator.createSlopedArmor(this.scene, chassis, new Vector3(0, h * 0.1, d * 0.5), w * 0.9, h * 0.7, 0.18, -Math.PI / 4, armorMat, `net_${this.uniqueId}_medium`);
-                    for (let i = 0; i < 2; i++) {
-                        ChassisDetailsGenerator.createHatch(this.scene, chassis, new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.48, -d * 0.1), 0.22, 0.08, 0.22, armorMat, `net_${this.uniqueId}_medium${i}`);
-                    }
-                    for (let i = 0; i < 2; i++) {
-                        ChassisDetailsGenerator.createExhaust(this.scene, chassis, new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.18, -d * 0.45), 0.12, 0.12, 0.18, armorMat, `net_${this.uniqueId}_medium${i}`);
-                    }
-                    break;
-
-                case "racer":
-                    ChassisDetailsGenerator.createSpoiler(this.scene, chassis, new Vector3(0, -h * 0.4, d * 0.48), w * 0.9, 0.12, 0.15, accentMat, `net_${this.uniqueId}_racer`);
-                    ChassisDetailsGenerator.createSpoiler(this.scene, chassis, new Vector3(0, h * 0.45, -d * 0.48), w * 1.1, 0.25, 0.2, accentMat, `net_${this.uniqueId}_racerBack`);
-                    for (let i = 0; i < 2; i++) {
-                        ChassisDetailsGenerator.createFairing(this.scene, chassis, new Vector3((i === 0 ? -1 : 1) * w * 0.48, 0, d * 0.1), 0.12, h * 0.6, d * 0.7, accentMat, `net_${this.uniqueId}_racer${i}`);
-                    }
-                    break;
-
-                case "scout":
-                    ChassisDetailsGenerator.createSlopedArmor(this.scene, chassis, new Vector3(0, 0, d * 0.5), w * 0.8, h * 0.7, 0.4, -Math.PI / 4, accentMat, `net_${this.uniqueId}_scout`);
-                    for (let i = 0; i < 2; i++) {
-                        ChassisDetailsGenerator.createWing(this.scene, chassis, new Vector3((i === 0 ? -1 : 1) * w * 0.48, -h * 0.05, d * 0.3), 0.15, h * 0.85, d * 0.6, accentMat, `net_${this.uniqueId}_scout${i}`);
-                    }
-                    break;
-            }
-        }
-
-        // Гусеницы для ВСЕХ типов танков
-        const trackMat = new StandardMaterial(`netTrackMat_${this.uniqueId}`, this.scene);
-        trackMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-        trackMat.specularColor = Color3.Black();
-
-        const trackWidth = w * 0.15;
-        const trackHeight = h * 0.8;
-        const trackDepth = d * 1.1;
-
-        // Левая гусеница
-        const leftTrack = MeshBuilder.CreateBox(
-            `netLeftTrack_${this.uniqueId}`,
-            { width: trackWidth, height: trackHeight, depth: trackDepth },
-            this.scene
-        );
-        leftTrack.position = new Vector3(-w * 0.55, -h * 0.1, 0);
-        leftTrack.parent = chassis;
-        leftTrack.material = trackMat;
-
-        // Правая гусеница
-        const rightTrack = MeshBuilder.CreateBox(
-            `netRightTrack_${this.uniqueId}`,
-            { width: trackWidth, height: trackHeight, depth: trackDepth },
-            this.scene
-        );
-        rightTrack.position = new Vector3(w * 0.55, -h * 0.1, 0);
-        rightTrack.parent = chassis;
-        rightTrack.material = trackMat;
-
-        // Скосы спереди
-        const frontSlope = MeshBuilder.CreateBox(
-            `netFrontSlope_${this.uniqueId}`,
-            { width: w * 0.95, height: h * 0.4, depth: d * 0.25 },
-            this.scene
-        );
-        frontSlope.position = new Vector3(0, h * 0.3, d * 0.45);
-        frontSlope.rotation.x = -0.4;
-        frontSlope.parent = chassis;
-        frontSlope.material = armorMat;
-
-        // Скосы сзади
-        const backSlope = MeshBuilder.CreateBox(
-            `netBackSlope_${this.uniqueId}`,
-            { width: w * 0.95, height: h * 0.3, depth: d * 0.2 },
-            this.scene
-        );
-        backSlope.position = new Vector3(0, h * 0.25, -d * 0.45);
-        backSlope.rotation.x = 0.3;
-        backSlope.parent = chassis;
-        backSlope.material = armorMat;
-    }
 
     /**
      * Создание ДЕТАЛИЗИРОВАННОЙ башни танка
@@ -335,9 +286,30 @@ export class NetworkPlayerTank {
         turret.position.y = h * 0.5 + turretHeight * 0.5;
         turret.parent = this.chassis;
 
-        // Материал башни
-        const turretColor = this.networkPlayer.turretColor || this.networkPlayer.tankColor || this.chassisType.color;
-        const color = Color3.FromHexString(turretColor);
+        // Материал башни - с безопасным парсингом цвета
+        // ИСПРАВЛЕНИЕ: Если turretColor серый (дефолтный), используем tankColor
+        let turretColorHex = this.networkPlayer.turretColor;
+        const isDefaultGray = !turretColorHex || turretColorHex === '#888888' || turretColorHex === '#808080';
+        if (isDefaultGray) {
+            turretColorHex = this.networkPlayer.tankColor || this.chassisType.color;
+        }
+
+        console.log(`[NetworkPlayerTank] 🎨 Turret color for ${this.playerId}:`, {
+            turretColor: this.networkPlayer.turretColor,
+            tankColor: this.networkPlayer.tankColor,
+            chassisColor: this.chassisType.color,
+            isDefaultGray,
+            finalColor: turretColorHex
+        });
+
+        let color: Color3;
+        try {
+            color = Color3.FromHexString(turretColorHex);
+        } catch (e) {
+            console.warn(`[NetworkPlayerTank] ⚠️ Failed to parse turret color '${turretColorHex}', using green`);
+            color = new Color3(0, 1, 0);
+        }
+
         const turretMat = new StandardMaterial(`netTurretMat_${this.uniqueId}`, this.scene);
         turretMat.diffuseColor = color;
         turretMat.emissiveColor = color.scale(0.15);
@@ -392,6 +364,9 @@ export class NetworkPlayerTank {
             animationElements,
             "netBarrel_"
         );
+
+        // ИСПРАВЛЕНИЕ: Не применяем цвет танка к стволу, оставляем серый (как у реальной модели)
+        // Код применения цвета удалён по требованию пользователя
 
         // Позиционируем ствол на башне
         barrel.position = new Vector3(0, 0, barrelLength * 0.5 + this.chassisType.depth * 0.25);
@@ -495,40 +470,63 @@ export class NetworkPlayerTank {
         this.chassis.position.y += (finalTargetY - this.chassis.position.y) * lerpFactor;
         this.chassis.position.z += (finalTargetZ - this.chassis.position.z) * lerpFactor;
 
-        // Интерполяция вращения корпуса
-        // DEBUG: Логируем если есть значительное изменение rotation
-        const currentChassisRot = this.chassis.rotation.y;
-        let rotDiff = targetRotation - currentChassisRot;
-        while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
-        while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+        // Интерполяция вращения корпуса (Yaw, Pitch, Roll)
+        // КРИТИЧНО: Используем Quaternion, так как PhysicsAggregate может его создать, 
+        // и тогда rotation (Euler) будет игнорироваться.
 
-        // Применяем rotation напрямую если разница большая (> 0.1 rad ≈ 6°)
-        if (Math.abs(rotDiff) > 0.1) {
-            // Плавная интерполяция для больших изменений
-            this.chassis.rotation.y += rotDiff * lerpFactor;
-        } else if (Math.abs(rotDiff) > 0.01) {
-            // Более быстрая интерполяция для малых изменений
-            this.chassis.rotation.y += rotDiff * Math.min(1.0, lerpFactor * 2);
+        let currentYaw = this.chassis.rotation.y;
+        let currentPitch = this.chassis.rotation.x;
+        let currentRoll = this.chassis.rotation.z;
+
+        // Если есть quaternion, конвертируем в Euler для интерполяции
+        if (this.chassis.rotationQuaternion) {
+            const euler = this.chassis.rotationQuaternion.toEulerAngles();
+            currentPitch = euler.x;
+            currentYaw = euler.y;
+            currentRoll = euler.z;
         }
 
-        // Интерполяция наклона корпуса (Pitch/Roll)
-        // Используем chassisPitch/chassisRoll из networkPlayer, если они есть
+        // 1. Yaw (Y)
+        let yawDiff = targetRotation - currentYaw;
+        while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
+        while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
+
+        if (Math.abs(yawDiff) > 0.1) {
+            currentYaw += yawDiff * lerpFactor;
+        } else if (Math.abs(yawDiff) > 0.01) {
+            currentYaw += yawDiff * Math.min(1.0, lerpFactor * 2);
+        } else {
+            // Очень близко - просто плавно доводим
+            currentYaw += yawDiff * lerpFactor;
+        }
+
+        // 2. Pitch (X) & Roll (Z) from Network
         const targetPitch = np.chassisPitch || 0;
         const targetRoll = np.chassisRoll || 0;
 
-        // Pitch (X)
-        let pitchDiff = targetPitch - this.chassis.rotation.x;
-        // Normalize angle difference
+        let pitchDiff = targetPitch - currentPitch;
         while (pitchDiff > Math.PI) pitchDiff -= Math.PI * 2;
         while (pitchDiff < -Math.PI) pitchDiff += Math.PI * 2;
-        this.chassis.rotation.x += pitchDiff * lerpFactor;
+        currentPitch += pitchDiff * lerpFactor;
 
-        // Roll (Z)
-        let rollDiff = targetRoll - this.chassis.rotation.z;
-        // Normalize angle difference
+        let rollDiff = targetRoll - currentRoll;
         while (rollDiff > Math.PI) rollDiff -= Math.PI * 2;
         while (rollDiff < -Math.PI) rollDiff += Math.PI * 2;
-        this.chassis.rotation.z += rollDiff * lerpFactor;
+        currentRoll += rollDiff * lerpFactor;
+
+        // 3. Apply to Chassis
+        if (!this.chassis.rotationQuaternion) {
+            this.chassis.rotationQuaternion = Quaternion.Identity();
+        }
+        Quaternion.RotationYawPitchRollToRef(currentYaw, currentPitch, currentRoll, this.chassis.rotationQuaternion);
+
+        // DEBUG: Logging periodically
+        this._rotLogCounter++;
+        /*
+        if (this._rotLogCounter % 120 === 0) {
+            console.log(`[NPT] 🔄 Rotation: Pitch=${currentPitch.toFixed(2)}, Yaw=${currentYaw.toFixed(2)}, Roll=${currentRoll.toFixed(2)}`);
+        }
+        */
 
         // Интерполяция вращения башни
         if (this.turret) {
@@ -552,6 +550,40 @@ export class NetworkPlayerTank {
 
         // Обновление видимости на основе статуса
         this.updateVisibility();
+
+        // Check for status changes (ANIMATIONS)
+        const currentStatus = this.networkPlayer.status || "alive";
+        if (currentStatus !== this.prevStatus) {
+            // DEBUG: Логируем изменение статуса для диагностики анимаций
+            console.log(`[NetworkPlayerTank] 🔄 Status change for ${this.playerId}: ${this.prevStatus} → ${currentStatus}`);
+
+            // Respawn: dead -> alive
+            if (this.prevStatus === "dead" && currentStatus === "alive") {
+                console.log(`[NetworkPlayerTank] ✨ Playing SPAWN effect for ${this.playerId}`);
+                this.playSpawnEffect();
+            }
+            // Death: alive -> dead (handled usually by onPlayerDied, but good as backup)
+            if (this.prevStatus === "alive" && currentStatus === "dead") {
+                console.log(`[NetworkPlayerTank] 💀 Playing DEATH effect for ${this.playerId}`);
+                this.playDeathEffect();
+            }
+            this.prevStatus = currentStatus;
+        }
+    }
+
+    private playSpawnEffect(): void {
+        if (this.effectsManager) {
+            // Teleport effect
+            this.effectsManager.createTeleportEffect(this.chassis.position);
+        }
+    }
+
+    private playDeathEffect(): void {
+        // Death effect is usually effectively handled by onPlayerDied which creates explosion
+        // But we can ensure it here too
+        if (this.effectsManager && this.chassis.isVisible) { // Only if was visible
+            this.effectsManager.createExplosion(this.chassis.position, 1.5);
+        }
     }
 
     /**
@@ -741,9 +773,19 @@ export class NetworkPlayerTank {
         if (this.chassis) {
             this.chassis.isVisible = false;
             this.chassis.setEnabled(false);
+            // КРИТИЧНО: Отключаем физику чтобы труп не был "невидимой стеной"
+            if (this.physicsAggregate) {
+                this.physicsAggregate.body.disablePreStep = true;
+                this.physicsAggregate.dispose();
+                this.physicsAggregate = undefined;
+            }
+            // Отключаем коллизии
+            this.chassis.checkCollisions = false;
+
             this.chassis.getChildMeshes().forEach(child => {
                 child.isVisible = false;
                 child.setEnabled(false);
+                child.checkCollisions = false;
             });
         }
         if (this.healthBar) this.healthBar.isVisible = false;
@@ -754,17 +796,47 @@ export class NetworkPlayerTank {
      * Установить танк в состояние живого (показать)
      */
     setAlive(position?: Vector3): void {
+        console.log(`[NetworkPlayerTank] 🟢 setAlive called for ${this.playerId}, position=${position ? position.toString() : 'none'}`);
+        console.log(`[NetworkPlayerTank] 🟢 Chassis state: exists=${!!this.chassis}, disposed=${this.chassis?.isDisposed()}, enabled=${this.chassis?.isEnabled()}, visible=${this.chassis?.isVisible}`);
+
         if (position && this.chassis) {
             this.chassis.position.copyFrom(position);
         }
 
         if (this.chassis) {
+            if (this.chassis.isDisposed()) {
+                console.error(`[NetworkPlayerTank] ❌ CRITICAL: Chassis was DISPOSED for ${this.playerId}! Cannot restore.`);
+                return;
+            }
+
             this.chassis.isVisible = true;
             this.chassis.setEnabled(true);
-            this.chassis.getChildMeshes().forEach(child => {
+            this.chassis.checkCollisions = true;
+
+            // КРИТИЧНО: Заново создаем физику при респавне
+            if (!this.physicsAggregate) {
+                console.log(`[NetworkPlayerTank] 🟢 Recreating physics for ${this.playerId}`);
+                this.physicsAggregate = new PhysicsAggregate(
+                    this.chassis,
+                    PhysicsShapeType.BOX,
+                    { mass: 0, restitution: 0, friction: 0 },
+                    this.scene
+                );
+                this.physicsAggregate.body.setMotionType(PhysicsMotionType.ANIMATED);
+                this.physicsAggregate.body.disablePreStep = false;
+            }
+
+            const children = this.chassis.getChildMeshes();
+            console.log(`[NetworkPlayerTank] 🟢 Restoring ${children.length} child meshes for ${this.playerId}`);
+            children.forEach(child => {
                 child.isVisible = true;
                 child.setEnabled(true);
+                child.checkCollisions = true;
             });
+
+            console.log(`[NetworkPlayerTank] ✅ setAlive COMPLETE for ${this.playerId}: visible=${this.chassis.isVisible}, enabled=${this.chassis.isEnabled()}, childCount=${children.length}`);
+        } else {
+            console.error(`[NetworkPlayerTank] ❌ setAlive FAILED - no chassis for ${this.playerId}`);
         }
 
         // Сбрасываем здоровье
@@ -859,11 +931,94 @@ export class NetworkPlayerTank {
         if (this.healthBarBackground) this.healthBarBackground.isVisible = shouldShow;
     }
 
+    // === МЕТОДЫ ДЛЯ РАБОТЫ С МОДУЛЯМИ (ПОДГОТОВКА ДЛЯ БУДУЩЕГО) ===
+
+    /**
+     * Прикрепить модуль к танку
+     * @param moduleId - ID модуля
+     * @param moduleMesh - Меш модуля
+     * @param attachTo - Куда крепить: 'chassis' или 'turret'
+     * @param position - Позиция: 'front', 'back', 'left', 'right', 'top'
+     */
+    attachModule(moduleId: string, moduleMesh: Mesh, attachTo: 'chassis' | 'turret', position: 'front' | 'back' | 'left' | 'right' | 'top'): boolean {
+        if (!this.moduleAttachPoints) {
+            console.warn(`[NetworkPlayerTank] Module attach points not initialized for ${this.playerId}`);
+            return false;
+        }
+
+        // Определяем родителя и позицию крепления
+        const parent = attachTo === 'chassis' ? this.chassis : this.turret;
+        const attachPoint = this.moduleAttachPoints[attachTo][position];
+
+        if (!parent || !attachPoint) {
+            console.warn(`[NetworkPlayerTank] Invalid attach point: ${attachTo}.${position}`);
+            return false;
+        }
+
+        // Устанавливаем родителя и позицию
+        moduleMesh.parent = parent;
+        moduleMesh.position = attachPoint.clone();
+        moduleMesh.isVisible = true;
+        moduleMesh.setEnabled(true);
+
+        // Сохраняем ссылку
+        this.attachedModules.set(moduleId, moduleMesh);
+
+        console.log(`[NetworkPlayerTank] ✅ Module '${moduleId}' attached to ${attachTo}.${position} for ${this.playerId}`);
+        return true;
+    }
+
+    /**
+     * Удалить модуль с танка
+     * @param moduleId - ID модуля для удаления
+     */
+    detachModule(moduleId: string): boolean {
+        const moduleMesh = this.attachedModules.get(moduleId);
+        if (!moduleMesh) {
+            return false;
+        }
+
+        moduleMesh.parent = null;
+        moduleMesh.dispose();
+        this.attachedModules.delete(moduleId);
+
+        console.log(`[NetworkPlayerTank] ✅ Module '${moduleId}' detached from ${this.playerId}`);
+        return true;
+    }
+
+    /**
+     * Получить список прикреплённых модулей
+     */
+    getAttachedModules(): string[] {
+        return Array.from(this.attachedModules.keys());
+    }
+
+    /**
+     * Проверить, прикреплён ли модуль
+     */
+    hasModule(moduleId: string): boolean {
+        return this.attachedModules.has(moduleId);
+    }
+
     /**
      * Удаление танка
      */
     dispose(): void {
         // Лог dispose отключен для уменьшения спама
+
+        // Dispose physics first!
+        if (this.physicsAggregate) {
+            this.physicsAggregate.dispose();
+            this.physicsAggregate = null;
+        }
+
+        // Удаляем прикреплённые модули
+        this.attachedModules.forEach((mesh, moduleId) => {
+            try {
+                mesh.dispose();
+            } catch (e) { /* ignore */ }
+        });
+        this.attachedModules.clear();
 
         // Удаляем полоску здоровья
         if (this.healthBar) {
@@ -873,6 +1028,16 @@ export class NetworkPlayerTank {
         if (this.healthBarBackground) {
             this.healthBarBackground.dispose();
             this.healthBarBackground = null;
+        }
+
+        // Удаляем гусеницы
+        if (this.leftTrack) {
+            this.leftTrack.dispose();
+            this.leftTrack = null;
+        }
+        if (this.rightTrack) {
+            this.rightTrack.dispose();
+            this.rightTrack = null;
         }
 
         // Удаляем все меши
@@ -904,5 +1069,8 @@ export class NetworkPlayerTank {
             });
             this.chassis.dispose();
         }
+
+        // Очищаем точки крепления
+        this.moduleAttachPoints = null;
     }
 }

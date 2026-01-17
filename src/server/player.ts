@@ -21,6 +21,17 @@ export class ServerPlayer {
     status: PlayerStatus = "alive";
     team?: number;
 
+    // Customization
+    chassisType: string = "medium";
+    cannonType: string = "standard";
+    tankColor: string = "#1E90FF";
+    turretColor: string = "#1E90FF";
+
+    // Chassis dimensions for hit detection (set based on chassisType)
+    chassisHalfWidth: number = 1.1;  // Half of chassis width
+    chassisHalfDepth: number = 1.75; // Half of chassis depth
+    chassisHalfHeight: number = 0.4; // Half of chassis height
+
     // Velocity for dead reckoning (extrapolation on clients)
     velocity: Vector3 = new Vector3(0, 0, 0);
     angularVelocity: number = 0;
@@ -87,6 +98,11 @@ export class ServerPlayer {
             kills: this.kills,
             deaths: this.deaths,
             score: this.score,
+            // Tank customization
+            chassisType: this.chassisType,
+            cannonType: this.cannonType,
+            tankColor: this.tankColor,
+            turretColor: this.turretColor,
             // Velocity data for dead reckoning
             velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
             angularVelocity: this.angularVelocity,

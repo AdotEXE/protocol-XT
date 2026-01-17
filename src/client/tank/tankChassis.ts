@@ -15,22 +15,22 @@ import { MaterialFactory } from "../garage/materials";
  * Множители размеров для каждого типа корпуса
  * Используются для синхронизации визуального меша и физического хитбокса
  */
-export const CHASSIS_SIZE_MULTIPLIERS: Record<string, {width: number, height: number, depth: number}> = {
-    "light":      { width: 0.75, height: 0.85, depth: 1.2 },
-    "scout":      { width: 0.7,  height: 0.65, depth: 0.85 },
-    "heavy":      { width: 1.08, height: 1.2,  depth: 1.08 },
-    "assault":    { width: 1.12, height: 1.1,  depth: 1.05 },
-    "stealth":    { width: 1.05, height: 0.7,  depth: 1.15 },
-    "hover":      { width: 1.1,  height: 0.95, depth: 1.1 },
-    "siege":      { width: 1.25, height: 1.35, depth: 1.2 },
-    "racer":      { width: 0.75, height: 0.75, depth: 1.3 },
-    "amphibious": { width: 1.15, height: 1.1,  depth: 1.1 },
-    "shield":     { width: 1.2,  height: 1.1,  depth: 1.2 },
-    "drone":      { width: 1.1,  height: 1.12, depth: 1.05 },
-    "artillery":  { width: 1.2,  height: 1.25, depth: 1.15 },
-    "destroyer":  { width: 0.85, height: 0.75, depth: 1.4 },
-    "command":    { width: 1.1,  height: 1.2,  depth: 1.1 },
-    "medium":     { width: 1.0,  height: 1.0,  depth: 1.0 }
+export const CHASSIS_SIZE_MULTIPLIERS: Record<string, { width: number, height: number, depth: number }> = {
+    "light": { width: 0.75, height: 0.85, depth: 1.2 },
+    "scout": { width: 0.7, height: 0.65, depth: 0.85 },
+    "heavy": { width: 1.08, height: 1.2, depth: 1.08 },
+    "assault": { width: 1.12, height: 1.1, depth: 1.05 },
+    "stealth": { width: 1.05, height: 0.7, depth: 1.15 },
+    "hover": { width: 1.1, height: 0.95, depth: 1.1 },
+    "siege": { width: 1.25, height: 1.35, depth: 1.2 },
+    "racer": { width: 0.75, height: 0.75, depth: 1.3 },
+    "amphibious": { width: 1.15, height: 1.1, depth: 1.1 },
+    "shield": { width: 1.2, height: 1.1, depth: 1.2 },
+    "drone": { width: 1.1, height: 1.12, depth: 1.05 },
+    "artillery": { width: 1.2, height: 1.25, depth: 1.15 },
+    "destroyer": { width: 0.85, height: 0.75, depth: 1.4 },
+    "command": { width: 1.1, height: 1.2, depth: 1.1 },
+    "medium": { width: 1.0, height: 1.0, depth: 1.0 }
 };
 
 export interface ChassisAnimationElements {
@@ -52,19 +52,22 @@ export function createUniqueChassis(
     chassisType: ChassisType,
     scene: Scene,
     position: Vector3,
-    animationElements: ChassisAnimationElements
+    animationElements: ChassisAnimationElements,
+    overrideColor?: string,
+    customIdPrefix?: string
 ): Mesh {
     const w = chassisType.width;
     const h = chassisType.height;
     const d = chassisType.depth;
-    const color = Color3.FromHexString(chassisType.color);
-    
+    const color = overrideColor ? Color3.FromHexString(overrideColor) : Color3.FromHexString(chassisType.color);
+
     // КРИТИЧНО: Уникальное имя для каждого меша, чтобы избежать дублирования
-    const uniqueId = `tankHull_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+    const prefix = customIdPrefix || "tankHull_";
+    const uniqueId = `${prefix}${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     // КРИТИЧНО: Удаляем все старые меши корпуса с паттерном tankHull_, чтобы избежать дублирования
-    const oldMeshes = scene.meshes.filter(mesh => 
-        mesh.name && mesh.name.startsWith("tankHull_") && !mesh.isDisposed()
+    const oldMeshes = scene.meshes.filter(mesh =>
+        mesh.name && mesh.name.startsWith(prefix) && !mesh.isDisposed()
     );
     oldMeshes.forEach(mesh => {
         try {
@@ -86,29 +89,29 @@ export function createUniqueChassis(
             // Игнорируем ошибки при удалении уже удаленных мешей
         }
     });
-    
+
     // Base chassis mesh - более выразительные пропорции
     // Используем централизованные множители для синхронизации с физикой
     const multipliers = CHASSIS_SIZE_MULTIPLIERS[chassisType.id] || CHASSIS_SIZE_MULTIPLIERS["medium"];
-    
+
     // Для hover и shield используем Math.max для width/depth (как было в оригинале)
     let finalWidth = w * multipliers.width;
     let finalDepth = d * multipliers.depth;
-    
+
     if (chassisType.id === "hover" || chassisType.id === "shield") {
         const maxSize = Math.max(w, d) * multipliers.width;
         finalWidth = maxSize;
         finalDepth = maxSize;
     }
-    
-    const chassis = MeshBuilder.CreateBox(uniqueId, { 
+
+    const chassis = MeshBuilder.CreateBox(uniqueId, {
         width: finalWidth,
         height: h * multipliers.height,
         depth: finalDepth
     }, scene);
-    
+
     chassis.position.copyFrom(position);
-    
+
     // Поднимаем низкопрофильные корпуса выше от пола (fix: касание пола/гусениц)
     const yOffsets: Record<string, number> = {
         "racer": 0.10,   // Racer - небольшой подъём
@@ -117,12 +120,12 @@ export function createUniqueChassis(
     };
     const yOffset = yOffsets[chassisType.id] || 0;
     chassis.position.y += yOffset;
-    
+
     // Base material - улучшенный low-poly стиль
     // КРИТИЧНО: Уникальное имя для материала, чтобы избежать конфликтов
     const uniqueMatId = `tankMat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const mat = new StandardMaterial(uniqueMatId, scene);
-    
+
     // Применяем скин если выбран, иначе используем цвет из chassisType
     const selectedSkinId = loadSelectedSkin();
     if (selectedSkinId) {
@@ -137,18 +140,18 @@ export function createUniqueChassis(
     } else {
         mat.diffuseColor = color;
     }
-    
+
     mat.specularColor = Color3.Black();
     mat.disableLighting = false;
     mat.freeze();
     chassis.material = mat;
-    
+
     // Add visual details for specific chassis types only: light, medium, racer, scout
     // КРИТИЧНО: Детали - это ТОЛЬКО визуальные элементы, они НЕ участвуют в физике!
     // Детали привязываются как дочерние меши (parent = chassis) и не имеют physicsBody
     // Хитбокс создаётся ТОЛЬКО для основного корпуса (chassis mesh) как простой прямоугольник
     addChassisDetails(chassis, chassisType, scene, color, animationElements);
-    
+
     return chassis;
 }
 
@@ -172,15 +175,15 @@ export function addChassisDetails(
     if (!detailedChassis.includes(chassisType.id)) {
         return; // Нет деталей для других корпусов
     }
-    
+
     const w = chassisType.width;
     const h = chassisType.height;
     const d = chassisType.depth;
-    
+
     // Материалы
     const armorMat = MaterialFactory.createArmorMaterial(scene, baseColor, "game");
     const accentMat = MaterialFactory.createAccentMaterial(scene, baseColor, "game");
-    
+
     switch (chassisType.id) {
         case "light":
             // Light - наклонная броня, воздухозаборники, спойлер
@@ -218,7 +221,7 @@ export function addChassisDetails(
                 ChassisDetailsGenerator.createTailLight(scene, chassis, new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.15, -d * 0.49), 0.05, 0.08, 0.03, i, "gameLight");
             }
             break;
-            
+
         case "medium":
             // Medium - классический Т-34, наклонная броня
             ChassisDetailsGenerator.createSlopedArmor(scene, chassis, new Vector3(0, h * 0.1, d * 0.5), w * 0.9, h * 0.7, 0.18, -Math.PI / 4, armorMat, "gameMedium");
@@ -253,7 +256,7 @@ export function addChassisDetails(
                 ChassisDetailsGenerator.createTailLight(scene, chassis, new Vector3((i === 0 ? -1 : 1) * w * 0.38, h * 0.15, -d * 0.49), 0.06, 0.1, 0.04, i, "gameMedium");
             }
             break;
-            
+
         case "racer":
             // Racer - низкий спортивный стиль
             ChassisDetailsGenerator.createSpoiler(scene, chassis, new Vector3(0, -h * 0.4, d * 0.48), w * 0.9, 0.12, 0.15, accentMat, "gameRacer");
@@ -286,7 +289,7 @@ export function addChassisDetails(
             ChassisDetailsGenerator.createHatch(scene, chassis, new Vector3(0, h * 0.46, -d * 0.1), 0.3, 0.06, 0.25, armorMat, "gameRacer");
             ChassisDetailsGenerator.createPeriscope(scene, chassis, new Vector3(0, h * 0.56, -d * 0.1), 0.2, 0.06, 0, "gameRacer");
             break;
-            
+
         case "scout":
             // Scout - острый клиновидный нос, минимальный профиль
             ChassisDetailsGenerator.createSlopedArmor(scene, chassis, new Vector3(0, 0, d * 0.5), w * 0.8, h * 0.7, 0.4, -Math.PI / 4, accentMat, "gameScout");

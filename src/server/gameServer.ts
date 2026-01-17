@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { nanoid } from "nanoid";
+import { GeckosServer, GeckosChannel } from "@geckos.io/server";
 import { Vector3 } from "@babylonjs/core";
 import * as os from "os";
 import { ServerPlayer } from "./player";
@@ -34,7 +35,11 @@ export class GameServer {
     private prioritizedBroadcaster: PrioritizedBroadcaster = new PrioritizedBroadcaster();
     private monitoringAPI: MonitoringAPI;
     private monitoringClients: Set<WebSocket> = new Set();
+
     private rateLimiter: RateLimiter = new RateLimiter(); // Per-player rate limiting
+    private geckosServer: GeckosServer | null = null;
+    private udpPlayers: Map<string, GeckosChannel> = new Map();
+    private udpPort: number | null = null;
 
     // Spatial partitioning: per-room spatial hash grids
     private spatialGrids: Map<string, SpatialHashGrid> = new Map();
@@ -139,8 +144,96 @@ export class GameServer {
                 serverLogger.log("[Server] Upgrade request from:", req.socket.remoteAddress, "URL:", req.url);
             }
         });
+        this.setupConnectionHandler();
+    }
 
-        // Обработка подключений
+    public setGeckosServer(io: GeckosServer): void {
+        this.geckosServer = io;
+        this.setupGeckos();
+        serverLogger.log("[Server] 🦎 UDP Transport (Geckos.io) enabled");
+    }
+
+    public setUdpPort(port: number): void {
+        this.udpPort = port;
+    }
+
+
+    private setupGeckos(): void {
+        if (!this.geckosServer) return;
+
+        this.geckosServer.onConnection((channel: GeckosChannel) => {
+            const channelId = channel.id;
+
+            // Wait for authentication/handshake from client
+            // Client sends: { type: 'auth', token: 'PLAYER_ID_TOKEN' }
+            channel.onRaw((buffer: ArrayBuffer) => {
+                // First packet must be auth
+                // Or we can rely on .emit('auth', ...) events if reliable
+                // Let's assume client sends an 'auth' event first for reliability
+            });
+
+            channel.on('auth', (data: any) => {
+                const playerId = data.playerId;
+                const token = data.token; // verification if needed
+
+                if (playerId && this.players.has(playerId)) {
+                    // Link UDP channel to player
+                    this.udpPlayers.set(playerId, channel);
+                    serverLogger.log(`[Server] 🦎 UDP Connected: ${playerId} (${channelId})`);
+
+                    // Notify client of success
+                    channel.emit('auth_ack', { status: 'ok' });
+
+                    // Setup message handlers for this player/channel
+                    this.setupGeckosPlayerHandlers(playerId, channel);
+                } else {
+                    channel.emit('auth_fail', { reason: 'Unknown player' });
+                }
+            });
+
+            channel.onDisconnect(() => {
+                // Find player by channel and remove
+                for (const [pid, ch] of this.udpPlayers.entries()) {
+                    if (ch.id === channel.id) {
+                        this.udpPlayers.delete(pid);
+                        serverLogger.log(`[Server] 🦎 UDP Disconnected: ${pid}`);
+                        break;
+                    }
+                }
+            });
+        });
+    }
+
+    private setupGeckosPlayerHandlers(playerId: string, channel: GeckosChannel): void {
+        const player = this.players.get(playerId);
+        if (!player) return;
+
+        // Handle PLAYER_INPUT via UDP
+        channel.onRaw((buffer: ArrayBuffer | Buffer) => {
+            try {
+                // Assuming first byte identifies message type or we use Protocol Schema
+                // For now, let's just interpret as MessagePack if it's our binary format
+                // OR we can define specific raw types.
+
+                // Let's reuse our binary protocol `deserializeMessage` if possible.
+                // Note: buffer might need to be Uint8Array
+                const uint8Array = new Uint8Array(buffer as ArrayBuffer);
+                const message = deserializeMessage(uint8Array);
+
+                if (message) {
+                    // Handle specific high-frequency messages
+                    if (message.type === ClientMessageType.PLAYER_INPUT) {
+                        this.handlePlayerInput(player, message.data);
+                    }
+                }
+            } catch (error) {
+                // Suppress errors for UDP noise
+            }
+        });
+    }
+
+    // Обработка подключений
+    private setupConnectionHandler(): void {
         this.wss.on("connection", (ws: WebSocket, req: any) => {
             serverLogger.log("[Server] New client connected from:", req.socket.remoteAddress || "unknown");
 
@@ -195,8 +288,8 @@ export class GameServer {
         });
     }
 
-    // Соединения для голосового чата (НЕ создаём для них игроков)
-    private voiceClients: Set<WebSocket> = new Set();
+    // Соединения голосового чата теперь обрабатываются через основной WebSocket
+    // private voiceClients: Set<WebSocket> = new Set();
 
     private handleMessage(ws: WebSocket, message: ClientMessage | any): void {
         // Check for monitoring messages first (before parsing as ClientMessage)
@@ -213,19 +306,11 @@ export class GameServer {
                 return;
             }
 
-            // КРИТИЧНО: Voice соединения НЕ создают игроков
-            if (message.type === "voice_join") {
-                this.voiceClients.add(ws);
-                serverLogger.log(`[Server] Voice client connected for room ${message.roomId}, player ${message.playerId}`);
-                // TODO: Можно добавить логику для WebRTC signaling
-                return;
-            }
-
-            // Другие voice сообщения
-            if (message.type === "voice_offer" || message.type === "voice_answer" ||
-                message.type === "voice_ice_candidate" || message.type === "voice_leave") {
-                // Обрабатываем voice сигналы без создания игрока
-                // TODO: Реализовать WebRTC signaling
+            // Voice messages are now handled via standard game messages
+            if (message.type && (message.type === "voice_join" || message.type === "voice_offer" ||
+                message.type === "voice_answer" || message.type === "voice_ice_candidate" ||
+                message.type === "voice_leave")) {
+                // Legacy check - should not be hit with new client
                 return;
             }
         }
@@ -235,10 +320,8 @@ export class GameServer {
             return;
         }
 
-        // Skip game message handling for voice clients
-        if (this.voiceClients.has(ws)) {
-            return;
-        }
+        // Voice clients set removed
+
 
         // Handle regular game messages
         const player = this.getPlayerBySocket(ws);
@@ -296,6 +379,9 @@ export class GameServer {
                 if (player) this.handlePlayerRespawnRequest(player, message.data);
                 break;
 
+            case ClientMessageType.PLAYER_HIT:
+                if (player) this.handlePlayerHit(player, message.data);
+                break;
 
             case ClientMessageType.CHAT_MESSAGE:
                 if (player) this.handleChatMessage(player, message.data);
@@ -316,8 +402,7 @@ export class GameServer {
             case ClientMessageType.VOICE_OFFER:
             case ClientMessageType.VOICE_ANSWER:
             case ClientMessageType.VOICE_ICE_CANDIDATE:
-                // Voice signaling handled elsewhere
-                // if (player) this._handleVoiceSignaling(player, message);
+                if (player) this._handleVoiceSignaling(player, message);
                 break;
 
             case ClientMessageType.PING:
@@ -426,15 +511,31 @@ export class GameServer {
             serverLogger.log(`[Server] Игрок переподключен: ID=${player.id}, имя=${player.name}${verifiedUserId ? ' [AUTHENTICATED]' : ' [GUEST]'}`);
         }
 
-        this.send(ws, createServerMessage(ServerMessageType.CONNECTED, {
+        // Send connection confirmation
+        // Send UDP port if available so client knows where to connect
+        const connectData: any = {
             playerId: player.id,
             playerName: player.name,
             authenticated: !!verifiedUserId
-        }));
+        };
+        if (this.udpPort) {
+            connectData.udpPort = this.udpPort;
+        }
+        this.send(ws, createServerMessage(ServerMessageType.CONNECTED, connectData));
     }
 
     private handleCreateRoom(player: ServerPlayer, data: any): void {
         const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType, enableBots, botCount } = data;
+        const { chassisType, cannonType, tankColor, turretColor, playerName } = data; // Extract customization
+
+        // Update player name if provided
+        if (playerName) player.name = playerName;
+
+        // Save customization to player
+        if (chassisType) player.chassisType = chassisType;
+        if (cannonType) player.cannonType = cannonType;
+        if (tankColor) player.tankColor = tankColor;
+        if (turretColor) player.turretColor = turretColor;
 
         // Генерируем простой ID комнаты (0001, 0002, и т.д.)
         this.roomCounter++;
@@ -482,7 +583,17 @@ export class GameServer {
     }
 
     private handleJoinRoom(player: ServerPlayer, data: any): void {
-        const { roomId } = data;
+        const { roomId, password } = data;
+        const { chassisType, cannonType, tankColor, turretColor, playerName } = data; // Extract customization
+
+        // Update player name if provided
+        if (playerName) player.name = playerName;
+
+        // Save customization to player
+        if (chassisType) player.chassisType = chassisType;
+        if (cannonType) player.cannonType = cannonType;
+        if (tankColor) player.tankColor = tankColor;
+        if (turretColor) player.turretColor = turretColor;
         serverLogger.log(`[Server] 🔍 JOIN_ROOM запрос от ${player.id} (${player.name}): roomId=${roomId}`);
         const room = this.rooms.get(roomId);
 
@@ -1090,18 +1201,27 @@ export class GameServer {
         room.projectiles.set(projId, projectile);
 
         // Broadcast to all players
-        this.broadcastToRoom(room, createServerMessage(ServerMessageType.PROJECTILE_SPAWN, {
+        // Broadcast to nearby players only (AOI)
+        this.broadcastToNearby(room, projPos, createServerMessage(ServerMessageType.PROJECTILE_SPAWN, {
             ...data,
             ownerId: player.id,
             id: projId
-        }));
+        }), 350); // 350 units radius
     }
 
     private handlePlayerRespawnRequest(player: ServerPlayer, data: any): void {
-        if (!player.roomId) return;
+        serverLogger.log(`[Server] 🔄 RESPAWN_REQUEST received from ${player.name} (${player.id}), status=${player.status}`);
+
+        if (!player.roomId) {
+            serverLogger.warn(`[Server] ⚠️ Respawn denied: player ${player.id} has no roomId`);
+            return;
+        }
 
         const room = this.rooms.get(player.roomId);
-        if (!room || !room.isActive) return;
+        if (!room || !room.isActive) {
+            serverLogger.warn(`[Server] ⚠️ Respawn denied: room not found or not active for ${player.id}`);
+            return;
+        }
 
         // Проверяем, что игрок действительно мертв
         if (player.status !== "dead") {
@@ -1115,15 +1235,85 @@ export class GameServer {
         // Респавним игрока
         player.respawn(spawnPos, 100);
 
-        serverLogger.log(`[Server] Player ${player.name} respawned at position (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+        serverLogger.log(`[Server] ✅ Player ${player.name} respawned at position (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
 
         // Отправляем сообщение о респавне всем игрокам в комнате
+        const playerCount = room.getAllPlayers().length;
+        serverLogger.log(`[Server] 📤 Broadcasting PLAYER_RESPAWNED to ${playerCount} players in room ${player.roomId}`);
+
         this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_RESPAWNED, {
             playerId: player.id,
             playerName: player.name,
             position: spawnPos,
             health: player.health
         }));
+
+        serverLogger.log(`[Server] ✅ PLAYER_RESPAWNED broadcast complete for ${player.name}`);
+    }
+
+    /**
+     * Handle client-reported hit on another player
+     * Client-authoritative: we trust the client's hit detection and apply damage
+     */
+    private handlePlayerHit(attacker: ServerPlayer, data: any): void {
+        if (!attacker.roomId) return;
+
+        const room = this.rooms.get(attacker.roomId);
+        if (!room || !room.isActive) return;
+
+        const { targetId, damage, hitPosition, cannonType } = data;
+
+        // Validate basic data
+        if (!targetId || typeof damage !== 'number' || damage <= 0 || damage > 200) {
+            serverLogger.warn(`[Server] Invalid PLAYER_HIT data from ${attacker.id}`);
+            return;
+        }
+
+        // Find target player
+        const target = room.getPlayer(targetId);
+        if (!target || target.status !== "alive") {
+            return; // Target not found or already dead
+        }
+
+        // Apply damage
+        const died = target.takeDamage(damage);
+
+        serverLogger.log(`[Server] 🎯 PLAYER_HIT: ${attacker.name} hit ${target.name} for ${damage} damage (health: ${target.health}/${target.maxHealth}, died: ${died})`);
+
+        // Award kill to attacker if target died
+        if (died) {
+            attacker.addKill();
+            target.status = "dead";
+        }
+
+        // Broadcast PLAYER_DAMAGED to all players in room
+        this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_DAMAGED, {
+            playerId: target.id,
+            playerName: target.name,
+            attackerId: attacker.id,
+            attackerName: attacker.name,
+            damage: damage,
+            health: target.health,
+            maxHealth: target.maxHealth,
+            hitPosition: hitPosition,
+            cannonType: cannonType
+        }));
+
+        // If target died, broadcast PLAYER_KILLED
+        if (died) {
+            this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_KILLED, {
+                playerId: target.id,
+                playerName: target.name,
+                killerId: attacker.id,
+                killerName: attacker.name
+            }));
+
+            // Also broadcast PLAYER_DIED for UI updates
+            this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_DIED, {
+                playerId: target.id,
+                playerName: target.name
+            }));
+        }
     }
 
 
@@ -1143,12 +1333,51 @@ export class GameServer {
             const room = this.rooms.get(player.roomId);
             if (room) {
                 this.broadcastToRoom(room, createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
-                return;
             }
+        } else {
+            // Иначе - отправляем всем игрокам в лобби (не в комнатах)
+            this.broadcastToLobby(createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
         }
+    }
 
-        // Иначе - отправляем всем игрокам в лобби (не в комнатах)
-        this.broadcastToLobby(createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
+    private _handleVoiceSignaling(sender: ServerPlayer, message: ClientMessage): void {
+        if (!sender.roomId) return;
+
+        const room = this.rooms.get(sender.roomId);
+        if (!room) return;
+
+        const signalData = message.data;
+        const targetId = signalData.to; // Target player ID
+
+        if (!targetId) return;
+
+        const targetPlayer = room.players.get(targetId);
+        // Ensure target is in room and is not the sender
+        if (targetPlayer && targetPlayer.id !== sender.id) {
+            // Forward the message to the target player
+            // We preserve the data but inject the 'from' field
+            const forwardingData = { ...signalData, from: sender.id };
+            // Remove 'to' field as it's redundant for the receiver
+            delete forwardingData.to;
+
+            // Map ClientMessageType to ServerMessageType
+            let serverType: ServerMessageType;
+            switch (message.type) {
+                case ClientMessageType.VOICE_OFFER:
+                    serverType = ServerMessageType.VOICE_OFFER;
+                    break;
+                case ClientMessageType.VOICE_ANSWER:
+                    serverType = ServerMessageType.VOICE_ANSWER;
+                    break;
+                case ClientMessageType.VOICE_ICE_CANDIDATE:
+                    serverType = ServerMessageType.VOICE_ICE_CANDIDATE;
+                    break;
+                default:
+                    return;
+            }
+
+            this.send(targetPlayer.socket, createServerMessage(serverType, forwardingData));
+        }
     }
 
     private handleConsumablePickup(player: ServerPlayer, data: any): void {
@@ -1216,6 +1445,46 @@ export class GameServer {
         });
 
         this.broadcastToRoom(room, spawnMsg, player.id); // Exclude sender as they already spawned it locally
+    }
+
+    /**
+     * Handle player respawn request after death timer expires
+     */
+    private handlePlayerRespawnRequest(player: ServerPlayer, data: any): void {
+        console.log(`[Server] RESPAWN REQUEST received from ${player.name} (${player.id}), status=${player.status}`);
+        if (!player.roomId) {
+            serverLogger.warn(`[Server] Player ${player.name} requested respawn but not in room`);
+            return;
+        }
+
+        const room = this.rooms.get(player.roomId);
+        if (!room) {
+            serverLogger.warn(`[Server] Player ${player.name} requested respawn but room not found`);
+            return;
+        }
+
+        // Only respawn if player is dead
+        if (player.status !== "dead") {
+            serverLogger.warn(`[Server] Player ${player.name} requested respawn but status is ${player.status}`);
+            return;
+        }
+
+        // Get spawn position from room
+        const spawnPos = room.getSpawnPosition(player.team);
+
+        // Respawn player
+        player.respawn(spawnPos, player.maxHealth);
+
+        serverLogger.log(`[Server] Player ${player.name} respawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
+
+        // Broadcast respawn to all players in room
+        this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_RESPAWNED, {
+            playerId: player.id,
+            playerName: player.name,
+            position: { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z },
+            health: player.health,
+            maxHealth: player.maxHealth
+        }));
     }
 
 
@@ -1307,12 +1576,7 @@ export class GameServer {
             return;
         }
 
-        // Check if it's a voice client (НЕ создаёт игрока)
-        if (this.voiceClients.has(ws)) {
-            this.voiceClients.delete(ws);
-            serverLogger.log("[Server] Voice client disconnected");
-            return;
-        }
+
 
         const player = this.getPlayerBySocket(ws);
         if (player) {
@@ -1462,32 +1726,34 @@ export class GameServer {
                 }
 
                 // Broadcast damage/kill events if any
-                const lastDamageEvent = (room as any).lastDamageEvent;
-                if (lastDamageEvent) {
-                    if (lastDamageEvent.died) {
-                        // Player died
-                        this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_KILLED, {
-                            victimId: lastDamageEvent.victimId,
-                            victimName: lastDamageEvent.victimName,
-                            killerId: lastDamageEvent.attackerId,
-                            killerName: lastDamageEvent.attackerName
-                        }));
+                if (room.damageEvents && room.damageEvents.length > 0) {
+                    for (const event of room.damageEvents) {
+                        if (event.died) {
+                            // Player died
+                            this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_KILLED, {
+                                victimId: event.victimId,
+                                victimName: event.victimName,
+                                killerId: event.attackerId,
+                                killerName: event.attackerName
+                            }));
 
-                        this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_DIED, {
-                            playerId: lastDamageEvent.victimId,
-                            playerName: lastDamageEvent.victimName
-                        }));
-                    } else {
-                        // Player damaged
-                        this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_DAMAGED, {
-                            playerId: lastDamageEvent.victimId,
-                            playerName: lastDamageEvent.victimName,
-                            damage: lastDamageEvent.damage,
-                            health: lastDamageEvent.newHealth,
-                            maxHealth: room.getPlayer(lastDamageEvent.victimId)?.maxHealth || 100
-                        }));
+                            this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_DIED, {
+                                playerId: event.victimId,
+                                playerName: event.victimName
+                            }));
+                        } else {
+                            // Player damaged
+                            this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_DAMAGED, {
+                                playerId: event.victimId,
+                                playerName: event.victimName,
+                                damage: event.damage,
+                                health: event.newHealth,
+                                maxHealth: room.getPlayer(event.victimId)?.maxHealth || 100
+                            }));
+                        }
                     }
-                    (room as any).lastDamageEvent = null;
+                    // Clear events after broadcasting
+                    room.damageEvents = [];
                 }
 
                 // Broadcast game state to all players in room (60 Hz)
@@ -1564,11 +1830,16 @@ export class GameServer {
                             return true;
                         }
 
-                        // SPATIAL PARTITIONING: If spatial grid is active, only include nearby players
-                        // Players not in spatial proximity get updates much less frequently
+                        // SPATIAL PARTITIONING: Strict AOI
                         // ВАЖНО: Если nearbyPlayerIds null - spatial не используется, все игроки nearby
                         // Если nearbyPlayerIds пустой Set - это значит игрок в grid, но рядом никого нет
                         const isNearby = nearbyPlayerIds === null || nearbyPlayerIds.has(targetPlayer.id);
+
+                        // Strict AOI: Если игрок слишком далеко, вообще не отправляем про него данные
+                        // Это заставит клиент удалить этого игрока (при isFullState update)
+                        if (!isNearby) {
+                            return false;
+                        }
 
                         // Calculate distance
                         const distance = Vector3.Distance(playerPos, targetPlayer.position);
@@ -1579,12 +1850,6 @@ export class GameServer {
                             room.getAllPlayers().length,
                             0 // Network load - could be calculated based on send queue size
                         );
-
-                        // SPATIAL OPTIMIZATION: Reduce rate for distant players not in spatial grid
-                        // ОПТИМИЗИРОВАНО: Увеличен rate до 0.25 (15 Hz) для плавного появления далёких игроков
-                        if (!isNearby) {
-                            rate = Math.min(rate, 0.25); // Max 25% update rate for far players (15 Hz)
-                        }
 
                         // Calculate required tick interval based on rate
                         const tickInterval = Math.ceil(1 / rate);
@@ -1617,64 +1882,101 @@ export class GameServer {
                         serverLogger.log(`[Server] 📤 PLAYER_STATES для ${player.name}: отправляю ${otherPlayers.length} других игроков (всего в комнате: ${room.players.size})`);
                     }
 
-                    this.send(player.socket, createServerMessage(ServerMessageType.PLAYER_STATES, statesData));
-                }
+                    // Add batched updates for this specific player (AOI filtered)
+                    const playerBatchMessages: ServerMessage[] = [];
 
-                // BATCH UPDATES: Collect all room-wide updates into a single batch
-                // This reduces network overhead by sending one message instead of many
-                const batchMessages: ServerMessage[] = [];
+                    // AOI for Projectiles
+                    const visibleProjectiles = Array.from(room.projectiles.values())
+                        .filter(p => Vector3.Distance(playerPos, p.position) < 350) // 350 unit radius (slightly larger than player AOI)
+                        .map(p => p.toProjectileData());
 
-                // Broadcast projectile updates
-                const projectileUpdates = Array.from(room.projectiles.values()).map(p => p.toProjectileData());
-                if (projectileUpdates.length > 0) {
-                    batchMessages.push(createServerMessage(ServerMessageType.PROJECTILE_UPDATE, {
-                        projectiles: projectileUpdates
-                    }));
-                }
-
-                // Broadcast enemy updates (for modes with enemies: coop, ffa, tdm, survival, raid)
-                // ИСПРАВЛЕНО: Боты спавнятся для всех этих режимов, поэтому обновления нужны тоже для всех
-                if (room.mode === "coop" || room.mode === "ffa" || room.mode === "tdm" || room.mode === "survival" || room.mode === "raid") {
-                    const enemyUpdates = Array.from(room.enemies.values()).map(e => e.toEnemyData());
-                    if (enemyUpdates.length > 0) {
-                        batchMessages.push(createServerMessage(ServerMessageType.ENEMY_UPDATE, {
-                            enemies: enemyUpdates
+                    if (visibleProjectiles.length > 0) {
+                        playerBatchMessages.push(createServerMessage(ServerMessageType.PROJECTILE_UPDATE, {
+                            projectiles: visibleProjectiles
                         }));
+                    }
+
+                    // AOI for Enemies (Bots)
+                    if (room.enemies.size > 0 && (room.mode === "coop" || room.mode === "ffa" || room.mode === "tdm" || room.mode === "survival" || room.mode === "raid")) {
+                        const visibleEnemies = Array.from(room.enemies.values())
+                            .filter(e => Vector3.Distance(playerPos, e.position) < 350)
+                            .map(e => e.toEnemyData());
+
+                        // ALWAYS send enemy update, even if empty, to clear distant enemies from client
+                        playerBatchMessages.push(createServerMessage(ServerMessageType.ENEMY_UPDATE, {
+                            enemies: visibleEnemies
+                        }));
+                    }
+
+                    this.send(player.socket, createServerMessage(ServerMessageType.PLAYER_STATES, statesData));
+
+                    // Send player-specific batch updates
+                    if (playerBatchMessages.length > 0) {
+                        this.sendBatch(player.socket, playerBatchMessages);
                     }
                 }
 
-                // Broadcast safe zone updates (for Battle Royale mode)
+                // Global Room Events (Batch broadcast for events that MUST be seen by everyone regardless of distance, or handled differently)
+                // e.g. Game End, Safe Zone (global), CTF Flags (global logic usually)
+                const globalBatchMessages: ServerMessage[] = [];
+
+                // Broadcast World Updates (Destroyed objects, chunks) - REPAIRED: Missing broadcast caused ghost projectiles
+                if (room.worldUpdates.destroyedObjects.length > 0 || room.worldUpdates.chunkUpdates.length > 0) {
+                    globalBatchMessages.push(createServerMessage(ServerMessageType.WORLD_UPDATE, {
+                        destroyedObjects: [...room.worldUpdates.destroyedObjects],
+                        chunkUpdates: [...room.worldUpdates.chunkUpdates]
+                    }));
+
+                    // Clear updates after queuing for broadcast
+                    room.worldUpdates.destroyedObjects = [];
+                    room.worldUpdates.chunkUpdates = [];
+                }
+
+                // Broadcast safe zone updates (Global)
                 if (room.mode === "battle_royale") {
                     const safeZoneData = room.getSafeZoneData();
                     if (safeZoneData) {
-                        batchMessages.push(createServerMessage(ServerMessageType.SAFE_ZONE_UPDATE, safeZoneData));
+                        globalBatchMessages.push(createServerMessage(ServerMessageType.SAFE_ZONE_UPDATE, safeZoneData));
                     }
                 }
 
-                // Broadcast CTF flag updates
+                // Broadcast CTF flag updates (Global - flags are important map objectives)
                 if (room.mode === "ctf") {
                     const flags = room.getCTFFlags();
                     if (flags && flags.length > 0) {
-                        batchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_UPDATE, { flags }));
+                        globalBatchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_UPDATE, { flags }));
                     }
 
                     // Add CTF events to batch
                     const pickupEvent = (room as any).lastCTFPickupEvent;
                     if (pickupEvent) {
-                        batchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_PICKUP, pickupEvent));
+                        globalBatchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_PICKUP, pickupEvent));
                         (room as any).lastCTFPickupEvent = null;
                     }
 
                     const captureEvent = (room as any).lastCTFCaptureEvent;
                     if (captureEvent) {
-                        batchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_CAPTURE, captureEvent));
+                        globalBatchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_CAPTURE, captureEvent));
                         (room as any).lastCTFCaptureEvent = null;
                     }
                 }
 
-                // Send all room-wide updates as a single batch
-                if (batchMessages.length > 0) {
-                    this.broadcastBatchToRoom(room, batchMessages);
+                // Send purely global updates
+                if (globalBatchMessages.length > 0) {
+                    this.broadcastBatchToRoom(room, globalBatchMessages);
+                }
+            }
+        }
+    }
+
+    private broadcastToNearby(room: GameRoom, position: Vector3, message: ServerMessage, maxDistance: number = 350, excludePlayerId?: string): void {
+        const serialized = serializeMessage(message);
+
+        for (const player of room.getAllPlayers()) {
+            if (player.id === excludePlayerId) continue;
+            if (player.socket.readyState === WebSocket.OPEN && player.position) {
+                if (Vector3.Distance(player.position, position) <= maxDistance) {
+                    player.socket.send(serialized);
                 }
             }
         }

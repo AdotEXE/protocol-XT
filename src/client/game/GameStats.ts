@@ -41,7 +41,7 @@ export class GameStats {
     private statsOverlay: HTMLDivElement | null = null;
     private statsOverlayVisible = false;
     private systems: StatsSystemsAccess | null = null;
-    
+
     /**
      * Инициализация
      */
@@ -49,14 +49,14 @@ export class GameStats {
         this.systems = systems;
         logger.log("[GameStats] Initialized");
     }
-    
+
     /**
      * Обновление ссылок на системы
      */
     updateSystems(systems: StatsSystemsAccess): void {
         this.systems = systems;
     }
-    
+
     /**
      * Показать overlay статистики (Tab зажат)
      */
@@ -64,16 +64,16 @@ export class GameStats {
         if (!this.statsOverlay) {
             this.createOverlay();
         }
-        
+
         if (this.statsOverlay && !this.statsOverlayVisible) {
             this.statsOverlayVisible = true;
             this.statsOverlay.style.display = "flex";
             this.statsOverlay.style.visibility = "visible";
             this.update();
-            
+
             // Показываем курсор
             document.body.style.cursor = 'default';
-            
+
             // ESC обработчик (удаляется при закрытии)
             const escHandler = (e: KeyboardEvent) => {
                 if (e.code === "Escape" && this.statsOverlayVisible) {
@@ -85,7 +85,7 @@ export class GameStats {
             window.addEventListener("keydown", escHandler, true);
         }
     }
-    
+
     /**
      * Скрыть overlay статистики (Tab отпущен)
      */
@@ -94,7 +94,7 @@ export class GameStats {
             this.statsOverlayVisible = false;
             this.statsOverlay.style.display = "none";
             this.statsOverlay.style.visibility = "hidden";
-            
+
             // Восстанавливаем курсор только если игра активна
             const game = (window as any).gameInstance;
             if (game?.gameStarted && !game.gamePaused) {
@@ -102,14 +102,14 @@ export class GameStats {
             }
         }
     }
-    
+
     /**
      * Проверка видимости
      */
     isVisible(): boolean {
         return this.statsOverlayVisible;
     }
-    
+
     /**
      * Создание overlay
      */
@@ -119,7 +119,7 @@ export class GameStats {
         if (existing) {
             existing.remove();
         }
-        
+
         this.statsOverlay = document.createElement("div");
         this.statsOverlay.id = "stats-overlay";
         this.statsOverlay.style.cssText = `
@@ -137,7 +137,7 @@ export class GameStats {
             font-family: 'Press Start 2P', monospace;
             visibility: hidden;
         `;
-        
+
         const content = document.createElement("div");
         content.id = "scoreboard-content";
         content.style.cssText = `
@@ -146,32 +146,32 @@ export class GameStats {
             min-width: 700px;
             max-width: 900px;
         `;
-        
+
         this.statsOverlay.appendChild(content);
         document.body.appendChild(this.statsOverlay);
-        
+
         this.statsOverlayVisible = false;
     }
-    
+
     /**
      * Обновление содержимого overlay
      */
     update(): void {
         if (!this.statsOverlay || !this.systems) return;
-        
+
         const content = document.getElementById("scoreboard-content");
         if (!content) return;
-        
+
         // Получаем данные игрока
         const playerData = this.getPlayerData();
         const xpProgressHTML = this.getXPProgressHTML();
-        
+
         // Мультиплеер или одиночная игра (getIsMultiplayer возвращает актуальное значение)
         // ДИАГНОСТИКА: Проверяем наличие multiplayerManager для отображения отладочной информации
         const hasMultiplayerManager = !!this.systems?.multiplayerManager;
         const mm = this.systems.multiplayerManager;
         const isConnectedToRoom = mm?.isConnected() && mm?.getRoomId();
-        
+
         // КРИТИЧНО: Принудительно устанавливаем isMultiplayer=true если подключены к комнате
         if (hasMultiplayerManager && isConnectedToRoom && !this.systems.getIsMultiplayer()) {
             // Безопасная проверка перед вызовом setIsMultiplayer
@@ -184,19 +184,26 @@ export class GameStats {
                     const tracker = new RealtimeStatsTracker();
                     (this.systems as any).setRealtimeStatsTracker?.(tracker);
                     tracker.startMatch(mm.getPlayerId()!);
-                }).catch(() => {});
+                }).catch(() => { });
             }
         }
-        
-        const isMultiplayer = this.systems.getIsMultiplayer() && this.systems.realtimeStatsTracker;
-        
+
+        // ИСПРАВЛЕНО: Показываем мультиплеерный интерфейс если:
+        // 1. Есть realtimeStatsTracker, ИЛИ
+        // 2. Подключены к комнате (isConnectedToRoom), ИЛИ
+        // 3. Есть сетевые танки
+        const hasNetworkTanks = (this.systems.networkPlayerTanks?.size || 0) > 0;
+        const isMultiplayer = this.systems.getIsMultiplayer() || isConnectedToRoom || hasNetworkTanks;
+
+        console.log(`[GameStats] TAB Menu: isMP=${isMultiplayer}, hasTracker=${!!this.systems.realtimeStatsTracker}, isConnected=${isConnectedToRoom}, networkTanks=${this.systems.networkPlayerTanks?.size || 0}`);
+
         if (isMultiplayer) {
             content.innerHTML = this.renderMultiplayerStats(playerData, xpProgressHTML);
         } else {
             content.innerHTML = this.renderSinglePlayerStats(playerData, xpProgressHTML);
         }
     }
-    
+
     /**
      * Получение данных игрока
      */
@@ -212,7 +219,7 @@ export class GameStats {
     } {
         let kills = 0, deaths = 0, credits = 0, level = 1, damage = 0;
         let kd = "0.00", accuracy = "0%", playTime = "0h 0m";
-        
+
         if (this.systems?.playerProgression) {
             const stats = this.systems.playerProgression.getStats();
             kills = stats.totalKills || 0;
@@ -224,26 +231,26 @@ export class GameStats {
             accuracy = this.systems.playerProgression.getAccuracy();
             playTime = this.systems.playerProgression.getPlayTimeFormatted();
         }
-        
+
         if (this.systems?.currencyManager) {
             credits = this.systems.currencyManager.getCurrency();
         }
-        
+
         return { kills, deaths, credits, kd, level, damage, accuracy, playTime };
     }
-    
+
     /**
      * HTML для прогресса опыта
      */
     private getXPProgressHTML(): string {
         if (!this.systems?.playerProgression) return '';
-        
+
         const xpProgress = this.systems.playerProgression.getExperienceProgress();
-        const rawPercent = xpProgress.required > 0 
-            ? Math.min(100, Math.max(0, (xpProgress.current / xpProgress.required) * 100)) 
+        const rawPercent = xpProgress.required > 0
+            ? Math.min(100, Math.max(0, (xpProgress.current / xpProgress.required) * 100))
             : 100;
         const xpPercent = Math.round(rawPercent * 10) / 10;
-        
+
         // Комбо
         let comboInfo = '';
         if (this.systems.experienceSystem) {
@@ -253,7 +260,7 @@ export class GameStats {
                 comboInfo = `<span style="color:#ff0; font-size:10px; margin-left:8px">🔥 COMBO x${comboCount} (+${comboBonus.toFixed(0)}%)</span>`;
             }
         }
-        
+
         return `
             <div style="margin-top:6px">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px">
@@ -269,7 +276,7 @@ export class GameStats {
             </div>
         `;
     }
-    
+
     /**
      * Рендер статистики для одиночной игры
      */
@@ -278,14 +285,14 @@ export class GameStats {
         xpProgressHTML: string
     ): string {
         const bots = this.getBotsData();
-        
+
         // Сортируем ботов - живые сверху
         bots.sort((a, b) => {
             if (a.isAlive && !b.isAlive) return -1;
             if (!a.isAlive && b.isAlive) return 1;
             return 0;
         });
-        
+
         // Генерируем HTML ботов
         let botsHTML = "";
         bots.forEach(bot => {
@@ -297,10 +304,10 @@ export class GameStats {
                     <div style="width:${bot.health}%; height:100%; background:${bot.health > 50 ? '#0f0' : bot.health > 25 ? '#ff0' : '#f00'}"></div>
                 </div>
             ` : '<span style="color:#f00; font-size:10px">DEAD</span>';
-            
+
             // Формируем строку снаряжения (сокращённо для компактности)
             const equipmentDisplay = bot.equipment ? `<span style="color:#888; font-size:9px">${bot.equipment}</span>` : '';
-            
+
             botsHTML += `
                 <tr style="opacity:${rowOpacity}; border-bottom:1px solid #222">
                     <td style="padding:8px 12px; color:${statusColor}">${statusIcon}</td>
@@ -314,13 +321,13 @@ export class GameStats {
                 </tr>
             `;
         });
-        
+
         const mapName = this.getMapDisplayName();
-        
+
         // Получаем отладочную информацию (показываем всегда, если есть multiplayerManager)
         const debugInfo = this.getDebugInfo();
         const hasMultiplayerManager = !!this.systems?.multiplayerManager;
-        
+
         // Генерируем HTML отладочной информации (показываем если есть multiplayerManager или в мультиплеере)
         const debugHTML = hasMultiplayerManager ? `
             <div style="background:#1a1a1a; padding:8px 20px; border-bottom:1px solid #222; font-size:10px">
@@ -337,11 +344,11 @@ export class GameStats {
                 </div>
             </div>
         ` : '';
-        
+
         // Определяем режим игры
         const gameMode = hasMultiplayerManager && debugInfo.connected ? 'MULTIPLAYER' : 'SINGLE PLAYER';
         const modeColor = hasMultiplayerManager && debugInfo.connected ? '#0ff' : '#666';
-        
+
         return `
             <!-- Заголовок -->
             <div style="background:#0f01; padding:12px 20px; border-bottom:1px solid #0f02; display:flex; justify-content:space-between; align-items:center">
@@ -414,7 +421,7 @@ export class GameStats {
             </div>
         `;
     }
-    
+
     /**
      * Рендер статистики для мультиплеера
      */
@@ -422,47 +429,82 @@ export class GameStats {
         playerData: { kills: number; deaths: number; credits: number; kd: string; level: number; damage: number; accuracy: string; playTime: string },
         xpProgressHTML: string
     ): string {
-        if (!this.systems?.realtimeStatsTracker || !this.systems?.multiplayerManager) {
-            return this.renderSinglePlayerStats(playerData, xpProgressHTML);
+        const mm = this.systems?.multiplayerManager;
+        const tracker = this.systems?.realtimeStatsTracker;
+        const localPlayerId = mm?.getPlayerId();
+
+        let leaderboard: any[] = [];
+        let matchTime = 0;
+
+        // Если есть RealtimeStatsTracker - используем его
+        if (tracker) {
+            leaderboard = tracker.getLeaderboard("score");
+            const localStats = tracker.getLocalPlayerStats();
+            matchTime = tracker.getMatchTime();
+
+            if (localStats) {
+                playerData.kills = localStats.kills;
+                playerData.deaths = localStats.deaths;
+                playerData.kd = localStats.deaths > 0
+                    ? (localStats.kills / localStats.deaths).toFixed(2)
+                    : localStats.kills.toFixed(2);
+            }
+        } else {
+            // FALLBACK: Используем networkPlayerTanks для построения списка игроков
+            const networkTanks = this.systems?.networkPlayerTanks;
+            if (networkTanks && networkTanks.size > 0) {
+                networkTanks.forEach((tank, id) => {
+                    const np = (tank as any).networkPlayer;
+                    leaderboard.push({
+                        playerId: id,
+                        playerName: np?.name || `Player`,
+                        kills: np?.kills || 0,
+                        deaths: np?.deaths || 0,
+                        score: (np?.kills || 0) * 100 - (np?.deaths || 0) * 50,
+                        isAlive: np?.status === "alive"
+                    });
+                });
+            }
+
+            // Добавляем локального игрока
+            if (localPlayerId) {
+                leaderboard.push({
+                    playerId: localPlayerId,
+                    playerName: "You",
+                    kills: playerData.kills,
+                    deaths: playerData.deaths,
+                    score: playerData.kills * 100 - playerData.deaths * 50,
+                    isAlive: true
+                });
+            }
+
+            // Сортируем по score
+            leaderboard.sort((a, b) => b.score - a.score);
         }
-        
-        const leaderboard = this.systems.realtimeStatsTracker.getLeaderboard("score");
-        const localStats = this.systems.realtimeStatsTracker.getLocalPlayerStats();
-        const matchTime = this.systems.realtimeStatsTracker.getMatchTime();
-        const localPlayerId = this.systems.multiplayerManager.getPlayerId();
-        
-        // Обновляем данные из реального времени
-        if (localStats) {
-            playerData.kills = localStats.kills;
-            playerData.deaths = localStats.deaths;
-            playerData.kd = localStats.deaths > 0 
-                ? (localStats.kills / localStats.deaths).toFixed(2) 
-                : localStats.kills.toFixed(2);
-        }
-        
+
         // Форматируем время
         const minutes = Math.floor(matchTime / 60);
         const seconds = Math.floor(matchTime % 60);
         const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-        
+
         // Получаем отладочную информацию
         const debugInfo = this.getDebugInfo();
-        
+
         // Генерируем HTML лидерборда
         let leaderboardHTML = "";
         leaderboard.forEach((player, index) => {
             const isLocal = player.playerId === localPlayerId;
             const rowBg = isLocal ? "#0f01" : "transparent";
             const nameColor = isLocal ? "#0f0" : "#fff";
-            const rankBadge = index < 3 
-                ? `<span style="color:${['#fc0', '#aaa', '#c70'][index]}; font-size:14px">${['🥇', '🥈', '🥉'][index]}</span>` 
+            const rankBadge = index < 3
+                ? `<span style="color:${['#fc0', '#aaa', '#c70'][index]}; font-size:14px">${['🥇', '🥈', '🥉'][index]}</span>`
                 : `<span style="color:#666">${index + 1}</span>`;
-            
-            const kd = player.deaths > 0 
-                ? (player.kills / player.deaths).toFixed(2) 
+
+            const kd = player.deaths > 0
+                ? (player.kills / player.deaths).toFixed(2)
                 : player.kills.toFixed(2);
             const score = player.kills * 100 - player.deaths * 50;
-            
+
             leaderboardHTML += `
                 <tr style="background:${rowBg}; border-bottom:1px solid #222">
                     <td style="padding:8px 12px; text-align:center">${rankBadge}</td>
@@ -474,7 +516,7 @@ export class GameStats {
                 </tr>
             `;
         });
-        
+
         // Генерируем HTML отладочной информации
         const debugHTML = `
             <div style="background:#1a1a1a; padding:8px 20px; border-bottom:1px solid #222; font-size:10px">
@@ -491,7 +533,7 @@ export class GameStats {
                 </div>
             </div>
         `;
-        
+
         return `
             <!-- Заголовок -->
             <div style="background:#0f01; padding:12px 20px; border-bottom:1px solid #0f02; display:flex; justify-content:space-between; align-items:center">
@@ -552,31 +594,31 @@ export class GameStats {
             </div>
         `;
     }
-    
+
     /**
      * Получение данных о ботах
      */
     private getBotsData(): { name: string; kills: number; deaths: number; health: number; isAlive: boolean; equipment?: string }[] {
         const bots: { name: string; kills: number; deaths: number; health: number; isAlive: boolean; equipment?: string }[] = [];
-        
+
         if (!this.systems) return bots;
-        
+
         // Вражеские танки - используем реальную статистику из EnemyTank
         this.systems.enemyTanks.forEach((tank, index) => {
             const currentHealth = tank.currentHealth || 0;
             const maxHealth = tank.maxHealth || 100;
-            
+
             // Получаем реальную статистику бота (kills/deaths)
             const kills = typeof tank.getKillsCount === 'function' ? tank.getKillsCount() : 0;
             const deaths = typeof tank.getDeathsCount === 'function' ? tank.getDeathsCount() : 0;
-            
+
             // Получаем информацию о снаряжении для отображения
             let equipmentInfo = '';
             if (typeof tank.getEquipmentInfo === 'function') {
                 const eq = tank.getEquipmentInfo();
                 equipmentInfo = `${eq.chassis} | ${eq.cannon}`;
             }
-            
+
             bots.push({
                 name: `BOT_${index + 1}`,
                 kills: kills,
@@ -586,7 +628,7 @@ export class GameStats {
                 equipment: equipmentInfo
             });
         });
-        
+
         // Турели
         if (this.systems.enemyManager?.turrets) {
             this.systems.enemyManager.turrets.forEach((turret: any, index: number) => {
@@ -601,16 +643,16 @@ export class GameStats {
                 });
             });
         }
-        
+
         return bots;
     }
-    
+
     /**
      * Получить отображаемое название карты
      */
     private getMapDisplayName(): string {
         if (!this.systems?.currentMapType) return "";
-        
+
         const mapNames: Record<string, string> = {
             "normal": "Эта самая карта",
             "sandbox": "Песочница",
@@ -625,10 +667,10 @@ export class GameStats {
             "coastal": "Побережье",
             "tartaria": "Тартария"
         };
-        
+
         return mapNames[this.systems.currentMapType] || this.systems.currentMapType;
     }
-    
+
     /**
      * Получить отладочную информацию для мультиплеера
      */
@@ -645,13 +687,13 @@ export class GameStats {
     } {
         const mm = this.systems?.multiplayerManager;
         const game = (window as any).gameInstance;
-        
+
         // Получаем ping из networkMetrics если доступно
         let ping = 0;
         if (mm && (mm as any).networkMetrics) {
             ping = Math.round((mm as any).networkMetrics.rtt || 0);
         }
-        
+
         // КРИТИЧНО: Улучшенная логика получения roomId
         // Пробуем несколько способов получить roomId
         let roomId = mm?.getRoomId();
@@ -659,13 +701,13 @@ export class GameStats {
             // Fallback: попробуем получить из приватного поля
             roomId = (mm as any).roomId || (mm as any)._roomId || null;
         }
-        
+
         const isRoomActive = (mm as any)?._roomIsActive || false;
         const isConnected = mm?.isConnected() || false;
-        
+
         // Если комната активна или есть roomId, считаем подключенным
         const effectiveConnected = isConnected || isRoomActive || !!roomId;
-        
+
         return {
             roomId: roomId || null,  // Не используем ACTIVE как fallback - показываем реальный ID
             worldSeed: mm?.getWorldSeed() || null,
@@ -678,7 +720,7 @@ export class GameStats {
             playerId: mm?.getPlayerId() || null
         };
     }
-    
+
     /**
      * Dispose
      */

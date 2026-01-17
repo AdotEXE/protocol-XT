@@ -554,6 +554,9 @@ export function applySettings(
         if (settings.showTankStatsPanel !== undefined && hud.setDetailedStatsPanelVisible) {
             hud.setDetailedStatsPanelVisible(settings.showTankStatsPanel);
         }
+        if (settings.showSystemTerminal !== undefined && hud.setSystemTerminalVisible) {
+            hud.setSystemTerminalVisible(settings.showSystemTerminal);
+        }
 
         // Show touch controls (joystick)
         if (settings.showTouchControls !== undefined && hud.setTouchControlsVisible) {

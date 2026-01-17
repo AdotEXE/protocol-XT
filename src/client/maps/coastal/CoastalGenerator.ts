@@ -15,6 +15,7 @@ import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
+import { SeededRandom } from "../shared/SeededRandom";
 
 export interface CoastalConfig {
     waterLevel: number;
@@ -66,57 +67,101 @@ export class CoastalGenerator extends BaseMapGenerator {
     }
     
     private generateBeach(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        // Смешанный берег: песчаные пляжи + скалистые участки
-        if (random.chance(0.7)) {
-            const beachX = random.range(10, size - 10);
-            const beachZ = random.range(10, size - 10);
-            const beachSize = random.range(15, 25);
-            
-            const beach = this.createBox(
-                "beach",
-                { width: beachSize, height: 0.1, depth: beachSize },
-                new Vector3(beachX, 0.05, beachZ),
-                "sand",
-                chunkParent,
-                false
-            );
+        // Детерминированная генерация пляжей
+        const beachSpacing = 40;
+        const beachSize = 25;
+        
+        const startGridX = Math.floor(chunkMinX / beachSpacing) * beachSpacing;
+        const startGridZ = Math.floor(chunkMinZ / beachSpacing) * beachSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + beachSpacing; gridX += beachSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + beachSpacing; gridZ += beachSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, beachSize / 2, context)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ);
+                if (!localRandom.chance(0.7)) continue;
+                
+                const beachX = gridX - worldX;
+                const beachZ = gridZ - worldZ;
+                const beachSizeVal = localRandom.range(15, 25);
+                
+                const beach = this.createBox(
+                    "beach",
+                    { width: beachSizeVal, height: 0.1, depth: beachSizeVal },
+                    new Vector3(beachX, 0.05, beachZ),
+                    "sand",
+                    chunkParent,
+                    false
+                );
+            }
         }
         
-        // Скалистые участки
-        if (random.chance(0.6)) {
-            const rockX = random.range(10, size - 10);
-            const rockZ = random.range(10, size - 10);
-            const rockSize = random.range(10, 20);
-            
-            const rocks = this.createBox(
-                "coastal_rocks",
-                { width: rockSize, height: random.range(1, 3), depth: rockSize },
-                new Vector3(rockX, random.range(0.5, 1.5), rockZ),
-                "rock",
-                chunkParent,
-                false
-            );
+        // Детерминированная генерация скал
+        const rockSpacing = 50;
+        const rockSize = 20;
+        
+        const startRockX = Math.floor(chunkMinX / rockSpacing) * rockSpacing;
+        const startRockZ = Math.floor(chunkMinZ / rockSpacing) * rockSpacing;
+        
+        for (let gridX = startRockX; gridX < chunkMaxX + rockSpacing; gridX += rockSpacing) {
+            for (let gridZ = startRockZ; gridZ < chunkMaxZ + rockSpacing; gridZ += rockSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, rockSize / 2, context)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ, 1000);
+                if (!localRandom.chance(0.6)) continue;
+                
+                const rockX = gridX - worldX;
+                const rockZ = gridZ - worldZ;
+                const rockSizeVal = localRandom.range(10, 20);
+                
+                const rocks = this.createBox(
+                    "coastal_rocks",
+                    { width: rockSizeVal, height: localRandom.range(1, 3), depth: rockSizeVal },
+                    new Vector3(rockX, localRandom.range(0.5, 1.5), rockZ),
+                    "rock",
+                    chunkParent,
+                    false
+                );
+            }
         }
     }
     
     private generatePort(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        // Большой порт (30% шанс)
-        if (random.chance(0.3)) {
-            const portX = random.range(25, size - 25);
-            const portZ = random.range(25, size - 25);
-            const portWorldX = chunkX * size + portX;
-            const portWorldZ = chunkZ * size + portZ;
-            
-            if (!this.isPositionInGarageArea(portWorldX, portWorldZ, 20)) {
-                const pierCount = random.int(3, 5);
+        // Детерминированная генерация портов
+        const portSpacing = 200; // Один порт на большую область
+        const portSize = 50;
+        
+        const startGridX = Math.floor(chunkMinX / portSpacing) * portSpacing;
+        const startGridZ = Math.floor(chunkMinZ / portSpacing) * portSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + portSpacing; gridX += portSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + portSpacing; gridZ += portSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, portSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 20)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ);
+                if (!localRandom.chance(this.config.portDensity)) continue;
+                
+                const portX = gridX - worldX;
+                const portZ = gridZ - worldZ;
+                
+                const pierCount = localRandom.int(3, 5);
                 for (let i = 0; i < pierCount; i++) {
                     const pier = this.createBox(
                         "coastal_pier",
-                        { width: random.range(30, 50), height: 1, depth: 8 },
+                        { width: localRandom.range(30, 50), height: 1, depth: 8 },
                         new Vector3(portX + (i - pierCount/2) * 20, 0.5, portZ),
                         "concrete",
                         chunkParent,
@@ -124,22 +169,22 @@ export class CoastalGenerator extends BaseMapGenerator {
                     );
                 }
                 
-                const warehouseCount = random.int(3, 5);
+                const warehouseCount = localRandom.int(3, 5);
                 for (let i = 0; i < warehouseCount; i++) {
                     const wh = this.createBox(
                         "coastal_warehouse",
                         { width: 15, height: 8, depth: 10 },
-                        new Vector3(portX + random.range(-20, 20), 4, portZ + random.range(-15, 15)),
+                        new Vector3(portX + localRandom.range(-20, 20), 4, portZ + localRandom.range(-15, 15)),
                         "metalRust",
                         chunkParent,
                         false
                     );
                 }
                 
-                const portCraneCount = random.int(4, 6);
+                const portCraneCount = localRandom.int(4, 6);
                 for (let i = 0; i < portCraneCount; i++) {
-                    const craneX = portX + random.range(-25, 25);
-                    const craneZ = portZ + random.range(-10, 10);
+                    const craneX = portX + localRandom.range(-25, 25);
+                    const craneZ = portZ + localRandom.range(-10, 10);
                     const tower = this.createBox(
                         "coastal_crane",
                         { width: 2, height: 18, depth: 2 },
@@ -154,16 +199,30 @@ export class CoastalGenerator extends BaseMapGenerator {
     }
     
     private generateLighthouse(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        // Несколько маяков (35% шанс)
-        if (random.chance(0.35)) {
-            const lx = random.range(15, size - 15);
-            const lz = random.range(15, size - 15);
-            const lWorldX = chunkX * size + lx;
-            const lWorldZ = chunkZ * size + lz;
-            
-            if (!this.isPositionInGarageArea(lWorldX, lWorldZ, 5)) {
+        // Детерминированная генерация маяков
+        const lighthouseSpacing = 150;
+        const lighthouseSize = 4;
+        
+        const startGridX = Math.floor(chunkMinX / lighthouseSpacing) * lighthouseSpacing;
+        const startGridZ = Math.floor(chunkMinZ / lighthouseSpacing) * lighthouseSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + lighthouseSpacing; gridX += lighthouseSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + lighthouseSpacing; gridZ += lighthouseSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, lighthouseSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 5)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ, 6000);
+                if (!localRandom.chance(0.35)) continue;
+                
+                const lx = gridX - worldX;
+                const lz = gridZ - worldZ;
+                
                 const base = this.createBox(
                     "lighthouseBase",
                     { width: 4, height: 3, depth: 4 },

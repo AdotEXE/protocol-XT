@@ -5,7 +5,9 @@ import { ClientMessageType, ServerMessageType } from "../shared/messages";
 import type { PlayerData, PlayerInput, GameMode, PredictedState, ClientPredictionState, NetworkMetrics, ProjectileData, EnemyData, FlagData, Vector3Data } from "../shared/types";
 import { nanoid } from "nanoid";
 import { logger } from "./utils/logger";
+import { getSkinById, getDefaultSkin } from "./tank/tankSkins";
 import { firebaseService } from "./firebaseService";
+import { voiceChatManager } from "./voiceChat";
 
 /**
  * Safely convert any position object to Vector3
@@ -134,12 +136,21 @@ export interface PlayerDiedData {
     position?: Vector3Data;
 }
 
+export interface PlayerRespawnedData {
+    playerId: string;
+    playerName?: string;
+    position: Vector3Data;
+    health?: number;
+    maxHealth?: number;
+}
+
 export interface PlayerDamagedData {
     playerId: string;
     damage: number;
     attackerId?: string;
     health: number;
     maxHealth: number;
+    hitPosition?: Vector3Data;
 }
 
 export interface CTFFlagPickupData {
@@ -167,6 +178,14 @@ export interface WallSpawnData {
     rotation: number;
     duration: number;
     ownerId: string;
+}
+
+// World update data from server
+export interface WorldUpdate {
+    timestamp: number;
+    players?: PlayerData[];
+    projectiles?: ProjectileData[];
+    enemies?: EnemyData[];
 }
 
 export interface NetworkPlayer {
@@ -203,6 +222,8 @@ export interface NetworkPlayer {
     lastUpdateTime: number; // Timestamp of last network update
     // Interpolation settings
     interpolationDelay: number; // Adaptive delay based on ping (ms)
+    // Debug counters
+    _rotDebugCounter?: number;
 }
 
 /**
@@ -388,6 +409,50 @@ export class MultiplayerManager {
     private lastProcessedSequence: number = -1;
     private jitterBufferNeedsSort: boolean = false; // Flag to avoid unnecessary sorts
 
+    private onProjectileUpdateCallback: ((data: any) => void) | null = null;
+    private onProjectileHitCallback: ((data: any) => void) | null = null;
+
+    onProjectileSpawn(callback: (data: any) => void) {
+        this.onProjectileSpawnCallback = callback;
+    }
+
+    onProjectileUpdate(callback: (data: any) => void) {
+        this.onProjectileUpdateCallback = callback;
+    }
+
+    onProjectileHit(callback: (data: any) => void) {
+        this.onProjectileHitCallback = callback;
+    }
+
+    private handleProjectileSpawn(data: any) {
+        // Ignore projectiles spawned by local player to prevent duplicates/ghosts
+        // Client spawns its own projectiles immediately for zero latency
+        if (data.ownerId === this.playerId) {
+            return;
+        }
+
+        if (this.onProjectileSpawnCallback) {
+            this.onProjectileSpawnCallback(data);
+        }
+    }
+
+    private handleProjectileUpdate(data: any) {
+        // Ignore updates for local player projectiles
+        if (data.ownerId === this.playerId) {
+            return;
+        }
+
+        if (this.onProjectileUpdateCallback) {
+            this.onProjectileUpdateCallback(data);
+        }
+    }
+
+    private handleProjectileHit(data: any) {
+        if (this.onProjectileHitCallback) {
+            this.onProjectileHitCallback(data);
+        }
+    }
+
     // Callbacks
     private onConnectedCallback: (() => void) | null = null;
     private onDisconnectedCallback: (() => void) | null = null;
@@ -395,10 +460,11 @@ export class MultiplayerManager {
     private onPlayerLeftCallback: ((playerId: string) => void) | null = null;
     private onGameStartCallback: ((data: GameStartData) => void) | null = null;
     private onGameEndCallback: ((data: GameEndData) => void) | null = null;
-    private onPlayerStatesCallback: ((players: PlayerData[]) => void) | null = null;
+    private onPlayerStatesCallback: ((players: PlayerData[], isFullState?: boolean) => void) | null = null;
     private onProjectileSpawnCallback: ((data: ProjectileSpawnData) => void) | null = null;
     private onChatMessageCallback: ((data: ChatMessageData) => void) | null = null;
     private onConsumablePickupCallback: ((data: ConsumablePickupData) => void) | null = null;
+    private onConsumableSpawnCallback: ((data: any) => void) | null = null;
     private onEnemyUpdateCallback: ((data: EnemyUpdateData) => void) | null = null;
     private onSafeZoneUpdateCallback: ((data: SafeZoneUpdateData) => void) | null = null;
     private onCTFFlagUpdateCallback: ((data: CTFFlagUpdateData) => void) | null = null;
@@ -644,6 +710,9 @@ export class MultiplayerManager {
 
         // Clear message queue
         this.messageQueue = [];
+
+        // Cleanup Voice Chat
+        voiceChatManager.cleanup();
     }
 
     /**
@@ -922,18 +991,21 @@ export class MultiplayerManager {
                     this.handleConsumablePickup(message.data);
                     break;
 
+                case ServerMessageType.CONSUMABLE_SPAWN:
+                    this.handleConsumableSpawn(message.data);
+                    break;
+
                 case ServerMessageType.ENEMY_UPDATE:
                     this.handleEnemyUpdate(message.data);
                     break;
 
+                case ServerMessageType.VOICE_OFFER:
+                case ServerMessageType.VOICE_ANSWER:
+                case ServerMessageType.VOICE_ICE_CANDIDATE:
                 case ServerMessageType.VOICE_PLAYER_JOINED:
                 case ServerMessageType.VOICE_PLAYER_LEFT:
-                    // Forward to voice chat manager
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    if ((window as any).voiceChatManager) {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        (window as any).voiceChatManager.handleSignalingMessage(message);
-                    }
+                    // Route to Voice Chat Manager
+                    voiceChatManager.handleSignalingMessage(message);
                     break;
 
                 case ServerMessageType.SAFE_ZONE_UPDATE:
@@ -985,6 +1057,22 @@ export class MultiplayerManager {
                 case ServerMessageType.ERROR:
                     logger.error("[Multiplayer] Server error:", message.data);
                     this.handleError(message.data);
+                    break;
+
+                case ServerMessageType.PROJECTILE_SPAWN:
+                    this.handleProjectileSpawn(message.data);
+                    break;
+
+                case ServerMessageType.PROJECTILE_UPDATE:
+                    this.handleProjectileUpdate(message.data);
+                    break;
+
+                case ServerMessageType.PROJECTILE_HIT:
+                    this.handleProjectileHit(message.data);
+                    break;
+
+                case ServerMessageType.WORLD_UPDATE:
+                    this.handleWorldUpdate(message.data);
                     break;
 
                 default:
@@ -1366,6 +1454,18 @@ export class MultiplayerManager {
         return { sent, received };
     }
 
+    private onWorldUpdateCallback: ((data: WorldUpdate) => void) | null = null;
+
+    onWorldUpdate(callback: (data: WorldUpdate) => void) {
+        this.onWorldUpdateCallback = callback;
+    }
+
+    private handleWorldUpdate(data: WorldUpdate): void {
+        if (this.onWorldUpdateCallback) {
+            this.onWorldUpdateCallback(data);
+        }
+    }
+
     private handleRoomCreated(data: RoomCreatedData): void {
         const oldRoomId = this.roomId;
         this.roomId = data.roomId;
@@ -1442,19 +1542,34 @@ export class MultiplayerManager {
 
         logger.log(`[Multiplayer] Joined room: ${this.roomId}, seed: ${data.worldSeed}, isCreator: ${this._isRoomCreator}, isActive: ${this._roomIsActive}`);
         // Выводим номер комнаты в консоль с форматированием
-        logger.log(`[Multiplayer] Joined room: ${this.roomId}, players: ${this._roomPlayersCount}, active: ${this._roomIsActive}, networkPlayers.size=${this.networkPlayers.size}`);
-
         // КРИТИЧНО: Сохраняем данные в буфер на случай, если callback еще не установлен
         this.pendingRoomJoinedData = data;
 
-        // Вызываем callback для обработки ROOM_JOINED
+        // Notify callback if set
         if (this.onRoomJoinedCallback) {
             this.onRoomJoinedCallback(data);
-            this.pendingRoomJoinedData = null; // Очищаем буфер после успешного вызова
+            this.pendingRoomJoinedData = null; // Clear buffer after successful call
         } else {
-            // Callback еще не установлен - сохраняем данные для последующего вызова
+            console.log("[Multiplayer] Room joined but no callback set, saving data");
+            this.pendingRoomJoinedData = data; // Keep data in buffer for later
             logger.log(`[Multiplayer] ⏳ onRoomJoinedCallback еще не установлен, сохраняем данные для последующего вызова (roomId=${this.roomId}, players=${data.players?.length || 0})`);
         }
+
+        // Initialize Voice Chat
+        // We do this after successful room join
+        voiceChatManager.initialize(data.roomId, this.playerId).then(success => {
+            if (success) {
+                logger.log("[Multiplayer] Voice Chat initialized");
+
+                // Set handler for sending voice messages via game connection
+                voiceChatManager.setMessageSender((type: string, data: any) => {
+                    // Type strings (e.g. "voice_offer") match ClientMessageType values
+                    this.send(createClientMessage(type as ClientMessageType, data));
+                });
+            } else {
+                logger.warn("[Multiplayer] Voice Chat failed to initialize");
+            }
+        });
     }
 
     private handleRoomList(data: { rooms: RoomData[] }): void {
@@ -1626,6 +1741,22 @@ export class MultiplayerManager {
         // Note: We don't track last update time per player currently
         // This is a placeholder for future optimization
         // For now, we rely on server sending PLAYER_LEFT messages
+    }
+
+    /**
+     * Handle player respawn message from server
+     */
+    private handlePlayerRespawned(data: any): void {
+        logger.log(`[Multiplayer] Player respawned: ${data.playerName || data.playerId}`);
+
+        // Dispatch to registered callback
+        if (this.onPlayerRespawnedCallback) {
+            try {
+                this.onPlayerRespawnedCallback(data);
+            } catch (error) {
+                logger.error("[Multiplayer] Error in playerRespawned callback:", error);
+            }
+        }
     }
 
     private handleMatchFound(data: MatchFoundData): void {
@@ -2058,8 +2189,11 @@ export class MultiplayerManager {
                 logger.warn(`[Multiplayer] ❌ Found local player (${id}) in networkPlayers! Removing...`);
             }
             // Удаляем игроков, которых нет в текущем списке (возможно, они отключились)
-            // НО: не удаляем сразу, так как они могут быть в процессе отключения
-            // Вместо этого просто не обновляем их
+            // Strict AOI: Если это полное состояние, удаляем тех, кого нет в списке
+            else if (statesData.isFullState && !validPlayerIds.has(id)) {
+                playersToRemove.push(id);
+                // logger.log(`[Multiplayer] 🗑️ Pruning AOI invisible player: ${id}`);
+            }
         });
 
         // Удаляем найденных игроков
@@ -2124,25 +2258,21 @@ export class MultiplayerManager {
         // ДИАГНОСТИКА: Логируем детальную информацию о сохраненных игроках
         const savedLocalPlayer = players.find(p => p.id === this.playerId);
         const savedNetworkPlayers = players.filter(p => p.id !== this.playerId);
-        logger.log(`[Multiplayer] applyPlayerStates: Saved ${players.length} players to lastPlayerStates:`);
-        logger.log(`  - Local player: ${savedLocalPlayer ? `YES (${savedLocalPlayer.name || savedLocalPlayer.id})` : 'NO'}`);
-        logger.log(`  - Network players: ${savedNetworkPlayers.length} (${savedNetworkPlayers.map(p => `${p.name || p.id}(${p.id})`).join(', ')})`);
-        logger.log(`[Multiplayer] applyPlayerStates: Processing ${players.length} players, callback set: ${!!this.onPlayerStatesCallback}, saved to lastPlayerStates`);
+        // logger.log(`[Multiplayer] applyPlayerStates: Saved ${players.length} players to lastPlayerStates:`);
+        // logger.log(`  - Local player: ${savedLocalPlayer ? `YES (${savedLocalPlayer.name || savedLocalPlayer.id})` : 'NO'}`);
+        // logger.log(`  - Network players: ${savedNetworkPlayers.length} (${savedNetworkPlayers.map(p => `${p.name || p.id}(${p.id})`).join(', ')})`);
+        // logger.log(`[Multiplayer] applyPlayerStates: Processing ${players.length} players, callback set: ${!!this.onPlayerStatesCallback}, saved to lastPlayerStates`);
 
         if (this.onPlayerStatesCallback) {
             try {
-                this.onPlayerStatesCallback(players);
+                this.onPlayerStatesCallback(players, statesData.isFullState);
             } catch (error) {
                 console.error(`[Multiplayer] ❌ ОШИБКА в onPlayerStatesCallback:`, error);
             }
         }
     }
 
-    private handleProjectileSpawn(data: ProjectileSpawnData): void {
-        if (this.onProjectileSpawnCallback) {
-            this.onProjectileSpawnCallback(data);
-        }
-    }
+
 
     private handleChatMessage(data: ChatMessageData): void {
         if (this.onChatMessageCallback) {
@@ -2153,6 +2283,12 @@ export class MultiplayerManager {
     private handleConsumablePickup(data: ConsumablePickupData): void {
         if (this.onConsumablePickupCallback) {
             this.onConsumablePickupCallback(data);
+        }
+    }
+
+    private handleConsumableSpawn(data: any): void {
+        if (this.onConsumableSpawnCallback) {
+            this.onConsumableSpawnCallback(data);
         }
     }
 
@@ -2186,11 +2322,6 @@ export class MultiplayerManager {
         }
     }
 
-    private handlePlayerRespawned(data: PlayerRespawnedData): void {
-        if (this.onPlayerRespawnedCallback) {
-            this.onPlayerRespawnedCallback(data);
-        }
-    }
 
 
     private handlePlayerDamaged(data: PlayerDamagedData): void {
@@ -2464,6 +2595,20 @@ export class MultiplayerManager {
         if (playerData.chassisPitch !== undefined) networkPlayer.chassisPitch = playerData.chassisPitch;
         if (playerData.chassisRoll !== undefined) networkPlayer.chassisRoll = playerData.chassisRoll;
 
+        // DEBUG: Log rotation data periodically (every 60th update to reduce spam)
+        if (!networkPlayer._rotDebugCounter) networkPlayer._rotDebugCounter = 0;
+        networkPlayer._rotDebugCounter++;
+        /*
+        if (networkPlayer._rotDebugCounter % 60 === 0) {
+            console.log(`[MP] 🔄 Player ${playerData.id.substring(0, 8)} rotation:`, {
+                rotation: rotation.toFixed(3),
+                chassisPitch: (playerData.chassisPitch || 0).toFixed(3),
+                chassisRoll: (playerData.chassisRoll || 0).toFixed(3),
+                turretRot: turretRotation.toFixed(3)
+            });
+        }
+        */
+
         // КРИТИЧНО: Обновляем статус, но если не указан, сохраняем текущий (не сбрасываем в undefined)
         if (playerData.status !== undefined && playerData.status !== null) {
             networkPlayer.status = playerData.status;
@@ -2502,6 +2647,13 @@ export class MultiplayerManager {
     }
 
     // Public API
+
+    /**
+     * Get all currently connected network players
+     */
+    getPlayers(): NetworkPlayer[] {
+        return Array.from(this.networkPlayers.values());
+    }
 
     /**
      * Send player input to the server
@@ -2798,6 +2950,38 @@ export class MultiplayerManager {
         }
     }
 
+    /**
+     * Report a hit on another player (client-authoritative hit detection)
+     * Server will validate and apply damage
+     * @param targetId - ID of the player that was hit
+     * @param damage - Damage amount
+     * @param hitPosition - Position where the hit occurred
+     * @param cannonType - Type of weapon used
+     */
+    sendPlayerHit(targetId: string, damage: number, hitPosition: Vector3, cannonType: string): void {
+        try {
+            if (!this.connected || !this.roomId) {
+                return;
+            }
+
+            if (!targetId || damage <= 0) {
+                logger.warn("[Multiplayer] Cannot send player hit: invalid data");
+                return;
+            }
+
+            logger.log(`[Multiplayer] 🎯 Sending PLAYER_HIT: target=${targetId}, damage=${damage}`);
+            this.send(createClientMessage(ClientMessageType.PLAYER_HIT, {
+                targetId,
+                damage,
+                hitPosition: { x: hitPosition.x, y: hitPosition.y, z: hitPosition.z },
+                cannonType,
+                timestamp: this.getServerTime()
+            }));
+        } catch (error) {
+            logger.error("[Multiplayer] Error in sendPlayerHit:", error);
+        }
+    }
+
 
     /**
      * Send chat message to server
@@ -2897,13 +3081,30 @@ export class MultiplayerManager {
 
         logger.log(`[Multiplayer] Creating room: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}, enableBots=${enableBots}, botCount=${botCount}`);
         // ВАЖНО: Убеждаемся, что комната публичная (isPrivate=false), чтобы её видели другие игроки
+        // Получаем настройки кастомизации из localStorage
+        const chassisType = localStorage.getItem("selectedChassis") || "medium";
+        const cannonType = localStorage.getItem("selectedCannon") || "standard";
+        const skinId = localStorage.getItem("selectedTankSkin") || "default";
+
+        // Получаем цвета из скина
+        const skin = getSkinById(skinId) || getDefaultSkin();
+        const tankColor = skin.chassisColor;
+        const turretColor = skin.turretColor;
+
+        logger.log(`[Multiplayer] Creating room with customization: ${chassisType}/${cannonType}, skin=${skinId}`);
+
         this.send(createClientMessage(ClientMessageType.CREATE_ROOM, {
             mode,
             maxPlayers,
             isPrivate: false, // Всегда создаем публичные комнаты для видимости
             mapType: mapType || "normal", // Передаем тип карты
             enableBots, // Боты включены/выключены
-            botCount // Количество ботов
+            botCount, // Количество ботов
+            // Кастомизация
+            chassisType,
+            cannonType,
+            tankColor,
+            turretColor
         }));
         return true;
     }
@@ -2915,7 +3116,26 @@ export class MultiplayerManager {
     joinRoom(roomId: string): void {
         if (!this.connected) return;
 
-        this.send(createClientMessage(ClientMessageType.JOIN_ROOM, { roomId }));
+        // Получаем настройки кастомизации из localStorage
+        const chassisType = localStorage.getItem("selectedChassis") || "medium";
+        const cannonType = localStorage.getItem("selectedCannon") || "standard";
+        const skinId = localStorage.getItem("selectedTankSkin") || "default";
+
+        // Получаем цвета из скина
+        const skin = getSkinById(skinId) || getDefaultSkin();
+        const tankColor = skin.chassisColor;
+        const turretColor = skin.turretColor;
+
+        logger.log(`[Multiplayer] Joining room with customization: ${chassisType}/${cannonType}, skin=${skinId}`);
+
+        this.send(createClientMessage(ClientMessageType.JOIN_ROOM, {
+            roomId,
+            // Кастомизация
+            chassisType,
+            cannonType,
+            tankColor,
+            turretColor
+        }));
     }
 
     /**
@@ -3209,13 +3429,11 @@ export class MultiplayerManager {
         this.onGameEndCallback = callback;
     }
 
-    onPlayerStates(callback: (players: PlayerData[]) => void): void {
+    onPlayerStates(callback: (players: PlayerData[], isFullState?: boolean) => void): void {
         this.onPlayerStatesCallback = callback;
     }
 
-    onProjectileSpawn(callback: (data: ProjectileSpawnData) => void): void {
-        this.onProjectileSpawnCallback = callback;
-    }
+
 
     onChatMessage(callback: (data: ChatMessageData) => void): void {
         this.onChatMessageCallback = callback;
@@ -3223,6 +3441,10 @@ export class MultiplayerManager {
 
     onConsumablePickup(callback: (data: ConsumablePickupData) => void): void {
         this.onConsumablePickupCallback = callback;
+    }
+
+    onConsumableSpawn(callback: (data: any) => void): void {
+        this.onConsumableSpawnCallback = callback;
     }
 
     onEnemyUpdate(callback: (data: EnemyUpdateData) => void): void {

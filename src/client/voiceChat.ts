@@ -22,7 +22,8 @@ export class VoiceChatManager {
     };
     private isTalking: boolean = false;
     private inputMap: Map<string, boolean> = new Map();
-    private signalingServer: WebSocket | null = null;
+    // private signalingServer: WebSocket | null = null; // Removing internal socket
+    private sendMessage: ((type: string, data: any) => void) | null = null;
     private roomId: string | null = null;
     private playerId: string | null = null;
 
@@ -39,36 +40,24 @@ export class VoiceChatManager {
         });
     }
 
-    async initialize(signalingServerUrl: string, roomId: string, playerId: string): Promise<boolean> {
+    /**
+     * Set the callback for sending messages via the main game connection
+     */
+    setMessageSender(sender: (type: string, data: any) => void): void {
+        this.sendMessage = sender;
+    }
+
+    async initialize(roomId: string, playerId: string): Promise<boolean> {
         try {
             this.roomId = roomId;
             this.playerId = playerId;
 
-            // Connect to signaling server (can be the same WebSocket server)
-            this.signalingServer = new WebSocket(signalingServerUrl);
-            
-            this.signalingServer.onopen = () => {
-                console.log("[VoiceChat] Connected to signaling server");
-                // Join voice room
-                this.signalingServer?.send(JSON.stringify({
-                    type: "voice_join",
-                    roomId,
-                    playerId
-                }));
-            };
-
-            this.signalingServer.onmessage = async (event) => {
-                try {
-                    const message = JSON.parse(event.data);
-                    await this.handleSignalingMessage(message);
-                } catch (error) {
-                    console.error("[VoiceChat] Error handling signaling message:", error);
-                }
-            };
-
-            this.signalingServer.onerror = (error) => {
-                console.error("[VoiceChat] Signaling server error:", error);
-            };
+            // Send voice join signal
+            this.sendSignalingMessage({
+                type: "voice_join",
+                roomId,
+                playerId
+            });
 
             // Request microphone access
             try {
@@ -102,7 +91,7 @@ export class VoiceChatManager {
                 } else {
                     console.warn("[VoiceChat] Failed to access microphone:", mediaError.name, mediaError.message);
                 }
-                
+
                 // Voice chat will work in receive-only mode (can hear others but can't speak)
                 this.config.enabled = false;
                 return false;
@@ -118,7 +107,7 @@ export class VoiceChatManager {
         // Handle both direct signaling messages and server-forwarded messages
         const msgType = message.type;
         const from = message.from || message.data?.from;
-        
+
         switch (msgType) {
             case "voice_offer":
                 if (message.data?.offer) {
@@ -206,7 +195,7 @@ export class VoiceChatManager {
 
     private async handleOffer(from: string, offer: RTCSessionDescriptionInit): Promise<void> {
         let peerConnection = this.peers.get(from);
-        
+
         if (!peerConnection) {
             peerConnection = new RTCPeerConnection({
                 iceServers: [
@@ -296,12 +285,32 @@ export class VoiceChatManager {
     }
 
     private sendSignalingMessage(message: any): void {
-        if (this.signalingServer && this.signalingServer.readyState === WebSocket.OPEN) {
-            this.signalingServer.send(JSON.stringify({
-                ...message,
-                from: this.playerId,
-                roomId: this.roomId
-            }));
+        if (this.sendMessage) {
+            // Unpack message to type and data for the sender callback
+            // The sender callback expects (type, data)
+            // The existing message object has { type, ...data } merged.
+
+            const { type, ...data } = message;
+
+            // Re-inject required fields if they were stripped or needed
+            // But wait, the previous code did:
+            // this.signalingServer.send(JSON.stringify({ ...message, from: this.playerId, roomId: this.roomId }));
+
+            // So we should construct the data payload
+            const payload = {
+                ...data,
+                // from: this.playerId, // server adds this based on socket
+                // roomId: this.roomId  // server knows this
+                // But we might need 'to' which is in 'message' if it's signaling
+            };
+
+            // If message has 'to', ensure it's in payload
+            if (message.to) payload.to = message.to;
+            if (message.offer) payload.offer = message.offer;
+            if (message.answer) payload.answer = message.answer;
+            if (message.candidate) payload.candidate = message.candidate;
+
+            this.sendMessage(type, payload);
         }
     }
 
@@ -386,10 +395,10 @@ export class VoiceChatManager {
         this.audioElements.clear();
 
         // Close signaling connection
-        if (this.signalingServer) {
-            this.signalingServer.close();
-            this.signalingServer = null;
-        }
+        // if (this.signalingServer) {
+        //     this.signalingServer.close();
+        //     this.signalingServer = null;
+        // }
 
         this.config.enabled = false;
     }

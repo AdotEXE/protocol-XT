@@ -15,6 +15,7 @@ import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
+import { SeededRandom } from "../shared/SeededRandom";
 
 export interface UrbanWarfareConfig {
     buildingDensity: number;
@@ -48,31 +49,42 @@ export class UrbanWarfareGenerator extends BaseMapGenerator {
     }
     
     private generateBuildings(context: ChunkGenerationContext): void {
-        const { size, random, chunkParent, chunkX, chunkZ } = context;
-        const buildingCount = random.int(2, 5);
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        for (let i = 0; i < buildingCount; i++) {
-            if (!random.chance(this.config.buildingDensity)) continue;
-            
-            const bx = random.range(10, size - 10);
-            const bz = random.range(10, size - 10);
-            const bWorldX = chunkX * size + bx;
-            const bWorldZ = chunkZ * size + bz;
-            
-            if (this.isPositionInGarageArea(bWorldX, bWorldZ, 10)) continue;
-            
-            const width = random.range(8, 15);
-            const height = random.range(10, 25);
-            const depth = random.range(8, 15);
-            
-            this.createBox(
-                "building",
-                { width, height, depth },
-                new Vector3(bx, height / 2, bz),
-                random.pick(["concrete", "brick", "brickDark"]),
-                chunkParent,
-                true
-            );
+        // Детерминированная генерация на основе world координат
+        const buildingSpacing = 50; // Расстояние между зданиями
+        const buildingSize = 15;
+        
+        const startGridX = Math.floor(chunkMinX / buildingSpacing) * buildingSpacing;
+        const startGridZ = Math.floor(chunkMinZ / buildingSpacing) * buildingSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + buildingSpacing; gridX += buildingSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + buildingSpacing; gridZ += buildingSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, buildingSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 10)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ);
+                if (!localRandom.chance(this.config.buildingDensity)) continue;
+                
+                const bx = gridX - worldX;
+                const bz = gridZ - worldZ;
+                const width = localRandom.range(8, 15);
+                const height = localRandom.range(10, 25);
+                const depth = localRandom.range(8, 15);
+                
+                this.createBox(
+                    "building",
+                    { width, height, depth },
+                    new Vector3(bx, height / 2, bz),
+                    localRandom.pick(["concrete", "brick", "brickDark"]),
+                    chunkParent,
+                    true
+                );
+            }
         }
     }
     
@@ -112,20 +124,32 @@ export class UrbanWarfareGenerator extends BaseMapGenerator {
     }
     
     private generateBarricades(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        // Barricades on roads
-        for (let i = 0; i < random.int(6, 12); i++) {
-            const bx = random.range(10, size - 10);
-            const bz = random.range(10, size - 10);
-            const bWorldX = chunkX * size + bx;
-            const bWorldZ = chunkZ * size + bz;
-            
-            if (this.isPositionInGarageArea(bWorldX, bWorldZ, 5)) continue;
-            if (this.isPositionNearRoad(bWorldX, bWorldZ, 2)) {
-                // Бетонные блоки
-                const blockW = random.range(3, 6);
-                const blockH = random.range(1.5, 2.5);
+        // Детерминированная генерация баррикад
+        const barricadeSpacing = 15;
+        const barricadeSize = 6;
+        
+        const startGridX = Math.floor(chunkMinX / barricadeSpacing) * barricadeSpacing;
+        const startGridZ = Math.floor(chunkMinZ / barricadeSpacing) * barricadeSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + barricadeSpacing; gridX += barricadeSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + barricadeSpacing; gridZ += barricadeSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, barricadeSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 5)) continue;
+                if (!this.isPositionNearRoad(gridX, gridZ, 2)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ, 3000);
+                if (!localRandom.chance(this.config.barricadeDensity)) continue;
+                
+                const bx = gridX - worldX;
+                const bz = gridZ - worldZ;
+                const blockW = localRandom.range(3, 6);
+                const blockH = localRandom.range(1.5, 2.5);
                 const block = this.createBox(
                     "barricade",
                     { width: blockW, height: blockH, depth: 1.5 },
@@ -134,32 +158,45 @@ export class UrbanWarfareGenerator extends BaseMapGenerator {
                     chunkParent,
                     true
                 );
-                block.rotation.y = random.range(-0.3, 0.3);
+                block.rotation.y = localRandom.range(-0.3, 0.3);
             }
         }
     }
     
     private generateCars(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { worldX, worldZ, size, chunkParent } = context;
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
         
-        // Parked vehicles as cover
-        for (let i = 0; i < random.int(8, 15); i++) {
-            const vx = random.range(5, size - 5);
-            const vz = random.range(5, size - 5);
-            const vWorldX = chunkX * size + vx;
-            const vWorldZ = chunkZ * size + vz;
-            
-            if (this.isPositionInGarageArea(vWorldX, vWorldZ, 2)) continue;
-            if (this.isPositionNearRoad(vWorldX, vWorldZ, 3)) {
+        // Детерминированная генерация машин
+        const carSpacing = 10;
+        const carSize = 4;
+        
+        const startGridX = Math.floor(chunkMinX / carSpacing) * carSpacing;
+        const startGridZ = Math.floor(chunkMinZ / carSpacing) * carSpacing;
+        
+        for (let gridX = startGridX; gridX < chunkMaxX + carSpacing; gridX += carSpacing) {
+            for (let gridZ = startGridZ; gridZ < chunkMaxZ + carSpacing; gridZ += carSpacing) {
+                if (!this.isElementInChunk(gridX, gridZ, carSize / 2, context)) continue;
+                if (this.isPositionInGarageArea(gridX, gridZ, 2)) continue;
+                if (!this.isPositionNearRoad(gridX, gridZ, 3)) continue;
+                
+                const localRandom = this.getDeterministicRandom(gridX, gridZ, 4000);
+                if (!localRandom.chance(this.config.carDensity)) continue;
+                
+                const vx = gridX - worldX;
+                const vz = gridZ - worldZ;
                 const car = this.createBox(
                     "parkedCar",
                     { width: 2, height: 1.5, depth: 4 },
                     new Vector3(vx, 0.75, vz),
-                    random.pick(["red", "metal", "brickDark"]),
+                    localRandom.pick(["red", "metal", "brickDark"]),
                     chunkParent,
                     false
                 );
-                car.rotation.y = random.range(0, Math.PI * 2);
+                car.rotation.y = localRandom.range(0, Math.PI * 2);
             }
         }
     }

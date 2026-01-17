@@ -30,6 +30,7 @@ import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugi
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
 import { MAP_SIZES } from "../MapConstants";
+import { SeededRandom } from "../shared/SeededRandom";
 
 /**
  * Тип зоны линии фронта
@@ -138,35 +139,18 @@ export class FrontlineGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Генерация рельефа
+     * Генерация рельефа - детерминированная генерация
      */
     private generateTerrain(context: ChunkGenerationContext): void {
-        const { size, random, chunkParent, chunkX, chunkZ } = context;
+        const { chunkParent } = context;
         
-        // Воронки и неровности
-        const craterCount = random.int(3, 8);
-        for (let i = 0; i < craterCount; i++) {
-            if (!random.chance(this.config.craterDensity * 0.3)) continue;
-            
-            const cx = random.range(5, size - 5);
-            const cz = random.range(5, size - 5);
-            const cWorldX = chunkX * size + cx;
-            const cWorldZ = chunkZ * size + cz;
-            
-            if (this.isPositionInGarageArea(cWorldX, cWorldZ, 3)) continue;
-            
-            const craterRadius = random.range(2, 5);
-            
-            // Создаём простое углубление
-            this.createCylinder(
-                "frontline_crater",
-                { diameter: craterRadius * 2, height: 0.3 },
-                new Vector3(cx, 0.15, cz),
-                "dirt",
-                chunkParent,
-                false
-            );
-        }
+        // Воронки - детерминированная генерация
+        this.generateOnGrid(context, 30, 5, this.config.craterDensity * 0.3, (worldX, worldZ, localRandom, cx, cz) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 3)) return;
+            const craterRadius = localRandom.range(2, 5);
+            this.createCylinder("frontline_crater", { diameter: craterRadius * 2, height: 0.3 },
+                new Vector3(cx, 0.15, cz), "dirt", chunkParent, false);
+        }, 27000);
     }
     
     /**
@@ -249,102 +233,52 @@ export class FrontlineGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Генерация траншей
+     * Генерация траншей - детерминированная генерация
      */
     private generateTrenches(context: ChunkGenerationContext, side: "allied" | "enemy" | "neutral"): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
+        const density = side === "neutral" ? 0.6 : 0.4;
         
-        // Окопы - длинные траншеи с земляными валами
-        const trenchCount = side === "neutral" ? random.int(6, 10) : random.int(4, 6);
-        
-        for (let i = 0; i < trenchCount; i++) {
-            const x = random.range(10, size - 10);
-            const z = random.range(10, size - 10);
-            
-            const worldX = chunkX * size + x;
-            const worldZ = chunkZ * size + z;
-            if (this.isPositionInGarageArea(worldX, worldZ, 8)) continue;
-            
-            // Получаем высоту террейна в этой точке
+        // Окопы - детерминированная генерация
+        this.generateOnGrid(context, 50, 30, density, (worldX, worldZ, localRandom, x, z) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 8)) return;
             const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
-            
-            const trenchLength = random.range(15, 30);
+            const trenchLength = localRandom.range(15, 30);
             const trenchWidth = 3;
             const trenchDepth = 1.5;
             
-            // Сам окоп (углубление в земле - представлено низкими стенами по бокам)
-            // Левый вал
-            const leftWall = this.createBox(
-                "trench_l",
-                { width: trenchLength, height: trenchDepth, depth: 0.8 },
-                new Vector3(x, terrainHeight + trenchDepth / 2, z - trenchWidth / 2),
-                "dirt",
-                chunkParent,
-                true
-            );
+            const leftWall = this.createBox("trench_l", { width: trenchLength, height: trenchDepth, depth: 0.8 },
+                new Vector3(x, terrainHeight + trenchDepth / 2, z - trenchWidth / 2), "dirt", chunkParent, true);
+            const rightWall = this.createBox("trench_r", { width: trenchLength, height: trenchDepth, depth: 0.8 },
+                new Vector3(x, terrainHeight + trenchDepth / 2, z + trenchWidth / 2), "dirt", chunkParent, true);
             
-            // Правый вал
-            const rightWall = this.createBox(
-                "trench_r",
-                { width: trenchLength, height: trenchDepth, depth: 0.8 },
-                new Vector3(x, terrainHeight + trenchDepth / 2, z + trenchWidth / 2),
-                "dirt",
-                chunkParent,
-                true
-            );
-            
-            // Мешки с песком на валах
-            if (random.chance(0.6)) {
+            if (localRandom.chance(0.6)) {
                 for (let bag = 0; bag < 3; bag++) {
-                    const sandbag = this.createBox(
-                        "sb",
-                        { width: 1.2, height: 0.4, depth: 0.6 },
-                        new Vector3(
-                            x - trenchLength / 2 + bag * 2 + random.range(-0.5, 0.5),
-                            terrainHeight + trenchDepth + 0.2,
-                            z - trenchWidth / 2
-                        ),
-                        "sand",
-                        chunkParent,
-                        false
-                    );
+                    const sandbag = this.createBox("sb", { width: 1.2, height: 0.4, depth: 0.6 },
+                        new Vector3(x - trenchLength / 2 + bag * 2 + localRandom.range(-0.5, 0.5),
+                            terrainHeight + trenchDepth + 0.2, z - trenchWidth / 2),
+                        "sand", chunkParent, false);
                 }
             }
-        }
+        }, 28000 + (side === "neutral" ? 1000 : side === "allied" ? 2000 : 3000));
     }
     
     /**
      * Генерация бункеров
      */
     private generateBunkers(context: ChunkGenerationContext, side: "allied" | "enemy"): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        // Бункеры на позициях - несколько бункеров (1-2 на зону)
-        const bunkerCount = random.int(1, 2);
-        
-        for (let i = 0; i < bunkerCount; i++) {
-            const x = random.range(15, size - 15);
-            const z = random.range(15, size - 15);
-            
-            const worldX = chunkX * size + x;
-            const worldZ = chunkZ * size + z;
-            if (this.isPositionInGarageArea(worldX, worldZ, 10)) continue;
-            
-            // Получаем высоту террейна в этой точке
+        // Бункеры - детерминированная генерация
+        this.generateOnGrid(context, 150, 14, 0.15, (worldX, worldZ, localRandom, x, z) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 10)) return;
             const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            const bunkerW = localRandom.range(8, 14);
+            const bunkerH = localRandom.range(3, 5);
+            const bunkerD = localRandom.range(6, 10);
             
-            const bunkerW = random.range(8, 14);
-            const bunkerH = random.range(3, 5);
-            const bunkerD = random.range(6, 10);
-            
-            const bunker = this.createBox(
-                "bunker",
-                { width: bunkerW, height: bunkerH, depth: bunkerD },
-                new Vector3(x, terrainHeight + bunkerH / 2, z),
-                "concrete",
-                chunkParent,
-                true
-            );
+            const bunker = this.createBox("bunker", { width: bunkerW, height: bunkerH, depth: bunkerD },
+                new Vector3(x, terrainHeight + bunkerH / 2, z), "concrete", chunkParent, true);
             
             // Амбразура
             const slitW = bunkerW * 0.5;
@@ -361,125 +295,58 @@ export class FrontlineGenerator extends BaseMapGenerator {
             slit.material = slitMat;
             slit.parent = chunkParent;
             slit.freezeWorldMatrix();
-        }
+        }, 31000 + (side === "allied" ? 1000 : 2000));
     }
     
     /**
-     * Генерация воронок
+     * Генерация воронок - детерминированная генерация
      */
     private generateCraters(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        // Воронки от взрывов в нейтральной полосе
-        const craterCount = random.int(10, 18);
-        
-        for (let i = 0; i < craterCount; i++) {
-            const x = random.range(8, size - 8);
-            const z = random.range(8, size - 8);
-            
-            const worldX = chunkX * size + x;
-            const worldZ = chunkZ * size + z;
-            if (this.isPositionInGarageArea(worldX, worldZ, 5)) continue;
-            
-            // Получаем высоту террейна в этой точке
+        // Воронки - детерминированная генерация
+        this.generateOnGrid(context, 25, 8, this.config.craterDensity, (worldX, worldZ, localRandom, x, z) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 5)) return;
             const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
-            
-            const craterRadius = random.range(3, 8);
-            const craterDepth = random.range(0.5, 1.5);
-            
-            // Воронка представлена как прямоугольные блоки вокруг центра (LOW POLY)
+            const craterRadius = localRandom.range(3, 8);
+            const craterDepth = localRandom.range(0.5, 1.5);
             const rimHeight = craterDepth * 0.5;
             const rimW = craterRadius * 0.4;
             
-            // Создаём квадратный обод из 4 прямоугольных блоков
-            // Север
-            const rimN = this.createBox(
-                "crater_rim_n",
-                { width: craterRadius * 2.2, height: rimHeight, depth: rimW },
-                new Vector3(x, terrainHeight + rimHeight / 2, z - craterRadius - rimW / 2),
-                "dirt",
-                chunkParent,
-                false
-            );
-            
-            // Юг
-            const rimS = this.createBox(
-                "crater_rim_s",
-                { width: craterRadius * 2.2, height: rimHeight, depth: rimW },
-                new Vector3(x, terrainHeight + rimHeight / 2, z + craterRadius + rimW / 2),
-                "dirt",
-                chunkParent,
-                false
-            );
-            
-            // Восток
-            const rimE = this.createBox(
-                "crater_rim_e",
-                { width: rimW, height: rimHeight, depth: craterRadius * 2.2 },
-                new Vector3(x + craterRadius + rimW / 2, terrainHeight + rimHeight / 2, z),
-                "dirt",
-                chunkParent,
-                false
-            );
-            
-            // Запад
-            const rimWest = this.createBox(
-                "crater_rim_w",
-                { width: rimW, height: rimHeight, depth: craterRadius * 2.2 },
-                new Vector3(x - craterRadius - rimW / 2, terrainHeight + rimHeight / 2, z),
-                "dirt",
-                chunkParent,
-                false
-            );
-        }
+            const rimN = this.createBox("crater_rim_n", { width: craterRadius * 2.2, height: rimHeight, depth: rimW },
+                new Vector3(x, terrainHeight + rimHeight / 2, z - craterRadius - rimW / 2), "dirt", chunkParent, false);
+            const rimS = this.createBox("crater_rim_s", { width: craterRadius * 2.2, height: rimHeight, depth: rimW },
+                new Vector3(x, terrainHeight + rimHeight / 2, z + craterRadius + rimW / 2), "dirt", chunkParent, false);
+            const rimE = this.createBox("crater_rim_e", { width: rimW, height: rimHeight, depth: craterRadius * 2.2 },
+                new Vector3(x + craterRadius + rimW / 2, terrainHeight + rimHeight / 2, z), "dirt", chunkParent, false);
+            const rimWest = this.createBox("crater_rim_w", { width: rimW, height: rimHeight, depth: craterRadius * 2.2 },
+                new Vector3(x - craterRadius - rimW / 2, terrainHeight + rimHeight / 2, z), "dirt", chunkParent, false);
+        }, 35000);
     }
     
     /**
-     * Генерация проволочных заграждений
+     * Генерация проволочных заграждений - детерминированная генерация
      */
     private generateWire(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        // Колючая проволока в нейтральной полосе
-        const wireCount = random.int(2, 5);
-        
-        for (let i = 0; i < wireCount; i++) {
-            const x = random.range(5, size - 5);
-            const z = random.range(5, size - 5);
-            
-            const worldX = chunkX * size + x;
-            const worldZ = chunkZ * size + z;
-            if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
-            
-            // Получаем высоту террейна в этой точке
+        // Колючая проволока - детерминированная генерация
+        this.generateOnGrid(context, 40, 20, this.config.wireDensity, (worldX, worldZ, localRandom, x, z) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 3)) return;
             const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
-            
-            const wireLength = random.range(8, 20);
+            const wireLength = localRandom.range(8, 20);
             const wireHeight = 1.2;
             
-            // Столбы
             for (let post = 0; post < 3; post++) {
                 const postX = x - wireLength / 2 + post * wireLength / 2;
-                const postMesh = this.createBox(
-                    "wire_post",
-                    { width: 0.15, height: wireHeight + 0.3, depth: 0.15 },
-                    new Vector3(postX, terrainHeight + (wireHeight + 0.3) / 2, z),
-                    "metalRust",
-                    chunkParent,
-                    false
-                );
+                const postMesh = this.createBox("wire_post", { width: 0.15, height: wireHeight + 0.3, depth: 0.15 },
+                    new Vector3(postX, terrainHeight + (wireHeight + 0.3) / 2, z), "metalRust", chunkParent, false);
             }
             
-            // Проволока (несколько горизонтальных линий)
             for (let line = 0; line < 3; line++) {
                 const lineY = terrainHeight + 0.3 + line * 0.4;
-                const wireMesh = MeshBuilder.CreateBox("wire", {
-                    width: wireLength,
-                    height: 0.05,
-                    depth: 0.05
-                }, this.scene);
+                const wireMesh = MeshBuilder.CreateBox("wire", { width: wireLength, height: 0.05, depth: 0.05 }, this.scene);
                 wireMesh.position = new Vector3(x, lineY, z);
-                
                 const wireMat = new StandardMaterial("wireMat", this.scene);
                 wireMat.diffuseColor = new Color3(0.3, 0.25, 0.2);
                 wireMat.specularColor = new Color3(0.5, 0.5, 0.5);
@@ -488,53 +355,32 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 wireMesh.freezeWorldMatrix();
             }
             
-            // Физика - невидимый барьер (замедляет танк)
-            const wirePhysics = MeshBuilder.CreateBox("wire_phys", {
-                width: wireLength,
-                height: wireHeight,
-                depth: 0.5
-            }, this.scene);
+            const wirePhysics = MeshBuilder.CreateBox("wire_phys", { width: wireLength, height: wireHeight, depth: 0.5 }, this.scene);
             wirePhysics.position = new Vector3(x, terrainHeight + wireHeight / 2, z);
             wirePhysics.isVisible = false;
             wirePhysics.parent = chunkParent;
             new PhysicsAggregate(wirePhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-        }
+        }, 36000);
     }
     
     /**
-     * Генерация разбитой техники
+     * Генерация разбитой техники - детерминированная генерация
      */
     private generateWrecks(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        // Подбитая техника (декорации)
-        const wreckCount = random.int(3, 6);
-        
-        for (let i = 0; i < wreckCount; i++) {
-            const x = random.range(15, size - 15);
-            const z = random.range(15, size - 15);
-            
-            const worldX = chunkX * size + x;
-            const worldZ = chunkZ * size + z;
-            if (this.isPositionInGarageArea(worldX, worldZ, 8)) continue;
-            
-            // Получаем высоту террейна в этой точке
+        // Подбитая техника - детерминированная генерация
+        this.generateOnGrid(context, 80, 9, 0.3, (worldX, worldZ, localRandom, x, z) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 8)) return;
             const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            const hullW = localRandom.range(4, 6);
+            const hullH = localRandom.range(1.5, 2.5);
+            const hullD = localRandom.range(6, 9);
             
-            // Подбитый танк (силуэт)
-            const hullW = random.range(4, 6);
-            const hullH = random.range(1.5, 2.5);
-            const hullD = random.range(6, 9);
-            
-            const hull = MeshBuilder.CreateBox("wreck_hull", {
-                width: hullW,
-                height: hullH,
-                depth: hullD
-            }, this.scene);
+            const hull = MeshBuilder.CreateBox("wreck_hull", { width: hullW, height: hullH, depth: hullD }, this.scene);
             hull.position = new Vector3(x, terrainHeight + hullH / 2, z);
-            hull.rotation.y = random.range(0, Math.PI * 2);
+            hull.rotation.y = localRandom.range(0, Math.PI * 2);
             
-            // Тёмный обгоревший материал
             const wreckMat = new StandardMaterial("wreckMat", this.scene);
             wreckMat.diffuseColor = new Color3(0.15, 0.12, 0.1);
             wreckMat.specularColor = new Color3(0, 0, 0);
@@ -543,40 +389,27 @@ export class FrontlineGenerator extends BaseMapGenerator {
             hull.freezeWorldMatrix();
             new PhysicsAggregate(hull, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
             
-            // Башня (может быть сбита)
-            if (random.chance(0.6)) {
+            if (localRandom.chance(0.6)) {
                 const turretSize = hullW * 0.6;
                 const turret = MeshBuilder.CreateBox("wreck_turret", {
-                    width: turretSize,
-                    height: turretSize * 0.7,
-                    depth: turretSize
+                    width: turretSize, height: turretSize * 0.7, depth: turretSize
                 }, this.scene);
                 
-                if (random.chance(0.4)) {
-                    // Башня сбита - лежит рядом
-                    turret.position = new Vector3(
-                        x + random.range(-3, 3),
-                        terrainHeight + turretSize * 0.35,
-                        z + random.range(-3, 3)
-                    );
-                    turret.rotation.x = random.range(-0.5, 0.5);
-                    turret.rotation.z = random.range(-0.5, 0.5);
+                if (localRandom.chance(0.4)) {
+                    turret.position = new Vector3(x + localRandom.range(-3, 3), terrainHeight + turretSize * 0.35, z + localRandom.range(-3, 3));
+                    turret.rotation.x = localRandom.range(-0.5, 0.5);
+                    turret.rotation.z = localRandom.range(-0.5, 0.5);
                 } else {
-                    // Башня на месте
                     turret.position = new Vector3(x, terrainHeight + hullH + turretSize * 0.35, z);
                 }
-                turret.rotation.y = random.range(0, Math.PI * 2);
+                turret.rotation.y = localRandom.range(0, Math.PI * 2);
                 turret.material = wreckMat;
                 turret.parent = chunkParent;
                 turret.freezeWorldMatrix();
             }
             
-            // Дым / огонь (простой визуальный эффект - вертикальный столб)
-            if (random.chance(0.3)) {
-                const smoke = MeshBuilder.CreateCylinder("smoke", {
-                    diameter: 1.5,
-                    height: 4
-                }, this.scene);
+            if (localRandom.chance(0.3)) {
+                const smoke = MeshBuilder.CreateCylinder("smoke", { diameter: 1.5, height: 4 }, this.scene);
                 smoke.position = new Vector3(x, terrainHeight + hullH + 2, z);
                 const smokeMat = new StandardMaterial("smokeMat", this.scene);
                 smokeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -585,46 +418,28 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 smoke.parent = chunkParent;
                 smoke.freezeWorldMatrix();
             }
-        }
+        }, 32000);
     }
     
     /**
      * Генерация баррикад
      */
     private generateBarricades(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        // Баррикады на вражеской стороне
-        const barricadeCount = random.int(2, 5);
-        
-        for (let i = 0; i < barricadeCount; i++) {
-            const x = random.range(8, size - 8);
-            const z = random.range(8, size - 8);
-            
-            const worldX = chunkX * size + x;
-            const worldZ = chunkZ * size + z;
-            if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
-            
-            // Получаем высоту террейна в этой точке
+        // Баррикады - детерминированная генерация
+        this.generateOnGrid(context, 35, 6, 0.3, (worldX, worldZ, localRandom, x, z) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 3)) return;
             const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
-            
-            const barricadeType = random.int(0, 2);
+            const barricadeType = localRandom.int(0, 2);
             
             if (barricadeType === 0) {
-                // Бетонные блоки
-                const blockW = random.range(3, 6);
-                const blockH = random.range(1.5, 2.5);
-                const block = this.createBox(
-                    "barricade",
-                    { width: blockW, height: blockH, depth: 1.5 },
-                    new Vector3(x, terrainHeight + blockH / 2, z),
-                    "concrete",
-                    chunkParent,
-                    true
-                );
-                block.rotation.y = random.range(-0.3, 0.3);
+                const blockW = localRandom.range(3, 6);
+                const blockH = localRandom.range(1.5, 2.5);
+                const block = this.createBox("barricade", { width: blockW, height: blockH, depth: 1.5 },
+                    new Vector3(x, terrainHeight + blockH / 2, z), "concrete", chunkParent, true);
+                block.rotation.y = localRandom.range(-0.3, 0.3);
             } else if (barricadeType === 1) {
-                // Противотанковые ежи
                 const beamLength = 3;
                 const beamThickness = 0.25;
                 
@@ -678,88 +493,56 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 sbPhysics.parent = chunkParent;
                 new PhysicsAggregate(sbPhysics, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
             }
-        }
+        }, 33000);
     }
     
     /**
-     * Генерация руин
+     * Генерация руин - детерминированная генерация
      */
     private generateRuins(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        // Разрушенные здания
-        if (!random.chance(0.7)) return;
-        
-        const x = random.range(15, size - 15);
-        const z = random.range(15, size - 15);
-        
-        const worldX = chunkX * size + x;
-        const worldZ = chunkZ * size + z;
-        if (this.isPositionInGarageArea(worldX, worldZ, 10)) return;
-        
-        // Получаем высоту террейна в этой точке
-        const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
-        
-        const ruinW = random.range(8, 15);
-        const ruinH = random.range(2, 5);
-        const ruinD = random.range(8, 12);
-        
-        // Остатки стен (неполный прямоугольник)
-        // Задняя стена
-        const backWall = this.createBox(
-            "ruin_back",
-            { width: ruinW, height: ruinH, depth: 0.5 },
-            new Vector3(x, terrainHeight + ruinH / 2, z - ruinD / 2),
-            "brick",
-            chunkParent,
-            true
-        );
-        
-        // Левая стена (частичная)
-        if (random.chance(0.7)) {
-            const leftH = ruinH * random.range(0.4, 0.8);
-            const leftWall = this.createBox(
-                "ruin_left",
-                { width: 0.5, height: leftH, depth: ruinD * 0.7 },
-                new Vector3(x - ruinW / 2, terrainHeight + leftH / 2, z),
-                "brick",
-                chunkParent,
-                true
-            );
-        }
-        
-        // Правая стена (частичная)
-        if (random.chance(0.5)) {
-            const rightH = ruinH * random.range(0.3, 0.6);
-            const rightWall = this.createBox(
-                "ruin_right",
-                { width: 0.5, height: rightH, depth: ruinD * 0.5 },
-                new Vector3(x + ruinW / 2, terrainHeight + rightH / 2, z + ruinD * 0.2),
-                "brickDark",
-                chunkParent,
-                true
-            );
-        }
-        
-        // Обломки на земле
-        const debrisCount = random.int(2, 5);
-        for (let i = 0; i < debrisCount; i++) {
-            const debrisX = x + random.range(-ruinW / 2, ruinW / 2);
-            const debrisZ = z + random.range(-ruinD / 2, ruinD / 2);
-            const debrisW = random.range(1, 3);
-            const debrisH = random.range(0.3, 1);
-            const debrisD = random.range(1, 3);
+        // Разрушенные здания - детерминированная генерация
+        this.generateOnGrid(context, 120, 15, 0.7, (worldX, worldZ, localRandom, x, z) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 10)) return;
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            const ruinW = localRandom.range(8, 15);
+            const ruinH = localRandom.range(2, 5);
+            const ruinD = localRandom.range(8, 12);
             
-            const debris = this.createBox(
-                "debris",
-                { width: debrisW, height: debrisH, depth: debrisD },
-                new Vector3(debrisX, terrainHeight + debrisH / 2, debrisZ),
-                random.pick(["brick", "concrete", "brickDark"]),
-                chunkParent,
-                true
-            );
-            debris.rotation.y = random.range(0, Math.PI);
-        }
+            const backWall = this.createBox("ruin_back", { width: ruinW, height: ruinH, depth: 0.5 },
+                new Vector3(x, terrainHeight + ruinH / 2, z - ruinD / 2), "brick", chunkParent, true);
+            
+            if (localRandom.chance(0.7)) {
+                const leftH = ruinH * localRandom.range(0.4, 0.8);
+                const leftWall = this.createBox("ruin_left", { width: 0.5, height: leftH, depth: ruinD * 0.7 },
+                    new Vector3(x - ruinW / 2, terrainHeight + leftH / 2, z), "brick", chunkParent, true);
+            }
+            
+            if (localRandom.chance(0.5)) {
+                const rightH = ruinH * localRandom.range(0.3, 0.6);
+                const rightWall = this.createBox("ruin_right", { width: 0.5, height: rightH, depth: ruinD * 0.5 },
+                    new Vector3(x + ruinW / 2, terrainHeight + rightH / 2, z + ruinD * 0.2), "brickDark", chunkParent, true);
+            }
+            
+            const debrisCount = localRandom.int(2, 5);
+            for (let i = 0; i < debrisCount; i++) {
+                const debrisX = x + localRandom.range(-ruinW / 2, ruinW / 2);
+                const debrisZ = z + localRandom.range(-ruinD / 2, ruinD / 2);
+                const debrisW = localRandom.range(1, 3);
+                const debrisH = localRandom.range(0.3, 1);
+                const debrisD = localRandom.range(1, 3);
+                
+                const debris = this.createBox("debris",
+                    { width: debrisW, height: debrisH, depth: debrisD },
+                    new Vector3(debrisX, terrainHeight + debrisH / 2, debrisZ),
+                    localRandom.pick(["brick", "concrete", "brickDark"]),
+                    chunkParent,
+                    true
+                );
+                debris.rotation.y = localRandom.range(0, Math.PI);
+            }
+        }, 40000);
     }
     
     /**
@@ -775,136 +558,75 @@ export class FrontlineGenerator extends BaseMapGenerator {
     }
     
     /**
-     * Генерация мешков с песком
+     * Генерация мешков с песком - детерминированная генерация
      */
     private generateSandbags(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        // Sandbag piles and barriers in no man's land
-        const sandbagCount = random.int(3, 7);
-        
-        for (let i = 0; i < sandbagCount; i++) {
-            const x = random.range(8, size - 8);
-            const z = random.range(8, size - 8);
-            const worldX = chunkX * size + x;
-            const worldZ = chunkZ * size + z;
-            
-            if (this.isPositionInGarageArea(worldX, worldZ, 3)) continue;
-            
-            // Получаем высоту террейна в этой точке
+        // Мешки с песком - детерминированная генерация
+        this.generateOnGrid(context, 40, 4, 0.4, (worldX, worldZ, localRandom, x, z) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 3)) return;
             const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
             
-            // Create sandbag pile
             for (let row = 0; row < 3; row++) {
                 for (let col = 0; col < 3 - row; col++) {
-                    const bag = this.createBox(
-                        "sandbag",
-                        { width: 1.2, height: 0.4, depth: 0.6 },
-                        new Vector3(
-                            x + (col - (3 - row - 1) / 2) * 1.2,
-                            terrainHeight + row * 0.4,
-                            z + random.range(-0.5, 0.5)
-                        ),
-                        "dirt",
-                        chunkParent,
-                        false
-                    );
+                    const bag = this.createBox("sandbag", { width: 1.2, height: 0.4, depth: 0.6 },
+                        new Vector3(x + (col - (3 - row - 1) / 2) * 1.2, terrainHeight + row * 0.4, z + localRandom.range(-0.5, 0.5)),
+                        "dirt", chunkParent, false);
                 }
             }
-        }
+        }, 38000);
     }
     
     /**
-     * Генерация артиллерийских позиций
+     * Генерация артиллерийских позиций - детерминированная генерация
      */
     private generateArtillery(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        const artilleryCount = random.int(2, 4);
-        for (let i = 0; i < artilleryCount; i++) {
-            const ax = random.range(15, size - 15);
-            const az = random.range(15, size - 15);
-            const aWorldX = chunkX * size + ax;
-            const aWorldZ = chunkZ * size + az;
-            if (this.isPositionInGarageArea(aWorldX, aWorldZ, 5)) continue;
+        // Артиллерия - детерминированная генерация
+        this.generateOnGrid(context, 120, 4, 0.25, (worldX, worldZ, localRandom, ax, az) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 5)) return;
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
             
-            // Получаем высоту террейна в этой точке
-            const terrainHeight = this.getTerrainHeight(aWorldX, aWorldZ, "wasteland");
+            const base = this.createBox("artilleryBase", { width: 3, height: 0.5, depth: 4 },
+                new Vector3(ax, terrainHeight + 0.25, az), "metalRust", chunkParent, true);
+            base.rotation.y = localRandom.range(0, Math.PI * 2);
             
-            // Основание орудия
-            const base = this.createBox(
-                "artilleryBase",
-                { width: 3, height: 0.5, depth: 4 },
-                new Vector3(ax, terrainHeight + 0.25, az),
-                "metalRust",
-                chunkParent,
-                true
-            );
-            base.rotation.y = random.range(0, Math.PI * 2);
-            
-            // Ствол орудия
-            const barrel = this.createBox(
-                "artilleryBarrel",
-                { width: 0.4, height: 0.4, depth: 4 },
-                new Vector3(ax, terrainHeight + 1.2, az + 2),
-                "metal",
-                chunkParent,
-                false
-            );
+            const barrel = this.createBox("artilleryBarrel", { width: 0.4, height: 0.4, depth: 4 },
+                new Vector3(ax, terrainHeight + 1.2, az + 2), "metal", chunkParent, false);
             barrel.rotation.x = -0.2;
             
-            // Щит
-            const shield = this.createBox(
-                "artilleryShield",
-                { width: 2.5, height: 1.5, depth: 0.1 },
-                new Vector3(ax, terrainHeight + 1, az),
-                "metalRust",
-                chunkParent,
-                false
-            );
+            const shield = this.createBox("artilleryShield", { width: 2.5, height: 1.5, depth: 0.1 },
+                new Vector3(ax, terrainHeight + 1, az), "metalRust", chunkParent, false);
             
-            // Ящики с боеприпасами рядом
-            const crateCount = random.int(2, 5);
+            const crateCount = localRandom.int(2, 5);
             for (let c = 0; c < crateCount; c++) {
-                const crate = MeshBuilder.CreateBox("ammoCrate", {
-                    width: 0.8,
-                    height: 0.5,
-                    depth: 0.6
-                }, this.scene);
-                crate.position = new Vector3(
-                    ax + random.range(-2, 2),
-                    terrainHeight + 0.25,
-                    az + random.range(-2, 2)
-                );
+                const crate = MeshBuilder.CreateBox("ammoCrate", { width: 0.8, height: 0.5, depth: 0.6 }, this.scene);
+                crate.position = new Vector3(ax + localRandom.range(-2, 2), terrainHeight + 0.25, az + localRandom.range(-2, 2));
                 const crateMat = new StandardMaterial("crateMat", this.scene);
                 crateMat.diffuseColor = new Color3(0.25, 0.2, 0.1);
                 crate.material = crateMat;
                 crate.parent = chunkParent;
                 crate.freezeWorldMatrix();
             }
-        }
+        }, 39000);
     }
     
     /**
-     * Генерация блиндажей
+     * Генерация блиндажей - детерминированная генерация
      */
     private generateDugouts(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        const dugoutCount = random.int(1, 3);
-        for (let i = 0; i < dugoutCount; i++) {
-            const dx = random.range(15, size - 15);
-            const dz = random.range(15, size - 15);
-            const dWorldX = chunkX * size + dx;
-            const dWorldZ = chunkZ * size + dz;
-            if (this.isPositionInGarageArea(dWorldX, dWorldZ, 6)) continue;
-            
-            // Получаем высоту террейна в этой точке
-            const terrainHeight = this.getTerrainHeight(dWorldX, dWorldZ, "wasteland");
+        // Блиндажи - детерминированная генерация
+        this.generateOnGrid(context, 100, 6, 0.2, (worldX, worldZ, localRandom, dx, dz) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 6)) return;
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
             
             // Блиндаж - полузаглублённое укрытие
-            const dugoutW = random.range(6, 10);
-            const dugoutD = random.range(8, 12);
+            const dugoutW = localRandom.range(6, 10);
+            const dugoutD = localRandom.range(8, 12);
             
             // Крыша (бревенчатый накат)
             const roof = MeshBuilder.CreateBox("dugoutRoof", {
@@ -939,55 +661,35 @@ export class FrontlineGenerator extends BaseMapGenerator {
                 chunkParent,
                 false
             );
-        }
+        }, 41000);
     }
     
     /**
-     * Генерация затопленных воронок
+     * Генерация затопленных воронок - детерминированная генерация
      */
     private generateWaterCraters(context: ChunkGenerationContext): void {
-        const { chunkX, chunkZ, size, random, chunkParent } = context;
+        const { chunkParent } = context;
         
-        const waterCraterCount = random.int(2, 5);
-        for (let i = 0; i < waterCraterCount; i++) {
-            const cx = random.range(10, size - 10);
-            const cz = random.range(10, size - 10);
-            const cWorldX = chunkX * size + cx;
-            const cWorldZ = chunkZ * size + cz;
-            if (this.isPositionInGarageArea(cWorldX, cWorldZ, 4)) continue;
+        // Затопленные воронки - детерминированная генерация
+        this.generateOnGrid(context, 60, 5, 0.3, (worldX, worldZ, localRandom, cx, cz) => {
+            if (this.isPositionInGarageArea(worldX, worldZ, 4)) return;
             
-            // Получаем высоту террейна в этой точке
-            const terrainHeight = this.getTerrainHeight(cWorldX, cWorldZ, "wasteland");
+            const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
+            const radius = localRandom.range(3, 6);
             
-            const radius = random.range(3, 6);
-            
-            // Затопленная воронка
-            const water = MeshBuilder.CreateCylinder("waterCrater", {
-                diameter: radius * 2,
-                height: 0.1
-            }, this.scene);
+            const water = MeshBuilder.CreateCylinder("waterCrater", { diameter: radius * 2, height: 0.1 }, this.scene);
             water.position = new Vector3(cx, terrainHeight - 0.3, cz);
             water.material = this.getMat("water");
             water.parent = chunkParent;
             water.freezeWorldMatrix();
             
-            // Грязевые края
             for (let e = 0; e < 6; e++) {
                 const angle = (e / 6) * Math.PI * 2;
-                const mud = this.createBox(
-                    "mud",
-                    { width: 1.5, height: 0.4, depth: 1.5 },
-                    new Vector3(
-                        cx + Math.cos(angle) * (radius - 0.5),
-                        terrainHeight + 0.1,
-                        cz + Math.sin(angle) * (radius - 0.5)
-                    ),
-                    "dirt",
-                    chunkParent,
-                    false
-                );
+                const mud = this.createBox("mud", { width: 1.5, height: 0.4, depth: 1.5 },
+                    new Vector3(cx + Math.cos(angle) * (radius - 0.5), terrainHeight + 0.1, cz + Math.sin(angle) * (radius - 0.5)),
+                    "dirt", chunkParent, false);
             }
-        }
+        }, 37000);
     }
 }
 

@@ -23,31 +23,31 @@ export class ChatSystem {
     private messageElements: Map<number, TextBlock> = new Map();
     private scrollViewer: ScrollViewer | null = null;
     private messagesArea: Rectangle | null = null;
-    
+
     // Настройки
     private autoScroll = true;
     private showTimestamps = true;
     private messageLifetime = 30000; // 30 секунд для обычных сообщений
     private importantMessageLifetime = 60000; // 60 секунд для важных
-    
+
     // Звуковые уведомления
     private soundManager: any = null;
-    
+
     // Фильтры сообщений
     private activeFilters: Set<MessageType> = new Set(["system", "info", "warning", "error", "success", "log", "combat", "economy"]);
     private filterButtons: Map<MessageType, Rectangle> = new Map();
-    
+
     // Группировка сообщений
     private messageGroups: Map<string, { count: number, lastTime: number }> = new Map();
     private groupTimeout = 2000; // 2 секунды для группировки
-    
+
     // Анимации
     private animationTime = 0;
-    
+
     // Поиск
     private searchText: string = "";
     private searchActive = false;
-    
+
     // Command system
     private commandSystem: CommandSystem | null = null;
     private scriptEngine: any = null; // Lazy loaded from "./scriptEngine"
@@ -56,8 +56,10 @@ export class ChatSystem {
     private commandInput: HTMLInputElement | null = null;
     private _commandHistory: string[] = [];
     private _commandHistoryIndex: number = -1;
+
     private game: any = null;
-    
+    public onMessageSent: ((message: string) => void) | null = null;
+
     constructor(scene: Scene) {
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("ChatUI", false, scene);
         this.guiTexture.isForeground = true;
@@ -66,7 +68,7 @@ export class ChatSystem {
         this.createChatUI();
         this.startCleanupTimer();
     }
-    
+
     /**
      * Инициализация ThemeManager (ленивая загрузка)
      */
@@ -76,7 +78,7 @@ export class ChatSystem {
             this.themeManager = new TerminalThemeManager();
         }
     }
-    
+
     setGame(game: any): void {
         this.game = game;
         if (this.commandSystem) {
@@ -84,7 +86,7 @@ export class ChatSystem {
         }
         this.initAutomation();
     }
-    
+
     /**
      * Инициализация Automation (ленивая загрузка)
      */
@@ -97,7 +99,7 @@ export class ChatSystem {
             }
         }
     }
-    
+
     /**
      * Инициализация ScriptEngine (ленивая загрузка)
      */
@@ -107,11 +109,11 @@ export class ChatSystem {
             this.scriptEngine = new ScriptEngine(this.commandSystem);
         }
     }
-    
+
     setSoundManager(soundManager: any) {
         this.soundManager = soundManager;
     }
-    
+
     private createChatUI(): void {
         // === SYSTEM TERMINAL - ПРОЗРАЧНЫЙ, ПРЯМОУГОЛЬНЫЙ, СВОРАЧИВАЕМЫЙ ===
         // Удаляем старый терминал, если он существует
@@ -119,7 +121,7 @@ export class ChatSystem {
         if (existingTerminal) {
             existingTerminal.remove();
         }
-        
+
         // Автоматически очищаем некорректные сохраненные данные
         try {
             const key = `window_position_system-terminal`;
@@ -128,7 +130,7 @@ export class ChatSystem {
                 const data = JSON.parse(saved);
                 const screenWidth = window.innerWidth;
                 const screenHeight = window.innerHeight;
-                
+
                 // Если размеры больше 80% экрана - это некорректно, очищаем
                 if (data.width && (data.width > screenWidth * 0.8 || data.width > 1200)) {
                     // Clearing invalid terminal width
@@ -142,27 +144,27 @@ export class ChatSystem {
             // Если ошибка при чтении - очищаем
             try {
                 localStorage.removeItem(`window_position_system-terminal`);
-            } catch {}
+            } catch { }
         }
-        
+
         // Загружаем сохраненные позицию и размер
         const savedPosition = this.loadWindowPosition("system-terminal");
-        
+
         // Calculate scale factor for responsive sizing
         const baseWidth = 1920;
         const baseHeight = 1080;
         const scaleFactor = Math.min(window.innerWidth / baseWidth, window.innerHeight / baseHeight, 1.5);
-        
+
         // Ограничиваем размеры экраном для предотвращения перекрытия всего экрана
         const maxWidth = Math.min(window.innerWidth - 20, 1200);
         const maxHeight = Math.min(window.innerHeight - 40, 800);
-        
+
         let defaultLeft = savedPosition?.left ?? 10;
         let defaultTop = savedPosition?.top ?? 120;
         let defaultWidth = savedPosition?.width ?? 500;
         let defaultHeight = savedPosition?.height ?? 250;
         const defaultCollapsed = savedPosition?.collapsed !== undefined ? savedPosition.collapsed : true;
-        
+
         // Проверяем и ограничиваем размеры
         if (defaultWidth > maxWidth) {
             defaultWidth = maxWidth;
@@ -182,13 +184,13 @@ export class ChatSystem {
             }
         }
         if (defaultHeight < 150) defaultHeight = 150;
-        
+
         // Проверяем позицию, чтобы терминал не выходил за границы экрана
         if (defaultLeft < 0) defaultLeft = 10;
         if (defaultLeft + defaultWidth > window.innerWidth) defaultLeft = window.innerWidth - defaultWidth - 10;
         if (defaultTop < 0) defaultTop = 10;
         if (defaultTop + defaultHeight > window.innerHeight) defaultTop = window.innerHeight - defaultHeight - 10;
-        
+
         // Создаём HTML контейнер для перетаскивания и изменения размера
         const htmlContainer = document.createElement("div");
         htmlContainer.id = "system-terminal";
@@ -197,7 +199,7 @@ export class ChatSystem {
         const scaledHeight = Math.max(150, Math.min(800, defaultHeight * scaleFactor));
         const scaledLeft = defaultLeft * scaleFactor;
         const scaledTop = defaultTop * scaleFactor;
-        
+
         htmlContainer.style.cssText = `
             position: fixed;
             left: ${scaledLeft}px;
@@ -220,10 +222,10 @@ export class ChatSystem {
             backdrop-filter: blur(4px);
         `;
         document.body.appendChild(htmlContainer);
-        
+
         // Состояние сворачивания
         let isCollapsed = defaultCollapsed;
-        
+
         // Заголовок для перетаскивания
         const header = document.createElement("div");
         const headerHeight = 30 * scaleFactor;
@@ -243,7 +245,7 @@ export class ChatSystem {
             border-radius: ${4 * scaleFactor}px ${4 * scaleFactor}px 0 0;
         `;
         htmlContainer.appendChild(header);
-        
+
         const headerText = document.createElement("span");
         headerText.textContent = isCollapsed ? "> SYSTEM TERMINAL [COLLAPSED]" : "> SYSTEM TERMINAL [ACTIVE]";
         headerText.style.cssText = `
@@ -255,7 +257,7 @@ export class ChatSystem {
             letter-spacing: ${0.5 * scaleFactor}px;
         `;
         header.appendChild(headerText);
-        
+
         // Область сообщений
         const messagesDiv = document.createElement("div");
         messagesDiv.id = "terminal-messages";
@@ -273,7 +275,7 @@ export class ChatSystem {
             scrollbar-width: thin;
             scrollbar-color: rgba(0, 255, 4, 0.4) rgba(0, 10, 0, 0.2);
         `;
-        
+
         // Стилизация скроллбара для WebKit
         const scrollbarStyle = document.createElement('style');
         scrollbarStyle.textContent = `
@@ -294,7 +296,7 @@ export class ChatSystem {
         document.head.appendChild(scrollbarStyle);
         htmlContainer.appendChild(messagesDiv);
         (htmlContainer as any)._messagesDiv = messagesDiv;
-        
+
         // Поле ввода команд
         const commandInput = document.createElement("input");
         commandInput.type = "text";
@@ -315,7 +317,7 @@ export class ChatSystem {
         `;
         htmlContainer.appendChild(commandInput);
         this.commandInput = commandInput;
-        
+
         // Обработка ввода команд
         commandInput.addEventListener("keydown", async (e) => {
             if (e.key === "Enter") {
@@ -358,7 +360,7 @@ export class ChatSystem {
                 await this.toggleMacroRecording();
             }
         });
-        
+
         // Область для расходников (внизу терминала)
         const consumablesArea = document.createElement("div");
         consumablesArea.id = "terminal-consumables";
@@ -374,14 +376,14 @@ export class ChatSystem {
         `;
         htmlContainer.appendChild(consumablesArea);
         (htmlContainer as any)._consumablesArea = consumablesArea;
-        
+
         // Единая система обработки событий мыши
         let isDragging = false;
         let isResizing = false;
         let dragStart = { x: 0, y: 0 };
         let resizeStart = { x: 0, y: 0, width: 0, height: 0 };
         let resizeEdge: 'right' | 'bottom' | 'corner' | null = null;
-        
+
         // Создаём элементы для изменения размера ПЕРЕД обработчиком кнопки сворачивания
         const resizeHandle = document.createElement("div");
         resizeHandle.style.cssText = `
@@ -396,7 +398,7 @@ export class ChatSystem {
             display: ${isCollapsed ? 'none' : 'block'};
         `;
         htmlContainer.appendChild(resizeHandle);
-        
+
         // Обработчик изменения размера (правый нижний угол)
         resizeHandle.addEventListener("mousedown", (e) => {
             e.stopPropagation();
@@ -411,7 +413,7 @@ export class ChatSystem {
             document.body.style.cursor = "nwse-resize";
             document.body.style.userSelect = "none";
         });
-        
+
         // Обработчик изменения размера (правый край)
         const resizeRightHandle = document.createElement("div");
         resizeRightHandle.style.cssText = `
@@ -426,7 +428,7 @@ export class ChatSystem {
             display: ${isCollapsed ? 'none' : 'block'};
         `;
         htmlContainer.appendChild(resizeRightHandle);
-        
+
         resizeRightHandle.addEventListener("mousedown", (e) => {
             e.stopPropagation();
             e.preventDefault();
@@ -438,7 +440,7 @@ export class ChatSystem {
             document.body.style.cursor = "ew-resize";
             document.body.style.userSelect = "none";
         });
-        
+
         // Обработчик изменения размера (нижний край)
         const resizeBottomHandle = document.createElement("div");
         resizeBottomHandle.style.cssText = `
@@ -453,7 +455,7 @@ export class ChatSystem {
             display: ${isCollapsed ? 'none' : 'block'};
         `;
         htmlContainer.appendChild(resizeBottomHandle);
-        
+
         resizeBottomHandle.addEventListener("mousedown", (e) => {
             e.stopPropagation();
             e.preventDefault();
@@ -465,11 +467,11 @@ export class ChatSystem {
             document.body.style.cursor = "ns-resize";
             document.body.style.userSelect = "none";
         });
-        
+
         // Кнопка сворачивания/разворачивания (в правом верхнем углу терминала)
         const collapseBtn = document.createElement("button");
         collapseBtn.textContent = isCollapsed ? "▼" : "▲";
-            collapseBtn.style.cssText = `
+        collapseBtn.style.cssText = `
             position: absolute;
             top: 2px;
             right: 2px;
@@ -508,7 +510,7 @@ export class ChatSystem {
             e.stopPropagation();
             e.preventDefault();
             isCollapsed = !isCollapsed;
-            
+
             if (isCollapsed) {
                 messagesDiv.style.display = "none";
                 consumablesArea.style.display = "none";
@@ -533,7 +535,7 @@ export class ChatSystem {
                 resizeRightHandle.style.display = 'block';
                 resizeBottomHandle.style.display = 'block';
             }
-            
+
             this.saveWindowPosition("system-terminal", {
                 left: parseInt(htmlContainer.style.left) || defaultLeft,
                 top: parseInt(htmlContainer.style.top) || defaultTop,
@@ -545,12 +547,12 @@ export class ChatSystem {
         });
         // Добавляем кнопку в контейнер терминала (не в header) для absolute positioning
         htmlContainer.appendChild(collapseBtn);
-        
+
         // Перетаскивание за header
         header.addEventListener("mousedown", (e) => {
             const target = e.target as HTMLElement;
             // Не перетаскиваем, если клик по кнопке сворачивания или по элементам изменения размера
-            if (target === collapseBtn || collapseBtn.contains(target) || 
+            if (target === collapseBtn || collapseBtn.contains(target) ||
                 target === resizeHandle || target === resizeRightHandle || target === resizeBottomHandle) return;
             isDragging = true;
             const rect = htmlContainer.getBoundingClientRect();
@@ -558,52 +560,52 @@ export class ChatSystem {
             dragStart.y = e.clientY - rect.top;
             e.preventDefault();
         });
-        
+
         // Предотвращаем перетаскивание при клике на кнопку
         collapseBtn.addEventListener("mousedown", (e) => {
             e.stopPropagation();
         });
-        
+
         // Единый обработчик mousemove
         const handleMouseMove = (e: MouseEvent) => {
             if (isResizing && !isCollapsed) {
                 const deltaX = e.clientX - resizeStart.x;
                 const deltaY = e.clientY - resizeStart.y;
-                
+
                 let newWidth = resizeStart.width;
                 let newHeight = resizeStart.height;
-                
+
                 const maxWidth = Math.min(window.innerWidth - 20, 1200);
                 const maxHeight = Math.min(window.innerHeight - 40, 800);
-                
+
                 if (resizeEdge === 'right' || resizeEdge === 'corner') {
                     newWidth = Math.max(300, Math.min(maxWidth, resizeStart.width + deltaX));
                 }
                 if (resizeEdge === 'bottom' || resizeEdge === 'corner') {
                     newHeight = Math.max(150, Math.min(maxHeight, resizeStart.height + deltaY));
                 }
-                
+
                 htmlContainer.style.width = `${newWidth}px`;
                 htmlContainer.style.height = `${newHeight}px`;
             } else if (isDragging) {
                 // Ограничиваем перетаскивание границами экрана
                 let newLeft = e.clientX - dragStart.x;
                 let newTop = e.clientY - dragStart.y;
-                
+
                 const rect = htmlContainer.getBoundingClientRect();
                 const minLeft = 0;
                 const minTop = 0;
                 const maxLeft = window.innerWidth - rect.width;
                 const maxTop = window.innerHeight - (isCollapsed ? 30 : rect.height);
-                
+
                 newLeft = Math.max(minLeft, Math.min(maxLeft, newLeft));
                 newTop = Math.max(minTop, Math.min(maxTop, newTop));
-                
+
                 htmlContainer.style.left = `${newLeft}px`;
                 htmlContainer.style.top = `${newTop}px`;
             }
         };
-        
+
         // Единый обработчик mouseup
         const handleMouseUp = () => {
             if (isDragging || isResizing) {
@@ -623,23 +625,23 @@ export class ChatSystem {
             document.body.style.cursor = "";
             document.body.style.userSelect = "";
         };
-        
+
         document.addEventListener("mousemove", handleMouseMove);
         document.addEventListener("mouseup", handleMouseUp);
-        
+
         // Сохраняем ссылку на HTML контейнер
         (this as any)._htmlContainer = htmlContainer;
-        
+
         // Создаём GUI контейнер для совместимости (скрыт)
         this.chatContainer = new Rectangle("chatContainer");
         this.chatContainer.isVisible = false;
         this.guiTexture.addControl(this.chatContainer);
-        
+
         // Область сообщений с прокруткой
         this.scrollViewer = new ScrollViewer("chatScrollViewer");
         this.scrollViewer.isVisible = false;
         this.chatContainer.addControl(this.scrollViewer);
-        
+
         // Контейнер для сообщений
         this.messagesArea = new Rectangle("messagesArea");
         this.messagesArea.width = 1;
@@ -648,25 +650,25 @@ export class ChatSystem {
         this.messagesArea.thickness = 0;
         this.messagesArea.background = "#00000000";
         this.scrollViewer.addControl(this.messagesArea);
-        
+
         // Запуск анимаций
         this.startAnimations();
     }
-    
+
     // Обновить расходники в System Terminal
     updateConsumables(consumables: Map<number, any>): void {
         const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
         if (!htmlContainer) return;
-        
+
         const consumablesArea = htmlContainer.querySelector("#terminal-consumables") as HTMLDivElement;
         if (!consumablesArea) return;
-        
+
         // Вычисляем scaleFactor для текущего размера экрана
         const scaleFactor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1.5);
-        
+
         // Очищаем старые слоты
         consumablesArea.innerHTML = "";
-        
+
         // Создаём слоты расходников
         for (let i = 1; i <= 5; i++) {
             const slotSize = 40 * scaleFactor;
@@ -682,11 +684,11 @@ export class ChatSystem {
                 justify-content: center;
                 position: relative;
             `;
-            
+
             const consumable = consumables.get(i);
             if (consumable) {
                 slot.style.borderColor = consumable.color || "#0f0";
-                
+
                 // Номер клавиши
                 const key = document.createElement("div");
                 key.textContent = `${i}`;
@@ -699,7 +701,7 @@ export class ChatSystem {
                     font-weight: bold;
                 `;
                 slot.appendChild(key);
-                
+
                 // Иконка
                 const icon = document.createElement("div");
                 icon.textContent = consumable.icon || "?";
@@ -708,7 +710,7 @@ export class ChatSystem {
                     font-size: clamp(14px, 1.5vw, 18px);
                 `;
                 slot.appendChild(icon);
-                
+
                 // Название
                 const name = document.createElement("div");
                 name.textContent = consumable.name || "";
@@ -732,18 +734,18 @@ export class ChatSystem {
                 `;
                 slot.appendChild(key);
             }
-            
+
             consumablesArea.appendChild(slot);
         }
     }
-    
+
     // Создать кнопки фильтров (зарезервировано для будущего использования)
     // @ts-ignore - метод зарезервирован для будущей реализации
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _createFilterButtons(): void {
         // Метод зарезервирован для будущей реализации фильтров
         if (!this.chatContainer) return;
-        
+
         const filterContainer = new Rectangle("filterContainer");
         filterContainer.width = 1;
         filterContainer.height = "25px";
@@ -754,10 +756,10 @@ export class ChatSystem {
         filterContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         filterContainer.top = "30px";
         this.chatContainer.addControl(filterContainer);
-        
+
         const types: MessageType[] = ["system", "info", "warning", "error", "success", "combat", "economy"];
         const icons = ["⚙", "ℹ", "⚠", "✖", "✓", "⚔", "💰"];
-        
+
         types.forEach((type, index) => {
             const button = new Rectangle(`filter_${type}`);
             button.width = "50px";
@@ -769,14 +771,14 @@ export class ChatSystem {
             button.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             button.left = `${5 + index * 55}px`;
             button.top = "2px";
-            
+
             const buttonText = new TextBlock(`filterText_${type}`);
             buttonText.text = icons[index] ?? "";
             buttonText.color = this.getColorForType(type);
             buttonText.fontSize = 10;
             buttonText.fontFamily = "Courier New, monospace";
             button.addControl(buttonText);
-            
+
             // Обработчик клика
             button.onPointerClickObservable.add(() => {
                 if (this.activeFilters.has(type)) {
@@ -788,47 +790,47 @@ export class ChatSystem {
                 }
                 this.updateMessages();
             });
-            
+
             filterContainer.addControl(button);
             this.filterButtons.set(type, button);
         });
     }
-    
+
     // Запуск анимаций (теперь вызывается из централизованного update)
     private startAnimations(): void {
         // Анимации теперь обновляются через update() метод
     }
-    
+
     // Обновление анимаций (вызывается из централизованного update)
     update(deltaTime: number): void {
         this.animationTime += deltaTime;
         this.updateActivityIndicator();
     }
-    
+
     // Обновить индикатор активности
     private updateActivityIndicator(): void {
         // activityIndicator удален
     }
-    
+
     // Сохранение позиции и размера окна
     private saveWindowPosition(windowId: string, position: { left: number; top: number | null; bottom: number | null; width: number; height: number; collapsed: boolean }): void {
         try {
             // Проверяем корректность данных перед сохранением
             const maxWidth = Math.min(window.innerWidth - 20, 1200);
             const maxHeight = Math.min(window.innerHeight - 40, 800);
-            
+
             // Ограничиваем размеры
             if (position.width > maxWidth) position.width = maxWidth;
             if (position.width < 300) position.width = 300;
             if (position.height > maxHeight) position.height = maxHeight;
             if (position.height < 150) position.height = 150;
-            
+
             // Проверяем позицию
             if (position.left < 0) position.left = 10;
             if (position.left + position.width > window.innerWidth) position.left = window.innerWidth - position.width - 10;
             if (position.top !== null && position.top < 0) position.top = 10;
             if (position.top !== null && position.top + position.height > window.innerHeight) position.top = window.innerHeight - position.height - 10;
-            
+
             const key = `window_position_${windowId}`;
             localStorage.setItem(key, JSON.stringify(position));
         } catch (e) {
@@ -837,7 +839,7 @@ export class ChatSystem {
             }
         }
     }
-    
+
     // Загрузка позиции и размера окна
     private loadWindowPosition(windowId: string): { left: number; top: number | null; bottom: number | null; width: number; height: number; collapsed: boolean } | null {
         try {
@@ -845,11 +847,11 @@ export class ChatSystem {
             const saved = localStorage.getItem(key);
             if (saved) {
                 const data = JSON.parse(saved);
-                
+
                 // Проверяем корректность данных и сбрасываем, если они некорректны
                 const maxWidth = Math.min(window.innerWidth - 20, 1200);
                 const maxHeight = Math.min(window.innerHeight - 40, 800);
-                
+
                 // Если размеры слишком большие (больше 80% экрана), сбрасываем
                 if (data.width && (data.width > maxWidth || data.width > window.innerWidth * 0.8)) {
                     if (loggingSettings?.getLevel() >= LogLevel.DEBUG) {
@@ -863,7 +865,7 @@ export class ChatSystem {
                     localStorage.removeItem(key);
                     return null;
                 }
-                
+
                 return data;
             }
         } catch (e) {
@@ -872,11 +874,11 @@ export class ChatSystem {
             try {
                 const key = `window_position_${windowId}`;
                 localStorage.removeItem(key);
-            } catch {}
+            } catch { }
         }
         return null;
     }
-    
+
     // Добавить сообщение с типом
     addMessage(text: string, type: MessageType = "system", priority: number = 0): void {
         const message: ChatMessage = {
@@ -887,9 +889,9 @@ export class ChatSystem {
             icon: this.getIconForType(type),
             priority: priority
         };
-        
+
         this.messages.push(message);
-        
+
         // Ограничиваем количество сообщений
         if (this.messages.length > this.maxMessages) {
             const removed = this.messages.shift();
@@ -901,7 +903,7 @@ export class ChatSystem {
                 }
             }
         }
-        
+
         // Звуковое уведомление для важных сообщений
         if (priority >= 1 && this.soundManager) {
             try {
@@ -916,7 +918,7 @@ export class ChatSystem {
                 console.warn("[ChatSystem] Sound error:", e);
             }
         }
-        
+
         // Группировка одинаковых сообщений
         const messageKey = `${type}:${text}`;
         const existingGroup = this.messageGroups.get(messageKey);
@@ -931,17 +933,17 @@ export class ChatSystem {
         } else {
             this.messageGroups.set(messageKey, { count: 1, lastTime: Date.now() });
         }
-        
+
         // Очистка старых групп
         this.messageGroups.forEach((group, key) => {
             if (Date.now() - group.lastTime > this.groupTimeout * 2) {
                 this.messageGroups.delete(key);
             }
         });
-        
+
         this.updateMessages();
     }
-    
+
     // Устаревший метод для совместимости
     addMessageOld(text: string, _sender: string = "System", color: string = "#0f0"): void {
         let type: MessageType = "system";
@@ -949,50 +951,73 @@ export class ChatSystem {
         else if (color === "#ff0") type = "warning";
         else if (color === "#0f0") type = "success";
         else if (color === "#0ff") type = "info";
-        
+
         this.addMessage(text, type, 0);
     }
-    
+
     /**
      * Выполнение команды
      */
     private async executeCommand(command: string): Promise<void> {
         if (!this.commandSystem) return;
-        
+
         // Показываем введённую команду
         this.addMessage(`> ${command}`, "system");
-        
+
         // Запись в макрос (если запись активна)
         if (this.scriptEngine && (this.scriptEngine as any).isRecording) {
             (this.scriptEngine as any).recordCommand(command);
         }
-        
+
         try {
+            // Если сообщение не начинается с /, считаем его чатом
+            if (!command.startsWith('/') && !command.startsWith('theme ') && !command.startsWith('script ') && !command.startsWith('macro ')) {
+                if (this.onMessageSent) {
+                    this.onMessageSent(command);
+                    // Добавляем сообщение локально для мгновенного отклика (опционально, сервер пришлет обратно)
+                    // Но лучше ждать сервер
+                    return;
+                }
+            }
+
+            // Убираем / если есть, для обработки локальных команд
+            // Но CommandSystem может ожидать команды без слэша.
+            // Стандартное поведение: CommandSystem обрабатывает "help", "god", etc.
+            // Значит если строка начинается с /, убираем его и передаем в CommandSystem.
+            // Если не начинается с / (и не обработано выше как чат), то это может быть system command?
+            // Предположим, что CommandSystem обрабатывает всё что ей дали. 
+            // Но мы решили что текст без / это чат.
+
+            let commandToExecute = command;
+            if (command.startsWith('/')) {
+                commandToExecute = command.substring(1);
+            }
+
             // Проверка на специальные команды тем
-            if (command.startsWith('theme ')) {
-                await this._handleThemeCommand(command);
+            if (commandToExecute.startsWith('theme ')) {
+                await this._handleThemeCommand(commandToExecute);
                 return;
             }
-            
+
             // Проверка на специальные команды скриптов
-            if (command.startsWith('script ')) {
-                await this.handleScriptCommand(command);
+            if (commandToExecute.startsWith('script ')) {
+                await this.handleScriptCommand(commandToExecute);
                 return;
             }
-            
-            if (command.startsWith('macro ')) {
-                await this.handleMacroCommand(command);
+
+            if (commandToExecute.startsWith('macro ')) {
+                await this.handleMacroCommand(commandToExecute);
                 return;
             }
-            
-            const result = await this.commandSystem.execute(command);
-            
+
+            const result = await this.commandSystem.execute(commandToExecute);
+
             // Обработка специальных команд
             if (result === 'CLEAR') {
                 this.clearMessages();
                 return;
             }
-            
+
             // Показываем результат
             if (result) {
                 // Разбиваем многострочный результат
@@ -1007,17 +1032,17 @@ export class ChatSystem {
             this.addMessage(`Error: ${error.message || String(error)}`, "error");
         }
     }
-    
+
     /**
      * Обработка команд скриптов
      */
     private async handleScriptCommand(command: string): Promise<void> {
         await this.initScriptEngine();
         if (!this.scriptEngine) return;
-        
+
         const args = command.split(' ').slice(1);
         const action = args[0];
-        
+
         switch (action) {
             case 'list':
                 const scripts = (this.scriptEngine as any).getScripts();
@@ -1027,7 +1052,7 @@ export class ChatSystem {
                     this.addMessage(`Scripts: ${scripts.join(", ")}`, "info");
                 }
                 break;
-                
+
             case 'run':
                 if (args.length < 2) {
                     this.addMessage("Usage: script run <name>", "error");
@@ -1040,7 +1065,7 @@ export class ChatSystem {
                     this.addMessage(`Error: ${error.message}`, "error");
                 }
                 break;
-                
+
             case 'save':
                 if (args.length < 3) {
                     this.addMessage("Usage: script save <name> <script>", "error");
@@ -1051,22 +1076,22 @@ export class ChatSystem {
                 (this.scriptEngine as any).saveScript(scriptName, scriptContent);
                 this.addMessage(`Script "${scriptName}" saved`, "success");
                 break;
-                
+
             default:
                 this.addMessage("Usage: script [list|run|save]", "error");
         }
     }
-    
+
     /**
      * Обработка команд макросов
      */
     private async handleMacroCommand(command: string): Promise<void> {
         await this.initScriptEngine();
         if (!this.scriptEngine) return;
-        
+
         const args = command.split(' ').slice(1);
         const action = args[0];
-        
+
         switch (action) {
             case 'list':
                 const macros = (this.scriptEngine as any).getMacros();
@@ -1076,7 +1101,7 @@ export class ChatSystem {
                     this.addMessage(`Macros: ${macros.join(", ")}`, "info");
                 }
                 break;
-                
+
             case 'run':
                 if (args.length < 2) {
                     this.addMessage("Usage: macro run <name>", "error");
@@ -1089,29 +1114,29 @@ export class ChatSystem {
                     this.addMessage(`Error: ${error.message}`, "error");
                 }
                 break;
-                
+
             default:
                 this.addMessage("Usage: macro [list|run]", "error");
         }
     }
-    
+
     /**
      * Обработка команд тем
      */
     private async _handleThemeCommand(command: string): Promise<void> {
         await this.initThemeManager();
         if (!this.themeManager) return;
-        
+
         const args = command.split(' ').slice(1);
         const action = args[0];
-        
+
         switch (action) {
             case 'list':
                 const themes = (this.themeManager as any).getThemes();
                 const themeNames = themes.map((t: any) => t.name).join(', ');
                 this.addMessage(`Available themes: ${themeNames}`, "info");
                 break;
-                
+
             case 'set':
                 if (args.length < 2) {
                     this.addMessage("Usage: theme set <name>", "error");
@@ -1126,40 +1151,40 @@ export class ChatSystem {
                     this.addMessage(`Theme "${themeName}" not found`, "error");
                 }
                 break;
-                
+
             default:
                 this.addMessage("Usage: theme [list|set <name>]", "error");
         }
     }
-    
+
     /**
      * Добавление команды в историю
      */
     private addToHistory(command: string): void {
         if (!command.trim()) return;
-        
+
         // Не добавляем дубликаты подряд
-        if (this._commandHistory.length > 0 && 
+        if (this._commandHistory.length > 0 &&
             this._commandHistory[this._commandHistory.length - 1] === command) {
             return;
         }
-        
+
         this._commandHistory.push(command);
         this._commandHistoryIndex = this._commandHistory.length;
-        
+
         // Ограничиваем размер истории (максимум 100 команд)
         if (this._commandHistory.length > 100) {
             this._commandHistory.shift();
             this._commandHistoryIndex--;
         }
     }
-    
+
     /**
      * Получение команды из истории для навигации
      */
     private getHistory(direction: 'up' | 'down'): string | null {
         if (this._commandHistory.length === 0) return null;
-        
+
         if (direction === 'up') {
             // Перемещаемся назад по истории
             if (this._commandHistoryIndex > 0) {
@@ -1178,16 +1203,16 @@ export class ChatSystem {
             }
         }
     }
-    
+
     /**
      * Переключение записи макроса
      */
     private async toggleMacroRecording(): Promise<void> {
         await this.initScriptEngine();
         if (!this.scriptEngine) return;
-        
+
         const isRecording = (this.scriptEngine as any).isRecording;
-        
+
         if (isRecording) {
             const macro = (this.scriptEngine as any).stopRecording();
             if (macro) {
@@ -1203,7 +1228,7 @@ export class ChatSystem {
             this.addMessage("Macro recording started (Ctrl+R to stop)", "info");
         }
     }
-    
+
     /**
      * Очистка сообщений
      */
@@ -1213,7 +1238,7 @@ export class ChatSystem {
         this.messageElements.clear();
         this.updateMessages();
     }
-    
+
     private getColorForType(type: MessageType): string {
         switch (type) {
             case "system": return "#0ff"; // Cyan (системные)
@@ -1227,7 +1252,7 @@ export class ChatSystem {
             default: return "#0f0";
         }
     }
-    
+
     private getIconForType(type: MessageType): string {
         switch (type) {
             case "system": return "⚙";
@@ -1241,15 +1266,15 @@ export class ChatSystem {
             default: return "•";
         }
     }
-    
+
     // Обновить отображение сообщений
     private updateMessages(): void {
         const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
         if (!htmlContainer) return;
-        
+
         const messagesDiv = htmlContainer.querySelector("#terminal-messages") as HTMLDivElement;
         if (!messagesDiv) return;
-        
+
         // Фильтруем сообщения
         const filteredMessages = this.messages.filter(msg => {
             // Фильтр по типу
@@ -1260,19 +1285,19 @@ export class ChatSystem {
             }
             return true;
         });
-        
+
         // Очищаем и пересоздаём сообщения в HTML
         messagesDiv.innerHTML = "";
-        
+
         filteredMessages.forEach((message) => {
             const time = new Date(message.timestamp);
-            const timeStr = this.showTimestamps 
+            const timeStr = this.showTimestamps
                 ? `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`
                 : "";
-            
+
             // Вычисляем scaleFactor для текущего размера экрана
             const scaleFactor = Math.min(window.innerWidth / 1920, window.innerHeight / 1080, 1.5);
-            
+
             const msgDiv = document.createElement("div");
             msgDiv.style.cssText = `
                 color: ${message.color};
@@ -1287,14 +1312,14 @@ export class ChatSystem {
                 border-left: ${2 * scaleFactor}px solid ${message.color}40;
                 padding-left: ${6 * scaleFactor}px;
             `;
-            
+
             const prefix = timeStr ? `[${timeStr}]` : "";
             const priorityMark = message.priority >= 2 ? "!! " : message.priority >= 1 ? "! " : "";
             msgDiv.textContent = `${prefix} ${message.icon} ${priorityMark}${message.text}`;
-            
+
             messagesDiv.appendChild(msgDiv);
         });
-        
+
         // Автопрокрутка вниз
         if (this.autoScroll) {
             setTimeout(() => {
@@ -1302,7 +1327,7 @@ export class ChatSystem {
             }, 10);
         }
     }
-    
+
     // Создать элемент сообщения (зарезервировано для будущего использования)
     // @ts-ignore - метод зарезервирован для будущей реализации
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -1310,13 +1335,13 @@ export class ChatSystem {
         // Метод зарезервирован для будущей реализации GUI элементов через Babylon.js
         // В данный момент используется HTML-реализация для лучшей производительности
         const element = new TextBlock(`chatMsg_${message.timestamp}`);
-        
+
         // Форматируем время
         const time = new Date(message.timestamp);
-        const timeStr = this.showTimestamps 
+        const timeStr = this.showTimestamps
             ? `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}:${time.getSeconds().toString().padStart(2, '0')}`
             : "";
-        
+
         // Форматируем сообщение с улучшенным форматированием
         const prefix = timeStr ? `[${timeStr}]` : "";
         const iconSpacing = message.icon.length > 1 ? " " : "  ";
@@ -1331,7 +1356,7 @@ export class ChatSystem {
         element.top = `${index * 20}px`;
         element.textWrapping = true;
         element.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        
+
         // Добавляем эффект появления для новых сообщений (плавная анимация)
         element.alpha = 0;
         const startTime = Date.now();
@@ -1345,7 +1370,7 @@ export class ChatSystem {
             }
         };
         requestAnimationFrame(animate);
-        
+
         // Выделение важных сообщений
         if (message.priority >= 1) {
             element.fontWeight = "bold";
@@ -1363,11 +1388,11 @@ export class ChatSystem {
             };
             pulse();
         }
-        
+
         this.messagesArea!.addControl(element);
         return element;
     }
-    
+
     // Изменить яркость цвета
     private adjustColorBrightness(color: string, brightness: number): string {
         const rgb = this.hexToRgb(color);
@@ -1377,7 +1402,7 @@ export class ChatSystem {
         const b = Math.round(rgb.b * brightness);
         return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
     }
-    
+
     private hexToRgb(hex: string): { r: number, g: number, b: number } | null {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         return result && result[1] && result[2] && result[3] ? {
@@ -1386,7 +1411,7 @@ export class ChatSystem {
             b: parseInt(result[3], 16)
         } : null;
     }
-    
+
     // Очистить чат
     clear(): void {
         this.messages = [];
@@ -1394,23 +1419,23 @@ export class ChatSystem {
         this.messageElements.clear();
         this.updateMessages();
     }
-    
+
     // Удалить старые сообщения
     private startCleanupTimer(): void {
         setInterval(() => {
             const now = Date.now();
             const toRemove: number[] = [];
-            
+
             this.messages.forEach((message, index) => {
-                const lifetime = message.priority >= 1 
-                    ? this.importantMessageLifetime 
+                const lifetime = message.priority >= 1
+                    ? this.importantMessageLifetime
                     : this.messageLifetime;
-                
+
                 if (now - message.timestamp > lifetime) {
                     toRemove.push(index);
                 }
             });
-            
+
             // Удаляем в обратном порядке, чтобы индексы не сбились
             for (let i = toRemove.length - 1; i >= 0; i--) {
                 const index = toRemove[i];
@@ -1418,66 +1443,66 @@ export class ChatSystem {
                 const message = this.messages[index];
                 if (!message) continue;
                 this.messages.splice(index, 1);
-                
+
                 const element = this.messageElements.get(message.timestamp);
                 if (element) {
                     element.dispose();
                     this.messageElements.delete(message.timestamp);
                 }
             }
-            
+
             if (toRemove.length > 0) {
                 this.updateMessages();
             }
         }, 5000); // Проверяем каждые 5 секунд
     }
-    
+
     // Удобные методы для разных типов сообщений
     system(text: string, priority: number = 0) {
         this.addMessage(text, "system", priority);
     }
-    
+
     info(text: string, priority: number = 0) {
         this.addMessage(text, "info", priority);
     }
-    
+
     warning(text: string, priority: number = 1) {
         this.addMessage(text, "warning", priority);
     }
-    
+
     error(text: string, priority: number = 2) {
         this.addMessage(text, "error", priority);
     }
-    
+
     success(text: string, priority: number = 0) {
         this.addMessage(text, "success", priority);
     }
-    
+
     log(text: string, priority: number = 0) {
         this.addMessage(text, "log", priority);
     }
-    
+
     combat(text: string, priority: number = 1) {
         this.addMessage(text, "combat", priority);
     }
-    
+
     economy(text: string, priority: number = 0) {
         this.addMessage(text, "economy", priority);
     }
-    
+
     // Поиск по сообщениям
     setSearchText(text: string): void {
         this.searchText = text;
         this.searchActive = text.length > 0;
         this.updateMessages();
     }
-    
+
     clearSearch(): void {
         this.searchText = "";
         this.searchActive = false;
         this.updateMessages();
     }
-    
+
     // Получить статистику сообщений
     getStats(): { total: number, byType: Map<MessageType, number> } {
         const byType = new Map<MessageType, number>();
@@ -1489,7 +1514,7 @@ export class ChatSystem {
             byType: byType
         };
     }
-    
+
     // Экспорт сообщений
     exportMessages(): string {
         return this.messages.map(msg => {
@@ -1498,18 +1523,18 @@ export class ChatSystem {
             return `[${timeStr}] [${msg.type.toUpperCase()}] ${msg.icon} ${msg.text}`;
         }).join('\n');
     }
-    
+
     // Импорт сообщений (для истории)
     importMessages(messages: ChatMessage[]): void {
         this.messages = [...this.messages, ...messages];
         this.updateMessages();
     }
-    
+
     // Показать/скрыть System Terminal (Ctrl+5)
     toggleTerminal(): void {
         const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
         if (!htmlContainer) return;
-        
+
         const currentDisplay = htmlContainer.style.display;
         if (currentDisplay === "none") {
             htmlContainer.style.display = "block";

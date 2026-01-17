@@ -119,9 +119,9 @@ export const SURFACE_RICOCHET_CONFIG: Record<SurfaceMaterial, SurfaceRicochetPar
         sound: "soft"
     },
     armor: {
-        speedRetention: 0.90,
-        deflectionSpread: 2,
-        ricochetBonus: 10,
+        speedRetention: 0.0,  // No bounce - explode
+        deflectionSpread: 0,
+        ricochetBonus: -90,   // NEVER ricochet off tanks - always penetrate/explode
         sound: "metal"
     },
     water: {
@@ -191,10 +191,10 @@ export class RicochetSystem {
         const direction = velocity.normalize();
         // Угол между направлением и нормалью
         const dot = Math.abs(Vector3.Dot(direction, hitNormal));
-        // Преобразуем в угол от поверхности (0° = перпендикулярно, 90° = параллельно)
+        // Угол от поверхности (0° = перпендикулярно, 90° = параллельно)
         const angleFromNormal = Math.acos(Math.min(1, dot)) * (180 / Math.PI);
-        // Угол от поверхности = 90 - угол от нормали
-        return 90 - angleFromNormal;
+        // ВОЗВРАЩАЕМ УГОЛ ОТ НОРМАЛИ (0° = прямой удар)
+        return angleFromNormal;
     }
 
     /**
@@ -218,7 +218,7 @@ export class RicochetSystem {
 
         // Получаем параметры материала
         const surfaceParams = SURFACE_RICOCHET_CONFIG[surfaceMaterial];
-        
+
         // Эффективный угол рикошета = базовый + бонус материала
         const effectiveRicochetAngle = this.config.baseRicochetAngle + surfaceParams.ricochetBonus;
 
@@ -247,7 +247,7 @@ export class RicochetSystem {
         // Добавляем случайный разброс
         const spreadRadians = (surfaceParams.deflectionSpread * Math.PI) / 180;
         const randomSpread = (Math.random() - 0.5) * 2 * spreadRadians;
-        
+
         // Создаём случайную ось для вращения (перпендикулярно отражению)
         const randomAxis = Vector3.Cross(reflection, Vector3.Up());
         if (randomAxis.length() < 0.001) {
@@ -359,15 +359,15 @@ export class RicochetSystem {
 
         // Определяем по имени меша
         const nameLower = meshName.toLowerCase();
-        
+
         if (nameLower.includes("metal") || nameLower.includes("steel") || nameLower.includes("iron")) {
             return "metal";
         }
-        
+
         if (nameLower.includes("concrete") || nameLower.includes("stone") || nameLower.includes("brick") || nameLower.includes("wall") || nameLower.includes("building")) {
             return "concrete";
         }
-        
+
         if (nameLower.includes("water") || nameLower.includes("lake") || nameLower.includes("river")) {
             return "water";
         }
@@ -392,7 +392,7 @@ export class RicochetSystem {
         // Для остальных пушек используем базовую конфигурацию
         // с учётом ricochetAngle из данных снаряда если есть
         const config = { ...DEFAULT_RICOCHET_CONFIG };
-        
+
         if (cannonData?.ricochetAngle) {
             config.baseRicochetAngle = cannonData.ricochetAngle;
         }

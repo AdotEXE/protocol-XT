@@ -60,7 +60,7 @@ export class FloatingJoystick {
     private joystick: JoystickData | null = null;
     private onValueChange: ((x: number, y: number) => void) | null = null;
     private side: 'left' | 'right';
-    
+
     constructor(
         guiTexture: AdvancedDynamicTexture,
         side: 'left' | 'right',
@@ -71,78 +71,77 @@ export class FloatingJoystick {
         this.config = { ...DEFAULT_FLOATING_JOYSTICK_CONFIG, ...config };
         this.setupGlobalHandlers();
     }
-    
+
     /**
      * Настроить глобальные обработчики
      */
     private setupGlobalHandlers(): void {
         const canvas = this.guiTexture.getScene()?.getEngine().getRenderingCanvas();
         if (!canvas) return;
-        
+
         canvas.addEventListener('touchstart', (e) => {
             this.handleTouchStart(e);
         }, { passive: false });
-        
+
         canvas.addEventListener('touchmove', (e) => {
             this.handleTouchMove(e);
         }, { passive: false });
-        
+
         canvas.addEventListener('touchend', (e) => {
             this.handleTouchEnd(e);
         }, { passive: true });
-        
+
         canvas.addEventListener('touchcancel', (e) => {
             this.handleTouchEnd(e);
         }, { passive: true });
     }
-    
+
     /**
      * Обработка начала касания
      */
     private handleTouchStart(e: TouchEvent): void {
-        // Проверяем что это касание в нужной зоне экрана
-        const touch = e.touches[0];
-        if (!touch) return;
-        
-        // Используем координаты относительно canvas напрямую
-        const canvas = this.guiTexture.getScene()?.getEngine().getRenderingCanvas();
-        if (!canvas) return;
-        
-        const rect = canvas.getBoundingClientRect();
-        const x = touch.clientX - rect.left;
-        const y = touch.clientY - rect.top;
-        
-        // Определяем зону (левая или правая половина canvas)
-        const canvasWidth = rect.width || canvas.width || window.innerWidth;
-        const isLeftZone = x < canvasWidth / 2;
-        const isRightZone = x >= canvasWidth / 2;
-        
-        if ((this.side === 'left' && !isLeftZone) || 
-            (this.side === 'right' && !isRightZone)) {
-            return; // Не наша зона
-        }
-        
-        // Проверяем что нет другого активного джойстика
+        // Check if we already have an active joystick
         if (this.joystick && this.joystick.pointerId !== null) {
             return;
         }
-        
-        e.preventDefault();
-        this.createJoystick(x, y, touch.identifier);
+
+        const canvas = this.guiTexture.getScene()?.getEngine().getRenderingCanvas();
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        const canvasWidth = rect.width || canvas.width || window.innerWidth;
+
+        // Iterate through all changed touches to find one in our zone
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+
+            const isLeftZone = x < canvasWidth / 2;
+            const isRightZone = x >= canvasWidth / 2;
+
+            if ((this.side === 'left' && isLeftZone) ||
+                (this.side === 'right' && isRightZone)) {
+
+                // Found a valid touch for this joystick
+                e.preventDefault();
+                this.createJoystick(x, y, touch.identifier);
+                return; // Only handle one touch per joystick
+            }
+        }
     }
-    
+
     /**
      * Создать джойстик в указанной позиции
      */
     private createJoystick(x: number, y: number, pointerId: number): void {
         const cfg = this.config;
         const size = cfg.size;
-        
+
         // Удаляем старый джойстик если есть
         if (this.joystick) {
             this.removeJoystick();
         }
-        
+
         const container = new Rectangle(`floatingJoystick_${this.side}`);
         container.width = `${size + 40}px`;
         container.height = `${size + 40}px`;
@@ -154,7 +153,7 @@ export class FloatingJoystick {
         container.isPointerBlocker = true;
         container.zIndex = 1001;
         this.guiTexture.addControl(container);
-        
+
         const base = new Ellipse(`joystickBase_${this.side}`);
         base.width = `${size}px`;
         base.height = `${size}px`;
@@ -165,7 +164,7 @@ export class FloatingJoystick {
         base.shadowColor = cfg.color;
         base.shadowBlur = 10;
         container.addControl(base);
-        
+
         const knob = new Ellipse(`joystickKnob_${this.side}`);
         knob.width = `${cfg.knobSize}px`;
         knob.height = `${cfg.knobSize}px`;
@@ -177,7 +176,7 @@ export class FloatingJoystick {
         knob.shadowBlur = 8;
         knob.isPointerBlocker = false;
         container.addControl(knob);
-        
+
         this.joystick = {
             container,
             base,
@@ -190,110 +189,114 @@ export class FloatingJoystick {
             fadeTimeout: null
         };
     }
-    
+
     /**
      * Обработка движения касания
      */
     private handleTouchMove(e: TouchEvent): void {
         if (!this.joystick || this.joystick.pointerId === null) return;
-        
-        const touch = Array.from(e.touches).find(
-            t => t.identifier === this.joystick!.pointerId
-        );
-        if (!touch) return;
-        
-        e.preventDefault();
-        
-        // Используем координаты относительно canvas
-        const canvas = this.guiTexture.getScene()?.getEngine().getRenderingCanvas();
-        if (!canvas) return;
-        
-        const rect = canvas.getBoundingClientRect();
-        const x = touch.clientX - rect.left;
-        const y = touch.clientY - rect.top;
-        
-        this.updateJoystick(x, y);
+
+        // Find the touch that matches our pointerId
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            if (touch.identifier === this.joystick.pointerId) {
+                e.preventDefault();
+
+                const canvas = this.guiTexture.getScene()?.getEngine().getRenderingCanvas();
+                if (!canvas) return;
+
+                const rect = canvas.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+
+                this.updateJoystick(x, y);
+                return;
+            }
+        }
     }
-    
+
     /**
      * Обновить позицию джойстика
      */
     private updateJoystick(pointerX: number, pointerY: number): void {
         if (!this.joystick) return;
-        
+
         const cfg = this.config;
         const maxRadius = (cfg.size - cfg.knobSize) / 2;
-        
+
         let deltaX = pointerX - this.joystick.startX;
         let deltaY = pointerY - this.joystick.startY;
-        
+
         const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
         if (distance > maxRadius) {
             const scale = maxRadius / distance;
             deltaX *= scale;
             deltaY *= scale;
         }
-        
+
         this.joystick.knob.left = `${deltaX}px`;
         this.joystick.knob.top = `${deltaY}px`;
-        
+
         this.joystick.valueX = deltaX / maxRadius;
         this.joystick.valueY = -deltaY / maxRadius; // Инвертируем Y
-        
+
         if (this.onValueChange) {
             this.onValueChange(this.joystick.valueX, this.joystick.valueY);
         }
     }
-    
+
     /**
      * Обработка окончания касания
      */
     private handleTouchEnd(e: TouchEvent): void {
         if (!this.joystick) return;
-        
-        const touch = Array.from(e.changedTouches).find(
-            t => t.identifier === this.joystick!.pointerId
-        );
-        if (!touch) return;
-        
-        // Сбрасываем значения
-        if (this.onValueChange) {
-            this.onValueChange(0, 0);
+
+        // Check if our pointerId was among the ended touches
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            if (e.changedTouches[i].identifier === this.joystick.pointerId) {
+                // Reset values
+                if (this.onValueChange) {
+                    this.onValueChange(0, 0);
+                }
+
+                // Fade out
+                if (this.joystick.fadeTimeout) {
+                    clearTimeout(this.joystick.fadeTimeout);
+                }
+
+                this.joystick.fadeTimeout = window.setTimeout(() => {
+                    this.removeJoystick();
+                }, this.config.fadeDelay);
+
+                this.joystick.pointerId = null; // Mark as inactive
+                return;
+            }
         }
-        
-        // Запускаем таймер исчезновения
-        if (this.joystick.fadeTimeout) {
-            clearTimeout(this.joystick.fadeTimeout);
-        }
-        
-        this.joystick.fadeTimeout = window.setTimeout(() => {
-            this.removeJoystick();
-        }, this.config.fadeDelay);
     }
-    
+
     /**
      * Удалить джойстик
      */
     private removeJoystick(): void {
         if (!this.joystick) return;
-        
+
         if (this.joystick.fadeTimeout) {
             clearTimeout(this.joystick.fadeTimeout);
             this.joystick.fadeTimeout = null;
         }
-        
+
         this.guiTexture.removeControl(this.joystick.container);
         this.joystick.container.dispose();
         this.joystick = null;
     }
-    
+
     /**
      * Установить callback изменения значений
      */
     setOnValueChange(callback: (x: number, y: number) => void): void {
         this.onValueChange = callback;
     }
-    
+
     /**
      * Получить текущие значения
      */
@@ -306,7 +309,7 @@ export class FloatingJoystick {
             y: this.joystick.valueY
         };
     }
-    
+
     /**
      * Уничтожить джойстик
      */

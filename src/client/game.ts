@@ -348,6 +348,17 @@ export class Game {
         return this._gameMultiplayerCallbacks;
     }
 
+    /**
+     * Updates the network menu reference and injects it into dependencies
+     */
+    public updateNetworkMenu(menu: NetworkMenu): void {
+        this.networkMenu = menu;
+        this.gameMultiplayerCallbacks.updateDependencies({
+            networkMenu: menu
+        });
+        logger.log("[Game] NetworkMenu dependency updated");
+    }
+
     private get gameUpdate(): GameUpdate {
         if (!this._gameUpdate) {
             this._gameUpdate = new GameUpdate();
@@ -2320,7 +2331,7 @@ export class Game {
 
             // Восстанавливаем здоровье танка при смене карты
             if (this.tank) {
-                this.tank.respawn();
+                this.tank.respawn(mapInitialPos);
                 logger.debug("[Game] Player tank reset for new map");
             }
 
@@ -3242,6 +3253,13 @@ export class Game {
                     }
                 });
 
+                // Connect network player hit callback for client-authoritative hit detection
+                this.tank.setOnNetworkPlayerHitCallback((targetId: string, damage: number, hitPosition: Vector3, cannonType: string) => {
+                    if (this.isMultiplayer && this.multiplayerManager) {
+                        this.multiplayerManager.sendPlayerHit(targetId, damage, hitPosition, cannonType);
+                    }
+                });
+
                 // Connect network players reference for hit detection
                 this.tank.networkPlayers = this.networkPlayerTanks;
 
@@ -3371,7 +3389,7 @@ export class Game {
             if (this.multiplayerManager) {
                 const mpMapType = this.multiplayerManager.getMapType();
                 if (mpMapType) {
-                    mapType = mpMapType;
+                    mapType = mpMapType as MapType;
                     this.currentMapType = mapType as any;
                     logger.log(`[Game] 🗺️ Using multiplayer mapType: ${mapType} (from ROOM_CREATED/ROOM_JOINED)`);
                 }
@@ -5085,14 +5103,14 @@ export class Game {
             }
 
             const reward = this.rewardProvider.awardKill({
-                killerId: this.tank?.id || "player",
+                killerId: this.multiplayerManager?.getPlayerId() || "player",
                 victimId: enemy.getId?.().toString() || "enemy",
                 isPlayerKill: false, // Это бот
                 position: enemy.chassis?.position
             });
 
             // applyReward для совместимости (в LocalRewardProvider пустой)
-            this.rewardProvider.applyReward(reward, this.tank?.id || "player");
+            this.rewardProvider.applyReward(reward, this.multiplayerManager?.getPlayerId() || "player");
         } else {
             // Fallback на старую логику если провайдер не готов
             if (this.hud) {
@@ -7148,6 +7166,8 @@ export class Game {
         // =========================================================================
         if (this.gameMultiplayerCallbacks) {
             this.gameMultiplayerCallbacks.updateLocalPlayerToServer(deltaTime);
+            // Update network projectiles (smooth movement & effects)
+            this.gameMultiplayerCallbacks.update(deltaTime);
         }
 
         // Send player input to server (input отправляется, но не применяется локально)
@@ -7158,10 +7178,10 @@ export class Game {
             const turretRotation = this.tank.turret.rotation.y;
             const aimPitch = this.tank.aimPitch || 0;
 
-            // DEBUG: Логируем инпут раз в секунду если есть движение
-            if (this._updateTick % 60 === 0 && (Math.abs(throttle) > 0.01 || Math.abs(steer) > 0.01)) {
-                console.log(`%c[Game] 📤 Input: throttle=${throttle.toFixed(2)}, steer=${steer.toFixed(2)}`, 'color: #f59e0b; font-weight: bold;');
-            }
+            // DEBUG: Логируем инпут (закомментировано для чистоты консоли)
+            // if (this._updateTick % 60 === 0 && (Math.abs(throttle) > 0.01 || Math.abs(steer) > 0.01)) {
+            //     console.log(`%c[Game] 📤 Input: throttle=${throttle.toFixed(2)}, steer=${steer.toFixed(2)}`, 'color: #f59e0b; font-weight: bold;');
+            // }
 
             // КРИТИЧНО: Используем getCachedChassisPosition() для получения мировых координат
             // Это абсолютная позиция после обновления физики, а не локальные координаты
@@ -7648,10 +7668,17 @@ export class Game {
     checkSpectatorMode(): void {
         if (!this.isMultiplayer || !this.tank) return;
 
-        // Enter spectator mode if player died
-        if (!this.tank.isAlive && !this.isSpectating) {
+        // DISABLED: Auto spectator mode - only enable on explicit user request
+        // Spectator mode was interfering with respawn countdown
+        // TODO: Re-enable as optional feature later
+        /*
+        // Enter spectator mode if player died AND NOT in respawn countdown
+        // During respawn countdown, we show death screen and wait for respawn, not spectator mode
+        const isInRespawnCountdown = this.tank.respawnCountdown !== undefined && this.tank.respawnCountdown > 0;
+        if (!this.tank.isAlive && !this.isSpectating && !isInRespawnCountdown) {
             this.enterSpectatorMode();
         }
+        */
 
         // Exit spectator mode if player respawned
         if (this.tank.isAlive && this.isSpectating) {

@@ -30,21 +30,21 @@ export class GameStatsOverlay {
     private statsOverlay: HTMLDivElement | null = null;
     private statsOverlayVisible = false;
     private deps: StatsOverlayDependencies;
-    
+
     constructor() {
         this.deps = {
             enemyTanks: [],
             getIsMultiplayer: () => false
         };
     }
-    
+
     /**
      * Обновить зависимости
      */
     updateDependencies(deps: Partial<StatsOverlayDependencies>): void {
         Object.assign(this.deps, deps);
     }
-    
+
     /**
      * Показать stats overlay
      */
@@ -52,7 +52,7 @@ export class GameStatsOverlay {
         if (!this.statsOverlay) {
             this.create();
         }
-        
+
         if (this.statsOverlay && !this.statsOverlayVisible) {
             this.statsOverlayVisible = true;
             this.statsOverlay.style.display = "flex";
@@ -60,7 +60,7 @@ export class GameStatsOverlay {
             this.update();
         }
     }
-    
+
     /**
      * Скрыть stats overlay
      */
@@ -71,14 +71,14 @@ export class GameStatsOverlay {
             this.statsOverlay.style.visibility = "hidden";
         }
     }
-    
+
     /**
      * Проверить видимость
      */
     isVisible(): boolean {
         return this.statsOverlayVisible;
     }
-    
+
     /**
      * Создать overlay
      */
@@ -87,7 +87,7 @@ export class GameStatsOverlay {
         if (existing) {
             existing.remove();
         }
-        
+
         this.statsOverlay = document.createElement("div");
         this.statsOverlay.id = "stats-overlay";
         this.statsOverlay.style.cssText = `
@@ -105,7 +105,7 @@ export class GameStatsOverlay {
             font-family: 'Press Start 2P', monospace;
             visibility: hidden;
         `;
-        
+
         const content = document.createElement("div");
         content.id = "scoreboard-content";
         content.style.cssText = `
@@ -114,33 +114,44 @@ export class GameStatsOverlay {
             min-width: 700px;
             max-width: 900px;
         `;
-        
+
         this.statsOverlay.appendChild(content);
         document.body.appendChild(this.statsOverlay);
-        
+
         this.statsOverlayVisible = false;
     }
-    
+
     /**
      * Обновить содержимое overlay
      */
     update(): void {
         const content = document.getElementById("scoreboard-content");
         if (!content) return;
-        
+
         // Получаем данные игрока
         const playerData = this.getPlayerData();
         const xpProgressHTML = this.getXPProgressHTML();
-        
+
+        // DEBUG: Логируем состояние для диагностики пустого TAB меню
+        const isMP = this.deps.getIsMultiplayer();
+        const lastPlayerStates = (this.deps.multiplayerManager as any)?.lastPlayerStates;
+        console.log(`[GameStatsOverlay] TAB Menu Update:`, {
+            isMultiplayer: isMP,
+            hasMultiplayerManager: !!this.deps.multiplayerManager,
+            lastPlayerStatesCount: lastPlayerStates?.length || 0,
+            hasRealtimeStatsTracker: !!this.deps.realtimeStatsTracker,
+            lastPlayerStates: lastPlayerStates?.map((p: any) => `${p.name || p.id}`) || []
+        });
+
         // ИСПРАВЛЕНО: Показываем мультиплеерный scoreboard если isMultiplayer=true,
         // даже если realtimeStatsTracker ещё не создан
-        if (this.deps.getIsMultiplayer()) {
+        if (isMP) {
             this.renderMultiplayerStats(content, playerData, xpProgressHTML);
         } else {
             this.renderSinglePlayerStats(content, playerData, xpProgressHTML);
         }
     }
-    
+
     private getPlayerData(): {
         kills: number;
         deaths: number;
@@ -159,7 +170,7 @@ export class GameStatsOverlay {
         let playerDamage = 0;
         let playerAccuracy = "0%";
         let playerPlayTime = "0h 0m";
-        
+
         if (this.deps.playerProgression) {
             const stats = this.deps.playerProgression.getStats();
             playerKills = stats.totalKills || 0;
@@ -171,11 +182,11 @@ export class GameStatsOverlay {
             playerAccuracy = this.deps.playerProgression.getAccuracy();
             playerPlayTime = this.deps.playerProgression.getPlayTimeFormatted();
         }
-        
+
         if (this.deps.currencyManager) {
             playerCredits = this.deps.currencyManager.getCurrency();
         }
-        
+
         return {
             kills: playerKills,
             deaths: playerDeaths,
@@ -187,16 +198,16 @@ export class GameStatsOverlay {
             playTime: playerPlayTime
         };
     }
-    
+
     private getXPProgressHTML(): string {
         if (!this.deps.playerProgression) return '';
-        
+
         const xpProgress = this.deps.playerProgression.getExperienceProgress();
-        const rawPercent = xpProgress.required > 0 
-            ? Math.min(100, Math.max(0, (xpProgress.current / xpProgress.required) * 100)) 
+        const rawPercent = xpProgress.required > 0
+            ? Math.min(100, Math.max(0, (xpProgress.current / xpProgress.required) * 100))
             : 100;
         const xpPercent = Math.round(rawPercent * 10) / 10;
-        
+
         let comboInfo = '';
         if (this.deps.experienceSystem) {
             const comboCount = this.deps.experienceSystem.getComboCount();
@@ -205,7 +216,7 @@ export class GameStatsOverlay {
                 comboInfo = `<span style="color:#ff0; font-size:10px; margin-left:8px">🔥 COMBO x${comboCount} (+${comboBonus.toFixed(0)}%)</span>`;
             }
         }
-        
+
         return `
             <div style="margin-top:6px">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px">
@@ -221,7 +232,7 @@ export class GameStatsOverlay {
             </div>
         `;
     }
-    
+
     private getXPPerMinuteHTML(): string {
         if (!this.deps.playerProgression) return '';
         try {
@@ -231,32 +242,32 @@ export class GameStatsOverlay {
             return '';
         }
     }
-    
+
     private renderMultiplayerStats(
-        content: HTMLElement, 
+        content: HTMLElement,
         playerData: ReturnType<typeof this.getPlayerData>,
         xpProgressHTML: string
     ): void {
         const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
         const tracker = this.deps.realtimeStatsTracker;
-        
+
         let leaderboard: any[] = [];
         let kdHistory: { time: number; kd: number }[] = [];
         let matchTime = 0;
-        
+
         // Если есть RealtimeStatsTracker - используем его данные
         if (tracker) {
             leaderboard = tracker.getLeaderboard("score");
             const localStats = tracker.getLocalPlayerStats();
             kdHistory = tracker.getKDHistory();
             matchTime = tracker.getMatchTime();
-            
+
             // Update from realtime tracker
             if (localStats) {
                 playerData.kills = localStats.kills;
                 playerData.deaths = localStats.deaths;
-                playerData.kd = localStats.deaths > 0 
-                    ? (localStats.kills / localStats.deaths).toFixed(2) 
+                playerData.kd = localStats.deaths > 0
+                    ? (localStats.kills / localStats.deaths).toFixed(2)
                     : localStats.kills.toFixed(2);
             }
         } else {
@@ -264,7 +275,7 @@ export class GameStatsOverlay {
             // используем данные из lastPlayerStates от MultiplayerManager
             const mm = this.deps.multiplayerManager;
             const lastPlayerStates = (mm as any)?.lastPlayerStates as any[] | undefined;
-            
+
             if (lastPlayerStates && lastPlayerStates.length > 0) {
                 leaderboard = lastPlayerStates.map((p: any, index: number) => ({
                     playerId: p.id,
@@ -277,11 +288,11 @@ export class GameStatsOverlay {
                 })).sort((a, b) => b.score - a.score);
             }
         }
-        
+
         const leaderboardHTML = this.generateLeaderboardHTML(leaderboard, localPlayerId);
         const kdGraphHTML = this.generateKDGraphHTML(kdHistory);
         const mapName = this.getMapDisplayName();
-        
+
         content.innerHTML = `
             <div style="background:#0f02; padding:10px 20px; border-bottom:1px solid #0f04; display:flex; justify-content:space-between; align-items:center">
                 <div style="display:flex; flex-direction:column; gap:4px">
@@ -313,15 +324,15 @@ export class GameStatsOverlay {
             </div>
         `;
     }
-    
+
     private renderSinglePlayerStats(
-        content: HTMLElement, 
+        content: HTMLElement,
         playerData: ReturnType<typeof this.getPlayerData>,
         xpProgressHTML: string
     ): void {
         const bots = this.collectBotsData();
         const botsHTML = this.generateBotsHTML(bots);
-        
+
         const mapName = this.getMapDisplayName();
         content.innerHTML = `
             <div style="background:#0f02; padding:10px 20px; border-bottom:1px solid #0f04; display:flex; justify-content:space-between; align-items:center">
@@ -352,7 +363,7 @@ export class GameStatsOverlay {
             </div>
         `;
     }
-    
+
     private renderPlayerStatsSection(
         playerData: ReturnType<typeof this.getPlayerData>,
         xpProgressHTML: string,
@@ -397,7 +408,7 @@ export class GameStatsOverlay {
             </div>
         `;
     }
-    
+
     private generateLeaderboardHTML(leaderboard: any[], localPlayerId?: string): string {
         return leaderboard.map((player, index) => {
             const isLocal = player.playerId === localPlayerId;
@@ -406,10 +417,10 @@ export class GameStatsOverlay {
             const statusIcon = player.isAlive ? "●" : "✖";
             const rowBg = isLocal ? "#0f02" : "transparent";
             const rowOpacity = player.isAlive ? "1" : "0.5";
-            const teamIndicator = player.team !== undefined 
-                ? `<span style="color:${player.team === 0 ? '#4a9eff' : '#ff4a4a'}; margin-right:8px">[${player.team === 0 ? 'BLUE' : 'RED'}]</span>` 
+            const teamIndicator = player.team !== undefined
+                ? `<span style="color:${player.team === 0 ? '#4a9eff' : '#ff4a4a'}; margin-right:8px">[${player.team === 0 ? 'BLUE' : 'RED'}]</span>`
                 : "";
-            
+
             return `
                 <tr style="opacity:${rowOpacity}; border-bottom:1px solid #222; background:${rowBg}">
                     <td style="padding:8px 12px; text-align:center; color:#888; width:40px">${index + 1}</td>
@@ -423,22 +434,22 @@ export class GameStatsOverlay {
             `;
         }).join('');
     }
-    
+
     private generateKDGraphHTML(kdHistory: { time: number; kd: number }[]): string {
         if (kdHistory.length <= 1) return '';
-        
+
         const maxKD = Math.max(...kdHistory.map(p => p.kd), 1);
         const minKD = Math.min(...kdHistory.map(p => p.kd), 0);
         const kdRange = maxKD - minKD || 1;
         const graphWidth = 400;
         const graphHeight = 100;
-        
+
         const points = kdHistory.map((point, i) => {
             const x = (i / (kdHistory.length - 1)) * graphWidth;
             const y = graphHeight - ((point.kd - minKD) / kdRange) * graphHeight;
             return `${x},${y}`;
         }).join(" ");
-        
+
         return `
             <div style="background:#0a0a0a; padding:15px; border:1px solid #0f04; margin-top:10px">
                 <div style="color:#0aa; font-size:11px; margin-bottom:8px; font-weight:bold">K/D RATIO OVER TIME</div>
@@ -452,10 +463,10 @@ export class GameStatsOverlay {
             </div>
         `;
     }
-    
+
     private collectBotsData(): { name: string; kills: number; deaths: number; health: number; isAlive: boolean }[] {
         const bots: { name: string; kills: number; deaths: number; health: number; isAlive: boolean }[] = [];
-        
+
         this.deps.enemyTanks.forEach((tank, index) => {
             const currentHealth = tank.currentHealth || 0;
             const maxHealth = tank.maxHealth || 100;
@@ -467,7 +478,7 @@ export class GameStatsOverlay {
                 isAlive: currentHealth > 0
             });
         });
-        
+
         if (this.deps.enemyManager && (this.deps.enemyManager as any).turrets) {
             const turrets = (this.deps.enemyManager as any).turrets;
             turrets.forEach((turret: any, index: number) => {
@@ -482,16 +493,16 @@ export class GameStatsOverlay {
                 });
             });
         }
-        
+
         bots.sort((a, b) => {
             if (a.isAlive && !b.isAlive) return -1;
             if (!a.isAlive && b.isAlive) return 1;
             return 0;
         });
-        
+
         return bots;
     }
-    
+
     private generateBotsHTML(bots: { name: string; kills: number; deaths: number; health: number; isAlive: boolean }[]): string {
         return bots.map(bot => {
             const statusColor = bot.isAlive ? "#0f0" : "#f00";
@@ -502,7 +513,7 @@ export class GameStatsOverlay {
                     <div style="width:${bot.health}%; height:100%; background:${bot.health > 50 ? '#0f0' : bot.health > 25 ? '#ff0' : '#f00'}"></div>
                 </div>
             ` : '<span style="color:#f00; font-size:10px">DEAD</span>';
-            
+
             return `
                 <tr style="opacity:${rowOpacity}; border-bottom:1px solid #222">
                     <td style="padding:8px 12px; color:${statusColor}">${statusIcon}</td>
@@ -514,13 +525,13 @@ export class GameStatsOverlay {
             `;
         }).join('');
     }
-    
+
     /**
      * Получить отображаемое название карты
      */
     private getMapDisplayName(): string {
         if (!this.deps.currentMapType) return "";
-        
+
         const mapNames: Record<string, string> = {
             "normal": "Эта самая карта",
             "sandbox": "Песочница",
@@ -534,10 +545,10 @@ export class GameStatsOverlay {
             "coastal": "Побережье",
             "tartaria": "Тартария"
         };
-        
+
         return mapNames[this.deps.currentMapType] || this.deps.currentMapType;
     }
-    
+
     /**
      * Очистка
      */

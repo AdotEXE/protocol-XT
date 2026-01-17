@@ -1,4 +1,4 @@
-import { Scene, Engine } from "@babylonjs/core";
+import { Scene, Engine, MeshBuilder, StandardMaterial, Color3, Vector3 } from "@babylonjs/core";
 import { ChunkSystem } from "./chunkSystem";
 import { Game } from "./game";
 import { TankController } from "./tankController";
@@ -445,7 +445,7 @@ export class DebugDashboard {
             set("dbg-network-players", "0");
             set("dbg-network-packets", "N/A");
         }
-        
+
         // SYNC METRICS
         if (this.game && (this.game as any).gameMultiplayerCallbacks) {
             const syncMetrics = (this.game as any).gameMultiplayerCallbacks.getSyncMetrics?.();
@@ -631,14 +631,14 @@ export class DebugDashboard {
         this.setupEmbeddedEventListeners(container);
         this.startEmbeddedUpdates(container);
     }
-    
+
     /**
      * Инжектирует стили для embedded режима
      */
     private injectEmbeddedStyles(container: HTMLElement): void {
         const styleId = "debug-dashboard-embedded-styles";
         if (document.getElementById(styleId)) return;
-        
+
         const style = document.createElement("style");
         style.id = styleId;
         style.textContent = `
@@ -878,7 +878,7 @@ export class DebugDashboard {
                 const filter = btn.getAttribute("data-filter");
                 filterBtns.forEach(b => b.classList.remove("active"));
                 btn.classList.add("active");
-                
+
                 const groups = container.querySelectorAll(".dbg-metric-group");
                 groups.forEach(group => {
                     const groupType = group.getAttribute("data-group");
@@ -895,21 +895,21 @@ export class DebugDashboard {
         const exportCsvBtn = container.querySelector(".dbg-export-csv-emb");
         const exportJsonBtn = container.querySelector(".dbg-export-json-emb");
         const toggleChartsBtn = container.querySelector(".dbg-toggle-charts-emb");
-        
+
         exportCsvBtn?.addEventListener("click", () => {
             this.metricsExporter?.exportToCSV();
             if (this.game?.hud) {
                 this.game.hud.showMessage("Метрики экспортированы в CSV", "#0f0", 2000);
             }
         });
-        
+
         exportJsonBtn?.addEventListener("click", () => {
             this.metricsExporter?.exportToJSON();
             if (this.game?.hud) {
                 this.game.hud.showMessage("Метрики экспортированы в JSON", "#0f0", 2000);
             }
         });
-        
+
         let chartsVisible = false;
         toggleChartsBtn?.addEventListener("click", () => {
             chartsVisible = !chartsVisible;
@@ -994,7 +994,7 @@ export class DebugDashboard {
                 } else {
                     // Create simple axes
                     const axesSize = 50;
-                    const { MeshBuilder, StandardMaterial, Color3, Vector3 } = require("@babylonjs/core");
+                    // Imports are now at the top of the file
 
                     const axesParent = MeshBuilder.CreateBox("worldAxes", { size: 0.1 }, this.scene);
                     axesParent.isVisible = false;
@@ -1016,7 +1016,7 @@ export class DebugDashboard {
                     }, this.scene);
                     zAxis.color = new Color3(0, 0, 1);
                     zAxis.parent = axesParent;
-                    
+
                     if (this.game?.hud) {
                         this.game.hud.showMessage("World Axes показаны", "#0f0", 1500);
                     }
@@ -1079,17 +1079,17 @@ export class DebugDashboard {
                 const mp = (this.game as any).multiplayerManager;
                 if (networkPingEl) networkPingEl.textContent = mp.ping ? `${mp.ping}ms` : "N/A";
                 if (networkPlayersEl) networkPlayersEl.textContent = ((this.game as any).networkPlayerTanks?.size || 0).toString();
-                
+
                 const syncMetrics = (this.game as any).gameMultiplayerCallbacks?.getSyncMetrics?.();
                 if (syncMetrics) {
                     const quality = syncMetrics.getSyncQuality();
                     const qualityStatus = syncMetrics.getSyncQualityStatus();
                     if (syncQualityEl) {
                         syncQualityEl.textContent = `${quality.toFixed(0)}%`;
-                        (syncQualityEl as HTMLElement).style.color = 
-                            qualityStatus === "excellent" ? "#0f0" : 
-                            qualityStatus === "good" ? "#ff0" : 
-                            qualityStatus === "fair" ? "#fa0" : "#f00";
+                        (syncQualityEl as HTMLElement).style.color =
+                            qualityStatus === "excellent" ? "#0f0" :
+                                qualityStatus === "good" ? "#ff0" :
+                                    qualityStatus === "fair" ? "#fa0" : "#f00";
                     }
                     const metrics = syncMetrics.getMetrics();
                     if (syncAvgDiffEl) syncAvgDiffEl.textContent = metrics.averagePositionDiff.toFixed(3);
@@ -1120,8 +1120,8 @@ export class DebugDashboard {
             if (this.metricsCollector) {
                 const metrics = this.metricsCollector.collect();
                 if (gpuMemoryEl) {
-                    gpuMemoryEl.textContent = metrics.gpuMemory !== undefined 
-                        ? `${(metrics.gpuMemory / 1048576).toFixed(1)} MB` 
+                    gpuMemoryEl.textContent = metrics.gpuMemory !== undefined
+                        ? `${(metrics.gpuMemory / 1048576).toFixed(1)} MB`
                         : "N/A";
                 }
                 if (gpuRendererEl) gpuRendererEl.textContent = metrics.gpuRenderer || "N/A";
@@ -1136,8 +1136,8 @@ export class DebugDashboard {
                 if (physicsObjectsEl) physicsObjectsEl.textContent = (metrics.physicsObjects || 0).toString();
                 if (physicsBodiesEl) physicsBodiesEl.textContent = (metrics.physicsBodies || 0).toString();
                 if (physicsTimeEl) {
-                    physicsTimeEl.textContent = metrics.physicsTime 
-                        ? `${metrics.physicsTime.toFixed(2)} ms` 
+                    physicsTimeEl.textContent = metrics.physicsTime
+                        ? `${metrics.physicsTime.toFixed(2)} ms`
                         : "N/A";
                 }
                 if (particlesEl) particlesEl.textContent = (metrics.particles || this.scene.particleSystems?.length || 0).toString();
@@ -1179,11 +1179,11 @@ export class DebugDashboard {
                     if (fpsHistory.length > 1) {
                         const barWidth = chartCanvas.width / maxHistory;
                         const maxFps = Math.max(60, ...fpsHistory);
-                        
+
                         fpsHistory.forEach((f, i) => {
                             const height = (f / maxFps) * chartCanvas.height;
                             const x = i * barWidth;
-                            
+
                             // Градиент цвета в зависимости от FPS
                             ctx.fillStyle = f >= 55 ? "#0f0" : f >= 30 ? "#ff0" : "#f00";
                             ctx.fillRect(x, chartCanvas.height - height, Math.max(1, barWidth - 1), height);
