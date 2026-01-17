@@ -767,37 +767,11 @@ export class NetworkPlayerTank {
     }
 
     /**
-     * Установить танк в состояние мёртвого (скрыть)
-     */
-    setDead(): void {
-        if (this.chassis) {
-            this.chassis.isVisible = false;
-            this.chassis.setEnabled(false);
-            // КРИТИЧНО: Отключаем физику чтобы труп не был "невидимой стеной"
-            if (this.physicsAggregate) {
-                this.physicsAggregate.body.disablePreStep = true;
-                this.physicsAggregate.dispose();
-                this.physicsAggregate = undefined;
-            }
-            // Отключаем коллизии
-            this.chassis.checkCollisions = false;
-
-            this.chassis.getChildMeshes().forEach(child => {
-                child.isVisible = false;
-                child.setEnabled(false);
-                child.checkCollisions = false;
-            });
-        }
-        if (this.healthBar) this.healthBar.isVisible = false;
-        if (this.healthBarBackground) this.healthBarBackground.isVisible = false;
-    }
-
-    /**
      * Установить танк в состояние живого (показать)
      */
     setAlive(position?: Vector3): void {
-        console.log(`[NetworkPlayerTank] 🟢 setAlive called for ${this.playerId}, position=${position ? position.toString() : 'none'}`);
-        console.log(`[NetworkPlayerTank] 🟢 Chassis state: exists=${!!this.chassis}, disposed=${this.chassis?.isDisposed()}, enabled=${this.chassis?.isEnabled()}, visible=${this.chassis?.isVisible}`);
+        // console.log(`[NetworkPlayerTank] 🟢 setAlive called for ${this.playerId}, position=${position ? position.toString() : 'none'}`);
+        // console.log(`[NetworkPlayerTank] 🟢 Chassis state: exists=${!!this.chassis}, disposed=${this.chassis?.isDisposed()}, enabled=${this.chassis?.isEnabled()}, visible=${this.chassis?.isVisible}`);
 
         if (position && this.chassis) {
             this.chassis.position.copyFrom(position);
@@ -827,14 +801,14 @@ export class NetworkPlayerTank {
             }
 
             const children = this.chassis.getChildMeshes();
-            console.log(`[NetworkPlayerTank] 🟢 Restoring ${children.length} child meshes for ${this.playerId}`);
+            // console.log(`[NetworkPlayerTank] 🟢 Restoring ${children.length} child meshes for ${this.playerId}`);
             children.forEach(child => {
                 child.isVisible = true;
                 child.setEnabled(true);
                 child.checkCollisions = true;
             });
 
-            console.log(`[NetworkPlayerTank] ✅ setAlive COMPLETE for ${this.playerId}: visible=${this.chassis.isVisible}, enabled=${this.chassis.isEnabled()}, childCount=${children.length}`);
+            // console.log(`[NetworkPlayerTank] ✅ setAlive COMPLETE for ${this.playerId}: visible=${this.chassis.isVisible}, enabled=${this.chassis.isEnabled()}, childCount=${children.length}`);
         } else {
             console.error(`[NetworkPlayerTank] ❌ setAlive FAILED - no chassis for ${this.playerId}`);
         }
@@ -843,7 +817,43 @@ export class NetworkPlayerTank {
         this.health = this.maxHealth;
         if (this.healthBar) this.healthBar.isVisible = false;
         if (this.healthBarBackground) this.healthBarBackground.isVisible = false;
+
+        this.playSpawnEffect();
     }
+
+    /**
+     * Установить танк в состояние мертвого (скрыть и показать эффект)
+     */
+    setDead(): void {
+        // console.log(`[NetworkPlayerTank] 💀 setDead for ${this.playerId}`);
+
+        this.playDeathEffect();
+
+        if (this.chassis) {
+            this.chassis.isVisible = false;
+            this.chassis.setEnabled(false);
+
+            // Отключаем коллизии
+            this.chassis.checkCollisions = false;
+            const children = this.chassis.getChildMeshes();
+            children.forEach(child => {
+                child.isVisible = false;
+                child.setEnabled(false);
+                child.checkCollisions = false;
+            });
+
+            // Удаляем физику чтобы танк не мешал (будет пересоздана в setAlive)
+            if (this.physicsAggregate) {
+                this.physicsAggregate.dispose();
+                this.physicsAggregate = null;
+            }
+        }
+
+        if (this.healthBar) this.healthBar.isVisible = false;
+        if (this.healthBarBackground) this.healthBarBackground.isVisible = false;
+    }
+
+
 
     /**
      * Создать визуальную полоску здоровья над танком

@@ -2269,6 +2269,9 @@ export class Game {
             // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: используем ПЕРЕДАННЫЙ mapType (параметр функции), а не this.currentMapType!
             // Ранее была ошибка: создавалась локальная переменная mapType, которая перезаписывала параметр
             let mapTypeForChunkSystem = mapType || this.currentMapType || "normal";
+            if (mapTypeForChunkSystem === "sandbox") {
+                mapTypeForChunkSystem = "sand";
+            }
 
             // Если это custom карта, проверяем базовый тип из сохраненных данных
             // КРИТИЧНО: В мультиплеере НЕ используем сохраненные custom карты
@@ -2281,7 +2284,7 @@ export class Game {
                 if (isInMultiplayerRoom) {
                     // В мультиплеере custom карты не поддерживаются - используем sandbox как fallback
                     logger.log(`[Game] 🗺️ Мультиплеер: custom карты не поддерживаются в reloadMap(), используем sandbox (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
-                    mapTypeForChunkSystem = "sandbox";
+                    mapTypeForChunkSystem = "sand";
                 } else {
                     // В одиночной игре можно использовать сохраненные custom карты
                     try {
@@ -2294,15 +2297,15 @@ export class Game {
                                 mapTypeForChunkSystem = customMapData.mapType;
                                 logger.log(`[Game] Using base map type from normalized custom map: ${customMapData.mapType}`);
                             } else {
-                                mapTypeForChunkSystem = "sandbox";
-                                logger.warn("[Game] Custom map missing valid mapType, using sandbox");
+                                mapTypeForChunkSystem = "sand";
+                                logger.warn("[Game] Custom map missing valid mapType, using sand");
                             }
                         } else {
-                            mapTypeForChunkSystem = "sandbox";
+                            mapTypeForChunkSystem = "sand";
                         }
                     } catch (error) {
-                        logger.error("[Game] Failed to read custom map data, using sandbox:", error);
-                        mapTypeForChunkSystem = "sandbox";
+                        logger.error("[Game] Failed to read custom map data, using sand:", error);
+                        mapTypeForChunkSystem = "sand";
                     }
                 }
             }
