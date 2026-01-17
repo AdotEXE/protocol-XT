@@ -853,24 +853,7 @@ export class NetworkPlayerTank {
         if (this.healthBarBackground) this.healthBarBackground.isVisible = false;
     }
 
-    /**
-     * Проиграть эффект появления
-     */
-    playSpawnEffect(): void {
-        if (this.effectsManager && this.chassis && this.scene) {
-            // Используем createTeleportEffect или createRespawnEffect
-            this.effectsManager.createRespawnEffect(this.chassis.absolutePosition.clone());
-        }
-    }
 
-    /**
-     * Проиграть эффект смерти
-     */
-    playDeathEffect(): void {
-        if (this.effectsManager && this.chassis && this.scene) {
-            this.effectsManager.createExplosion(this.chassis.absolutePosition.clone(), 1.5);
-        }
-    }
 
     /**
      * Создать визуальную полоску здоровья над танком
