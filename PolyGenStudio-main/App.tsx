@@ -157,8 +157,7 @@ export const App = () => {
     const [rightTab, setRightTab] = useState<'props' | 'palette' | 'refine' | 'history' | 'console' | 'gen' | 'terrain' | 'tools' | 'layers' | 'objects'>('props');
     const [showGenSettings, setShowGenSettings] = useState(false);
     const [showSettingsMenu, setShowSettingsMenu] = useState(false);
-    const [showGenSettings, setShowGenSettings] = useState(false);
-    const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+
     const [showExportMenu, setShowExportMenu] = useState(false);
 
     // Settings State

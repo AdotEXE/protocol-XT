@@ -36,6 +36,7 @@ The game features realistic hover-tank physics, a robust client-server architect
 | **🌍 World Generation** | • **8+ Map Generators**: Procedural maps including Urban, Wasteland, Canyon, and more.<br>• **Dynamic Chunks**: Infinite world potential with optimized loading.<br>• **Destructible Environment**: Breakable objects and changing cover. |
 | **⚔️ Combat & Gameplay** | • **Ballistic System**: Realistic projectile trajectories with gravity and travel time.<br>• **Smart AI**: Enemy bots with patrolling, pursuing, and tactical behaviors.<br>• **Progression**: Exp system, levels, skills, and tank upgrades. |
 | **🛠️ Tech Stack** | • **WebGPU / WebGL2**: Cutting-edge rendering support.<br>• **WebSocket Multiplayer**: Custom binary protocol for efficient data sync.<br>• **Modular Architecture**: Component-based design for scalability. |
+| **🎨 PolyGen Studio** | • **AI Map Editor**: Generate terrain, cities, and bases using **Gemini AI** prompts.<br>• **Real-World Import**: One-click import of real cities via **OpenStreetMap**.<br>• **Live Preview**: See physics and lighting exactly as they appear in-game. |
 
 ## 🚀 Getting Started
 
