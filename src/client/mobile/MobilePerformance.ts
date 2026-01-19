@@ -3,7 +3,7 @@
  * @description Оптимизация производительности для мобильных устройств
  */
 
-import { Scene, Engine } from "@babylonjs/core";
+import { Scene, AbstractEngine } from "@babylonjs/core";
 import { isMobileDevice } from "./MobileDetection";
 
 /**
@@ -38,27 +38,27 @@ export const DEFAULT_MOBILE_PERFORMANCE: MobilePerformanceSettings = {
  */
 export class MobilePerformance {
     private scene: Scene;
-    private engine: Engine;
+    private engine: AbstractEngine;
     private settings: MobilePerformanceSettings;
     private isEnabled: boolean;
-    
+
     constructor(scene: Scene, settings?: Partial<MobilePerformanceSettings>) {
         this.scene = scene;
         this.engine = scene.getEngine();
         this.isEnabled = isMobileDevice();
         this.settings = { ...DEFAULT_MOBILE_PERFORMANCE, ...settings };
-        
+
         if (this.isEnabled) {
             this.applySettings();
         }
     }
-    
+
     /**
      * Применить настройки производительности
      */
     private applySettings(): void {
         const s = this.settings;
-        
+
         // Настройка теней
         if (!s.shadowsEnabled) {
             this.scene.shadowsEnabled = false;
@@ -66,15 +66,15 @@ export class MobilePerformance {
             this.scene.shadowsEnabled = true;
             // Можно настроить качество теней через shadowGenerator
         }
-        
+
         // Настройка масштаба рендеринга
         if (s.renderScale < 1.0) {
             this.engine.setHardwareScalingLevel(1.0 / s.renderScale);
         }
-        
+
         // Настройка качества текстур
         // Это нужно делать на уровне загрузки текстур
-        
+
         // Логирование
         console.log('[MobilePerformance] Применены настройки:', {
             shadows: s.shadowsEnabled,
@@ -83,7 +83,7 @@ export class MobilePerformance {
             lod: s.lodEnabled
         });
     }
-    
+
     /**
      * Обновить настройки
      */
@@ -93,14 +93,14 @@ export class MobilePerformance {
             this.applySettings();
         }
     }
-    
+
     /**
      * Получить текущие настройки
      */
     getSettings(): MobilePerformanceSettings {
         return { ...this.settings };
     }
-    
+
     /**
      * Включить/выключить оптимизацию
      */
@@ -114,7 +114,7 @@ export class MobilePerformance {
             this.engine.setHardwareScalingLevel(1.0);
         }
     }
-    
+
     /**
      * Проверить включена ли оптимизация
      */

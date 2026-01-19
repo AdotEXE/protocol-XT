@@ -44,6 +44,8 @@ export interface MapData {
     placedObjects: PlacedObject[];
     /** Триггеры на карте */
     triggers: MapTrigger[];
+    /** AI/OSM Generated World Entities */
+    worldEntities?: any[];
     /** Метаданные карты */
     metadata: {
         createdAt: number;
@@ -122,22 +124,22 @@ export class MapEditor {
     private terrainMeshes: Map<string, GroundMesh> = new Map(); // Меши террейна по ключам чанков
     private isEditing: boolean = false;
     private pointerObserver: any = null;
-    
+
     // Для терраформинга
     private heightData: Map<string, number> = new Map(); // Хранит изменения высоты (ключ: "x_z")
     private originalHeights: Map<string, number> = new Map(); // Оригинальные высоты
     private terrainEdits: TerrainEdit[] = [];
     private isMouseDown: boolean = false;
     private wasEditingBefore: boolean = false; // Флаг для отслеживания начала нового редактирования
-    
+
     // Визуализация области кисти
     private brushIndicator: Mesh | null = null;
-    
+
     // Система отмены/повтора
     private undoStack: Array<{ positions: Float32Array, meshKey: string }> = [];
     private redoStack: Array<{ positions: Float32Array, meshKey: string }> = [];
     private maxUndoSteps: number = 50;
-    
+
     // Размещенные объекты
     private placedObjectMeshes: Map<string, Mesh> = new Map(); // ID объекта -> Mesh
     private selectedObjectType: string = "building"; // Тип объекта для размещения
@@ -147,20 +149,20 @@ export class MapEditor {
     private isDragging: boolean = false; // Флаг перетаскивания объекта
     private dragStartPos: Vector3 | null = null; // Начальная позиция при перетаскивании
     private dragStartMouse: { x: number; y: number } | null = null; // Начальная позиция мыши
-    
+
     // Триггеры
     private triggerMeshes: Map<string, Mesh> = new Map(); // ID триггера -> Mesh (визуализация)
     private selectedTriggerType: string = "spawn"; // Тип триггера
     private selectedTriggerId: string | null = null; // Выбранный триггер для редактирования
     private triggerOutline: Mesh | null = null; // Визуализация выбранного триггера
-    
+
     // Для rotate и scale объектов
     private isRotating: boolean = false; // Флаг поворота объекта
     private isScaling: boolean = false; // Флаг масштабирования объекта
     private rotateStartAngle: number = 0; // Начальный угол при повороте
     private scaleStartValue: number = 1; // Начальное значение масштаба
     private scaleStartMouse: { x: number; y: number } | null = null; // Начальная позиция мыши при масштабировании
-    
+
     constructor(scene: Scene) {
         this.scene = scene;
         // Инициализируем mapData в едином формате
@@ -178,7 +180,7 @@ export class MapEditor {
             }
         };
     }
-    
+
     /**
      * Открыть редактор карт
      */
@@ -192,7 +194,7 @@ export class MapEditor {
         this.setupUpdateLoop();
         this.updateUndoRedoButtons(); // Обновляем состояние кнопок отмены/повтора
     }
-    
+
     /**
      * Закрыть редактор карт
      */
@@ -205,7 +207,7 @@ export class MapEditor {
         }
         this.cleanup();
     }
-    
+
     /**
      * Создать UI
      */
@@ -332,18 +334,18 @@ export class MapEditor {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(this.container);
         this.injectStyles();
         this.setupUIEventListeners();
     }
-    
+
     /**
      * Инъектировать стили
      */
     private injectStyles(): void {
         if (document.getElementById("map-editor-styles")) return;
-        
+
         const style = document.createElement("style");
         style.id = "map-editor-styles";
         style.textContent = `
@@ -523,18 +525,18 @@ export class MapEditor {
         `;
         document.head.appendChild(style);
     }
-    
+
     /**
      * Настроить обработчики UI
      */
     private setupUIEventListeners(): void {
         if (!this.container) return;
-        
+
         // Закрытие
         this.container.querySelector("#map-editor-close")?.addEventListener("click", () => {
             this.close();
         });
-        
+
         // Переключение инструментов
         this.container.querySelectorAll("[data-tool]").forEach(btn => {
             btn.addEventListener("click", (e) => {
@@ -556,23 +558,23 @@ export class MapEditor {
                 }
             });
         });
-        
+
         // Операции террейна
         this.container.querySelector("#terrain-operation")?.addEventListener("change", (e) => {
             this.currentOperation = (e.target as HTMLSelectElement).value as TerrainOperation;
         });
-        
+
         // Режим редактирования объектов
         this.container.querySelector("#object-edit-mode")?.addEventListener("change", (e) => {
             this.objectEditMode = (e.target as HTMLSelectElement).value as ObjectEditMode;
             this.updateObjectEditMode();
         });
-        
+
         // Тип объекта
         this.container.querySelector("#object-type")?.addEventListener("change", (e) => {
             this.selectedObjectType = (e.target as HTMLSelectElement).value;
         });
-        
+
         // Удаление объекта
         this.container.querySelector("#delete-object-btn")?.addEventListener("click", () => {
             if (this.selectedObjectId) {
@@ -583,7 +585,7 @@ export class MapEditor {
                 const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => {
                     return mesh.metadata && mesh.metadata.mapEditorObject === true;
                 });
-                
+
                 if (pickInfo && pickInfo.pickedMesh && pickInfo.pickedMesh.metadata) {
                     const objectId = pickInfo.pickedMesh.metadata.objectId;
                     if (objectId) {
@@ -592,24 +594,24 @@ export class MapEditor {
                 }
             }
         });
-        
+
         // Дублирование объекта
         this.container.querySelector("#duplicate-object-btn")?.addEventListener("click", () => {
             if (this.selectedObjectId) {
                 this.duplicateObject(this.selectedObjectId);
             }
         });
-        
+
         // Снять выбор
         this.container.querySelector("#deselect-object-btn")?.addEventListener("click", () => {
             this.deselectObject();
         });
-        
+
         // Тип триггера
         this.container.querySelector("#trigger-type")?.addEventListener("change", (e) => {
             this.selectedTriggerType = (e.target as HTMLSelectElement).value;
         });
-        
+
         // Размер триггера
         const triggerSizeInput = this.container.querySelector("#trigger-size") as HTMLInputElement;
         if (triggerSizeInput) {
@@ -619,7 +621,7 @@ export class MapEditor {
                 if (valueEl) valueEl.textContent = value.toString();
             });
         }
-        
+
         // Удаление триггера
         this.container.querySelector("#delete-trigger-btn")?.addEventListener("click", () => {
             if (this.selectedTriggerId) {
@@ -631,7 +633,7 @@ export class MapEditor {
                 const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => {
                     return mesh.metadata && mesh.metadata.mapEditorTrigger === true;
                 });
-                
+
                 if (pickInfo && pickInfo.pickedMesh && pickInfo.pickedMesh.metadata) {
                     const triggerId = pickInfo.pickedMesh.metadata.triggerId;
                     if (triggerId) {
@@ -642,7 +644,7 @@ export class MapEditor {
                 }
             }
         });
-        
+
         // Размер кисти
         const brushSizeInput = this.container.querySelector("#brush-size") as HTMLInputElement;
         if (brushSizeInput) {
@@ -652,7 +654,7 @@ export class MapEditor {
                 if (valueEl) valueEl.textContent = this.brushSize.toString();
             });
         }
-        
+
         // Сила кисти
         const brushStrengthInput = this.container.querySelector("#brush-strength") as HTMLInputElement;
         if (brushStrengthInput) {
@@ -662,43 +664,43 @@ export class MapEditor {
                 if (valueEl) valueEl.textContent = this.brushStrength.toString();
             });
         }
-        
+
         // Кнопки сохранения/загрузки
         this.container.querySelector("#save-map")?.addEventListener("click", () => {
             this.saveMap();
         });
-        
+
         this.container.querySelector("#load-map")?.addEventListener("click", () => {
             this.loadMap();
         });
-        
+
         this.container.querySelector("#export-map")?.addEventListener("click", () => {
             this.exportMapToFile();
         });
-        
+
         this.container.querySelector("#import-map")?.addEventListener("click", () => {
             this.importMapFromFile();
         });
-        
+
         this.container.querySelector("#new-map")?.addEventListener("click", () => {
             if (confirm("Создать новую карту? Все несохраненные изменения будут потеряны.")) {
                 this.newMap();
             }
         });
-        
+
         // Кнопки отмены/повтора
         this.container.querySelector("#undo-btn")?.addEventListener("click", () => {
             this.undo();
         });
-        
+
         this.container.querySelector("#redo-btn")?.addEventListener("click", () => {
             this.redo();
         });
-        
+
         // Горячие клавиши
         const keyHandler = (e: KeyboardEvent) => {
             if (!this.isActive) return;
-            
+
             // Переключение инструментов
             if (!e.ctrlKey && !e.metaKey && !e.altKey) {
                 if (e.code === "KeyT") {
@@ -728,7 +730,7 @@ export class MapEditor {
                     }
                 }
             }
-            
+
             // Отмена/повтор
             if (e.ctrlKey || e.metaKey) {
                 if (e.code === "KeyZ" && !e.shiftKey) {
@@ -747,7 +749,7 @@ export class MapEditor {
         };
         window.addEventListener("keydown", keyHandler);
     }
-    
+
     /**
      * Настроить обработчики ввода для редактирования
      */
@@ -755,10 +757,10 @@ export class MapEditor {
         // Обработка мыши для всех инструментов
         this.pointerObserver = this.scene.onPointerObservable.add((pointerInfo) => {
             if (!this.isActive) return;
-            
+
             if (pointerInfo.type === PointerEventTypes.POINTERDOWN) {
                 this.isMouseDown = true;
-                
+
                 if (this.currentTool === "terrain") {
                     this.wasEditingBefore = false;
                     this.handleTerrainEdit();
@@ -822,13 +824,13 @@ export class MapEditor {
             }
         });
     }
-    
+
     /**
      * Собрать все меши террейна из chunkSystem
      */
     private collectTerrainMeshes(): void {
         this.terrainMeshes.clear();
-        
+
         // Найти все меши террейна в сцене
         this.scene.meshes.forEach(mesh => {
             if (mesh instanceof GroundMesh && mesh.name.startsWith("ground_")) {
@@ -840,61 +842,61 @@ export class MapEditor {
                 }
             }
         });
-        
+
         // Убрано для уменьшения спама - логируем только если мешей > 0
         if (this.terrainMeshes.size > 0) {
             console.log(`[MapEditor] Found ${this.terrainMeshes.size} terrain meshes`);
         }
     }
-    
+
     /**
      * Обработать редактирование террейна
      */
     private handleTerrainEdit(): void {
         if (!this.isActive || this.currentTool !== "terrain") return;
-        
+
         // Raycast для определения точки клика на террейне
         const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => {
             // Ищем только меши террейна
             return mesh instanceof GroundMesh && mesh.name.startsWith("ground_");
         });
-        
+
         if (!pickInfo || !pickInfo.hit || !pickInfo.pickedPoint) return;
-        
+
         const hitPoint = pickInfo.pickedPoint;
         const hitMesh = pickInfo.pickedMesh as GroundMesh;
-        
+
         if (!hitMesh) return;
-        
+
         // Редактируем террейн в радиусе кисти
         this.editTerrainAt(hitMesh, hitPoint, this.brushSize, this.brushStrength);
     }
-    
+
     /**
      * Сохранить состояние меша для отмены
      */
     private saveMeshStateForUndo(mesh: GroundMesh): void {
         const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
         if (!positions) return;
-        
+
         // Определяем ключ меша
         const meshKey = mesh.name;
-        
+
         // Сохраняем копию позиций
         const positionsCopy = new Float32Array(positions);
-        
+
         // Добавляем в стек отмены
         this.undoStack.push({ positions: positionsCopy, meshKey });
-        
+
         // Ограничиваем размер стека
         if (this.undoStack.length > this.maxUndoSteps) {
             this.undoStack.shift();
         }
-        
+
         // Очищаем стек повтора при новом редактировании
         this.redoStack = [];
     }
-    
+
     /**
      * Отменить последнее редактирование
      */
@@ -903,16 +905,16 @@ export class MapEditor {
             this.showNotification("Нечего отменять");
             return;
         }
-        
+
         const lastState = this.undoStack.pop()!;
-        
+
         // Найти меш по ключу
         const mesh = this.scene.getMeshByName(lastState.meshKey) as GroundMesh;
         if (!mesh) {
             console.warn(`[MapEditor] Mesh not found for undo: ${lastState.meshKey}`);
             return;
         }
-        
+
         // Сохранить текущее состояние в стек повтора
         const currentPositions = mesh.getVerticesData(VertexBuffer.PositionKind);
         if (currentPositions) {
@@ -922,19 +924,19 @@ export class MapEditor {
                 this.redoStack.shift();
             }
         }
-        
+
         // Восстановить предыдущее состояние
         mesh.updateVerticesData(VertexBuffer.PositionKind, lastState.positions, true);
         mesh.refreshBoundingInfo();
         mesh.createNormals(true);
-        
+
         // Обновить UI
         this.updateUndoRedoButtons();
-        
+
         // Обновляем метаданные
         this.mapData.metadata.modifiedAt = Date.now();
     }
-    
+
     /**
      * Повторить последнее отмененное редактирование
      */
@@ -943,16 +945,16 @@ export class MapEditor {
             this.showNotification("Нечего повторить");
             return;
         }
-        
+
         const nextState = this.redoStack.pop()!;
-        
+
         // Найти меш по ключу
         const mesh = this.scene.getMeshByName(nextState.meshKey) as GroundMesh;
         if (!mesh) {
             console.warn(`[MapEditor] Mesh not found for redo: ${nextState.meshKey}`);
             return;
         }
-        
+
         // Сохранить текущее состояние в стек отмены
         const currentPositions = mesh.getVerticesData(VertexBuffer.PositionKind);
         if (currentPositions) {
@@ -962,28 +964,28 @@ export class MapEditor {
                 this.undoStack.shift();
             }
         }
-        
+
         // Восстановить состояние
         mesh.updateVerticesData(VertexBuffer.PositionKind, nextState.positions, true);
         mesh.refreshBoundingInfo();
         mesh.createNormals(true);
-        
+
         // Обновить UI
         this.updateUndoRedoButtons();
-        
+
         // Обновляем метаданные
         this.mapData.metadata.modifiedAt = Date.now();
     }
-    
+
     /**
      * Обновить состояние кнопок отмены/повтора
      */
     private updateUndoRedoButtons(): void {
         if (!this.container) return;
-        
+
         const undoBtn = this.container.querySelector("#undo-btn");
         const redoBtn = this.container.querySelector("#redo-btn");
-        
+
         if (undoBtn) {
             if (this.undoStack.length === 0) {
                 undoBtn.classList.add("disabled");
@@ -991,7 +993,7 @@ export class MapEditor {
                 undoBtn.classList.remove("disabled");
             }
         }
-        
+
         if (redoBtn) {
             if (this.redoStack.length === 0) {
                 redoBtn.classList.add("disabled");
@@ -1000,64 +1002,64 @@ export class MapEditor {
             }
         }
     }
-    
+
     /**
      * Редактировать террейн в указанной точке
      */
     private editTerrainAt(mesh: GroundMesh, center: Vector3, radius: number, strength: number, skipUndo: boolean = false): void {
         const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
         if (!positions) return;
-        
+
         // Сохраняем состояние для отмены только при начале нового редактирования (когда кнопка мыши только нажата)
         // И только если это не применение сохраненных данных (skipUndo = true)
         if (!skipUndo && !this.wasEditingBefore) {
             this.saveMeshStateForUndo(mesh);
             this.wasEditingBefore = true;
         }
-        
+
         const indices = mesh.getIndices();
         if (!indices) return;
-        
+
         // Получаем размер меша и количество подразделений
         // Предполагаем, что меш создан через CreateGround с subdivisions=TERRAIN_SUBDIVISIONS (оптимизировано)
         const subdivisions = TERRAIN_SUBDIVISIONS;
         const vertsPerSide = subdivisions + 1;
-        
+
         // Вычисляем размер чанка (предполагаем стандартный размер)
         const chunkSize = DEFAULT_CHUNK_SIZE; // Стандартный размер чанка
-        
+
         let modified = false;
-        
+
         // Перебираем все вершины меша
         for (let i = 0; i < positions.length; i += 3) {
             const vx = positions[i] ?? 0;
             const vy = positions[i + 1] ?? 0;
             const vz = positions[i + 2] ?? 0;
-            
+
             // Вычисляем расстояние от вершины до центра кисти (только по X и Z)
             const dx = vx - center.x;
             const dz = vz - center.z;
             const dist = Math.sqrt(dx * dx + dz * dz);
-            
+
             // Если вершина в радиусе кисти
             if (dist <= radius) {
                 // Вычисляем влияние кисти (1.0 в центре, 0.0 на краю)
                 const influence = 1.0 - (dist / radius);
                 const smoothInfluence = influence * influence * (3 - 2 * influence); // smoothstep
-                
+
                 // Вычисляем индекс вершины для сохранения оригинальной высоты
                 const vertX = Math.round((vx - mesh.position.x + chunkSize / 2) / (chunkSize / subdivisions));
                 const vertZ = Math.round((vz - mesh.position.z + chunkSize / 2) / (chunkSize / subdivisions));
                 const heightKey = `${Math.floor(mesh.position.x)}_${Math.floor(mesh.position.z)}_${vertX}_${vertZ}`;
-                
+
                 // Сохраняем оригинальную высоту при первом редактировании
                 if (!this.originalHeights.has(heightKey)) {
                     this.originalHeights.set(heightKey, vy);
                 }
-                
+
                 const originalHeight = this.originalHeights.get(heightKey) || vy;
                 let newHeight = vy;
-                
+
                 // Применяем операцию
                 switch (this.currentOperation) {
                     case "raise":
@@ -1077,24 +1079,24 @@ export class MapEditor {
                         newHeight = vy * (1 - smoothInfluence * 0.3) + originalHeight * (smoothInfluence * 0.3);
                         break;
                 }
-                
+
                 positions[i + 1] = newHeight;
                 modified = true;
-                
+
                 // Сохраняем изменение в heightData
                 const worldKey = `${Math.floor(vx)}_${Math.floor(vz)}`;
                 this.heightData.set(worldKey, newHeight);
             }
         }
-        
+
         // Обновляем меш если были изменения
         if (modified) {
             mesh.updateVerticesData(VertexBuffer.PositionKind, positions, true);
             mesh.refreshBoundingInfo();
-            
+
             // Обновляем нормали для правильного освещения
             mesh.createNormals(true);
-            
+
             // Сохраняем редактирование в mapData
             const terrainEdit: TerrainEdit = {
                 x: center.x,
@@ -1103,22 +1105,22 @@ export class MapEditor {
                 radius: radius,
                 operation: this.currentOperation
             };
-            
+
             // Добавляем редактирование в список (или обновляем существующее близкое)
             this.mapData.terrainEdits.push(terrainEdit);
             this.mapData.metadata.modifiedAt = Date.now();
-            
+
             // Обновляем кнопки отмены/повтора
             this.updateUndoRedoButtons();
         }
     }
-    
+
     /**
      * Обновить UI (только обновляет значения, не пересоздает структуру)
      */
     private updateUI(): void {
         if (!this.container) return;
-        
+
         try {
             // Обновить активные кнопки инструментов
             this.container.querySelectorAll("[data-tool]").forEach(btn => {
@@ -1129,7 +1131,7 @@ export class MapEditor {
                     btn.classList.remove("active");
                 }
             });
-            
+
             // Обновить режим редактирования объектов если нужно
             if (this.currentTool === "objects") {
                 const modeSelect = this.container.querySelector("#object-edit-mode") as HTMLSelectElement;
@@ -1137,31 +1139,31 @@ export class MapEditor {
                     modeSelect.value = this.objectEditMode;
                 }
             }
-            
+
             // Обновить название инструмента
             const toolNameEl = this.container.querySelector("#current-tool");
             if (toolNameEl) {
                 toolNameEl.textContent = this.getToolName(this.currentTool);
             }
-            
+
             // Обновить счетчики
             const objectsCountEl = this.container.querySelector("#objects-count");
             if (objectsCountEl) {
                 objectsCountEl.textContent = this.mapData.placedObjects.length.toString();
             }
-            
+
             const triggersCountEl = this.container.querySelector("#triggers-count");
             if (triggersCountEl) {
                 triggersCountEl.textContent = this.mapData.triggers.length.toString();
             }
-            
+
             // Обновить информацию о выбранном объекте
             const infoEl = this.container.querySelector(".map-editor-info");
             if (infoEl) {
                 // Удаляем старую информацию о выборе
                 const oldSelectedDivs = infoEl.querySelectorAll("div:has(span[id*='selected'])");
                 oldSelectedDivs.forEach(div => div.remove());
-                
+
                 if (this.selectedObjectId) {
                     const selectedDiv = document.createElement("div");
                     selectedDiv.innerHTML = `Выбран объект: <span id="selected-object-name">${this.getSelectedObjectName()}</span>`;
@@ -1174,18 +1176,18 @@ export class MapEditor {
                     infoEl.appendChild(selectedDiv);
                 }
             }
-            
+
             // Обновить индикаторы размеров
             const brushSizeValueEl = this.container.querySelector("#brush-size-value");
             if (brushSizeValueEl) {
                 brushSizeValueEl.textContent = this.brushSize.toString();
             }
-            
+
             const brushStrengthValueEl = this.container.querySelector("#brush-strength-value");
             if (brushStrengthValueEl) {
                 brushStrengthValueEl.textContent = this.brushStrength.toString();
             }
-            
+
             const triggerSizeValueEl = this.container.querySelector("#trigger-size-value");
             if (triggerSizeValueEl) {
                 const triggerSizeInput = this.container.querySelector("#trigger-size") as HTMLInputElement;
@@ -1193,17 +1195,17 @@ export class MapEditor {
                     triggerSizeValueEl.textContent = triggerSizeInput.value || "5";
                 }
             }
-            
+
             // Обновить панель свойств
             this.updatePropertiesPanel();
-            
+
             // Обновить состояние кнопок
             this.updateUndoRedoButtons();
         } catch (error) {
             console.error("[MapEditor] Failed to update UI:", error);
         }
     }
-    
+
     /**
      * Получить название инструмента
      */
@@ -1217,7 +1219,7 @@ export class MapEditor {
             default: return "Неизвестно";
         }
     }
-    
+
     /**
      * Получить название выбранного объекта
      */
@@ -1227,16 +1229,16 @@ export class MapEditor {
         if (!obj) return "";
         return `${obj.type} (${this.selectedObjectId.substring(0, 8)}...)`;
     }
-    
+
     /**
      * Сгенерировать панель свойств
      */
     private generatePropertiesPanel(): string {
         if (!this.selectedObjectId) return "";
-        
+
         const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
         if (!obj) return "";
-        
+
         return `
             <div class="property-group">
                 <label>Позиция X:</label>
@@ -1277,16 +1279,16 @@ export class MapEditor {
             </div>
         `;
     }
-    
+
     /**
      * Обновить панель свойств
      */
     private updatePropertiesPanel(): void {
         if (!this.container) return;
-        
+
         const panel = this.container.querySelector("#properties-panel") as HTMLElement;
         const content = this.container.querySelector("#properties-content") as HTMLElement;
-        
+
         if (this.selectedObjectId) {
             if (panel) panel.style.display = "block";
             if (content) {
@@ -1297,19 +1299,19 @@ export class MapEditor {
             if (panel) panel.style.display = "none";
         }
     }
-    
+
     /**
      * Настроить обработчики панели свойств
      */
     private setupPropertiesListeners(): void {
         if (!this.container || !this.selectedObjectId) return;
-        
+
         const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
         if (!obj) return;
-        
+
         const mesh = this.placedObjectMeshes.get(this.selectedObjectId);
         if (!mesh) return;
-        
+
         // Позиция
         ["x", "y", "z"].forEach(axis => {
             const input = this.container?.querySelector(`#prop-pos-${axis}`) as HTMLInputElement;
@@ -1325,7 +1327,7 @@ export class MapEditor {
                 });
             }
         });
-        
+
         // Поворот
         const rotYInput = this.container?.querySelector("#prop-rot-y") as HTMLInputElement;
         if (rotYInput) {
@@ -1340,7 +1342,7 @@ export class MapEditor {
                 this.mapData.metadata.modifiedAt = Date.now();
             });
         }
-        
+
         // Масштаб
         ["x", "y", "z"].forEach(axis => {
             const input = this.container?.querySelector(`#prop-scale-${axis}`) as HTMLInputElement;
@@ -1355,7 +1357,7 @@ export class MapEditor {
                 });
             }
         });
-        
+
         // Тип
         const typeSelect = this.container?.querySelector("#prop-type") as HTMLSelectElement;
         if (typeSelect) {
@@ -1370,7 +1372,7 @@ export class MapEditor {
             });
         }
     }
-    
+
     /**
      * Получить название операции
      */
@@ -1383,7 +1385,7 @@ export class MapEditor {
             default: return "Неизвестно";
         }
     }
-    
+
     /**
      * Экспортировать карту в JSON
      */
@@ -1394,42 +1396,42 @@ export class MapEditor {
             console.error("[MapEditor] Failed to normalize map data for export");
             return JSON.stringify(this.mapData, null, 2); // Fallback на исходные данные
         }
-        
+
         // Убеждаемся, что mapType всегда присутствует
         if (!normalized.mapType) {
             normalized.mapType = "normal";
             console.warn("[MapEditor] exportMap: Map data missing mapType, defaulting to 'normal'");
         }
-        
+
         return JSON.stringify(normalized, null, 2);
     }
-    
+
     /**
      * Импортировать карту из JSON
      */
     importMap(jsonData: string): boolean {
         try {
             const rawData = JSON.parse(jsonData);
-            
+
             // Нормализуем данные к единому формату
             const importedData = this.normalizeMapData(rawData);
             if (!importedData) {
                 console.error("[MapEditor] Invalid map data: failed to normalize");
                 return false;
             }
-            
+
             // Валидация данных
             if (!importedData.name || typeof importedData.name !== "string") {
                 console.error("[MapEditor] Invalid map data: missing name");
                 return false;
             }
-            
+
             // Убеждаемся, что mapType всегда присутствует
             if (!importedData.mapType) {
                 importedData.mapType = "normal";
                 console.warn("[MapEditor] Map data missing mapType, defaulting to 'normal'");
             }
-            
+
             // Очищаем текущие данные перед импортом
             this.placedObjectMeshes.forEach(mesh => mesh.dispose());
             this.placedObjectMeshes.clear();
@@ -1441,22 +1443,30 @@ export class MapEditor {
             this.redoStack = [];
             this.deselectObject();
             this.deselectTrigger();
-            
+
             // Применяем импортированные данные
             this.mapData = importedData;
-            
+
             // Используем Promise-based загрузку
             this.importMapAsync(importedData).catch(error => {
                 console.error("[MapEditor] Failed to import map async:", error);
             });
-            
+
             return true;
         } catch (error) {
             console.error("[MapEditor] Failed to import map:", error);
             return false;
         }
     }
-    
+
+    /**
+     * Load map data from external source
+     */
+    public loadMapData(data: MapData): void {
+        this.mapData = data;
+        this.updateUI();
+    }
+
     /**
      * Асинхронный импорт карты с ожиданием готовности мешей
      */
@@ -1464,10 +1474,10 @@ export class MapEditor {
         try {
             // Ожидаем готовности мешей террейна
             await this.waitForTerrainMeshes();
-            
+
             // Применяем данные карты
             this.applyMapData();
-            
+
             console.log(`[MapEditor] Map imported: ${importedData.name}`, {
                 terrainEdits: importedData.terrainEdits.length,
                 objects: importedData.placedObjects.length,
@@ -1477,7 +1487,7 @@ export class MapEditor {
             console.error("[MapEditor] Failed in importMapAsync:", error);
         }
     }
-    
+
     /**
      * Асинхронная загрузка карты с ожиданием готовности мешей
      */
@@ -1485,12 +1495,12 @@ export class MapEditor {
         try {
             // Ожидаем готовности мешей террейна
             await this.waitForTerrainMeshes();
-            
+
             // Применяем данные карты
             this.applyMapData();
             this.updateUI();
             this.showNotification(`Карта "${mapName}" загружена!`);
-            
+
             console.log(`[MapEditor] Map loaded: ${mapName}`, {
                 terrainEdits: this.mapData.terrainEdits.length,
                 objects: this.mapData.placedObjects.length,
@@ -1501,7 +1511,7 @@ export class MapEditor {
             throw error;
         }
     }
-    
+
     /**
      * Сохранить карту
      */
@@ -1521,7 +1531,7 @@ export class MapEditor {
             max-width: 600px;
             font-family: 'Consolas', 'Monaco', monospace;
         `;
-        
+
         dialog.innerHTML = `
             <div style="color: #0f0; font-size: 18px; margin-bottom: 15px; font-weight: bold;">
                 Сохранить карту
@@ -1558,15 +1568,15 @@ export class MapEditor {
                 ">Сохранить</button>
             </div>
         `;
-        
+
         document.body.appendChild(dialog);
-        
+
         // Фокус на поле ввода
         const nameInput = dialog.querySelector("#save-map-name") as HTMLInputElement;
         if (nameInput) {
             nameInput.focus();
             nameInput.select();
-            
+
             // Обработка Enter для сохранения
             nameInput.addEventListener("keydown", (e) => {
                 if (e.key === "Enter") {
@@ -1579,7 +1589,7 @@ export class MapEditor {
                 }
             });
         }
-        
+
         // Обработчик сохранения
         dialog.querySelector("#save-map-confirm")?.addEventListener("click", () => {
             const name = nameInput?.value?.trim() || "";
@@ -1587,16 +1597,16 @@ export class MapEditor {
                 this.showNotification("Имя карты не может быть пустым");
                 return;
             }
-            
+
             dialog.remove();
             this.performSave(name);
         });
-        
+
         // Обработчик отмены
         dialog.querySelector("#save-map-cancel")?.addEventListener("click", () => {
             dialog.remove();
         });
-        
+
         // Закрытие по клику вне диалога
         dialog.addEventListener("click", (e) => {
             if (e.target === dialog) {
@@ -1604,7 +1614,7 @@ export class MapEditor {
             }
         });
     }
-    
+
     /**
      * Выполнить сохранение карты
      */
@@ -1614,31 +1624,33 @@ export class MapEditor {
             const cleanName = name.trim().replace(/^\[Предустановленная\]\s*/, "");
             this.mapData.name = cleanName;
             this.mapData.metadata.modifiedAt = Date.now();
-            
+
             // Собираем все изменения террейна из текущих мешей
             this.collectTerrainModifications();
-            
+
             // Удаляем дубликаты terrainEdits (слишком близкие по позиции)
             const uniqueTerrainEdits: TerrainEdit[] = [];
             const editThreshold = 0.5; // Минимальное расстояние между редактированиями
-            
+
             for (const edit of this.mapData.terrainEdits) {
                 const isDuplicate = uniqueTerrainEdits.some(existing => {
                     const dist = Math.sqrt(
-                        Math.pow(existing.x - edit.x, 2) + 
+                        Math.pow(existing.x - edit.x, 2) +
                         Math.pow(existing.z - edit.z, 2)
                     );
                     return dist < editThreshold && existing.operation === edit.operation;
                 });
-                
+
                 if (!isDuplicate) {
                     uniqueTerrainEdits.push(edit);
                 }
             }
-            
+
             const savedMaps = this.loadSavedMaps();
             const mapIndex = savedMaps.findIndex(m => m.name === cleanName);
-            
+
+            const existingMap = mapIndex >= 0 ? savedMaps[mapIndex] : null;
+
             // Создаем копию mapData для сохранения в едином формате
             // КРИТИЧНО: При сохранении отредактированной предустановленной карты она становится пользовательской
             const saveData: MapData = {
@@ -1650,24 +1662,24 @@ export class MapEditor {
                 triggers: this.mapData.triggers || [],
                 metadata: {
                     // При сохранении отредактированной предустановленной карты создаем новую дату создания
-                    createdAt: (mapIndex >= 0 && savedMaps[mapIndex].metadata?.createdAt) ? savedMaps[mapIndex].metadata.createdAt : Date.now(),
+                    createdAt: existingMap?.metadata?.createdAt ?? Date.now(),
                     modifiedAt: Date.now(),
                     author: this.mapData.metadata?.author,
                     description: this.mapData.metadata?.description || `Карта типа ${this.mapData.mapType || "normal"}`,
                     isPreset: false // КРИТИЧНО: Сохраненные карты никогда не являются предустановленными, даже если были отредактированы из предустановленной
                 }
             };
-            
+
             // Сохраняем seed если есть
             if (this.mapData.seed !== undefined) {
                 saveData.seed = this.mapData.seed;
             }
-            
+
             // Сохраняем mapSize если есть в текущей карте
             if (this.mapData.metadata?.mapSize !== undefined) {
                 saveData.metadata.mapSize = this.mapData.metadata.mapSize;
             }
-            
+
             if (mapIndex >= 0) {
                 // Обновляем существующую карту
                 savedMaps[mapIndex] = saveData;
@@ -1675,12 +1687,12 @@ export class MapEditor {
                 // Добавляем новую карту
                 savedMaps.push(saveData);
             }
-            
+
             localStorage.setItem("savedMaps", JSON.stringify(savedMaps));
-            
+
             // Показываем уведомление в UI
             this.showNotification(`Карта "${name}" успешно сохранена!`);
-            
+
             console.log(`[MapEditor] Map saved: ${name}`, {
                 terrainEdits: saveData.terrainEdits.length,
                 objects: saveData.placedObjects.length,
@@ -1692,37 +1704,37 @@ export class MapEditor {
             this.showNotification(`Ошибка при сохранении карты: ${errorMsg}`);
         }
     }
-    
+
     /**
      * Собрать все модификации террейна из текущих мешей
      */
     private collectTerrainModifications(): void {
         // Собираем все изменения из heightData
         const collectedEdits: TerrainEdit[] = [];
-        
+
         // Группируем изменения по областям для оптимизации
         const editGroups = new Map<string, { x: number, z: number, heights: number[], operations: TerrainOperation[] }>();
-        
+
         this.heightData.forEach((height, key) => {
             const parts = key.split("_").map(Number);
             const x = parts[0];
             const z = parts[1];
             if (x === undefined || z === undefined || isNaN(x) || isNaN(z)) return;
-            
+
             // Группируем по сетке 5x5 для уменьшения количества записей
             const gridX = Math.floor(x / 5) * 5;
             const gridZ = Math.floor(z / 5) * 5;
             const groupKey = `${gridX}_${gridZ}`;
-            
+
             if (!editGroups.has(groupKey)) {
                 editGroups.set(groupKey, { x: gridX, z: gridZ, heights: [], operations: [] });
             }
-            
+
             const group = editGroups.get(groupKey)!;
             group.heights.push(height);
-            
+
             // Находим соответствующую операцию из terrainEdits
-            const relatedEdit = this.mapData.terrainEdits.find(e => 
+            const relatedEdit = this.mapData.terrainEdits.find(e =>
                 Math.abs(e.x - x) < 1 && Math.abs(e.z - z) < 1
             );
             if (relatedEdit) {
@@ -1731,12 +1743,12 @@ export class MapEditor {
                 }
             }
         });
-        
+
         // Создаем TerrainEdit для каждой группы
         editGroups.forEach((group, key) => {
             const avgHeight = group.heights.reduce((a, b) => a + b, 0) / group.heights.length;
             const operation = group.operations[0] || "raise";
-            
+
             collectedEdits.push({
                 x: group.x,
                 z: group.z,
@@ -1745,11 +1757,11 @@ export class MapEditor {
                 operation: operation
             });
         });
-        
+
         // Объединяем с существующими редактированиями
         this.mapData.terrainEdits = [...this.mapData.terrainEdits, ...collectedEdits];
     }
-    
+
     /**
      * Загрузить карту
      */
@@ -1759,7 +1771,7 @@ export class MapEditor {
             this.showNotification("Нет сохраненных карт");
             return;
         }
-        
+
         // Создаем диалог выбора карты
         const dialog = document.createElement("div");
         dialog.style.cssText = `
@@ -1777,7 +1789,7 @@ export class MapEditor {
             overflow-y: auto;
             font-family: 'Consolas', 'Monaco', monospace;
         `;
-        
+
         dialog.innerHTML = `
             <div style="color: #0f0; font-size: 18px; margin-bottom: 15px; font-weight: bold;">
                 Выберите карту для загрузки
@@ -1818,41 +1830,41 @@ export class MapEditor {
                 ">Отмена</button>
             </div>
         `;
-        
+
         document.body.appendChild(dialog);
-        
+
         // Обработчики событий
         const mapItems = dialog.querySelectorAll('[data-map-index]');
         mapItems.forEach(item => {
             item.addEventListener("click", () => {
                 const index = parseInt(item.getAttribute("data-map-index") || "0");
                 const map = savedMaps[index];
-                    if (map) {
-                        // Подтверждение если есть несохраненные изменения
-                        if (this.mapData.terrainEdits.length > 0 || 
-                            this.mapData.placedObjects.length > 0 || 
-                            this.mapData.triggers.length > 0) {
-                            if (!confirm("Загрузить карту? Все несохраненные изменения будут потеряны.")) {
-                                return;
-                            }
+                if (map) {
+                    // Подтверждение если есть несохраненные изменения
+                    if (this.mapData.terrainEdits.length > 0 ||
+                        this.mapData.placedObjects.length > 0 ||
+                        this.mapData.triggers.length > 0) {
+                        if (!confirm("Загрузить карту? Все несохраненные изменения будут потеряны.")) {
+                            return;
                         }
-                        
-                        this.mapData = JSON.parse(JSON.stringify(map)); // Глубокая копия
-                        dialog.remove();
-                        
-                        // Используем Promise-based загрузку
-                        this.loadMapAsync(map.name).catch(error => {
-                            console.error("[MapEditor] Failed to load map async:", error);
-                            this.showNotification(`Ошибка загрузки карты`);
-                        });
                     }
+
+                    this.mapData = JSON.parse(JSON.stringify(map)); // Глубокая копия
+                    dialog.remove();
+
+                    // Используем Promise-based загрузку
+                    this.loadMapAsync(map.name).catch(error => {
+                        console.error("[MapEditor] Failed to load map async:", error);
+                        this.showNotification(`Ошибка загрузки карты`);
+                    });
+                }
             });
         });
-        
+
         dialog.querySelector("#load-cancel")?.addEventListener("click", () => {
             dialog.remove();
         });
-        
+
         // Закрытие по клику вне диалога
         dialog.addEventListener("click", (e) => {
             if (e.target === dialog) {
@@ -1860,7 +1872,7 @@ export class MapEditor {
             }
         });
     }
-    
+
     /**
      * Создать новую карту
      */
@@ -1868,24 +1880,24 @@ export class MapEditor {
         // Удаляем все размещенные объекты
         this.placedObjectMeshes.forEach(mesh => mesh.dispose());
         this.placedObjectMeshes.clear();
-        
+
         // Удаляем все триггеры
         this.triggerMeshes.forEach(mesh => mesh.dispose());
         this.triggerMeshes.clear();
-        
+
         // Восстанавливаем террейн к оригинальному состоянию
         // Это требует перезагрузки чанков, но для упрощения просто очищаем данные
         this.heightData.clear();
         this.originalHeights.clear();
         this.terrainEdits = [];
-        
+
         // Сбрасываем стеки отмены/повтора
         this.undoStack = [];
         this.redoStack = [];
-        
+
         // Снимаем выбор объекта
         this.deselectObject();
-        
+
         // Создаем новую карту в едином формате
         this.mapData = {
             version: 1, // Версия формата
@@ -1900,14 +1912,14 @@ export class MapEditor {
                 isPreset: false // Новая карта не является предустановленной
             }
         };
-        
+
         // Обновляем UI
         this.updateUI();
         this.updateUndoRedoButtons();
-        
+
         this.showNotification("Новая карта создана");
     }
-    
+
     /**
      * Экспортировать карту в файл
      */
@@ -1915,7 +1927,7 @@ export class MapEditor {
         try {
             // Собираем все изменения террейна перед экспортом
             this.collectTerrainModifications();
-            
+
             const jsonData = this.exportMap();
             const blob = new Blob([jsonData], { type: "application/json" });
             const url = URL.createObjectURL(blob);
@@ -1927,10 +1939,10 @@ export class MapEditor {
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            
+
             // Показываем уведомление
             this.showNotification(`Карта экспортирована: ${fileName}`);
-            
+
             console.log(`[MapEditor] Map exported: ${fileName}`, {
                 size: jsonData.length,
                 terrainEdits: this.mapData.terrainEdits.length,
@@ -1943,27 +1955,27 @@ export class MapEditor {
             alert(`Ошибка при экспорте карты: ${errorMsg}`);
         }
     }
-    
+
     /**
      * Импортировать карту из файла
      */
     private importMapFromFile(): void {
         // Предупреждение о потере несохраненных изменений
-        if (this.mapData.terrainEdits.length > 0 || 
-            this.mapData.placedObjects.length > 0 || 
+        if (this.mapData.terrainEdits.length > 0 ||
+            this.mapData.placedObjects.length > 0 ||
             this.mapData.triggers.length > 0) {
             if (!confirm("Импортировать карту? Все несохраненные изменения будут потеряны.")) {
                 return;
             }
         }
-        
+
         const input = document.createElement("input");
         input.type = "file";
         input.accept = ".json";
         input.onchange = (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
             reader.onerror = () => {
                 alert("Ошибка при чтении файла");
@@ -1975,7 +1987,7 @@ export class MapEditor {
                         alert("Файл пуст или поврежден");
                         return;
                     }
-                    
+
                     if (this.importMap(jsonData)) {
                         this.showNotification(`Карта "${this.mapData.name}" успешно импортирована!`);
                         this.updateUI();
@@ -1993,13 +2005,13 @@ export class MapEditor {
         };
         input.click();
     }
-    
+
     /**
      * Показать уведомление
      */
     private showNotification(message: string): void {
         if (!this.container) return;
-        
+
         const notification = document.createElement("div");
         notification.style.cssText = `
             position: fixed;
@@ -2016,12 +2028,12 @@ export class MapEditor {
         `;
         notification.textContent = message;
         document.body.appendChild(notification);
-        
+
         setTimeout(() => {
             notification.remove();
         }, 2000);
     }
-    
+
     /**
      * Загрузить сохраненные карты
      */
@@ -2033,10 +2045,10 @@ export class MapEditor {
         if (!data || typeof data !== "object" || !data.name) {
             return null;
         }
-        
+
         // Текущая версия формата
         const CURRENT_VERSION = 1;
-        
+
         // Создаем нормализованный объект
         const normalized: MapData = {
             version: CURRENT_VERSION,
@@ -2054,15 +2066,15 @@ export class MapEditor {
                 mapSize: data.metadata?.mapSize
             }
         };
-        
+
         // Сохраняем seed если есть
         if (data.seed !== undefined) {
             normalized.seed = data.seed;
         }
-        
+
         return normalized;
     }
-    
+
     private loadSavedMaps(): MapData[] {
         try {
             const saved = localStorage.getItem("savedMaps");
@@ -2078,7 +2090,7 @@ export class MapEditor {
         }
         return [];
     }
-    
+
     /**
      * Применить данные карты
      */
@@ -2086,29 +2098,29 @@ export class MapEditor {
         try {
             // Сначала собираем меши террейна, если они еще не собраны
             this.collectTerrainMeshes();
-            
+
             // Удаляем существующие размещенные объекты
             this.placedObjectMeshes.forEach(mesh => mesh.dispose());
             this.placedObjectMeshes.clear();
-            
+
             // Удаляем существующие триггеры
             this.triggerMeshes.forEach(mesh => mesh.dispose());
             this.triggerMeshes.clear();
             this.deselectTrigger();
-            
+
             // Очищаем данные о высотах перед применением
             this.heightData.clear();
             this.originalHeights.clear();
-            
+
             console.log(`[MapEditor] Applying map data: ${this.mapData.terrainEdits.length} terrain edits, ${this.mapData.placedObjects.length} objects, ${this.mapData.triggers.length} triggers`);
             // Убрано для уменьшения спама - логируем только если мешей > 0
             if (this.terrainMeshes.size > 0) {
                 // Убрано для уменьшения спама - логируем только если мешей > 0
-        if (this.terrainMeshes.size > 0) {
-            console.log(`[MapEditor] Found ${this.terrainMeshes.size} terrain meshes`);
-        }
+                if (this.terrainMeshes.size > 0) {
+                    console.log(`[MapEditor] Found ${this.terrainMeshes.size} terrain meshes`);
+                }
             }
-            
+
             // Применить изменения террейна
             if (this.mapData.terrainEdits.length > 0) {
                 // Применяем с небольшой задержкой, чтобы меши точно были готовы
@@ -2119,7 +2131,7 @@ export class MapEditor {
                     console.log(`[MapEditor] Applied ${this.mapData.terrainEdits.length} terrain edits`);
                 }, 100);
             }
-            
+
             // Разместить объекты
             this.mapData.placedObjects.forEach(obj => {
                 try {
@@ -2128,7 +2140,7 @@ export class MapEditor {
                     console.error(`[MapEditor] Failed to place object ${obj.id}:`, error);
                 }
             });
-            
+
             // Разместить триггеры
             this.mapData.triggers.forEach(trigger => {
                 try {
@@ -2137,14 +2149,14 @@ export class MapEditor {
                     console.error(`[MapEditor] Failed to create trigger ${trigger.id}:`, error);
                 }
             });
-            
+
             // Обновляем UI
             this.updateUI();
         } catch (error) {
             console.error("[MapEditor] Failed to apply map data:", error);
         }
     }
-    
+
     /**
      * Применить редактирование террейна
      */
@@ -2154,41 +2166,41 @@ export class MapEditor {
                 console.warn("[MapEditor] Invalid terrain edit data:", edit);
                 return;
             }
-            
+
             const key = `${Math.floor(edit.x)}_${Math.floor(edit.z)}`;
             this.heightData.set(key, edit.height);
-            
+
             // Если меши террейна еще не собраны, собираем их
             if (this.terrainMeshes.size === 0) {
                 this.collectTerrainMeshes();
             }
-            
+
             // Найти соответствующий меш и применить изменение
             let applied = false;
             this.terrainMeshes.forEach((mesh, chunkKey) => {
                 try {
                     if (!mesh || !mesh.getBoundingInfo) return;
-                    
+
                     const meshBounds = mesh.getBoundingInfo();
                     const meshMin = meshBounds.minimum;
                     const meshMax = meshBounds.maximum;
-                    
+
                     // Проверяем, попадает ли точка редактирования в этот чанк
                     // Используем более широкий диапазон для учета радиуса
                     const radius = edit.radius || 5;
                     if (edit.x >= meshMin.x - radius && edit.x <= meshMax.x + radius &&
                         edit.z >= meshMin.z - radius && edit.z <= meshMax.z + radius) {
-                // Применяем изменение к вершинам в радиусе
-                // skipUndo = true, так как это применение сохраненных данных, а не новое редактирование
-                const editPoint = new Vector3(edit.x, edit.height, edit.z);
-                this.editTerrainAt(mesh, editPoint, radius, 1.0, true);
+                        // Применяем изменение к вершинам в радиусе
+                        // skipUndo = true, так как это применение сохраненных данных, а не новое редактирование
+                        const editPoint = new Vector3(edit.x, edit.height, edit.z);
+                        this.editTerrainAt(mesh, editPoint, radius, 1.0, true);
                         applied = true;
                     }
                 } catch (error) {
                     console.error(`[MapEditor] Failed to apply terrain edit to mesh ${chunkKey}:`, error);
                 }
             });
-            
+
             if (!applied && this.terrainMeshes.size > 0) {
                 console.warn(`[MapEditor] Terrain edit at (${edit.x}, ${edit.z}) was not applied to any mesh`);
             }
@@ -2196,7 +2208,7 @@ export class MapEditor {
             console.error("[MapEditor] Failed to apply terrain edit:", error);
         }
     }
-    
+
     /**
      * Обработать выбор объекта
      */
@@ -2204,7 +2216,7 @@ export class MapEditor {
         const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => {
             return mesh.metadata && mesh.metadata.mapEditorObject === true;
         });
-        
+
         if (pickInfo && pickInfo.pickedMesh && pickInfo.pickedMesh.metadata) {
             const objectId = pickInfo.pickedMesh.metadata.objectId;
             if (objectId) {
@@ -2215,19 +2227,19 @@ export class MapEditor {
             this.deselectObject();
         }
     }
-    
+
     /**
      * Выбрать объект
      */
     private selectObject(objectId: string): void {
         if (this.selectedObjectId === objectId) return;
-        
+
         this.selectedObjectId = objectId;
         this.updateObjectOutline();
         this.updatePropertiesPanel();
         this.updateUI();
     }
-    
+
     /**
      * Снять выбор объекта
      */
@@ -2240,7 +2252,7 @@ export class MapEditor {
         this.updatePropertiesPanel();
         this.updateUI();
     }
-    
+
     /**
      * Обновить визуализацию выбранного объекта
      */
@@ -2252,28 +2264,28 @@ export class MapEditor {
             }
             return;
         }
-        
+
         const mesh = this.placedObjectMeshes.get(this.selectedObjectId);
         if (!mesh) return;
-        
+
         // Удаляем старый outline
         if (this.objectOutline) {
             this.objectOutline.dispose();
         }
-        
+
         // Создаем новый outline - увеличиваем меш и делаем его прозрачным
         const bounds = mesh.getBoundingInfo();
         const size = bounds.boundingBox.maximumWorld.subtract(bounds.boundingBox.minimumWorld);
-        
+
         this.objectOutline = MeshBuilder.CreateBox(`outline_${this.selectedObjectId}`, {
             width: size.x + 0.2,
             height: size.y + 0.2,
             depth: size.z + 0.2
         }, this.scene);
-        
+
         this.objectOutline.position = mesh.position.clone();
         this.objectOutline.rotation = mesh.rotation.clone();
-        
+
         const outlineMat = new StandardMaterial(`outlineMat_${this.selectedObjectId}`, this.scene);
         outlineMat.emissiveColor = new Color3(0, 1, 1);
         outlineMat.alpha = 0.3;
@@ -2282,7 +2294,7 @@ export class MapEditor {
         this.objectOutline.material = outlineMat;
         this.objectOutline.renderingGroupId = 3;
     }
-    
+
     /**
      * Начать перетаскивание объекта
      */
@@ -2292,32 +2304,32 @@ export class MapEditor {
             this.handleObjectSelection(pointerInfo);
             if (!this.selectedObjectId) return;
         }
-        
+
         const mesh = this.placedObjectMeshes.get(this.selectedObjectId);
         if (!mesh) return;
-        
+
         this.isDragging = true;
         this.dragStartPos = mesh.position.clone();
         this.dragStartMouse = { x: this.scene.pointerX, y: this.scene.pointerY };
     }
-    
+
     /**
      * Обработать перетаскивание объекта
      */
     private handleObjectDrag(pointerInfo: any): void {
         if (!this.selectedObjectId || !this.dragStartPos || !this.dragStartMouse) return;
-        
+
         const mesh = this.placedObjectMeshes.get(this.selectedObjectId);
         if (!mesh) return;
-        
+
         // Raycast для определения новой позиции на террейне
         const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (m) => {
             return m instanceof GroundMesh && m.name.startsWith("ground_");
         });
-        
+
         if (pickInfo && pickInfo.hit && pickInfo.pickedPoint) {
             mesh.position = pickInfo.pickedPoint.clone();
-            
+
             // Обновляем данные объекта
             const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
             if (obj) {
@@ -2327,14 +2339,14 @@ export class MapEditor {
                     z: mesh.position.z
                 };
             }
-            
+
             // Обновляем outline
             if (this.objectOutline) {
                 this.objectOutline.position = mesh.position.clone();
             }
         }
     }
-    
+
     /**
      * Завершить перетаскивание объекта
      */
@@ -2344,7 +2356,7 @@ export class MapEditor {
         this.dragStartMouse = null;
         this.mapData.metadata.modifiedAt = Date.now();
     }
-    
+
     /**
      * Начать поворот объекта
      */
@@ -2354,44 +2366,44 @@ export class MapEditor {
             this.handleObjectSelection(pointerInfo);
             if (!this.selectedObjectId) return;
         }
-        
+
         const mesh = this.placedObjectMeshes.get(this.selectedObjectId);
         if (!mesh) return;
-        
+
         this.isRotating = true;
         this.rotateStartAngle = mesh.rotation.y;
         this.dragStartMouse = { x: this.scene.pointerX, y: this.scene.pointerY };
     }
-    
+
     /**
      * Обработать поворот объекта
      */
     private handleObjectRotate(pointerInfo: any): void {
         if (!this.selectedObjectId || !this.dragStartMouse) return;
-        
+
         const mesh = this.placedObjectMeshes.get(this.selectedObjectId);
         if (!mesh) return;
-        
+
         // Вычисляем изменение угла на основе движения мыши по X
         const deltaX = this.scene.pointerX - this.dragStartMouse.x;
         const rotationSpeed = 0.01; // Скорость поворота
         const newAngle = this.rotateStartAngle + deltaX * rotationSpeed;
-        
+
         mesh.rotation.y = newAngle;
-        
+
         // Обновляем данные объекта
         const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
         if (obj) {
             if (!obj.rotation) obj.rotation = { x: 0, y: 0, z: 0 };
             obj.rotation.y = newAngle;
         }
-        
+
         // Обновляем outline
         if (this.objectOutline) {
             this.objectOutline.rotation.y = newAngle;
         }
     }
-    
+
     /**
      * Завершить поворот объекта
      */
@@ -2401,7 +2413,7 @@ export class MapEditor {
         this.dragStartMouse = null;
         this.mapData.metadata.modifiedAt = Date.now();
     }
-    
+
     /**
      * Начать масштабирование объекта
      */
@@ -2411,36 +2423,36 @@ export class MapEditor {
             this.handleObjectSelection(pointerInfo);
             if (!this.selectedObjectId) return;
         }
-        
+
         const mesh = this.placedObjectMeshes.get(this.selectedObjectId);
         if (!mesh) return;
-        
+
         this.isScaling = true;
         // Используем среднее значение масштаба как начальное
         this.scaleStartValue = (mesh.scaling.x + mesh.scaling.y + mesh.scaling.z) / 3;
         this.scaleStartMouse = { x: this.scene.pointerX, y: this.scene.pointerY };
     }
-    
+
     /**
      * Обработать масштабирование объекта
      */
     private handleObjectScale(pointerInfo: any): void {
         if (!this.selectedObjectId || !this.scaleStartMouse) return;
-        
+
         const mesh = this.placedObjectMeshes.get(this.selectedObjectId);
         if (!mesh) return;
-        
+
         // Вычисляем изменение масштаба на основе движения мыши по Y
         const deltaY = this.scene.pointerY - this.scaleStartMouse.y;
         const scaleSpeed = 0.01; // Скорость масштабирования
         const scaleFactor = 1 - deltaY * scaleSpeed; // Инвертируем для интуитивности
         const newScale = Math.max(0.1, Math.min(10, this.scaleStartValue * scaleFactor));
-        
+
         // Применяем равномерное масштабирование
         mesh.scaling.x = newScale;
         mesh.scaling.y = newScale;
         mesh.scaling.z = newScale;
-        
+
         // Обновляем данные объекта
         const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
         if (obj) {
@@ -2449,11 +2461,11 @@ export class MapEditor {
             obj.scale.y = newScale;
             obj.scale.z = newScale;
         }
-        
+
         // Обновляем outline
         this.updateObjectOutline();
     }
-    
+
     /**
      * Завершить масштабирование объекта
      */
@@ -2463,7 +2475,7 @@ export class MapEditor {
         this.scaleStartMouse = null;
         this.mapData.metadata.modifiedAt = Date.now();
     }
-    
+
     /**
      * Дублировать объект
      */
@@ -2473,13 +2485,13 @@ export class MapEditor {
                 console.warn("[MapEditor] Attempted to duplicate object with invalid ID");
                 return;
             }
-            
+
             const obj = this.mapData.placedObjects.find(o => o.id === objectId);
             if (!obj) {
                 this.showNotification("Объект не найден");
                 return;
             }
-            
+
             const newId = `obj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const duplicated: PlacedObject = {
                 ...obj,
@@ -2490,7 +2502,7 @@ export class MapEditor {
                     z: obj.position.z + 2
                 }
             };
-            
+
             this.mapData.placedObjects.push(duplicated);
             this.createObjectMesh(duplicated);
             this.selectObject(newId);
@@ -2501,21 +2513,21 @@ export class MapEditor {
             this.showNotification("Ошибка при дублировании объекта");
         }
     }
-    
+
     /**
      * Обновить режим редактирования объектов
      */
     private updateObjectEditMode(): void {
         try {
             // При переключении режима снимаем выбор если нужно
-            if (this.objectEditMode !== "select" && this.objectEditMode !== "move" && 
+            if (this.objectEditMode !== "select" && this.objectEditMode !== "move" &&
                 this.objectEditMode !== "rotate" && this.objectEditMode !== "scale") {
                 // Для режима place тоже снимаем выбор
                 if (this.objectEditMode === "place") {
                     this.deselectObject();
                 }
             }
-            
+
             // Сбрасываем флаги операций при переключении режима
             if (this.isDragging) {
                 this.endObjectDrag();
@@ -2530,7 +2542,7 @@ export class MapEditor {
             console.error("[MapEditor] Failed to update object edit mode:", error);
         }
     }
-    
+
     /**
      * Обработать размещение объекта
      */
@@ -2539,27 +2551,27 @@ export class MapEditor {
             const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => {
                 return mesh instanceof GroundMesh && mesh.name.startsWith("ground_");
             });
-            
+
             if (!pickInfo || !pickInfo.hit || !pickInfo.pickedPoint) {
                 this.showNotification("Не удалось определить позицию для размещения объекта");
                 return;
             }
-            
+
             const hitPoint = pickInfo.pickedPoint;
-            
+
             // Валидация позиции
             if (!isFinite(hitPoint.x) || !isFinite(hitPoint.y) || !isFinite(hitPoint.z)) {
                 console.warn("[MapEditor] Invalid position for object placement");
                 return;
             }
-            
+
             // Валидация типа объекта
             const validTypes = ["building", "tree", "rock", "spawn", "garage", "custom"];
             if (!validTypes.includes(this.selectedObjectType)) {
                 console.warn(`[MapEditor] Invalid object type: ${this.selectedObjectType}`);
                 this.selectedObjectType = "building"; // Используем значение по умолчанию
             }
-            
+
             // Создаем объект
             const objectId = `obj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const placedObject: PlacedObject = {
@@ -2573,20 +2585,20 @@ export class MapEditor {
                 rotation: { x: 0, y: 0, z: 0 },
                 scale: { x: 1, y: 1, z: 1 }
             };
-            
+
             this.mapData.placedObjects.push(placedObject);
             this.createObjectMesh(placedObject);
             this.selectObject(objectId);
             this.mapData.metadata.modifiedAt = Date.now();
             this.updateUI();
-            
+
             console.log("[MapEditor] Object placed:", placedObject);
         } catch (error) {
             console.error("[MapEditor] Failed to place object:", error);
             this.showNotification("Ошибка при размещении объекта");
         }
     }
-    
+
     /**
      * Создать меш для объекта
      */
@@ -2595,101 +2607,101 @@ export class MapEditor {
             if (!obj || !obj.id) {
                 throw new Error("Invalid object data");
             }
-            
+
             let mesh: Mesh;
             // Валидация позиции
             const posX = isFinite(obj.position.x) ? obj.position.x : 0;
             const posY = isFinite(obj.position.y) ? obj.position.y : 0;
             const posZ = isFinite(obj.position.z) ? obj.position.z : 0;
             const position = new Vector3(posX, posY, posZ);
-            
+
             switch (obj.type) {
-            case "building":
-                mesh = MeshBuilder.CreateBox(`object_${obj.id}`, {
-                    width: 5,
-                    height: 8,
-                    depth: 5
-                }, this.scene);
-                const buildingMat = new StandardMaterial(`buildingMat_${obj.id}`, this.scene);
-                buildingMat.diffuseColor = new Color3(0.6, 0.5, 0.4);
-                mesh.material = buildingMat;
-                break;
-                
-            case "tree":
-                // Ствол (используем CreateBox для совместимости, можно заменить на цилиндр если доступен)
-                const trunk = MeshBuilder.CreateBox(`trunk_${obj.id}`, {
-                    width: 0.5,
-                    height: 4,
-                    depth: 0.5
-                }, this.scene);
-                trunk.position = position;
-                const trunkMat = new StandardMaterial(`trunkMat_${obj.id}`, this.scene);
-                trunkMat.diffuseColor = new Color3(0.4, 0.25, 0.1);
-                trunk.material = trunkMat;
-                
-                // Крона
-                const crown = MeshBuilder.CreateBox(`crown_${obj.id}`, {
-                    width: 3,
-                    height: 3,
-                    depth: 3
-                }, this.scene);
-                crown.position = position.clone();
-                crown.position.y += 3;
-                const crownMat = new StandardMaterial(`crownMat_${obj.id}`, this.scene);
-                crownMat.diffuseColor = new Color3(0.2, 0.6, 0.2);
-                crown.material = crownMat;
-                
-                // Связываем как один объект
-                crown.parent = trunk;
-                mesh = trunk;
-                break;
-                
-            case "rock":
-                mesh = MeshBuilder.CreateBox(`rock_${obj.id}`, {
-                    width: 2,
-                    height: 1.5,
-                    depth: 2
-                }, this.scene);
-                const rockMat = new StandardMaterial(`rockMat_${obj.id}`, this.scene);
-                rockMat.diffuseColor = new Color3(0.4, 0.4, 0.4);
-                mesh.material = rockMat;
-                break;
-                
-            case "spawn":
-                mesh = MeshBuilder.CreateBox(`spawn_${obj.id}`, {
-                    width: 2,
-                    height: 0.2,
-                    depth: 2
-                }, this.scene);
-                const spawnMat = new StandardMaterial(`spawnMat_${obj.id}`, this.scene);
-                spawnMat.emissiveColor = new Color3(0, 1, 0);
-                spawnMat.alpha = 0.7;
-                mesh.material = spawnMat;
-                break;
-                
-            default:
-                mesh = MeshBuilder.CreateBox(`object_${obj.id}`, {
-                    width: 1,
-                    height: 1,
-                    depth: 1
-                }, this.scene);
-                const defaultMat = new StandardMaterial(`defaultMat_${obj.id}`, this.scene);
-                defaultMat.diffuseColor = new Color3(0.5, 0.5, 0.5);
-                mesh.material = defaultMat;
-        }
-        
-        mesh.position = position;
-        
-        // Применяем поворот и масштаб если они есть
-        if (obj.rotation) {
-            mesh.rotation = new Vector3(obj.rotation.x, obj.rotation.y, obj.rotation.z);
-        }
-        if (obj.scale) {
-            mesh.scaling = new Vector3(obj.scale.x, obj.scale.y, obj.scale.z);
-        }
-        
+                case "building":
+                    mesh = MeshBuilder.CreateBox(`object_${obj.id}`, {
+                        width: 5,
+                        height: 8,
+                        depth: 5
+                    }, this.scene);
+                    const buildingMat = new StandardMaterial(`buildingMat_${obj.id}`, this.scene);
+                    buildingMat.diffuseColor = new Color3(0.6, 0.5, 0.4);
+                    mesh.material = buildingMat;
+                    break;
+
+                case "tree":
+                    // Ствол (используем CreateBox для совместимости, можно заменить на цилиндр если доступен)
+                    const trunk = MeshBuilder.CreateBox(`trunk_${obj.id}`, {
+                        width: 0.5,
+                        height: 4,
+                        depth: 0.5
+                    }, this.scene);
+                    trunk.position = position;
+                    const trunkMat = new StandardMaterial(`trunkMat_${obj.id}`, this.scene);
+                    trunkMat.diffuseColor = new Color3(0.4, 0.25, 0.1);
+                    trunk.material = trunkMat;
+
+                    // Крона
+                    const crown = MeshBuilder.CreateBox(`crown_${obj.id}`, {
+                        width: 3,
+                        height: 3,
+                        depth: 3
+                    }, this.scene);
+                    crown.position = position.clone();
+                    crown.position.y += 3;
+                    const crownMat = new StandardMaterial(`crownMat_${obj.id}`, this.scene);
+                    crownMat.diffuseColor = new Color3(0.2, 0.6, 0.2);
+                    crown.material = crownMat;
+
+                    // Связываем как один объект
+                    crown.parent = trunk;
+                    mesh = trunk;
+                    break;
+
+                case "rock":
+                    mesh = MeshBuilder.CreateBox(`rock_${obj.id}`, {
+                        width: 2,
+                        height: 1.5,
+                        depth: 2
+                    }, this.scene);
+                    const rockMat = new StandardMaterial(`rockMat_${obj.id}`, this.scene);
+                    rockMat.diffuseColor = new Color3(0.4, 0.4, 0.4);
+                    mesh.material = rockMat;
+                    break;
+
+                case "spawn":
+                    mesh = MeshBuilder.CreateBox(`spawn_${obj.id}`, {
+                        width: 2,
+                        height: 0.2,
+                        depth: 2
+                    }, this.scene);
+                    const spawnMat = new StandardMaterial(`spawnMat_${obj.id}`, this.scene);
+                    spawnMat.emissiveColor = new Color3(0, 1, 0);
+                    spawnMat.alpha = 0.7;
+                    mesh.material = spawnMat;
+                    break;
+
+                default:
+                    mesh = MeshBuilder.CreateBox(`object_${obj.id}`, {
+                        width: 1,
+                        height: 1,
+                        depth: 1
+                    }, this.scene);
+                    const defaultMat = new StandardMaterial(`defaultMat_${obj.id}`, this.scene);
+                    defaultMat.diffuseColor = new Color3(0.5, 0.5, 0.5);
+                    mesh.material = defaultMat;
+            }
+
+            mesh.position = position;
+
+            // Применяем поворот и масштаб если они есть
+            if (obj.rotation) {
+                mesh.rotation = new Vector3(obj.rotation.x, obj.rotation.y, obj.rotation.z);
+            }
+            if (obj.scale) {
+                mesh.scaling = new Vector3(obj.scale.x, obj.scale.y, obj.scale.z);
+            }
+
             mesh.metadata = { mapEditorObject: true, objectId: obj.id };
-            
+
             this.placedObjectMeshes.set(obj.id, mesh);
             return mesh;
         } catch (error) {
@@ -2702,13 +2714,13 @@ export class MapEditor {
             return defaultMesh;
         }
     }
-    
+
     /**
      * Разместить объект (при загрузке карты)
      */
     private placeObject(obj: PlacedObject): void {
         const mesh = this.createObjectMesh(obj);
-        
+
         // Применяем поворот и масштаб если они есть
         if (obj.rotation) {
             mesh.rotation = new Vector3(obj.rotation.x, obj.rotation.y, obj.rotation.z);
@@ -2717,7 +2729,7 @@ export class MapEditor {
             mesh.scaling = new Vector3(obj.scale.x, obj.scale.y, obj.scale.z);
         }
     }
-    
+
     /**
      * Удалить объект
      */
@@ -2727,31 +2739,31 @@ export class MapEditor {
                 console.warn("[MapEditor] Attempted to delete object with invalid ID");
                 return;
             }
-            
+
             // Если удаляем выбранный объект, снимаем выбор
             if (this.selectedObjectId === objectId) {
                 this.deselectObject();
             }
-            
+
             const mesh = this.placedObjectMeshes.get(objectId);
             if (mesh) {
                 mesh.dispose();
                 this.placedObjectMeshes.delete(objectId);
             }
-            
+
             const index = this.mapData.placedObjects.findIndex(o => o.id === objectId);
             if (index >= 0) {
                 this.mapData.placedObjects.splice(index, 1);
                 this.mapData.metadata.modifiedAt = Date.now();
             }
-            
+
             this.updateUI();
         } catch (error) {
             console.error("[MapEditor] Failed to delete object:", error);
             this.showNotification("Ошибка при удалении объекта");
         }
     }
-    
+
     /**
      * Обработать размещение триггера
      */
@@ -2760,20 +2772,20 @@ export class MapEditor {
             const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => {
                 return mesh instanceof GroundMesh && mesh.name.startsWith("ground_");
             });
-            
+
             if (!pickInfo || !pickInfo.hit || !pickInfo.pickedPoint) {
                 this.showNotification("Не удалось определить позицию для размещения триггера");
                 return;
             }
-            
+
             const hitPoint = pickInfo.pickedPoint;
-            
+
             // Валидация позиции
             if (!isFinite(hitPoint.x) || !isFinite(hitPoint.y) || !isFinite(hitPoint.z)) {
                 console.warn("[MapEditor] Invalid position for trigger placement");
                 return;
             }
-            
+
             // Валидация размера триггера
             const triggerSizeInput = this.container?.querySelector("#trigger-size") as HTMLInputElement;
             let triggerSize = parseFloat(triggerSizeInput?.value || "5");
@@ -2783,14 +2795,14 @@ export class MapEditor {
             if (triggerSize > 20) {
                 triggerSize = 20; // Максимальное значение
             }
-            
+
             // Валидация типа триггера
             const validTypes = ["spawn", "teleport", "damage", "heal", "custom"];
             if (!validTypes.includes(this.selectedTriggerType)) {
                 console.warn(`[MapEditor] Invalid trigger type: ${this.selectedTriggerType}`);
                 this.selectedTriggerType = "spawn"; // Используем значение по умолчанию
             }
-            
+
             // Создаем триггер
             const triggerId = `trigger_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             const trigger: MapTrigger = {
@@ -2808,19 +2820,19 @@ export class MapEditor {
                 },
                 properties: {}
             };
-            
+
             this.mapData.triggers.push(trigger);
             this.createTriggerMesh(trigger);
             this.mapData.metadata.modifiedAt = Date.now();
             this.updateUI();
-            
+
             console.log("[MapEditor] Trigger placed:", trigger);
         } catch (error) {
             console.error("[MapEditor] Failed to place trigger:", error);
             this.showNotification("Ошибка при размещении триггера");
         }
     }
-    
+
     /**
      * Создать визуализацию триггера
      */
@@ -2829,33 +2841,33 @@ export class MapEditor {
             if (!trigger || !trigger.id) {
                 throw new Error("Invalid trigger data");
             }
-            
+
             // Валидация размера триггера
             const width = Math.max(0.1, Math.min(50, trigger.size.width || 5));
             const height = Math.max(0.1, Math.min(50, trigger.size.height || 2));
             const depth = Math.max(0.1, Math.min(50, trigger.size.depth || 5));
-            
+
             // Валидация позиции
             const posX = isFinite(trigger.position.x) ? trigger.position.x : 0;
             const posY = isFinite(trigger.position.y) ? trigger.position.y : 0;
             const posZ = isFinite(trigger.position.z) ? trigger.position.z : 0;
-            
+
             const position = new Vector3(posX, posY + 0.1, posZ);
-            
+
             // Создаем прозрачный бокс для визуализации области триггера
             const mesh = MeshBuilder.CreateBox(`trigger_${trigger.id}`, {
                 width: width,
                 height: height,
                 depth: depth
             }, this.scene);
-            
+
             mesh.position = position;
-            
+
             // Материал зависит от типа триггера
             const material = new StandardMaterial(`triggerMat_${trigger.id}`, this.scene);
             material.alpha = 0.3;
             material.disableLighting = true;
-            
+
             switch (trigger.type) {
                 case "spawn":
                     material.emissiveColor = new Color3(0, 1, 0); // Зеленый
@@ -2872,10 +2884,10 @@ export class MapEditor {
                 default:
                     material.emissiveColor = new Color3(1, 1, 1); // Белый
             }
-            
+
             mesh.material = material;
             mesh.metadata = { mapEditorTrigger: true, triggerId: trigger.id };
-            
+
             this.triggerMeshes.set(trigger.id, mesh);
             return mesh;
         } catch (error) {
@@ -2888,7 +2900,7 @@ export class MapEditor {
             return defaultMesh;
         }
     }
-    
+
     /**
      * Удалить триггер
      */
@@ -2898,42 +2910,42 @@ export class MapEditor {
             if (this.selectedTriggerId === triggerId) {
                 this.deselectTrigger();
             }
-            
+
             const mesh = this.triggerMeshes.get(triggerId);
             if (mesh) {
                 mesh.dispose();
                 this.triggerMeshes.delete(triggerId);
             }
-            
+
             const index = this.mapData.triggers.findIndex(t => t.id === triggerId);
             if (index >= 0) {
                 this.mapData.triggers.splice(index, 1);
                 this.mapData.metadata.modifiedAt = Date.now();
             }
-            
+
             this.updateUI();
         } catch (error) {
             console.error("[MapEditor] Failed to delete trigger:", error);
             this.showNotification("Ошибка при удалении триггера");
         }
     }
-    
+
     /**
      * Выбрать триггер
      */
     private selectTrigger(triggerId: string): void {
         if (this.selectedTriggerId === triggerId) return;
-        
+
         // Снимаем выбор с объекта если был выбран
         if (this.selectedObjectId) {
             this.deselectObject();
         }
-        
+
         this.selectedTriggerId = triggerId;
         this.updateTriggerOutline();
         this.updateUI();
     }
-    
+
     /**
      * Снять выбор триггера
      */
@@ -2945,7 +2957,7 @@ export class MapEditor {
         }
         this.updateUI();
     }
-    
+
     /**
      * Обновить визуализацию выбранного триггера
      */
@@ -2957,31 +2969,31 @@ export class MapEditor {
             }
             return;
         }
-        
+
         const trigger = this.mapData.triggers.find(t => t.id === this.selectedTriggerId);
         if (!trigger) return;
-        
+
         const mesh = this.triggerMeshes.get(this.selectedTriggerId);
         if (!mesh) return;
-        
+
         // Удаляем старый outline
         if (this.triggerOutline) {
             this.triggerOutline.dispose();
         }
-        
+
         // Создаем новый outline
         this.triggerOutline = MeshBuilder.CreateBox(`triggerOutline_${this.selectedTriggerId}`, {
             width: trigger.size.width + 0.2,
             height: trigger.size.height + 0.2,
             depth: trigger.size.depth + 0.2
         }, this.scene);
-        
+
         this.triggerOutline.position = new Vector3(
             trigger.position.x,
             trigger.position.y + 0.1,
             trigger.position.z
         );
-        
+
         const outlineMat = new StandardMaterial(`triggerOutlineMat_${this.selectedTriggerId}`, this.scene);
         outlineMat.emissiveColor = new Color3(1, 1, 0); // Желтый цвет для триггеров
         outlineMat.alpha = 0.3;
@@ -2990,7 +3002,7 @@ export class MapEditor {
         this.triggerOutline.material = outlineMat;
         this.triggerOutline.renderingGroupId = 3;
     }
-    
+
     /**
      * Создать индикатор области кисти
      */
@@ -2998,26 +3010,26 @@ export class MapEditor {
         if (this.brushIndicator) {
             this.brushIndicator.dispose();
         }
-        
+
         // Создаем диск для отображения области кисти
         const disc = MeshBuilder.CreateDisc("brushIndicator", {
             radius: this.brushSize,
             tessellation: 32
         }, this.scene);
-        
+
         disc.rotation.x = Math.PI / 2; // Поворачиваем горизонтально
         disc.isVisible = false;
         disc.renderingGroupId = 2; // Поверх других объектов
-        
+
         const material = new StandardMaterial("brushIndicatorMat", this.scene);
         material.emissiveColor = new Color3(0, 1, 0);
         material.alpha = 0.3;
         material.disableLighting = true;
         disc.material = material;
-        
+
         this.brushIndicator = disc;
     }
-    
+
     /**
      * Настроить цикл обновления для визуализации кисти
      */
@@ -3029,7 +3041,7 @@ export class MapEditor {
                 }
                 return;
             }
-            
+
             // Обновляем размер индикатора
             if (this.brushIndicator) {
                 const newRadius = this.brushSize;
@@ -3039,12 +3051,12 @@ export class MapEditor {
                     this.createBrushIndicator();
                 }
             }
-            
+
             // Raycast для позиционирования индикатора
             const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => {
                 return mesh instanceof GroundMesh && mesh.name.startsWith("ground_");
             });
-            
+
             if (pickInfo && pickInfo.hit && pickInfo.pickedPoint && this.brushIndicator) {
                 this.brushIndicator.position = pickInfo.pickedPoint.clone();
                 this.brushIndicator.position.y += 0.1; // Немного выше поверхности
@@ -3054,7 +3066,7 @@ export class MapEditor {
             }
         });
     }
-    
+
     /**
      * Очистка
      */
@@ -3070,25 +3082,25 @@ export class MapEditor {
             this.isRotating = false;
             this.isScaling = false;
             this.terrainMeshes.clear();
-            
+
             // Удалить индикатор кисти
             if (this.brushIndicator) {
                 this.brushIndicator.dispose();
                 this.brushIndicator = null;
             }
-            
+
             // Удалить outline выбранного объекта
             if (this.objectOutline) {
                 this.objectOutline.dispose();
                 this.objectOutline = null;
             }
-            
+
             // Удалить outline выбранного триггера
             if (this.triggerOutline) {
                 this.triggerOutline.dispose();
                 this.triggerOutline = null;
             }
-            
+
             this.selectedObjectId = null;
             this.selectedTriggerId = null;
             this.dragStartPos = null;
@@ -3096,7 +3108,7 @@ export class MapEditor {
             this.scaleStartMouse = null;
             this.rotateStartAngle = 0;
             this.scaleStartValue = 1;
-            
+
             // Очистить стеки отмены/повтора
             this.undoStack = [];
             this.redoStack = [];
@@ -3104,39 +3116,39 @@ export class MapEditor {
             console.error("[MapEditor] Error during cleanup:", error);
         }
     }
-    
+
     /**
      * Проверить, активен ли редактор
      */
     isEditorActive(): boolean {
         return this.isActive;
     }
-    
+
     /**
      * Начать редактирование (вызывается при удержании кнопки мыши)
      */
     startEditing(): void {
         this.isEditing = true;
     }
-    
+
     /**
      * Остановить редактирование
      */
     stopEditing(): void {
         this.isEditing = false;
     }
-    
+
     // ============================================
     // ПУБЛИЧНЫЕ МЕТОДЫ ДЛЯ РАБОТЫ БЕЗ UI
     // ============================================
-    
+
     /**
      * Получить текущие данные карты
      */
     public getMapData(): MapData {
         return JSON.parse(JSON.stringify(this.mapData)); // Глубокая копия
     }
-    
+
     /**
      * Установить данные карты без UI
      */
@@ -3146,26 +3158,26 @@ export class MapEditor {
             console.error("[MapEditor] setMapData: Invalid data provided");
             return;
         }
-        
+
         // Нормализуем данные к единому формату
         const normalized = this.normalizeMapData(data);
         if (!normalized) {
             console.error("[MapEditor] setMapData: Failed to normalize data");
             return;
         }
-        
+
         // Убеждаемся, что mapType всегда присутствует
         if (!normalized.mapType) {
             normalized.mapType = "normal";
             console.warn("[MapEditor] setMapData: Map data missing mapType, defaulting to 'normal'");
         }
-        
+
         // КРИТИЧНО: В мультиплеере используем mapType с сервера, а не из сохраненной карты
         const gameInstance = (window as any).gameInstance;
         if (gameInstance) {
             const hasRoomId = gameInstance.multiplayerManager?.getRoomId();
             const hasPendingMapType = gameInstance.multiplayerManager?.getMapType();
-            const isInMultiplayerRoom = gameInstance.isMultiplayer || 
+            const isInMultiplayerRoom = gameInstance.isMultiplayer ||
                 (gameInstance.multiplayerManager?.isConnected() && hasRoomId) || hasPendingMapType;
             if (isInMultiplayerRoom) {
                 // Используем currentMapType или pendingMapType с сервера
@@ -3176,7 +3188,7 @@ export class MapEditor {
                 }
             }
         }
-        
+
         this.mapData = JSON.parse(JSON.stringify(normalized)); // Глубокая копия нормализованных данных
         console.log(`[MapEditor] Map data set: ${this.mapData.name}`, {
             version: this.mapData.version,
@@ -3186,7 +3198,7 @@ export class MapEditor {
             triggers: this.mapData.triggers.length
         });
     }
-    
+
     /**
      * Применить данные карты без открытия UI редактора
      * Используется для загрузки custom карт в игре
@@ -3197,33 +3209,33 @@ export class MapEditor {
         if (gameInstance) {
             const hasRoomId = gameInstance.multiplayerManager?.getRoomId();
             const hasPendingMapType = gameInstance.multiplayerManager?.getMapType();
-            const isInMultiplayerRoom = gameInstance.isMultiplayer || 
+            const isInMultiplayerRoom = gameInstance.isMultiplayer ||
                 (gameInstance.multiplayerManager?.isConnected() && hasRoomId) || hasPendingMapType;
             if (isInMultiplayerRoom) {
                 console.log(`[MapEditor] 🗺️ Мультиплеер: применение сохраненной карты запрещено, используем карту с сервера (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
                 return;
             }
         }
-        
+
         try {
             console.log(`[MapEditor] ===== Applying map data without UI =====`);
             console.log(`[MapEditor] Map name: ${this.mapData.name}`);
             console.log(`[MapEditor] Map type: ${this.mapData.mapType}`);
-            
+
             // КРИТИЧНО: Сначала собираем меши террейна
             this.collectTerrainMeshes();
-            
+
             // Ожидаем готовности мешей террейна (если их еще нет, ждем их появления)
             await this.waitForTerrainMeshes();
-            
+
             // Повторно собираем меши после ожидания (они могли появиться)
             this.collectTerrainMeshes();
-            
+
             // Логируем только финальный результат
             if (this.terrainMeshes.size > 0) {
                 console.log(`[MapEditor] Terrain meshes ready: ${this.terrainMeshes.size} meshes`);
             }
-            
+
             // Очищаем предыдущие данные
             this.placedObjectMeshes.forEach(mesh => mesh.dispose());
             this.placedObjectMeshes.clear();
@@ -3231,14 +3243,14 @@ export class MapEditor {
             this.triggerMeshes.clear();
             this.heightData.clear();
             this.originalHeights.clear();
-            
+
             console.log(`[MapEditor] Applying: ${this.mapData.terrainEdits.length} terrain edits, ${this.mapData.placedObjects.length} objects, ${this.mapData.triggers.length} triggers`);
-            
+
             // Применяем изменения террейна
             for (const edit of this.mapData.terrainEdits) {
                 this.applyTerrainEditAbsolute(edit);
             }
-            
+
             // Размещаем объекты
             for (const obj of this.mapData.placedObjects) {
                 try {
@@ -3247,7 +3259,7 @@ export class MapEditor {
                     console.error(`[MapEditor] Failed to place object ${obj.id}:`, error);
                 }
             }
-            
+
             // Размещаем триггеры
             for (const trigger of this.mapData.triggers) {
                 try {
@@ -3256,14 +3268,14 @@ export class MapEditor {
                     console.error(`[MapEditor] Failed to create trigger ${trigger.id}:`, error);
                 }
             }
-            
+
             console.log(`[MapEditor] Map data applied successfully without UI`);
         } catch (error) {
             console.error("[MapEditor] Failed to apply map data without UI:", error);
             throw error;
         }
     }
-    
+
     /**
      * Ожидание готовности мешей террейна
      */
@@ -3271,29 +3283,29 @@ export class MapEditor {
         return new Promise((resolve, reject) => {
             const startTime = Date.now();
             const checkInterval = MESH_CHECK_INTERVAL;
-            
+
             const check = () => {
                 this.collectTerrainMeshes();
-                
+
                 if (this.terrainMeshes.size > 0) {
                     console.log(`[MapEditor] Terrain meshes ready: ${this.terrainMeshes.size} meshes found`);
                     resolve();
                     return;
                 }
-                
+
                 if (Date.now() - startTime > maxWaitMs) {
                     console.warn(`[MapEditor] Timeout waiting for terrain meshes after ${maxWaitMs}ms`);
                     resolve(); // Resolve anyway to not block, but log warning
                     return;
                 }
-                
+
                 setTimeout(check, checkInterval);
             };
-            
+
             check();
         });
     }
-    
+
     /**
      * Применить редактирование террейна с абсолютной высотой
      * В отличие от editTerrainAt, устанавливает высоту напрямую, а не модифицирует
@@ -3304,24 +3316,24 @@ export class MapEditor {
                 console.warn("[MapEditor] Invalid terrain edit data:", edit);
                 return;
             }
-            
+
             const key = `${Math.floor(edit.x)}_${Math.floor(edit.z)}`;
             this.heightData.set(key, edit.height);
-            
+
             // Находим соответствующий меш и устанавливаем высоту
             let applied = false;
             this.terrainMeshes.forEach((mesh, chunkKey) => {
                 try {
                     if (!mesh || !mesh.getBoundingInfo) return;
-                    
+
                     const meshBounds = mesh.getBoundingInfo();
                     const meshMin = meshBounds.minimum;
                     const meshMax = meshBounds.maximum;
-                    
+
                     const radius = edit.radius || 5;
                     if (edit.x >= meshMin.x - radius && edit.x <= meshMax.x + radius &&
                         edit.z >= meshMin.z - radius && edit.z <= meshMax.z + radius) {
-                        
+
                         // Устанавливаем абсолютную высоту для вершин в радиусе
                         this.setTerrainHeightAt(mesh, edit.x, edit.z, edit.height, radius);
                         applied = true;
@@ -3330,7 +3342,7 @@ export class MapEditor {
                     console.error(`[MapEditor] Failed to apply terrain edit to mesh ${chunkKey}:`, error);
                 }
             });
-            
+
             if (!applied && this.terrainMeshes.size > 0) {
                 // Не логируем каждый раз - слишком много сообщений
             }
@@ -3338,36 +3350,36 @@ export class MapEditor {
             console.error("[MapEditor] Failed to apply terrain edit:", error);
         }
     }
-    
+
     /**
      * Установить абсолютную высоту террейна в указанной точке
      */
     private setTerrainHeightAt(mesh: GroundMesh, centerX: number, centerZ: number, targetHeight: number, radius: number): void {
         const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
         if (!positions) return;
-        
+
         let modified = false;
-        
+
         for (let i = 0; i < positions.length; i += 3) {
             const vx = positions[i] ?? 0;
             const vy = positions[i + 1] ?? 0;
             const vz = positions[i + 2] ?? 0;
-            
+
             const dx = vx - centerX;
             const dz = vz - centerZ;
             const dist = Math.sqrt(dx * dx + dz * dz);
-            
+
             if (dist <= radius) {
                 const influence = 1.0 - (dist / radius);
                 const smoothInfluence = influence * influence * (3 - 2 * influence);
-                
+
                 // Интерполируем к целевой высоте
                 const newHeight = vy + (targetHeight - vy) * smoothInfluence;
                 positions[i + 1] = newHeight;
                 modified = true;
             }
         }
-        
+
         if (modified) {
             mesh.updateVerticesData(VertexBuffer.PositionKind, positions, true);
             mesh.refreshBoundingInfo();

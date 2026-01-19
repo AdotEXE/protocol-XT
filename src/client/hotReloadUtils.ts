@@ -1,4 +1,4 @@
-import { HUD } from "../hud";
+import { HUD } from "./hud";
 
 /**
  * Setup Hot Reload notifications
@@ -11,7 +11,7 @@ export function setupHotReload(hud: HUD) {
         // Listen for HMR updates
         import.meta.hot.on('vite:beforeUpdate', (pl) => {
             console.log("[HotReload] Update incoming...", pl);
-            hud.showNotification("GAME UPDATING...", "warning");
+            hud.showHotReloadNotification();
         });
 
         // We can't strictly detect "afterUpdate" globally easily without a plugin, 

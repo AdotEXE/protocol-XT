@@ -40,13 +40,13 @@ export class AimingSystem {
     private scene: Scene;
     private guiTexture: AdvancedDynamicTexture;
     private settings: AimingSettings;
-    
+
     // Crosshair elements
     private crosshairContainer: Rectangle | null = null;
     private crosshairCenter: Ellipse | null = null;
     private crosshairLines: Rectangle[] = [];
     private crosshairOuter: Ellipse | null = null;
-    
+
     // Target info elements
     private targetInfoPanel: Rectangle | null = null;
     private targetNameText: TextBlock | null = null;
@@ -54,58 +54,58 @@ export class AimingSystem {
     private targetHealthFill: Rectangle | null = null;
     private targetDistanceText: TextBlock | null = null;
     private targetTypeText: TextBlock | null = null;
-    
+
     // Lead indicator
     private leadIndicator: Ellipse | null = null;
-    
+
     // Distance markers
     private distanceMarkers: TextBlock[] = [];
-    
+
     // Aim state
     private isAiming: boolean = false;
     private currentTarget: TargetInfo | null = null;
     private lastTargetPosition: Vector3 | null = null;
     private targetVelocity: Vector3 = Vector3.Zero();
     private aimSpread: number = 1; // 0-1 spread factor
-    
+
     // References
     private tank: any = null;
     private enemyTanks: any[] = [];
     private enemyTurrets: any[] = [];
-    
+
     constructor(scene: Scene) {
         this.scene = scene;
         this.settings = this.loadSettings();
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("AimingUI", false, scene);
         this.guiTexture.isForeground = true;
-        
+
         this.createCrosshair();
         this.createTargetInfo();
         this.createLeadIndicator();
         this.createDistanceMarkers();
-        
+
         // КРИТИЧЕСКИ ВАЖНО: Убеждаемся, что прицел скрыт по умолчанию
         this.setAiming(false);
-        
+
         // Listen for aim mode changes
         window.addEventListener("aimModeChanged", (e: any) => {
             this.setAiming(e.detail?.aiming || false);
         });
     }
-    
+
     setTank(tank: any): void {
         this.tank = tank;
     }
-    
+
     setEnemies(tanks: any[], turrets: any[]): void {
         this.enemyTanks = tanks;
         this.enemyTurrets = turrets;
     }
-    
+
     // ─────────────────────────────────────────────────────────────────────
     // СОЗДАНИЕ UI ЭЛЕМЕНТОВ
     // ─────────────────────────────────────────────────────────────────────
-    
+
     private createCrosshair(): void {
         // Main container - СКРЫТ ПО УМОЛЧАНИЮ
         this.crosshairContainer = new Rectangle("crosshairContainer");
@@ -115,7 +115,7 @@ export class AimingSystem {
         this.crosshairContainer.isHitTestVisible = false;
         this.crosshairContainer.isVisible = false; // КРИТИЧЕСКИ ВАЖНО: Скрыт по умолчанию!
         this.guiTexture.addControl(this.crosshairContainer);
-        
+
         // Outer ring (shows spread)
         this.crosshairOuter = new Ellipse("crosshairOuter");
         this.crosshairOuter.width = "60px";
@@ -124,7 +124,7 @@ export class AimingSystem {
         this.crosshairOuter.color = this.settings.crosshairColor;
         this.crosshairOuter.alpha = 0.5;
         this.crosshairContainer.addControl(this.crosshairOuter);
-        
+
         // Center dot
         this.crosshairCenter = new Ellipse("crosshairCenter");
         this.crosshairCenter.width = "6px";
@@ -132,7 +132,7 @@ export class AimingSystem {
         this.crosshairCenter.thickness = 0;
         this.crosshairCenter.background = this.settings.crosshairColor;
         this.crosshairContainer.addControl(this.crosshairCenter);
-        
+
         // Crosshair lines
         const lineLength = 20;
         const lineGap = 10;
@@ -142,7 +142,7 @@ export class AimingSystem {
             { top: 0, left: -lineLength - lineGap, width: lineLength, height: 2 }, // left
             { top: 0, left: lineGap, width: lineLength, height: 2 }, // right
         ];
-        
+
         positions.forEach((pos, i) => {
             const line = new Rectangle(`crosshairLine${i}`);
             line.width = `${pos.width}px`;
@@ -154,7 +154,7 @@ export class AimingSystem {
             this.crosshairContainer!.addControl(line);
             this.crosshairLines.push(line);
         });
-        
+
         // Distance indicator dots
         for (let i = 0; i < 5; i++) {
             const dot = new Ellipse(`distDot${i}`);
@@ -167,7 +167,7 @@ export class AimingSystem {
             this.crosshairContainer!.addControl(dot);
         }
     }
-    
+
     private createTargetInfo(): void {
         // Target info panel (shows when aiming at enemy)
         this.targetInfoPanel = new Rectangle("targetInfo");
@@ -180,7 +180,7 @@ export class AimingSystem {
         this.targetInfoPanel.top = "-120px";
         this.targetInfoPanel.isVisible = false;
         this.guiTexture.addControl(this.targetInfoPanel);
-        
+
         // Target type icon
         this.targetTypeText = new TextBlock("targetType");
         this.targetTypeText.text = "🎯 ВРАГ";
@@ -189,7 +189,7 @@ export class AimingSystem {
         this.targetTypeText.top = "-30px";
         this.targetTypeText.left = "-80px";
         this.targetInfoPanel.addControl(this.targetTypeText);
-        
+
         // Target name
         this.targetNameText = new TextBlock("targetName");
         this.targetNameText.text = "Enemy Tank";
@@ -198,7 +198,7 @@ export class AimingSystem {
         this.targetNameText.fontWeight = "bold";
         this.targetNameText.top = "-10px";
         this.targetInfoPanel.addControl(this.targetNameText);
-        
+
         // Health bar background
         this.targetHealthBar = new Rectangle("targetHealthBg");
         this.targetHealthBar.width = "180px";
@@ -209,7 +209,7 @@ export class AimingSystem {
         this.targetHealthBar.background = "#300";
         this.targetHealthBar.top = "10px";
         this.targetInfoPanel.addControl(this.targetHealthBar);
-        
+
         // Health bar fill
         this.targetHealthFill = new Rectangle("targetHealthFill");
         this.targetHealthFill.width = "100%";
@@ -219,7 +219,7 @@ export class AimingSystem {
         this.targetHealthFill.background = "#f00";
         this.targetHealthFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.targetHealthBar.addControl(this.targetHealthFill);
-        
+
         // Distance text
         this.targetDistanceText = new TextBlock("targetDistance");
         this.targetDistanceText.text = "0m";
@@ -229,7 +229,7 @@ export class AimingSystem {
         this.targetDistanceText.top = "28px";
         this.targetInfoPanel.addControl(this.targetDistanceText);
     }
-    
+
     private createLeadIndicator(): void {
         // Lead indicator (where to shoot for moving targets)
         this.leadIndicator = new Ellipse("leadIndicator");
@@ -240,7 +240,7 @@ export class AimingSystem {
         this.leadIndicator.alpha = 0.8;
         this.leadIndicator.isVisible = false;
         this.guiTexture.addControl(this.leadIndicator);
-        
+
         // Inner dot
         const innerDot = new Ellipse("leadDot");
         innerDot.width = "6px";
@@ -249,80 +249,70 @@ export class AimingSystem {
         innerDot.background = "#ff0";
         this.leadIndicator.addControl(innerDot);
     }
-    
+
     private createDistanceMarkers(): void {
-        // Distance scale on the right side of crosshair
-        for (let i = 0; i < 5; i++) {
-            const marker = new TextBlock(`distMarker${i}`);
-            marker.text = `${(i + 1) * 20}m`;
-            marker.color = "#0a0";
-            marker.fontSize = 9;
-            marker.left = "50px";
-            marker.top = `${-40 + i * 20}px`;
-            marker.alpha = 0.6;
-            this.crosshairContainer!.addControl(marker);
-            this.distanceMarkers.push(marker);
-        }
+        // Distance scale removed per user request
+        // Previously created markers on the right side
     }
-    
+
     // ─────────────────────────────────────────────────────────────────────
     // ОБНОВЛЕНИЕ
     // ─────────────────────────────────────────────────────────────────────
-    
+
     update(): void {
         if (!this.tank || !this.tank.barrel) return;
-        
+
         // Update target detection
         this.detectTarget();
-        
+
         // Update crosshair
         this.updateCrosshair();
-        
+
         // Update target info
         this.updateTargetInfo();
-        
+
         // Update lead indicator
         this.updateLeadIndicator();
-        
+
         // Update spread based on movement
         this.updateSpread();
     }
-    
+
     private detectTarget(): void {
         if (!this.tank || !this.tank.barrel) {
             this.currentTarget = null;
             return;
         }
-        
+
         // Create ray from barrel
         const barrelPos = this.tank.barrel.getAbsolutePosition();
         const barrelDir = this.tank.barrel.getDirection(Vector3.Forward()).normalize();
-        
+
         let closestTarget: TargetInfo | null = null;
         let closestDist = Infinity;
-        
+
         // Check enemy tanks
         for (const enemy of this.enemyTanks) {
             if (!enemy || !enemy.chassis || !enemy.isAlive) continue;
-            
+
             const enemyPos = enemy.chassis.getAbsolutePosition();
             const dist = Vector3.Distance(barrelPos, enemyPos);
-            
+
             // Check if in cone of fire
             const toEnemy = enemyPos.subtract(barrelPos).normalize();
             const angle = Math.acos(Vector3.Dot(barrelDir, toEnemy));
-            
+
             // ИСПРАВЛЕНИЕ: Узкий угол определения цели - только когда враг строго на линии огня
             // Уменьшено для предотвращения показа HP когда танк не может попасть
             const maxAngle = this.isAiming ? 0.08 : 0.15; // ~4.5° при прицеливании, ~8.6° обычно
-            
+
             if (angle < maxAngle && dist < closestDist) {
                 closestDist = dist;
-                
+
                 // Calculate velocity for lead indicator
                 const velocity = this.calculateTargetVelocity(enemy);
                 const leadPoint = this.calculateLeadPoint(enemyPos, velocity, dist);
-                
+
                 closestTarget = {
                     mesh: enemy.chassis,
                     type: "tank",
@@ -335,20 +325,20 @@ export class AimingSystem {
                 };
             }
         }
-        
+
         // Check turrets
         for (const turret of this.enemyTurrets) {
             if (!turret || !turret.base || turret.isDestroyed) continue;
-            
+
             const turretPos = turret.base.getAbsolutePosition();
             const dist = Vector3.Distance(barrelPos, turretPos);
-            
+
             const toTurret = turretPos.subtract(barrelPos).normalize();
             const angle = Math.acos(Vector3.Dot(barrelDir, toTurret));
-            
+
             // ИСПРАВЛЕНИЕ: Узкий угол для турелей тоже
             const maxAngle = this.isAiming ? 0.1 : 0.18; // ~5.7° при прицеливании, ~10.3° обычно
-            
+
             if (angle < maxAngle && dist < closestDist) {
                 closestDist = dist;
                 closestTarget = {
@@ -363,102 +353,102 @@ export class AimingSystem {
                 };
             }
         }
-        
+
         this.currentTarget = closestTarget;
     }
-    
+
     private calculateTargetVelocity(enemy: any): Vector3 {
         if (!enemy.chassis) return Vector3.Zero();
-        
+
         const currentPos = enemy.chassis.getAbsolutePosition().clone();
-        
+
         if (this.lastTargetPosition && enemy === this.currentTarget?.mesh?.parent) {
             const delta = currentPos.subtract(this.lastTargetPosition);
             this.targetVelocity = delta.scale(60); // Assuming 60fps
         }
-        
+
         this.lastTargetPosition = currentPos;
         return this.targetVelocity.clone();
     }
-    
+
     private calculateLeadPoint(targetPos: Vector3, targetVel: Vector3, distance: number): Vector3 | null {
         if (!this.tank) return null;
-        
+
         // Time for projectile to reach target
         const projectileSpeed = this.tank.projectileSpeed || 50;
         const timeToTarget = distance / projectileSpeed;
-        
+
         // Predict where target will be
         const leadPoint = targetPos.add(targetVel.scale(timeToTarget));
-        
+
         // Only show lead if target is moving significantly
         if (targetVel.length() < 2) return null;
-        
+
         return leadPoint;
     }
-    
+
     private updateCrosshair(): void {
         if (!this.crosshairContainer) return;
-        
+
         // Update color based on target
         let color = this.settings.crosshairColor;
         let outerAlpha = 0.5;
-        
+
         if (this.currentTarget) {
             color = "#f00";
             outerAlpha = 0.8;
-            
+
             // Pulse effect when locked
             const pulse = Math.sin(Date.now() / 100) * 0.1 + 0.9;
             outerAlpha *= pulse;
         }
-        
+
         if (this.crosshairCenter) {
             this.crosshairCenter.background = color;
         }
-        
+
         if (this.crosshairOuter) {
             this.crosshairOuter.color = color;
             this.crosshairOuter.alpha = outerAlpha;
-            
+
             // Expand/contract based on spread and aiming
             const baseSize = this.isAiming ? 40 : 60;
             const spreadSize = baseSize + this.aimSpread * 40;
             this.crosshairOuter.width = `${spreadSize}px`;
             this.crosshairOuter.height = `${spreadSize}px`;
         }
-        
+
         // Update crosshair lines color
         this.crosshairLines.forEach(line => {
             line.background = color;
         });
-        
+
         // Scale crosshair when aiming
         const scale = this.isAiming ? 0.7 : 1;
         this.crosshairContainer.scaleX = scale;
         this.crosshairContainer.scaleY = scale;
     }
-    
+
     private updateTargetInfo(): void {
         // Панель информации о цели перенесена в HUD под компас
         // Теперь aimingSystem только определяет цель, а HUD её отображает
         if (!this.targetInfoPanel) return;
-        
+
         // ОТКЛЮЧЕНО - используем HUD для отображения
         // Код закомментирован, так как отображение перенесено в HUD
         if (this.targetInfoPanel) {
             this.targetInfoPanel.isVisible = false;
         }
     }
-    
+
     private updateLeadIndicator(): void {
         if (!this.leadIndicator) return;
-        
+
         if (this.currentTarget?.leadPoint && this.settings.showLeadIndicator && this.isAiming) {
             // Convert 3D lead point to screen coordinates
             const engine = this.scene.getEngine();
             const camera = this.scene.activeCamera;
-            
+
             if (camera) {
                 const screenPos = Vector3.Project(
                     this.currentTarget.leadPoint,
@@ -466,15 +456,15 @@ export class AimingSystem {
                     this.scene.getTransformMatrix(),
                     camera.viewport.toGlobal(engine.getRenderWidth(), engine.getRenderHeight())
                 );
-                
+
                 // Check if on screen
                 if (screenPos.z > 0 && screenPos.z < 1) {
                     this.leadIndicator.isVisible = true;
-                    
+
                     // Convert to GUI coordinates (centered)
                     const guiX = screenPos.x - engine.getRenderWidth() / 2;
                     const guiY = screenPos.y - engine.getRenderHeight() / 2;
-                    
+
                     this.leadIndicator.left = `${guiX}px`;
                     this.leadIndicator.top = `${guiY}px`;
                 } else {
@@ -485,13 +475,13 @@ export class AimingSystem {
             this.leadIndicator.isVisible = false;
         }
     }
-    
+
     private updateSpread(): void {
         if (!this.tank) return;
-        
+
         // Calculate spread based on movement
         let spread = 0;
-        
+
         // Moving increases spread
         if (this.tank.physicsBody) {
             const vel = this.tank.physicsBody.getLinearVelocity();
@@ -500,33 +490,33 @@ export class AimingSystem {
                 spread += Math.min(speed / 20, 0.5);
             }
         }
-        
+
         // Turning increases spread
         if (Math.abs(this.tank.smoothSteer || 0) > 0.3) {
             spread += 0.2;
         }
-        
+
         // Turret rotation increases spread
         if (Math.abs(this.tank.turretTurnSmooth || 0) > 0.1) {
             spread += 0.15;
         }
-        
+
         // Aiming reduces spread over time
         if (this.isAiming) {
             spread *= 0.5;
         }
-        
+
         // Smooth the spread value
         this.aimSpread = this.aimSpread * 0.9 + spread * 0.1;
     }
-    
+
     // ─────────────────────────────────────────────────────────────────────
     // ПУБЛИЧНЫЕ МЕТОДЫ
     // ─────────────────────────────────────────────────────────────────────
-    
+
     setAiming(aiming: boolean): void {
         this.isAiming = aiming;
-        
+
         // КРИТИЧЕСКИ ВАЖНО: Показываем/скрываем прицел только в режиме прицеливания
         if (this.crosshairContainer) {
             this.crosshairContainer.isVisible = aiming;
@@ -540,29 +530,29 @@ export class AimingSystem {
         this.crosshairLines.forEach(line => {
             line.isVisible = aiming;
         });
-        
+
         // Reset spread faster when starting to aim
         if (aiming) {
             this.aimSpread *= 0.5;
         }
     }
-    
+
     getTarget(): TargetInfo | null {
         return this.currentTarget;
     }
-    
+
     getSpread(): number {
         return this.aimSpread;
     }
-    
+
     hasTarget(): boolean {
         return this.currentTarget !== null;
     }
-    
+
     getTargetDistance(): number {
         return this.currentTarget?.distance || 0;
     }
-    
+
     setCrosshairColor(color: string): void {
         this.settings.crosshairColor = color;
         if (this.crosshairCenter) {
@@ -573,7 +563,7 @@ export class AimingSystem {
         }
         this.crosshairLines.forEach(line => line.background = color);
     }
-    
+
     setVisible(visible: boolean): void {
         if (this.crosshairContainer) {
             this.crosshairContainer.isVisible = visible;
@@ -583,29 +573,29 @@ export class AimingSystem {
             if (this.leadIndicator) this.leadIndicator.isVisible = false;
         }
     }
-    
+
     // ─────────────────────────────────────────────────────────────────────
     // НАСТРОЙКИ
     // ─────────────────────────────────────────────────────────────────────
-    
+
     private loadSettings(): AimingSettings {
         try {
             const saved = localStorage.getItem("tx_aiming_settings");
             if (saved) {
                 return { ...DEFAULT_AIM_SETTINGS, ...JSON.parse(saved) };
             }
-        } catch (e) {}
+        } catch (e) { }
         return { ...DEFAULT_AIM_SETTINGS };
     }
-    
+
     saveSettings(): void {
         localStorage.setItem("tx_aiming_settings", JSON.stringify(this.settings));
     }
-    
+
     getSettings(): AimingSettings {
         return { ...this.settings };
     }
-    
+
     updateSettings(newSettings: Partial<AimingSettings>): void {
         this.settings = { ...this.settings, ...newSettings };
         this.saveSettings();

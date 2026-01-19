@@ -7,7 +7,8 @@ import {
     AdvancedDynamicTexture,
     Rectangle,
     TextBlock,
-    Control
+    Control,
+    StackPanel
 } from "@babylonjs/gui";
 
 export interface KillFeedEntry {
@@ -48,7 +49,7 @@ export const DEFAULT_KILLFEED_CONFIG: KillFeedConfig = {
 
 interface KillFeedElement {
     container: Rectangle;
-    text: TextBlock;
+    text: TextBlock | StackPanel;
     entry: KillFeedEntry;
     fadeTimeout: number | null;
 }
@@ -56,10 +57,10 @@ interface KillFeedElement {
 export class KillFeed {
     private guiTexture: AdvancedDynamicTexture;
     private config: KillFeedConfig;
-    
+
     private container: Rectangle | null = null;
     private entries: KillFeedElement[] = [];
-    
+
     constructor(
         guiTexture: AdvancedDynamicTexture,
         config: Partial<KillFeedConfig> = {}
@@ -68,7 +69,7 @@ export class KillFeed {
         this.config = { ...DEFAULT_KILLFEED_CONFIG, ...config };
         this.create();
     }
-    
+
     private create(): void {
         // Основной контейнер в правом верхнем углу
         this.container = new Rectangle("killFeedContainer");
@@ -81,7 +82,7 @@ export class KillFeed {
         this.container.left = "-10px";
         this.guiTexture.addControl(this.container);
     }
-    
+
     addKill(killer: string, victim: string, weapon?: string, isHeadshot?: boolean): void {
         const entry: KillFeedEntry = {
             killerName: killer,
@@ -90,13 +91,13 @@ export class KillFeed {
             isHeadshot,
             timestamp: Date.now()
         };
-        
+
         // Создаём визуальный элемент
         const element = this.createEntry(entry);
-        
+
         // Добавляем в начало массива
         this.entries.unshift(element);
-        
+
         // Удаляем лишние записи
         while (this.entries.length > this.config.maxEntries) {
             const removed = this.entries.pop();
@@ -104,59 +105,87 @@ export class KillFeed {
                 this.removeEntry(removed);
             }
         }
-        
+
         // Обновляем позиции
         this.updatePositions();
-        
+
         // Устанавливаем таймер исчезновения
         element.fadeTimeout = window.setTimeout(() => {
             this.fadeOutEntry(element);
         }, this.config.displayTime);
     }
-    
+
     private createEntry(entry: KillFeedEntry): KillFeedElement {
         const container = new Rectangle(`killEntry_${entry.timestamp}`);
         container.width = `${this.config.entryWidth}px`;
         container.height = `${this.config.entryHeight}px`;
-        container.background = "#000000aa";
-        container.thickness = 1;
-        container.color = entry.isHeadshot ? this.config.headshotColor : "#333";
+        container.thickness = 0;
+        container.background = "linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,0.6))"; // Gradient background
         container.cornerRadius = 4;
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         container.alpha = 0;
-        
+
         if (this.container) {
             this.container.addControl(container);
         }
-        
-        // Текст
-        const weaponIcon = entry.weapon ? ` [${entry.weapon}] ` : " ➤ ";
-        const headshotIcon = entry.isHeadshot ? " 💀" : "";
-        
-        const text = new TextBlock(`killText_${entry.timestamp}`);
-        text.text = `${entry.killerName}${weaponIcon}${entry.victimName}${headshotIcon}`;
-        text.color = this.config.separatorColor;
-        text.fontSize = this.config.fontSize;
-        text.fontWeight = "bold";
-        text.fontFamily = "Consolas, monospace";
-        text.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        text.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        text.outlineWidth = 1;
-        text.outlineColor = "#000";
-        container.addControl(text);
-        
-        // Анимация появления
+
+        // Use a StackPanel to organize text parts horizontally
+        const stackPanel = new StackPanel();
+        stackPanel.isVertical = false;
+        stackPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        stackPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        // Padding used to keep text from touching the right edge directly
+        stackPanel.paddingRight = "10px";
+        container.addControl(stackPanel);
+
+        // Helper to create text blocks
+        const createText = (text: string, color: string, weight: string = "normal", fontSize: number = this.config.fontSize) => {
+            const tb = new TextBlock();
+            tb.text = text;
+            tb.color = color;
+            tb.fontSize = fontSize;
+            tb.fontWeight = weight;
+            tb.fontFamily = "Consolas, monospace";
+            tb.resizeToFit = true;
+            tb.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+            // Add small margins
+            tb.paddingLeft = "2px";
+            tb.paddingRight = "2px";
+            // Shadow for better readability
+            tb.shadowColor = "black";
+            tb.shadowBlur = 2;
+            tb.shadowOffsetX = 1;
+            tb.shadowOffsetY = 1;
+            return tb;
+        };
+
+        // 1. Killer Name
+        stackPanel.addControl(createText(entry.killerName, this.config.killerColor, "bold"));
+
+        // 2. Weapon Icon / Separator
+        const weaponText = entry.weapon ? ` [${entry.weapon}] ` : " 🔫 ";
+        stackPanel.addControl(createText(weaponText, "#ccc", "normal", this.config.fontSize - 1));
+
+        // 3. Victim Name
+        stackPanel.addControl(createText(entry.victimName, this.config.victimColor, "bold"));
+
+        // 4. Headshot Icon (if applicable)
+        if (entry.isHeadshot) {
+            stackPanel.addControl(createText(" 💀", this.config.headshotColor, "bold"));
+        }
+
+        // Appear Animation
         this.fadeIn(container);
-        
+
         return {
             container,
-            text,
+            text: stackPanel as any, // Typed as any/TextBlock compatibility, though we don't access .text directly later
             entry,
             fadeTimeout: null
         };
     }
-    
+
     private fadeIn(container: Rectangle): void {
         let alpha = 0;
         const animate = () => {
@@ -168,7 +197,7 @@ export class KillFeed {
         };
         animate();
     }
-    
+
     private fadeOutEntry(element: KillFeedElement): void {
         let alpha = 1;
         const animate = () => {
@@ -182,51 +211,51 @@ export class KillFeed {
         };
         animate();
     }
-    
+
     private removeEntry(element: KillFeedElement): void {
         if (element.fadeTimeout) {
             clearTimeout(element.fadeTimeout);
         }
-        
+
         if (this.container) {
             this.container.removeControl(element.container);
         }
         element.container.dispose();
-        
+
         const index = this.entries.indexOf(element);
         if (index > -1) {
             this.entries.splice(index, 1);
         }
-        
+
         this.updatePositions();
     }
-    
+
     private updatePositions(): void {
         this.entries.forEach((element, index) => {
             element.container.top = `${index * (this.config.entryHeight + this.config.entryGap)}px`;
         });
     }
-    
+
     clear(): void {
         [...this.entries].forEach(element => {
             this.removeEntry(element);
         });
     }
-    
+
     setVisible(visible: boolean): void {
         if (this.container) {
             this.container.isVisible = visible;
         }
     }
-    
+
     isVisible(): boolean {
         return this.container?.isVisible ?? false;
     }
-    
+
     getEntries(): KillFeedEntry[] {
         return this.entries.map(e => e.entry);
     }
-    
+
     dispose(): void {
         this.clear();
         if (this.container) {

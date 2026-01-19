@@ -42,7 +42,7 @@ export interface ConsumablesBarConfig {
 export const DEFAULT_CONSUMABLES_CONFIG: ConsumablesBarConfig = {
     slotSize: HUD_SIZES.ARSENAL_SLOT_SIZE,
     slotGap: HUD_SIZES.ARSENAL_SLOT_MARGIN,
-    slotCount: 5,
+    slotCount: 20,
     showHotkeys: true,
     showCount: true
 };
@@ -68,12 +68,12 @@ export class ConsumablesBar {
     private slotData: Map<number, ConsumableSlotData> = new Map();
     private config: ConsumablesBarConfig;
     private selectedSlot: number = -1;
-    
+
     constructor(parent: AdvancedDynamicTexture, config: Partial<ConsumablesBarConfig> = {}) {
         this.config = { ...DEFAULT_CONSUMABLES_CONFIG, ...config };
-        
+
         const totalWidth = this.config.slotCount * (this.config.slotSize + this.config.slotGap) - this.config.slotGap;
-        
+
         // Контейнер
         this.container = new Rectangle("consumablesContainer");
         this.container.width = `${totalWidth + 20}px`;
@@ -84,20 +84,20 @@ export class ConsumablesBar {
         this.container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         this.container.top = "-20px";
         parent.addControl(this.container);
-        
+
         // Создать слоты
         for (let i = 0; i < this.config.slotCount; i++) {
             this.createSlot(i);
         }
     }
-    
+
     /**
      * Создать слот
      */
     private createSlot(index: number): void {
         const slotSize = this.config.slotSize;
         const offsetX = (index - Math.floor(this.config.slotCount / 2)) * (slotSize + this.config.slotGap);
-        
+
         // Контейнер слота
         const slotContainer = new Rectangle(`slot_${index}`);
         slotContainer.width = `${slotSize}px`;
@@ -108,14 +108,14 @@ export class ConsumablesBar {
         slotContainer.color = HUD_COLORS.ARSENAL_INACTIVE;
         slotContainer.cornerRadius = 4;
         this.container.addControl(slotContainer);
-        
+
         // Иконка
         const icon = new TextBlock(`icon_${index}`);
         icon.text = "";
         icon.fontSize = slotSize * 0.5;
         icon.color = "white";
         slotContainer.addControl(icon);
-        
+
         // Кулдаун оверлей
         const cooldownOverlay = new Rectangle(`cooldown_${index}`);
         cooldownOverlay.width = "100%";
@@ -124,7 +124,7 @@ export class ConsumablesBar {
         cooldownOverlay.thickness = 0;
         cooldownOverlay.isVisible = false;
         slotContainer.addControl(cooldownOverlay);
-        
+
         // Заполнение кулдауна
         const cooldownFill = new Rectangle(`cooldownFill_${index}`);
         cooldownFill.width = "100%";
@@ -133,7 +133,7 @@ export class ConsumablesBar {
         cooldownFill.thickness = 0;
         cooldownFill.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         cooldownOverlay.addControl(cooldownFill);
-        
+
         // Текст количества
         let countText: TextBlock | null = null;
         if (this.config.showCount) {
@@ -151,7 +151,7 @@ export class ConsumablesBar {
             countText.shadowOffsetY = 1;
             slotContainer.addControl(countText);
         }
-        
+
         // Текст хоткея
         let hotkeyText: TextBlock | null = null;
         if (this.config.showHotkeys) {
@@ -166,7 +166,7 @@ export class ConsumablesBar {
             hotkeyText.top = "2px";
             slotContainer.addControl(hotkeyText);
         }
-        
+
         this.slots.push({
             container: slotContainer,
             icon,
@@ -176,37 +176,37 @@ export class ConsumablesBar {
             cooldownFill
         });
     }
-    
+
     /**
      * Установить данные слота
      */
     setSlotData(index: number, data: ConsumableSlotData): void {
         if (index < 0 || index >= this.slots.length) return;
-        
+
         this.slotData.set(index, data);
         this.updateSlot(index);
     }
-    
+
     /**
      * Обновить отображение слота
      */
     private updateSlot(index: number): void {
         const slot = this.slots[index];
         const data = this.slotData.get(index);
-        
+
         if (!slot || !data) return;
-        
+
         slot.icon.text = data.icon;
-        
+
         if (slot.countText) {
             slot.countText.text = data.count > 0 ? `${data.count}` : "";
             slot.countText.color = data.count === 0 ? HUD_COLORS.DANGER : "white";
         }
-        
+
         if (slot.hotkeyText) {
             slot.hotkeyText.text = data.hotkey;
         }
-        
+
         // Обновить рамку
         if (index === this.selectedSlot) {
             slot.container.color = HUD_COLORS.ARSENAL_ACTIVE;
@@ -219,7 +219,7 @@ export class ConsumablesBar {
             slot.container.color = HUD_COLORS.ARSENAL_INACTIVE;
             slot.container.shadowBlur = 0;
         }
-        
+
         // Обновить кулдаун
         if (data.cooldown > 0) {
             slot.cooldownOverlay.isVisible = true;
@@ -228,14 +228,14 @@ export class ConsumablesBar {
             slot.cooldownOverlay.isVisible = false;
         }
     }
-    
+
     /**
      * Выбрать слот
      */
     selectSlot(index: number): void {
         const prevSelected = this.selectedSlot;
         this.selectedSlot = index;
-        
+
         // Обновить предыдущий и новый выбранный слоты
         if (prevSelected >= 0 && prevSelected < this.slots.length) {
             this.updateSlot(prevSelected);
@@ -244,7 +244,7 @@ export class ConsumablesBar {
             this.updateSlot(index);
         }
     }
-    
+
     /**
      * Обновить кулдаун слота
      */
@@ -255,7 +255,7 @@ export class ConsumablesBar {
             this.updateSlot(index);
         }
     }
-    
+
     /**
      * Обновить количество
      */
@@ -266,14 +266,14 @@ export class ConsumablesBar {
             this.updateSlot(index);
         }
     }
-    
+
     /**
      * Показать/скрыть
      */
     setVisible(visible: boolean): void {
         this.container.isVisible = visible;
     }
-    
+
     /**
      * Освободить ресурсы
      */

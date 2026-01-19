@@ -60,6 +60,7 @@ export class FloatingJoystick {
     private joystick: JoystickData | null = null;
     private onValueChange: ((x: number, y: number) => void) | null = null;
     private side: 'left' | 'right';
+    private enabled: boolean = true;
 
     constructor(
         guiTexture: AdvancedDynamicTexture,
@@ -73,6 +74,16 @@ export class FloatingJoystick {
     }
 
     /**
+     * Set visibility/enabled state
+     */
+    public setVisible(visible: boolean): void {
+        this.enabled = visible;
+        if (!visible) {
+            this.removeJoystick();
+        }
+    }
+
+    /**
      * Настроить глобальные обработчики
      */
     private setupGlobalHandlers(): void {
@@ -80,18 +91,22 @@ export class FloatingJoystick {
         if (!canvas) return;
 
         canvas.addEventListener('touchstart', (e) => {
+            if (!this.enabled) return;
             this.handleTouchStart(e);
         }, { passive: false });
 
         canvas.addEventListener('touchmove', (e) => {
+            if (!this.enabled) return;
             this.handleTouchMove(e);
         }, { passive: false });
 
         canvas.addEventListener('touchend', (e) => {
+            // Always handle touch end to ensure cleanup even if disabled mid-touch
             this.handleTouchEnd(e);
         }, { passive: true });
 
         canvas.addEventListener('touchcancel', (e) => {
+            // Always handle touch cancel
             this.handleTouchEnd(e);
         }, { passive: true });
     }
@@ -100,6 +115,8 @@ export class FloatingJoystick {
      * Обработка начала касания
      */
     private handleTouchStart(e: TouchEvent): void {
+        if (!this.enabled) return;
+
         // Check if we already have an active joystick
         if (this.joystick && this.joystick.pointerId !== null) {
             return;
@@ -113,6 +130,7 @@ export class FloatingJoystick {
         // Iterate through all changed touches to find one in our zone
         for (let i = 0; i < e.changedTouches.length; i++) {
             const touch = e.changedTouches[i];
+            if (!touch) continue;
             const x = touch.clientX - rect.left;
             const y = touch.clientY - rect.top;
 
@@ -194,12 +212,14 @@ export class FloatingJoystick {
      * Обработка движения касания
      */
     private handleTouchMove(e: TouchEvent): void {
-        if (!this.joystick || this.joystick.pointerId === null) return;
+        const joystick = this.joystick;
+        if (!joystick || joystick.pointerId === null) return;
 
         // Find the touch that matches our pointerId
         for (let i = 0; i < e.changedTouches.length; i++) {
             const touch = e.changedTouches[i];
-            if (touch.identifier === this.joystick.pointerId) {
+            if (!touch) continue;
+            if (touch.identifier === joystick.pointerId) {
                 e.preventDefault();
 
                 const canvas = this.guiTexture.getScene()?.getEngine().getRenderingCanvas();
@@ -253,7 +273,10 @@ export class FloatingJoystick {
 
         // Check if our pointerId was among the ended touches
         for (let i = 0; i < e.changedTouches.length; i++) {
-            if (e.changedTouches[i].identifier === this.joystick.pointerId) {
+            const touch = e.changedTouches[i];
+            if (!touch) continue;
+
+            if (touch.identifier === this.joystick.pointerId) {
                 // Reset values
                 if (this.onValueChange) {
                     this.onValueChange(0, 0);

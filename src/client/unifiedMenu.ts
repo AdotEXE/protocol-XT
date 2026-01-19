@@ -28,6 +28,7 @@ export interface MenuTab {
 // Список всех категорий меню
 const MENU_CATEGORIES: MenuCategory[] = [
     { id: "help", name: "Помощь", icon: "❓", description: "Справка по управлению" },
+    { id: "settings", name: "Настройки", icon: "⚙️", description: "Настройки игры" },
     { id: "screenshot", name: "Скриншот", icon: "📸", description: "Настройки скриншотов" },
     { id: "debug", name: "Debug", icon: "📊", description: "Панель отладки" },
     { id: "physics", name: "Физика", icon: "⚙️", description: "Параметры физики" },
@@ -58,6 +59,10 @@ export class UnifiedMenu {
         this.createUI();
         this.setupEventListeners();
         this.hide();
+    }
+
+    public get visible(): boolean {
+        return this.isVisible;
     }
 
     setGame(game: Game | null): void {
@@ -91,11 +96,24 @@ export class UnifiedMenu {
             (win as HTMLElement).classList.remove("visible");
         });
 
-        // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {
             document.exitPointerLock();
         }
         document.body.style.cursor = 'default';
+
+        // Принудительно ставим игру на паузу
+        if (this.game) {
+            // Если метод pauseGame доступен, используем его (или togglePause)
+            // В Game.ts есть togglePause, но может не быть явного setPause.
+            // Проверим состояние перед переключением?
+            // togglePause() переключает состояние.
+            // Лучше использовать setPause если есть, или проверить gamePaused.
+
+            // Assuming togglePause logic handles UI sync, we should force pause.
+            if (!this.game.gamePaused) {
+                this.game.togglePause();
+            }
+        }
     }
 
     hide(): void {
@@ -103,7 +121,13 @@ export class UnifiedMenu {
             this.isVisible = false;
             this.container.classList.add("hidden");
             this.container.classList.remove("visible");
+            this.container.classList.remove("visible");
             this.container.style.display = "none";
+
+            // Снимаем паузу при закрытии
+            if (this.game && this.game.gamePaused) {
+                this.game.togglePause();
+            }
         }
     }
 
@@ -344,6 +368,9 @@ export class UnifiedMenu {
             case "help":
                 await this.loadHelpContent(tab);
                 break;
+            case "settings":
+                await this.loadSettingsContent(tab);
+                break;
             case "screenshot":
                 await this.loadScreenshotContent(tab);
                 break;
@@ -566,6 +593,21 @@ export class UnifiedMenu {
         editor.renderToContainer(tab.container);
     }
 
+    private async loadSettingsContent(tab: MenuTab): Promise<void> {
+        const { SettingsPanel } = await import("./settingsPanel");
+        const { loadSettings } = await import("./menu/settings");
+
+        const settings = loadSettings();
+        const panel = new SettingsPanel(settings, true);
+
+        if (this.game) {
+            panel.setGame(this.game);
+        }
+
+        tab.instance = panel;
+        panel.renderToContainer(tab.container);
+    }
+
     private setupEventListeners(): void {
         // Обработчик закрытия
         const closeBtn = document.getElementById("unified-menu-close");
@@ -584,6 +626,8 @@ export class UnifiedMenu {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (this.isVisible && e.code === "Escape") {
                 e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
                 this.hide();
             }
         };

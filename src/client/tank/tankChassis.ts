@@ -92,7 +92,7 @@ export function createUniqueChassis(
 
     // Base chassis mesh - более выразительные пропорции
     // Используем централизованные множители для синхронизации с физикой
-    const multipliers = CHASSIS_SIZE_MULTIPLIERS[chassisType.id] || CHASSIS_SIZE_MULTIPLIERS["medium"];
+    const multipliers = CHASSIS_SIZE_MULTIPLIERS[chassisType.id] || CHASSIS_SIZE_MULTIPLIERS["medium"] || { width: 1, height: 1, depth: 1 };
 
     // Для hover и shield используем Math.max для width/depth (как было в оригинале)
     let finalWidth = w * multipliers.width;

@@ -49,15 +49,15 @@ export class SandGenerator extends BaseMapGenerator {
     readonly mapType = "sand";
     readonly displayName = "Песок";
     readonly description = "Компактная двухуровневая арена в стиле Песочницы";
-    
+
     /** Конфигурация генератора */
     private config: SandConfig;
-    
+
     constructor(config: Partial<SandConfig> = {}) {
         super();
         this.config = { ...DEFAULT_SAND_CONFIG, ...config };
     }
-    
+
     /**
      * Основной метод генерации контента чанка
      * Создаёт фиксированные элементы карты
@@ -67,17 +67,17 @@ export class SandGenerator extends BaseMapGenerator {
      */
     generateContent(context: ChunkGenerationContext): void {
         const { worldX, worldZ, size, chunkParent } = context;
-        
+
         // Режим редактора: worldX=0 и size >= arenaSize означает что генерируем всю карту
         const isEditorMode = worldX === 0 && worldZ === 0 && size >= this.config.arenaSize;
-        
+
         // Границы текущего чанка
         const chunkMinX = worldX;
         const chunkMaxX = worldX + size;
         const chunkMinZ = worldZ;
         const chunkMaxZ = worldZ + size;
         const arenaHalf = this.config.arenaSize / 2;
-        
+
         // Проверяем, пересекается ли чанк с картой
         if (!isEditorMode) {
             if (chunkMaxX < -arenaHalf || chunkMinX > arenaHalf ||
@@ -85,19 +85,19 @@ export class SandGenerator extends BaseMapGenerator {
                 return; // Чанк вне карты
             }
         }
-        
+
         // Вспомогательная функция для преобразования координат
         const toLocal = (x: number, z: number) => ({
             x: isEditorMode ? x : x - worldX,
             z: isEditorMode ? z : z - worldZ
         });
-        
+
         // Вспомогательная функция для проверки, находится ли точка в чанке
         const isInChunk = (x: number, z: number) => {
             if (isEditorMode) return true;
             return x >= chunkMinX && x < chunkMaxX && z >= chunkMinZ && z < chunkMaxZ;
         };
-        
+
         // Генерируем все элементы карты
         this.generateCentralPlatform(context, isEditorMode, toLocal, isInChunk);
         this.generateRamps(context, isEditorMode, toLocal, isInChunk);
@@ -107,7 +107,7 @@ export class SandGenerator extends BaseMapGenerator {
         this.generateCornerRamps(context, isEditorMode, toLocal, isInChunk);
         this.generateCoverWalls(context, isEditorMode, toLocal, isInChunk);
     }
-    
+
     /**
      * Генерация центральной платформы
      */
@@ -119,7 +119,7 @@ export class SandGenerator extends BaseMapGenerator {
     ): void {
         const { chunkParent } = context;
         const platformHalf = this.config.platformSize / 2;
-        
+
         // Центр платформы в (0, 0)
         if (isEditorMode || isInChunk(0, 0)) {
             const local = toLocal(0, 0);
@@ -141,7 +141,7 @@ export class SandGenerator extends BaseMapGenerator {
             }
         }
     }
-    
+
     /**
      * Генерация рамп для заезда на платформу
      * 4 рампы по сторонам света
@@ -158,14 +158,14 @@ export class SandGenerator extends BaseMapGenerator {
         const rampDepth = 8;
         const rampHeight = this.config.platformHeight;
         const rampThickness = 0.5;
-        
+
         const rampPositions = [
             { x: 0, z: platformHalf + rampDepth / 2, rotationX: Math.PI / 6, rotationZ: 0 },      // Север
             { x: 0, z: -(platformHalf + rampDepth / 2), rotationX: -Math.PI / 6, rotationZ: 0 },   // Юг
             { x: platformHalf + rampDepth / 2, z: 0, rotationX: 0, rotationZ: -Math.PI / 6 },       // Восток
             { x: -(platformHalf + rampDepth / 2), z: 0, rotationX: 0, rotationZ: Math.PI / 6 }     // Запад
         ];
-        
+
         rampPositions.forEach((pos, index) => {
             if (isEditorMode || isInChunk(pos.x, pos.z)) {
                 const local = toLocal(pos.x, pos.z);
@@ -180,11 +180,12 @@ export class SandGenerator extends BaseMapGenerator {
                 ramp.material = this.getMat("concrete");
                 ramp.parent = chunkParent;
                 ramp.freezeWorldMatrix();
-                new PhysicsAggregate(ramp, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                ramp.freezeWorldMatrix();
+                this.addPhysicsIfAvailable(ramp, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
     }
-    
+
     /**
      * Генерация разрушенных заборов - Г-образные и разной высоты (как обломанные)
      * На платформе и вне центра карты
@@ -197,38 +198,38 @@ export class SandGenerator extends BaseMapGenerator {
     ): void {
         const { chunkParent } = context;
         const platformHeight = this.config.platformHeight;
-        
+
         // === ЗАБОРЫ НА ЦЕНТРАЛЬНОЙ ПЛАТФОРМЕ (Г-образные, собранные группами) ===
         // ВАЖНО: Рампы находятся в центре каждой стороны (x: ±24, z: 0 и x: 0, z: ±24)
         // Размер платформы 40x40, так что безопасная зона для объектов: |x| < 15 и |z| < 15 (избегаем рамп)
-        
+
         // Группа 1: Г-образный забор в северо-западной части платформы (далеко от рамп)
         const group1 = [
             { x: -12, z: 10, width: 6, height: 2.2, depth: 0.6, rotation: 0 },      // длинная часть Г
             { x: -14.5, z: 12, width: 0.6, height: 1.6, depth: 4, rotation: 0 },    // короткая часть Г (пониже)
         ];
-        
+
         // Группа 2: Г-образный забор в юго-восточной части (далеко от рамп)
         const group2 = [
             { x: 12, z: -10, width: 5, height: 1.8, depth: 0.6, rotation: 0 },        // длинная часть
             { x: 14, z: -12, width: 0.6, height: 2.4, depth: 3.5, rotation: 0 },      // короткая часть (повыше)
         ];
-        
+
         // Группа 3: Обломанный Г-забор в северо-восточной части платформы
         const group3 = [
             { x: 10, z: 12, width: 4, height: 1.4, depth: 0.5, rotation: Math.PI / 4 },   // основа
             { x: 11.5, z: 13.5, width: 0.5, height: 2.0, depth: 2.5, rotation: Math.PI / 4 }, // вертикальная часть
         ];
-        
+
         // Одиночные обломки разной высоты (в безопасных зонах)
         const singleRuins = [
             { x: -8, z: -8, width: 3, height: 1.0, depth: 0.5, rotation: Math.PI / 6 },    // низкий в углу
             { x: 8, z: 8, width: 2.5, height: 1.8, depth: 0.5, rotation: -Math.PI / 3 }, // средний в другом углу
         ];
-        
+
         // Объединяем все руины на платформе
         const platformRuins = [...group1, ...group2, ...group3, ...singleRuins];
-        
+
         platformRuins.forEach((ruin, index) => {
             if (isEditorMode || isInChunk(ruin.x, ruin.z)) {
                 const local = toLocal(ruin.x, ruin.z);
@@ -242,47 +243,48 @@ export class SandGenerator extends BaseMapGenerator {
                 ruinWall.material = this.getMat("concrete");
                 ruinWall.parent = chunkParent;
                 ruinWall.freezeWorldMatrix();
-                new PhysicsAggregate(ruinWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                ruinWall.freezeWorldMatrix();
+                this.addPhysicsIfAvailable(ruinWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
-        
+
         // === ЗАБОРЫ ПО ПЕРИМЕТРУ ЦЕНТРАЛЬНОЙ ПЛАТФОРМЫ (на земле вокруг платформы) ===
         // Платформа 40x40, так что периметр на расстоянии ~22-28 от центра
         const platformHalf = this.config.platformSize / 2; // 20
         const perimeterDistance = platformHalf + 3; // ~23 от центра
-        
+
         const perimeterRuins = [
             // Северная сторона (избегаем рампу в центре)
             { x: -15, z: perimeterDistance, width: 4, height: 1.8, depth: 0.6, rotation: 0 },
             { x: -8, z: perimeterDistance, width: 3.5, height: 1.2, depth: 0.5, rotation: 0 },
             { x: 8, z: perimeterDistance, width: 3, height: 2.2, depth: 0.6, rotation: 0 },
             { x: 15, z: perimeterDistance, width: 4.5, height: 1.4, depth: 0.5, rotation: 0 },
-            
+
             // Южная сторона
             { x: -15, z: -perimeterDistance, width: 3.5, height: 1.6, depth: 0.6, rotation: 0 },
             { x: -8, z: -perimeterDistance, width: 4, height: 0.9, depth: 0.5, rotation: 0 },
             { x: 8, z: -perimeterDistance, width: 3, height: 2.0, depth: 0.6, rotation: 0 },
             { x: 15, z: -perimeterDistance, width: 4, height: 1.3, depth: 0.5, rotation: 0 },
-            
+
             // Восточная сторона
             { x: perimeterDistance, z: -15, width: 0.6, height: 1.5, depth: 4, rotation: 0 },
             { x: perimeterDistance, z: -8, width: 0.5, height: 2.3, depth: 3.5, rotation: 0 },
             { x: perimeterDistance, z: 8, width: 0.6, height: 1.1, depth: 3, rotation: 0 },
             { x: perimeterDistance, z: 15, width: 0.5, height: 1.9, depth: 4.5, rotation: 0 },
-            
+
             // Западная сторона
             { x: -perimeterDistance, z: -15, width: 0.6, height: 1.7, depth: 4, rotation: 0 },
             { x: -perimeterDistance, z: -8, width: 0.5, height: 0.8, depth: 3.5, rotation: 0 },
             { x: -perimeterDistance, z: 8, width: 0.6, height: 2.1, depth: 3, rotation: 0 },
             { x: -perimeterDistance, z: 15, width: 0.5, height: 1.4, depth: 4, rotation: 0 },
-            
+
             // Углы (диагональные обломки)
             { x: -18, z: 18, width: 3, height: 1.6, depth: 0.5, rotation: Math.PI / 4 },
             { x: 18, z: 18, width: 3.5, height: 1.2, depth: 0.6, rotation: -Math.PI / 4 },
             { x: 18, z: -18, width: 3, height: 1.9, depth: 0.5, rotation: Math.PI / 4 },
             { x: -18, z: -18, width: 4, height: 1.3, depth: 0.6, rotation: -Math.PI / 4 },
         ];
-        
+
         perimeterRuins.forEach((ruin, index) => {
             if (isEditorMode || isInChunk(ruin.x, ruin.z)) {
                 const local = toLocal(ruin.x, ruin.z);
@@ -297,32 +299,33 @@ export class SandGenerator extends BaseMapGenerator {
                 ruinWall.material = this.getMat("concrete");
                 ruinWall.parent = chunkParent;
                 ruinWall.freezeWorldMatrix();
-                new PhysicsAggregate(ruinWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                ruinWall.freezeWorldMatrix();
+                this.addPhysicsIfAvailable(ruinWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
-        
+
         // === ЗАБОРЫ ВНЕ ЦЕНТРА КАРТЫ (на земле, дальше от центра) ===
-        
+
         // Г-образный забор в юго-западной части
         const groundRuins1 = [
             { x: -35, z: -20, width: 5, height: 2.0, depth: 0.6, rotation: 0 },
             { x: -37, z: -18, width: 0.6, height: 1.4, depth: 3.5, rotation: 0 },
         ];
-        
+
         // Г-образный забор в северо-восточной части
         const groundRuins2 = [
             { x: 35, z: 18, width: 4.5, height: 1.6, depth: 0.6, rotation: Math.PI },
             { x: 37, z: 16, width: 0.6, height: 2.2, depth: 3, rotation: 0 },
         ];
-        
+
         // Обломки забора на юге
         const groundRuins3 = [
             { x: 10, z: -38, width: 3.5, height: 1.2, depth: 0.5, rotation: Math.PI / 5 },
             { x: -12, z: -40, width: 4, height: 1.8, depth: 0.6, rotation: -Math.PI / 4 },
         ];
-        
+
         const groundRuins = [...groundRuins1, ...groundRuins2, ...groundRuins3];
-        
+
         groundRuins.forEach((ruin, index) => {
             if (isEditorMode || isInChunk(ruin.x, ruin.z)) {
                 const local = toLocal(ruin.x, ruin.z);
@@ -337,11 +340,12 @@ export class SandGenerator extends BaseMapGenerator {
                 ruinWall.material = this.getMat("concrete");
                 ruinWall.parent = chunkParent;
                 ruinWall.freezeWorldMatrix();
-                new PhysicsAggregate(ruinWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                ruinWall.freezeWorldMatrix();
+                this.addPhysicsIfAvailable(ruinWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
     }
-    
+
     /**
      * Генерация 4 тактических зданий по углам карты
      * Здания сложной формы (Г, L, Т, П) из нескольких боксов с окнами
@@ -353,7 +357,7 @@ export class SandGenerator extends BaseMapGenerator {
         isInChunk: (x: number, z: number) => boolean
     ): void {
         const { chunkParent } = context;
-        
+
         // Здание 1: Г-образное (северо-запад) - высота 6
         const nwX = -45, nwZ = 45;
         if (isEditorMode || isInChunk(nwX, nwZ)) {
@@ -366,14 +370,9 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
-            
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+
             // Короткая часть
             box = MeshBuilder.CreateBox("sand_bld_nw_short", {
                 width: 12, height: 6, depth: 4
@@ -382,14 +381,9 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
-            
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+
             // Окно в длинной части
             box = MeshBuilder.CreateBox("sand_bld_nw_window", {
                 width: 4.2, height: 1.5, depth: 3
@@ -398,15 +392,10 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("sand");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Здание 2: L-образное (юго-восток) - высота 4
         const seX = 45, seZ = -45;
         if (isEditorMode || isInChunk(seX, seZ)) {
@@ -418,14 +407,9 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
-            
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+
             box = MeshBuilder.CreateBox("sand_bld_se_short", {
                 width: 8, height: 4, depth: 3
             }, this.scene);
@@ -433,15 +417,10 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Здание 3: Т-образное (северо-восток) - высота 8
         const neX = 45, neZ = 45;
         if (isEditorMode || isInChunk(neX, neZ)) {
@@ -454,14 +433,9 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
-            
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+
             // Шапка
             box = MeshBuilder.CreateBox("sand_bld_ne_top", {
                 width: 18, height: 9, depth: 4
@@ -470,15 +444,10 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Здание 4: П-образное (юго-запад) - высота 5
         const swX = -45, swZ = -45;
         if (isEditorMode || isInChunk(swX, swZ)) {
@@ -491,14 +460,9 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
-            
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+
             // Правая стенка
             box = MeshBuilder.CreateBox("sand_bld_sw_right", {
                 width: 3, height: 5, depth: 14
@@ -507,14 +471,9 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
-            
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+
             // Перемычка
             box = MeshBuilder.CreateBox("sand_bld_sw_bridge", {
                 width: 15, height: 5, depth: 3
@@ -523,16 +482,11 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
+            box.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
     }
-    
+
     /**
      * Генерация стен периметра с платформой наверху
      */
@@ -547,7 +501,7 @@ export class SandGenerator extends BaseMapGenerator {
         const wallHeight = MAP_SIZES.sand?.wallHeight ?? 4;
         const wallThickness = 1;
         const wallLength = this.config.arenaSize;
-        
+
         // Северная стена
         if (isEditorMode || isInChunk(0, arenaHalf)) {
             const local = toLocal(0, arenaHalf);
@@ -560,9 +514,10 @@ export class SandGenerator extends BaseMapGenerator {
             wall.material = this.getMat("concrete");
             wall.parent = chunkParent;
             wall.freezeWorldMatrix();
-            new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            wall.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(wall, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Южная стена
         if (isEditorMode || isInChunk(0, -arenaHalf)) {
             const local = toLocal(0, -arenaHalf);
@@ -575,9 +530,10 @@ export class SandGenerator extends BaseMapGenerator {
             wall.material = this.getMat("concrete");
             wall.parent = chunkParent;
             wall.freezeWorldMatrix();
-            new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            wall.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(wall, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Восточная стена
         if (isEditorMode || isInChunk(arenaHalf, 0)) {
             const local = toLocal(arenaHalf, 0);
@@ -590,9 +546,10 @@ export class SandGenerator extends BaseMapGenerator {
             wall.material = this.getMat("concrete");
             wall.parent = chunkParent;
             wall.freezeWorldMatrix();
-            new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            wall.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(wall, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Западная стена
         if (isEditorMode || isInChunk(-arenaHalf, 0)) {
             const local = toLocal(-arenaHalf, 0);
@@ -605,13 +562,14 @@ export class SandGenerator extends BaseMapGenerator {
             wall.material = this.getMat("concrete");
             wall.parent = chunkParent;
             wall.freezeWorldMatrix();
-            new PhysicsAggregate(wall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            wall.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(wall, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Платформа-дорожка по верху забора
         this.generateWallWalkway(context, isEditorMode, toLocal, isInChunk, arenaHalf, wallHeight);
     }
-    
+
     /**
      * Генерация платформы-дорожки по верху забора
      */
@@ -628,7 +586,7 @@ export class SandGenerator extends BaseMapGenerator {
         const walkwayThickness = 0.3;
         const walkwayLength = this.config.arenaSize;
         const y = wallHeight + walkwayThickness / 2;
-        
+
         // Северная дорожка
         if (isEditorMode || isInChunk(0, arenaHalf + walkwayWidth / 2)) {
             const local = toLocal(0, arenaHalf + walkwayWidth / 2);
@@ -641,9 +599,10 @@ export class SandGenerator extends BaseMapGenerator {
             walkway.material = this.getMat("concrete");
             walkway.parent = chunkParent;
             walkway.freezeWorldMatrix();
-            new PhysicsAggregate(walkway, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            walkway.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(walkway, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Южная дорожка
         if (isEditorMode || isInChunk(0, -arenaHalf - walkwayWidth / 2)) {
             const local = toLocal(0, -arenaHalf - walkwayWidth / 2);
@@ -656,9 +615,10 @@ export class SandGenerator extends BaseMapGenerator {
             walkway.material = this.getMat("concrete");
             walkway.parent = chunkParent;
             walkway.freezeWorldMatrix();
-            new PhysicsAggregate(walkway, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            walkway.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(walkway, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Восточная дорожка
         if (isEditorMode || isInChunk(arenaHalf + walkwayWidth / 2, 0)) {
             const local = toLocal(arenaHalf + walkwayWidth / 2, 0);
@@ -671,9 +631,10 @@ export class SandGenerator extends BaseMapGenerator {
             walkway.material = this.getMat("concrete");
             walkway.parent = chunkParent;
             walkway.freezeWorldMatrix();
-            new PhysicsAggregate(walkway, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            walkway.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(walkway, PhysicsShapeType.BOX, { mass: 0 });
         }
-        
+
         // Западная дорожка
         if (isEditorMode || isInChunk(-arenaHalf - walkwayWidth / 2, 0)) {
             const local = toLocal(-arenaHalf - walkwayWidth / 2, 0);
@@ -686,10 +647,11 @@ export class SandGenerator extends BaseMapGenerator {
             walkway.material = this.getMat("concrete");
             walkway.parent = chunkParent;
             walkway.freezeWorldMatrix();
-            new PhysicsAggregate(walkway, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+            walkway.freezeWorldMatrix();
+            this.addPhysicsIfAvailable(walkway, PhysicsShapeType.BOX, { mass: 0 });
         }
     }
-    
+
     /**
      * Генерация рамп на забор - ВДОЛЬ стен под углом 30°
      */
@@ -707,12 +669,12 @@ export class SandGenerator extends BaseMapGenerator {
         const rampAngle = Math.PI / 6; // 30 градусов
         const rampLength = wallHeight / Math.sin(rampAngle);
         const rampHorizontal = rampLength * Math.cos(rampAngle);
-        
+
         const wallRamps = [
             { x: -arenaHalf + 3, z: -arenaHalf + rampHorizontal / 2 + 5, rotationY: 0, rotationX: -rampAngle },
             { x: arenaHalf - 3, z: arenaHalf - rampHorizontal / 2 - 5, rotationY: 0, rotationX: rampAngle }
         ];
-        
+
         wallRamps.forEach((ramp, index) => {
             if (isEditorMode || isInChunk(ramp.x, ramp.z)) {
                 const local = toLocal(ramp.x, ramp.z);
@@ -721,18 +683,19 @@ export class SandGenerator extends BaseMapGenerator {
                     height: rampThickness,
                     depth: rampLength
                 }, this.scene);
-                
+
                 cornerRampMesh.position = new Vector3(local.x, wallHeight / 2, local.z);
                 cornerRampMesh.rotation.y = ramp.rotationY;
                 cornerRampMesh.rotation.x = ramp.rotationX;
                 cornerRampMesh.material = this.getMat("concrete");
                 cornerRampMesh.parent = chunkParent;
                 cornerRampMesh.freezeWorldMatrix();
-                new PhysicsAggregate(cornerRampMesh, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                cornerRampMesh.freezeWorldMatrix();
+                this.addPhysicsIfAvailable(cornerRampMesh, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
     }
-    
+
     /**
      * Генерация низких стен-укрытий
      */
@@ -744,7 +707,7 @@ export class SandGenerator extends BaseMapGenerator {
     ): void {
         const { chunkParent } = context;
         const platformHalf = this.config.platformSize / 2;
-        
+
         const coverWalls = [
             { x: -28, z: -28, width: 10, depth: 1.8, height: 1.8, rotation: Math.PI / 4 },
             { x: 28, z: -28, width: 10, depth: 1.8, height: 1.8, rotation: -Math.PI / 4 },
@@ -769,7 +732,7 @@ export class SandGenerator extends BaseMapGenerator {
             { x: 50, z: 50, width: 4, depth: 1.2, height: 1.2, rotation: Math.PI / 4 },
             { x: -50, z: 50, width: 4, depth: 1.2, height: 1.2, rotation: -Math.PI / 4 }
         ];
-        
+
         coverWalls.forEach((wall, index) => {
             if (isEditorMode || isInChunk(wall.x, wall.z)) {
                 const local = toLocal(wall.x, wall.z);
@@ -783,7 +746,8 @@ export class SandGenerator extends BaseMapGenerator {
                 coverWall.material = this.getMat("concrete");
                 coverWall.parent = chunkParent;
                 coverWall.freezeWorldMatrix();
-                new PhysicsAggregate(coverWall, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
+                coverWall.freezeWorldMatrix();
+                this.addPhysicsIfAvailable(coverWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
     }

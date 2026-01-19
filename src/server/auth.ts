@@ -36,13 +36,13 @@ export function initializeFirebaseAdmin(): boolean {
         // Способ 1: Попытка загрузить из JSON файла
         // Ищем JSON файл с любым private_key_id
         let serviceAccountPath: string | null = null;
-        
+
         // Сначала проверяем конкретные имена файлов
         const jsonFiles = [
             "protocol-tx-firebase-adminsdk-fbsvc-f655d015b0.json", // Текущий файл
             "protocol-tx-firebase-adminsdk-fbsvc-9c20956c7d.json"  // Старый файл
         ];
-        
+
         for (const fileName of jsonFiles) {
             const fullPath = path.join(process.cwd(), fileName);
             if (fs.existsSync(fullPath)) {
@@ -50,7 +50,7 @@ export function initializeFirebaseAdmin(): boolean {
                 break;
             }
         }
-        
+
         // Если точное имя не найдено, ищем любой файл с паттерном
         if (!serviceAccountPath) {
             try {
@@ -63,15 +63,15 @@ export function initializeFirebaseAdmin(): boolean {
                 // Игнорируем ошибки чтения директории
             }
         }
-        
+
         if (serviceAccountPath && fs.existsSync(serviceAccountPath)) {
             try {
                 serverLogger.log(`[Auth] Attempting to load service account from: ${serviceAccountPath}`);
-                
+
                 // Используем fs.readFileSync вместо require() для более надежной загрузки
                 const fileContent = fs.readFileSync(serviceAccountPath, 'utf8');
                 const serviceAccount = JSON.parse(fileContent);
-                
+
                 // Валидация структуры JSON
                 if (!serviceAccount.type || serviceAccount.type !== 'service_account') {
                     throw new Error('Invalid service account file: missing or invalid "type" field');
@@ -85,9 +85,9 @@ export function initializeFirebaseAdmin(): boolean {
                 if (!serviceAccount.client_email) {
                     throw new Error('Invalid service account file: missing "client_email" field');
                 }
-                
+
                 serverLogger.log(`[Auth] Service account loaded: project_id=${serviceAccount.project_id}, client_email=${serviceAccount.client_email}`);
-                
+
                 adminApp = initializeApp({
                     credential: cert(serviceAccount)
                 });
@@ -125,14 +125,14 @@ export function initializeFirebaseAdmin(): boolean {
             try {
                 // Обрабатываем переносы строк в приватном ключе
                 const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
-                
+
                 // Валидация приватного ключа
                 if (!privateKey.includes('BEGIN PRIVATE KEY') || !privateKey.includes('END PRIVATE KEY')) {
                     throw new Error('Invalid private key format: missing BEGIN/END markers');
                 }
-                
+
                 serverLogger.log(`[Auth] Attempting to initialize with environment variables: project_id=${projectId}, client_email=${clientEmail}`);
-                
+
                 adminApp = initializeApp({
                     credential: cert({
                         projectId,
@@ -151,11 +151,8 @@ export function initializeFirebaseAdmin(): boolean {
             }
         }
 
-        // Если оба способа не сработали
-        serverLogger.warn("[Auth] ⚠️ Firebase Admin credentials not found. Auth validation will be disabled.");
-        serverLogger.warn("[Auth] Please either:");
-        serverLogger.warn("[Auth]   1. Place service account JSON file at:", serviceAccountPath);
-        serverLogger.warn("[Auth]   2. Or set FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, and FIREBASE_CLIENT_EMAIL environment variables");
+        // Если оба способа не сработали - это нормально для dev режима
+        serverLogger.log("[Auth] Firebase Admin credentials not configured - auth validation disabled (OK for dev)");
         return false;
     } catch (error: any) {
         serverLogger.error("[Auth] ❌ Failed to initialize Firebase Admin:", error.message);
@@ -189,7 +186,7 @@ export async function verifyIdToken(idToken: string): Promise<DecodedIdToken | n
         // Более детальная обработка различных типов ошибок
         const errorCode = error?.code || 'unknown';
         const errorMessage = error?.message || 'Unknown error';
-        
+
         if (errorCode === 'auth/argument-error') {
             serverLogger.error("[Auth] Token verification failed: Invalid token format");
         } else if (errorCode === 'auth/id-token-expired') {
@@ -230,7 +227,7 @@ export async function getUserById(uid: string): Promise<UserRecord | null> {
     } catch (error: any) {
         const errorCode = error?.code || 'unknown';
         const errorMessage = error?.message || 'Unknown error';
-        
+
         if (errorCode === 'auth/user-not-found') {
             serverLogger.warn(`[Auth] User not found: ${uid}`);
         } else if (errorMessage.includes('api-keys-are-not-supported')) {

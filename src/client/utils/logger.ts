@@ -11,13 +11,13 @@ try {
     // Пытаемся использовать Vite env (для клиента)
     // ИСПРАВЛЕНО: Используем eval для обхода ограничений TypeScript на import.meta
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    const metaEnv = (typeof (globalThis as any).import !== 'undefined' || 
-                     // @ts-ignore TS1343 - import.meta работает в Vite runtime, но требует настройки module в tsconfig
-                     (typeof (eval('typeof import.meta !== "undefined"') ? (eval('import.meta') as any) : null) !== 'undefined' && 
-                      (eval('import.meta') as any).env)) 
-        ? (eval('import.meta') as any).env 
+    const metaEnv = (typeof (globalThis as any).import !== 'undefined' ||
+        // @ts-ignore TS1343 - import.meta работает в Vite runtime, но требует настройки module в tsconfig
+        (typeof (eval('typeof import.meta !== "undefined"') ? (eval('import.meta') as any) : null) !== 'undefined' &&
+            (eval('import.meta') as any).env))
+        ? (eval('import.meta') as any).env
         : null;
-    
+
     if (metaEnv) {
         isDevelopment = metaEnv.DEV ?? false;
         isProduction = metaEnv.PROD ?? false;
@@ -149,7 +149,7 @@ class LoggingSettings {
     }
 }
 
-class Logger {
+export class Logger {
     private prefix: string;
     private category?: LogCategory;
     private settings: LoggingSettings;
@@ -184,9 +184,12 @@ class Logger {
     error(...args: any[]): void {
         if (this.settings.shouldLog(LogLevel.ERROR, this.category)) {
             console.error(this.prefix, ...args);
-            // В development режиме добавляем stack trace для ошибок
             if (isDevelopment && args[0] instanceof Error) {
                 console.error(this.prefix, "Stack trace:", args[0].stack);
+            }
+
+            if (Logger.onErrorCallback) {
+                Logger.onErrorCallback(args); // Pass arguments to callback
             }
         }
     }
@@ -225,6 +228,15 @@ class Logger {
         if (isProduction) {
             console.log(this.prefix, ...args);
         }
+    }
+
+    /**
+     * Регистрирует глобальный обработчик ошибок
+     */
+    static onErrorCallback: ((error: any) => void) | null = null;
+
+    static setOnError(callback: (error: any) => void) {
+        Logger.onErrorCallback = callback;
     }
 }
 

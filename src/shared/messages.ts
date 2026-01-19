@@ -58,6 +58,8 @@ export enum ClientMessageType {
 
     // Network quality
     PING = "ping",
+    RPC = "rpc",
+
 }
 
 // Server -> Client messages
@@ -150,6 +152,7 @@ export enum ServerMessageType {
 
     // Batch updates - groups multiple messages into one
     BATCH = "batch",
+    RPC = "rpc",
 }
 
 // Specific message data types
@@ -194,8 +197,22 @@ export interface PlayerHitData {
     targetId: string;      // ID of player that was hit
     damage: number;        // Damage amount
     hitPosition: Vector3;  // Where the hit occurred
+    isCritical?: boolean;
     cannonType: string;    // Type of weapon used
     timestamp: number;     // When the hit occurred
+}
+
+// Server-reported damage to a player
+export interface PlayerDamagedData {
+    playerId: string;      // ID of player that was damaged
+    damage: number;        // Damage amount
+    health: number;        // Current health after damage
+    maxHealth: number;     // Max health of the player
+    hitPosition?: Vector3; // Where the hit occurred (optional, for visual effects)
+    isCritical?: boolean;  // Whether the hit was critical
+    cannonType: string;    // Type of weapon used
+    timestamp: number;     // When the damage occurred
+    attackerId?: string;   // ID of the player who dealt the damage
 }
 
 export interface ChatMessageData {
@@ -372,3 +389,10 @@ export interface PlayerRespawnedData {
     health: number;
 }
 
+// Generic RPC event for visual effects and non-critical game logic
+export interface RpcEventData {
+    event: string;      // Event name (e.g., "SHOOT_EFFECT", "DRESS_UPDATE")
+    payload: any;       // Arbitrary data
+    sourceId: string;   // Player ID who triggered the event
+    timestamp: number;
+}

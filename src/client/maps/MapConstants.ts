@@ -52,7 +52,7 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         playerGaragePosition: [-50, -50], // Юго-западный угол
         wallHeight: 6
     },
-    
+
     // Передовая - поле боя WW1 стиля
     frontline: {
         size: 500,
@@ -63,7 +63,7 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         playerGaragePosition: [-100, 0], // Западная сторона
         wallHeight: 8
     },
-    
+
     // Каньон - горное ущелье
     canyon: {
         size: 500,
@@ -74,7 +74,7 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         playerGaragePosition: [0, -200], // Южная сторона
         wallHeight: 10
     },
-    
+
     // Песочница - тестовая зона
     sandbox: {
         size: 500,
@@ -85,7 +85,7 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         playerGaragePosition: [0, 0], // Центр
         wallHeight: 0
     },
-    
+
     // Нормальная карта
     normal: {
         size: 500,
@@ -96,7 +96,7 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         playerGaragePosition: [0, 0], // Центр
         wallHeight: 6
     },
-    
+
     // Тартария
     tartaria: {
         size: 500,
@@ -107,7 +107,7 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         playerGaragePosition: [0, 0], // Центр
         wallHeight: 6
     },
-    
+
     // Песок - компактная двухуровневая арена
     sand: {
         size: 150,
@@ -118,7 +118,7 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         playerGaragePosition: [-50, -50], // Юго-западная база
         wallHeight: 4
     },
-    
+
     // Безумие - многоуровневая арена с мостиками и рампами
     madness: {
         size: 150,
@@ -129,7 +129,7 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         playerGaragePosition: [-50, -50], // Юго-западная база
         wallHeight: 4
     },
-    
+
     // Экспо - расширенная киберспортивная арена
     expo: {
         size: 200,
@@ -150,7 +150,7 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         playerGaragePosition: [0, 0], // Центр
         wallHeight: 6
     },
-    
+
     // Арена - киберспортивная арена с симметричной структурой
     arena: {
         size: 160,
@@ -158,6 +158,17 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         maxX: 80,
         minZ: -80,
         maxZ: 80,
+        playerGaragePosition: [0, 0], // Центр
+        wallHeight: 6
+    },
+
+    // Пользовательская карта (размер определяется при загрузке)
+    custom: {
+        size: 200,
+        minX: -100,
+        maxX: 100,
+        minZ: -100,
+        maxZ: 100,
         playerGaragePosition: [0, 0], // Центр
         wallHeight: 6
     }
@@ -180,7 +191,7 @@ export function getMapSizeConfig(mapType: MapType | string): MapSizeConfig | und
 export function getMapBoundsFromConfig(mapType: MapType | string): { minX: number; maxX: number; minZ: number; maxZ: number } | null {
     const config = MAP_SIZES[mapType];
     if (!config) return null;
-    
+
     return {
         minX: config.minX,
         maxX: config.maxX,
@@ -197,7 +208,7 @@ export function getMapBoundsFromConfig(mapType: MapType | string): { minX: numbe
 export function getPlayerGaragePosition(mapType: MapType | string): [number, number] | null {
     const config = MAP_SIZES[mapType];
     if (!config) return null;
-    
+
     return config.playerGaragePosition;
 }
 
@@ -211,9 +222,9 @@ export function getPlayerGaragePosition(mapType: MapType | string): [number, num
 export function isPositionInMapBounds(mapType: MapType | string, x: number, z: number): boolean {
     const config = MAP_SIZES[mapType];
     if (!config) return true; // Бесконечный мир по умолчанию
-    
-    return x >= config.minX && x <= config.maxX && 
-           z >= config.minZ && z <= config.maxZ;
+
+    return x >= config.minX && x <= config.maxX &&
+        z >= config.minZ && z <= config.maxZ;
 }
 
 /**

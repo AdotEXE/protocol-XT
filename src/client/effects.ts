@@ -4,7 +4,8 @@ import {
     MeshBuilder,
     StandardMaterial,
     Color3,
-    Mesh
+    Mesh,
+    TrailMesh
 } from "@babylonjs/core";
 import { ParticleEffects } from "./effects/ParticleEffects";
 import { EFFECTS_CONFIG } from "./effects/EffectsConfig";
@@ -827,7 +828,7 @@ export class EffectsManager {
         glowFade();
     }
 
-    // Bullet trail - follows projectile and fades out
+    // Bullet trail - Optimized using BabylonJS TrailMesh
     createBulletTrail(bullet: Mesh, color?: Color3, cannonType?: string): void {
         if (!bullet || bullet.isDisposed()) return;
 
@@ -861,76 +862,56 @@ export class EffectsManager {
             }
         }
 
-        // Trail material with unique color
-        const trailMat = new StandardMaterial("trailMat", this.scene);
-        trailMat.diffuseColor = trailColor;
-        trailMat.emissiveColor = trailColor.scale(0.8);
-        trailMat.disableLighting = true;
-        trailMat.alpha = 0.7; // Увеличено для более заметного трейла
+        // Create the trail
+        // generator: the mesh to generate the trail from
+        // name: name of the trail mesh
+        // new TrailMesh(name, generator, scene, diameter, length, autoStart)
+        try {
+            const trail = new TrailMesh("bulletTrail", bullet, this.scene, 0.15, 20, true);
 
-        const trailSegments: Mesh[] = [];
-        let lastPos = bullet.absolutePosition.clone();
-        let frameCount = 0;
-        const maxSegments = 12; // Увеличено для более длинного трейла
+            // Material setup
+            const trailMat = new StandardMaterial("trailMat", this.scene);
+            trailMat.diffuseColor = trailColor;
+            trailMat.emissiveColor = trailColor.scale(0.8);
+            trailMat.specularColor = Color3.Black();
+            trailMat.disableLighting = true;
+            trailMat.alpha = 1.0;
 
-        const updateTrail = () => {
-            if (bullet.isDisposed()) {
-                // Fade out remaining segments
-                trailSegments.forEach((seg, i) => {
-                    setTimeout(() => {
-                        if (!seg.isDisposed()) seg.dispose();
-                    }, i * 20);
-                });
-                trailMat.dispose();
-                return;
-            }
+            trail.material = trailMat;
 
-            frameCount++;
-            const currentPos = bullet.absolutePosition.clone();
-            const dist = Vector3.Distance(lastPos, currentPos);
+            // Auto-dispose logic
+            // TrailMesh automatically follows the generator.
+            // When generator (projectile) is disposed, we need to handle trail disposal.
+            // But TrailMesh doesn't automatically die when generator dies, it stops updating.
+            // We want it to fade out smoothly.
 
-            // Only create segment if moved enough
-            if (dist > 0.2) { // Уменьшен порог для более частых сегментов
-                const segment = MeshBuilder.CreateBox("trailSeg", {
-                    width: 0.12,  // Увеличено для более заметного трейла
-                    height: 0.12, // Увеличено
-                    depth: Math.max(0.2, dist * 0.8) // Увеличено
-                }, this.scene);
+            const checkDisposal = () => {
+                if (bullet.isDisposed()) {
+                    // Projectile died, start fading out the trail
+                    let alpha = 1.0;
+                    const fadeOut = () => {
+                        alpha -= 0.1;
+                        if (trailMat) trailMat.alpha = alpha;
 
-                const mid = lastPos.add(currentPos).scale(0.5);
-                segment.position = mid;
-                segment.lookAt(currentPos);
-                segment.material = trailMat;
-
-                trailSegments.push(segment);
-                lastPos = currentPos.clone();
-
-                // Remove old segments (keep very short tail)
-                while (trailSegments.length > maxSegments) {
-                    const old = trailSegments.shift();
-                    if (old && !old.isDisposed()) old.dispose();
+                        if (alpha <= 0) {
+                            if (!trail.isDisposed()) trail.dispose();
+                            if (!trailMat.isDisposed) trailMat.dispose();
+                        } else {
+                            setTimeout(fadeOut, 30);
+                        }
+                    };
+                    fadeOut();
+                } else {
+                    // Check again in a bit
+                    setTimeout(checkDisposal, 100);
                 }
-            }
+            };
 
-            // Fade out older segments
-            trailSegments.forEach((seg, i) => {
-                const age = trailSegments.length - i;
-                const fade = Math.max(0.1, 0.7 - age * 0.05); // Более плавное затухание
-                seg.scaling.x = Math.max(0.1, 0.8 - age * 0.05); // Более плавное уменьшение
-                seg.scaling.y = Math.max(0.1, 0.8 - age * 0.05);
-                seg.visibility = fade;
-            });
+            checkDisposal();
 
-            // Continue for a very short lifetime
-            if (frameCount < 120) {
-                requestAnimationFrame(updateTrail);
-            } else {
-                trailSegments.forEach(seg => { if (!seg.isDisposed()) seg.dispose(); });
-                trailMat.dispose();
-            }
-        };
-
-        requestAnimationFrame(updateTrail);
+        } catch (e) {
+            console.warn("Failed to create TrailMesh:", e);
+        }
     }
 
     // Movement dust - particles from tank tracks

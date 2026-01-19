@@ -60,6 +60,12 @@ export class VoiceChatManager {
             });
 
             // Request microphone access
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                console.warn("[VoiceChat] navigator.mediaDevices.getUserMedia is not supported in this environment");
+                this.config.enabled = false;
+                return false;
+            }
+
             try {
                 this.localStream = await navigator.mediaDevices.getUserMedia({
                     audio: {

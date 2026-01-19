@@ -30,11 +30,11 @@ import type { PerformanceOptimizer } from "../optimization/PerformanceOptimizer"
 export class GameUpdate {
     // Счётчик кадров для оптимизации
     private _updateTick = 0;
-    
+
     // ОПТИМИЗАЦИЯ: Кэш позиции танка для избежания дорогих вызовов absolutePosition
     private _cachedTankPosition: Vector3 = Vector3Impl.Zero();
     private _tankPositionCacheFrame = -1;
-    
+
     // ОПТИМИЗАЦИЯ: Кэш позиций врагов для использования в HUD и updateCamera
     private _enemyPositionsCache: Map<string, {
         x: number;
@@ -44,7 +44,7 @@ export class GameUpdate {
         chassisRotY?: number; // Кэш угла корпуса для избежания toEulerAngles()
     }> = new Map();
     private _enemyPositionsCacheFrame = -1;
-    
+
     // ОПТИМИЗАЦИЯ: Адаптивные интервалы обновления на основе FPS
     // Базовые интервалы увеличены для стабильного 60+ FPS
     private _adaptiveIntervals = {
@@ -57,7 +57,7 @@ export class GameUpdate {
     };
     private _lastFPS = 60;
     private _fpsUpdateCounter = 0;
-    
+
     // Ссылки на системы
     protected engine: Engine | undefined;
     protected scene: Scene | undefined;
@@ -74,7 +74,7 @@ export class GameUpdate {
     protected multiplayerManager: MultiplayerManager | undefined;
     protected aiCoordinator: AICoordinator | undefined;
     protected performanceOptimizer: PerformanceOptimizer | undefined;
-    
+
     // Callbacks для обновлений (будут переданы из Game)
     protected onUpdateCamera: (() => void) | null = null;
     protected onUpdateCompass: (() => void) | null = null;
@@ -87,13 +87,13 @@ export class GameUpdate {
     protected onUpdateEnemyTurretsVisibility: (() => void) | null = null;
     protected onCheckConsumablePickups: (() => void) | null = null;
     protected onCheckSpectatorMode: (() => void) | null = null;
-    
+
     // Флаги состояния
     protected gameStarted = false;
     protected gamePaused = false;
     protected isAiming = false;
     protected survivalStartTime = 0;
-    
+
     /**
      * Инициализация системы обновлений
      */
@@ -139,23 +139,23 @@ export class GameUpdate {
         this.gamePaused = callbacks.gamePaused || false;
         this.isAiming = callbacks.isAiming || false;
         this.survivalStartTime = callbacks.survivalStartTime || 0;
-        
+
         logger.log("[GameUpdate] Update system initialized");
     }
-    
+
     /**
      * Основной метод обновления (вызывается каждый кадр)
      */
     update(): void {
         if (!this.scene || !this.engine) return;
-        
+
         // Счётчик кадров
         this._updateTick++;
         if (this._updateTick > 1000000) this._updateTick = 0;
-        
+
         // Delta time для анимаций
         const deltaTime = this.engine.getDeltaTime() / 1000;
-        
+
         // === ОБНОВЛЕНИЕ FPS КАЖДЫЙ КАДР ===
         let currentFPS = 60;
         if (this.hud) {
@@ -171,7 +171,7 @@ export class GameUpdate {
             currentFPS = fps;
             this.hud.updateFPS(fps, deltaTimeMs);
         }
-        
+
         // ОПТИМИЗАЦИЯ: Адаптивные интервалы обновления на основе FPS
         this._fpsUpdateCounter++;
         if (this._fpsUpdateCounter >= 60) { // Обновляем интервалы каждые 60 кадров (~1 секунда)
@@ -179,24 +179,24 @@ export class GameUpdate {
             this._fpsUpdateCounter = 0;
         }
         this._lastFPS = currentFPS;
-        
+
         // === ЦЕНТРАЛИЗОВАННЫЕ ОБНОВЛЕНИЯ АНИМАЦИЙ ===
         // Обновляем анимации с разной частотой для оптимизации
-        
+
         // HUD анимации (каждые 3 кадра для оптимизации)
         if (this._updateTick % 3 === 0 && this.hud) {
-            this.hud.updateAnimations(deltaTime);
-            
+            this.hud.update(deltaTime);
+
             // Update fuel indicator
             if (this.tank) {
                 this.hud.updateFuel?.(this.tank.currentFuel, this.tank.maxFuel);
             }
-            
+
             // Update tracer count
             if (this.tank) {
                 this.hud.updateTracerCount?.(this.tank.getTracerCount(), this.tank.getMaxTracerCount());
             }
-            
+
             // Update arsenal
             if (this.tank && this.hud.updateArsenal) {
                 const ammoData = new Map<string, { current: number, max: number }>();
@@ -210,7 +210,7 @@ export class GameUpdate {
                 ammoData.set("apds", { current: 0, max: 0 });
                 this.hud.updateArsenal(ammoData);
             }
-            
+
             // Update missions panel (every 60 frames ~1 second)
             if (this._updateTick % 60 === 0 && this.missionSystem) {
                 const activeMissions = this.missionSystem.getActiveMissions();
@@ -227,16 +227,16 @@ export class GameUpdate {
                 }));
                 this.hud.updateMissions?.(missionData);
             }
-            
+
             // Update survival achievements and missions
             if (this.tank) {
                 if (this.tank.isAlive) {
                     const survivalTime = (Date.now() - this.survivalStartTime) / 1000;
-                    
+
                     // Achievements
                     if (this.achievementsSystem) {
                         this.achievementsSystem.setProgress("survivor", Math.floor(survivalTime));
-                        
+
                         const hpPercent = this.tank.currentHealth / this.tank.maxHealth;
                         if (hpPercent < 0.1 && hpPercent > 0) {
                             this.achievementsSystem.updateProgress("iron_will", 1);
@@ -245,32 +245,32 @@ export class GameUpdate {
                 }
             }
         }
-        
+
         // КРИТИЧНО: Убрано дублирование updateCamera - камера обновляется через onAfterPhysicsObservable каждые 2 кадра
         // Это дает прирост +10-15 FPS, так как updateCamera больше не вызывается дважды
-        
+
         // Обновление гаражей (адаптивный интервал)
         if (this._updateTick % this._adaptiveIntervals.garage === 0) {
             if (this.onUpdateGarageDoors) {
                 this.onUpdateGarageDoors();
             }
-            
+
             if (this.onUpdateGarageCapture) {
                 this.onUpdateGarageCapture(deltaTime);
             }
-            
+
             if (this.onUpdateGarageRespawnTimers) {
                 this.onUpdateGarageRespawnTimers(deltaTime);
             }
         }
-        
+
         // Обновление мультиплеера (адаптивный интервал)
         // КРИТИЧНО: updateMultiplayer вызывается в основном цикле update(), который выполняется ПОСЛЕ onAfterPhysicsObservable
         // Порядок в Babylon.js: onBeforePhysicsObservable → Physics → onAfterPhysicsObservable → Scene.render() → update()
         // Это гарантирует, что updatePositionCache() уже вызван перед updateMultiplayer()
         if (this._updateTick % this._adaptiveIntervals.multiplayer === 0 && this.onUpdateMultiplayer) {
             this.onUpdateMultiplayer(deltaTime);
-            
+
             // Обновление индикатора качества синхронизации (каждые 30 кадров ~0.5 секунды)
             if (this._updateTick % 30 === 0 && this.hud) {
                 const game = (window as any).gameInstance;
@@ -282,32 +282,32 @@ export class GameUpdate {
                 }
             }
         }
-        
+
         // Обновление волн фронта (каждые 2 кадра)
         if (this._updateTick % 2 === 0 && this.onUpdateFrontlineWaves) {
             this.onUpdateFrontlineWaves(deltaTime);
         }
-        
+
         // Обновление видимости турелей (адаптивный интервал) - ОПТИМИЗАЦИЯ: адаптивная частота
         if (this._updateTick % this._adaptiveIntervals.turrets === 0 && this.onUpdateEnemyTurretsVisibility) {
             this.onUpdateEnemyTurretsVisibility();
         }
-        
+
         // Проверка подбора расходников (адаптивный интервал)
         if (this._updateTick % this._adaptiveIntervals.consumables === 0 && this.onCheckConsumablePickups) {
             this.onCheckConsumablePickups();
         }
-        
+
         // Проверка режима наблюдателя (каждые 2 кадра)
         if (this._updateTick % 2 === 0 && this.onCheckSpectatorMode) {
             this.onCheckSpectatorMode();
         }
-        
+
         // ОПТИМИЗАЦИЯ: Обновление HUD каждые 4 кадра (не каждый кадр) для производительности
         if (this._updateTick % 4 === 0 && this.onUpdateHUD) {
             this.onUpdateHUD();
         }
-        
+
         // Обновление чанков
         if (this._updateTick % this._adaptiveIntervals.chunkSystem === 0 && this.chunkSystem) {
             if (this.tank && this.tank.chassis) {
@@ -319,7 +319,7 @@ export class GameUpdate {
                 this.chunkSystem.update(this._cachedTankPosition);
             }
         }
-        
+
         // Обновление AI Coordinator (каждые 4 кадра для оптимизации)
         // Пропускаем при FPS < 50 для дополнительной производительности
         if (this._updateTick % 4 === 0 && this._lastFPS >= 50 && this.aiCoordinator && this.tank && this.tank.chassis) {
@@ -327,7 +327,7 @@ export class GameUpdate {
             this.aiCoordinator.updatePlayerPosition(cachedPos);
             this.aiCoordinator.update();
         }
-        
+
         // Обновление Performance Optimizer (каждые 8 кадров для оптимизации)
         // Пропускаем при FPS < 50 для дополнительной производительности
         if (this._updateTick % 8 === 0 && this._lastFPS >= 50 && this.performanceOptimizer && this.tank && this.tank.chassis) {
@@ -335,13 +335,13 @@ export class GameUpdate {
             this.performanceOptimizer.setReferencePosition(cachedPos);
             this.performanceOptimizer.update();
         }
-        
+
         // ОПТИМИЗАЦИЯ: Обновление кэша позиций врагов (каждые 4 кадра для оптимизации)
         // Увеличено с 3 до 4 для лучшей производительности
         if (this._updateTick % 4 === 0) {
             this.updateEnemyPositionsCache();
         }
-        
+
         // ИСПРАВЛЕНО: Обновление врагов БЕЗ жесткой зависимости от FPS
         // Обновляем врагов всегда, но с адаптивной частотой при низком FPS
         if (this.enemyTanks && this.enemyTanks.length > 0 && this.tank && this.tank.chassis) {
@@ -352,50 +352,50 @@ export class GameUpdate {
             }
         }
     }
-    
+
     /**
      * ИСПРАВЛЕНО: Обновление врагов с адекватной частотой
      * Обновляет всех врагов каждый кадр для корректной работы AI
      */
     private updateEnemiesOptimized(): void {
         if (!this.enemyTanks || !this.tank || !this.tank.chassis) return;
-        
+
         const playerPos = this.tank.chassis.position;
         const enemyCount = this.enemyTanks.length;
-        
+
         if (enemyCount === 0) return;
-        
+
         // ИСПРАВЛЕНО: Обновляем до 10 врагов за кадр для работающего AI
         const maxEnemiesPerFrame = 10;
         let updatedThisFrame = 0;
-        
+
         // Распределяем обновления по кадрам - каждый кадр обновляем разных врагов
         const startIndex = this._updateTick % enemyCount;
-        
+
         for (let offset = 0; offset < enemyCount && updatedThisFrame < maxEnemiesPerFrame; offset++) {
             const i = (startIndex + offset) % enemyCount;
             const enemy = this.enemyTanks[i];
-            
+
             if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) {
                 continue;
             }
-            
+
             // Вычисляем расстояние до игрока (квадрат расстояния для оптимизации)
             const dx = enemy.chassis.position.x - playerPos.x;
             const dz = enemy.chassis.position.z - playerPos.z;
             const distSq = dx * dx + dz * dz;
-            
+
             // ИСПРАВЛЕНО: Все враги обновляются каждый кадр для плавной работы AI
             // Убрана зависимость от расстояния - все боты работают одинаково плавно
             // При низком FPS (< 20) обновляем реже через адаптивный интервал
             let updateInterval = 1; // По умолчанию каждый кадр
-            
+
             // Только при очень низком FPS уменьшаем частоту обновления
             if (this._lastFPS < 20) {
                 // При FPS < 20 обновляем каждые 2 кадра для стабильности
                 updateInterval = 2;
             }
-            
+
             // Обновляем только если пришло время для этого врага
             if (this._updateTick % updateInterval === 0) {
                 try {
@@ -408,34 +408,34 @@ export class GameUpdate {
             }
         }
     }
-    
+
     /**
      * ИСПРАВЛЕНО: Обновление физики врагов
      * Обновляет физику для всех ближних врагов каждый кадр
      */
     private updateEnemiesPhysicsOptimized(): void {
         if (!this.enemyTanks || !this.tank || !this.tank.chassis) return;
-        
+
         const playerPos = this.tank.chassis.position;
         const enemyCount = this.enemyTanks.length;
-        
+
         // ИСПРАВЛЕНО: Увеличена дистанция и количество обновляемых врагов
         const MAX_PHYSICS_DISTANCE_SQ = 250000; // 500м в квадрате
         const MAX_PHYSICS_ENEMIES_PER_FRAME = 15; // Максимум 15 врагов за кадр
-        
+
         let updatedThisFrame = 0;
-        
+
         for (let i = 0; i < enemyCount && updatedThisFrame < MAX_PHYSICS_ENEMIES_PER_FRAME; i++) {
             const enemy = this.enemyTanks[i];
             if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) {
                 continue;
             }
-            
+
             // Вычисляем расстояние до игрока
             const dx = enemy.chassis.position.x - playerPos.x;
             const dz = enemy.chassis.position.z - playerPos.z;
             const distSq = dx * dx + dz * dz;
-            
+
             // Обновляем физику для врагов в радиусе видимости
             if (distSq <= MAX_PHYSICS_DISTANCE_SQ) {
                 try {
@@ -447,7 +447,7 @@ export class GameUpdate {
             }
         }
     }
-    
+
     /**
      * ОПТИМИЗАЦИЯ: Обновление кэша позиций врагов
      * Использует position вместо absolutePosition для производительности
@@ -461,28 +461,28 @@ export class GameUpdate {
             this._enemyPositionsCacheFrame = this._updateTick;
             return;
         }
-        
+
         // Обновляем кэш только если номер кадра изменился
         if (this._enemyPositionsCacheFrame === this._updateTick) {
             return;
         }
-        
+
         this._enemyPositionsCacheFrame = this._updateTick;
-        
+
         // Создаем Set для отслеживания активных врагов
         const activeEnemyIds = new Set<string>();
-        
+
         // ОПТИМИЗАЦИЯ: Кэшируем только ближних врагов (< 500м) для производительности
         const MAX_CACHE_DISTANCE_SQ = 250000; // 500м в квадрате
         const MAX_CACHED_ENEMIES = 30; // КРИТИЧНО: Ограничиваем количество кэшируемых врагов
         const playerPos = this.tank?.chassis?.position;
-        
+
         // КРИТИЧНО: Ранний выход если врагов слишком много
         const enemyCount = this.enemyTanks.length;
         if (enemyCount > 50) {
             // Если врагов слишком много, кэшируем только ближайших
             // Собираем расстояния для всех врагов
-            const enemyDistances: Array<{index: number, distSq: number}> = [];
+            const enemyDistances: Array<{ index: number, distSq: number }> = [];
             for (let i = 0; i < enemyCount; i++) {
                 const enemy = this.enemyTanks[i];
                 if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) {
@@ -500,7 +500,7 @@ export class GameUpdate {
             // Сортируем по расстоянию и берем ближайших
             enemyDistances.sort((a, b) => a.distSq - b.distSq);
             const enemiesToCache = enemyDistances.slice(0, MAX_CACHED_ENEMIES);
-            
+
             // Кэшируем только ближайших
             for (const { index: i } of enemiesToCache) {
                 const enemy = this.enemyTanks[i];
@@ -511,7 +511,7 @@ export class GameUpdate {
                     const pos = enemy.chassis.position;
                     const enemyId = `enemy_${i}_${enemy.chassis.uniqueId}`;
                     activeEnemyIds.add(enemyId);
-                    
+
                     // КРИТИЧНО: Кэшируем chassisRotY для избежания дорогого toEulerAngles() в updateHUD
                     let chassisRotY = 0;
                     if (enemy.chassis.rotationQuaternion) {
@@ -520,7 +520,7 @@ export class GameUpdate {
                     } else {
                         chassisRotY = enemy.chassis.rotation.y;
                     }
-                    
+
                     this._enemyPositionsCache.set(enemyId, {
                         x: pos.x,
                         z: pos.z,
@@ -540,24 +540,24 @@ export class GameUpdate {
                 if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) {
                     continue;
                 }
-                
+
                 // Проверяем расстояние до игрока (только для ближних врагов)
                 if (playerPos) {
                     const dx = enemy.chassis.position.x - playerPos.x;
                     const dz = enemy.chassis.position.z - playerPos.z;
                     const distSq = dx * dx + dz * dz;
-                    
+
                     // Пропускаем дальних врагов - они не нужны в кэше
                     if (distSq > MAX_CACHE_DISTANCE_SQ) {
                         continue;
                     }
                 }
-                
+
                 try {
                     const pos = enemy.chassis.position;
                     const enemyId = `enemy_${i}_${enemy.chassis.uniqueId}`;
                     activeEnemyIds.add(enemyId);
-                    
+
                     // КРИТИЧНО: Кэшируем chassisRotY для избежания дорогого toEulerAngles() в updateHUD
                     let chassisRotY = 0;
                     if (enemy.chassis.rotationQuaternion) {
@@ -567,7 +567,7 @@ export class GameUpdate {
                     } else {
                         chassisRotY = enemy.chassis.rotation.y;
                     }
-                    
+
                     this._enemyPositionsCache.set(enemyId, {
                         x: pos.x,
                         z: pos.z,
@@ -582,14 +582,14 @@ export class GameUpdate {
                 }
             }
         }
-        
+
         // Удаляем кэш для неактивных врагов
         for (const [id, data] of this._enemyPositionsCache.entries()) {
             if (!activeEnemyIds.has(id) || !data.alive) {
                 this._enemyPositionsCache.delete(id);
             }
         }
-        
+
         // Добавляем позиции турелей если есть enemyManager
         if (this.enemyManager && this.enemyManager.turrets) {
             try {
@@ -599,10 +599,10 @@ export class GameUpdate {
                     for (let i = 0; i < turretCount; i++) {
                         const pos = turretPositions[i];
                         if (!pos || !pos.alive) continue;
-                        
+
                         const turretId = `turret_${i}_${pos.x}_${pos.z}`;
                         activeEnemyIds.add(turretId);
-                        
+
                         this._enemyPositionsCache.set(turretId, {
                             x: pos.x,
                             z: pos.z,
@@ -616,14 +616,14 @@ export class GameUpdate {
             }
         }
     }
-    
+
     /**
      * Получить все кэшированные позиции врагов
      * @returns Массив позиций врагов {x, z, alive}
      */
-    getCachedEnemyPositions(): {x: number, z: number, alive: boolean, chassisRotY?: number}[] {
-        const result: {x: number, z: number, alive: boolean, chassisRotY?: number}[] = [];
-        
+    getCachedEnemyPositions(): { x: number, z: number, alive: boolean, chassisRotY?: number }[] {
+        const result: { x: number, z: number, alive: boolean, chassisRotY?: number }[] = [];
+
         for (const data of this._enemyPositionsCache.values()) {
             // Проверяем валидность кэша (не старше 4 кадров)
             if (this._updateTick - data.frame <= 4) {
@@ -635,31 +635,31 @@ export class GameUpdate {
                 });
             }
         }
-        
+
         return result;
     }
-    
+
     /**
      * Получить кэшированную позицию конкретного врага по ID
      * @param enemyId ID врага
      * @returns Позиция или null если не найдена
      */
-    getCachedEnemyPosition(enemyId: string): {x: number, z: number, alive: boolean} | null {
+    getCachedEnemyPosition(enemyId: string): { x: number, z: number, alive: boolean } | null {
         const data = this._enemyPositionsCache.get(enemyId);
         if (!data) return null;
-        
+
         // Проверяем валидность кэша
         if (this._updateTick - data.frame > 4) {
             return null;
         }
-        
+
         return {
             x: data.x,
             z: data.z,
             alive: data.alive
         };
     }
-    
+
     /**
      * Установить колбэки для обновлений
      */
@@ -689,7 +689,7 @@ export class GameUpdate {
         if (callbacks.onCheckSpectatorMode !== undefined) this.onCheckSpectatorMode = callbacks.onCheckSpectatorMode;
         if (callbacks.onUpdateCompass !== undefined) this.onUpdateCompass = callbacks.onUpdateCompass;
     }
-    
+
     /**
      * Обновить ссылки на системы
      */
@@ -726,7 +726,14 @@ export class GameUpdate {
         if (callbacks.isAiming !== undefined) this.isAiming = callbacks.isAiming;
         if (callbacks.survivalStartTime !== undefined) this.survivalStartTime = callbacks.survivalStartTime;
     }
-    
+
+    /**
+     * Установка callback для таймеров респавна в гараже
+     */
+    public setOnUpdateGarageRespawnTimers(callback: (deltaTime: number) => void): void {
+        this.onUpdateGarageRespawnTimers = callback;
+    }
+
     /**
      * АГРЕССИВНАЯ ЗАЩИТА ОТ НИЗКОГО FPS
      * Автоматически увеличивает интервалы и отключает системы при падении FPS
@@ -795,7 +802,7 @@ export class GameUpdate {
             };
         }
     }
-    
+
     /**
      * Dispose системы обновлений
      */
@@ -810,10 +817,10 @@ export class GameUpdate {
         this.onUpdateEnemyTurretsVisibility = null;
         this.onCheckConsumablePickups = null;
         this.onCheckSpectatorMode = null;
-        
+
         // Очищаем кэш позиций врагов
         this._enemyPositionsCache.clear();
-        
+
         logger.log("[GameUpdate] Update system disposed");
     }
 }

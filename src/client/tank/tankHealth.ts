@@ -75,6 +75,19 @@ export class TankHealthModule {
             amount = Math.round(amount * TANK_CONSTANTS.STEALTH_DAMAGE_REDUCTION);
         }
 
+        // EVASION CHECK (Miss chance)
+        if (this.tank.evasion > 0) {
+            const hitChance = Math.random() * 100;
+            if (hitChance < this.tank.evasion) {
+                // AVODED!
+                if (this.tank.hud && this.tank.chassis) {
+                    const missPos = this.tank.chassis.position.clone().add(new Vector3(0, 2, 0));
+                    this.tank.hud.showDamageNumber(missPos, 0, 'received', false, "MISS");
+                }
+                return;
+            }
+        }
+
         // Применяем бонус брони от уровня опыта
         let finalDamage = amount;
         if (this.tank.experienceSystem) {
@@ -87,14 +100,28 @@ export class TankHealthModule {
 
         this.tank.currentHealth = Math.max(0, this.tank.currentHealth - finalDamage);
         if (this.tank.hud) {
-            this.tank.hud.damage(finalDamage);
+
 
             // УЛУЧШЕНО: Показываем экранную вспышку вместо объёмного эффекта, если известна позиция атакующего
             if (attackerPosition && this.tank.chassis) {
                 const playerPos = this.tank.chassis.position;
-                const playerRotation = this.tank.chassis.rotation.y;
-                // Передаём finalDamage для вычисления интенсивности вспышки
-                this.tank.hud.showDamageFromPosition(attackerPosition, playerPos, playerRotation, finalDamage);
+                // Calculate direction FROM player TO attacker (Source)
+                // Calculate direction (legacy, now handled in DamageIndicator)
+                // const damageDir = attackerPosition.subtract(playerPos);
+
+                // We need Camera Forward for UI relative rotation
+                let playerForward: Vector3 | undefined;
+                if (this.tank.scene?.activeCamera) {
+                    playerForward = this.tank.scene.activeCamera.getForwardRay().direction;
+                }
+
+                // Pass directional data to HUD
+                // ИСПРАВЛЕНО: Передаём абсолютную позицию атакующего для Compass-индикатора
+                // hud.damage ожидает sourcePosition (ранее damageDir)
+                this.tank.hud.damage(finalDamage, attackerPosition);
+            } else {
+                // Fallback for non-directional damage
+                this.tank.hud.damage(finalDamage);
             }
 
             // Показываем плавающее число полученного урона над танком игрока
@@ -182,7 +209,13 @@ export class TankHealthModule {
         // Потребляем топливо только при движении
         const isMoving = Math.abs(this.tank.smoothThrottle) > 0.1 || Math.abs(this.tank.smoothSteer) > 0.1;
         if (isMoving) {
-            const fuelRate = this.tank.fuelConsumptionRate || TANK_CONSTANTS.FUEL_CONSUMPTION_RATE;
+            let fuelRate = this.tank.fuelConsumptionRate || TANK_CONSTANTS.FUEL_CONSUMPTION_RATE;
+
+            // Apply Fuel Efficiency Bonus
+            if (this.tank.fuelEfficiencyBonus > 0) {
+                fuelRate *= (1 - this.tank.fuelEfficiencyBonus / 100);
+            }
+
             this.tank.currentFuel -= fuelRate * deltaTime;
             if (this.tank.currentFuel <= 0) {
                 this.tank.currentFuel = 0;
@@ -248,8 +281,26 @@ export class TankHealthModule {
         }
     }
 
-    // Обновить таймер защиты (вызывается каждый кадр)
-    updateInvulnerability(): void {
+    // Обновить таймер защиты и пассивный ремонт (вызывается каждый кадр)
+    update(deltaTime: number): void {
+        this.updateInvulnerability();
+        this.updatePassiveRepair(deltaTime);
+    }
+
+    private updatePassiveRepair(deltaTime: number): void {
+        if (!this.tank.isAlive || this.tank.currentHealth >= this.tank.maxHealth || this.tank.repairRate <= 0) return;
+
+        const healAmount = this.tank.repairRate * deltaTime;
+        this.tank.currentHealth = Math.min(this.tank.maxHealth, this.tank.currentHealth + healAmount);
+
+        // Update HUD periodically or if change is significant? 
+        // For smooth bars, updating every frame is fine if HUD handles it well.
+        if (this.tank.hud) {
+            this.tank.hud.updateHealth(this.tank.currentHealth, this.tank.maxHealth);
+        }
+    }
+
+    private updateInvulnerability(): void {
         if (!this.isInvulnerable) return;
 
         const elapsed = Date.now() - this.invulnerabilityStartTime;
@@ -478,11 +529,17 @@ export class TankHealthModule {
         // Вычисляем правильную высоту
         const game = (window as any).gameInstance;
         let targetY = respawnPos.y;
-        if (game && typeof game.getGroundHeight === 'function') {
+
+        // ИСПРАВЛЕНО: Используем getTopSurfaceHeight чтобы спавниться НА крышах/мостах, а не внутри них
+        if (game && typeof game.getTopSurfaceHeight === 'function') {
+            const surfaceHeight = game.getTopSurfaceHeight(respawnPos.x, respawnPos.z);
+            // Спавн на 1.5 метра над поверхностью для безопасности
+            targetY = surfaceHeight + 1.5;
+            console.log(`[TANK] Spawn height (TopSurface): Y=${targetY.toFixed(2)} (ground: ${game.getGroundHeight?.(respawnPos.x, respawnPos.z)?.toFixed(2) || 'N/A'}, hasGarage: ${hasGarage})`);
+        } else if (game && typeof game.getGroundHeight === 'function') {
             const groundHeight = game.getGroundHeight(respawnPos.x, respawnPos.z);
-            // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
-            targetY = groundHeight + 1.0;
-            console.log(`[TANK] Spawn height: Y=${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)}, hasGarage: ${hasGarage})`);
+            targetY = groundHeight + 1.5;
+            console.log(`[TANK] Spawn height (Ground): Y=${targetY.toFixed(2)} (hasGarage: ${hasGarage})`);
         }
 
         // Целевая позиция для камеры (где будет танк)
@@ -1027,6 +1084,19 @@ export class TankHealthModule {
         if (this.destroyedParts && this.destroyedParts.length > 0) {
             console.log(`[TankHealth] Clearing ${this.destroyedParts.length} destroyedParts before respawn`);
             this.destroyedParts = [];
+        }
+
+        // КРИТИЧНО: Проверяем валидность текущего физического тела перед восстановлением
+        if (tank.physicsBody) {
+            // Если тело disposed или привязано к другому (удалённому) мешу - удаляем его
+            const body = tank.physicsBody as any;
+            if (body._isDisposed || (body.transformNode && body.transformNode !== tank.chassis) || (tank.chassis && tank.chassis.isDisposed())) {
+                console.warn("[TankHealth] Detected invalid physics body (disposed or mismatched), removing it.");
+                try {
+                    tank.physicsBody.dispose();
+                } catch (e) { /* ignore */ }
+                (tank as any).physicsBody = null;
+            }
         }
 
         // Восстанавливаем физическое тело, если его нет

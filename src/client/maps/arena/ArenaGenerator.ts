@@ -241,6 +241,7 @@ export class ArenaGenerator extends BaseMapGenerator {
 
     private createMirroredObject(
         context: ChunkGenerationContext,
+        parent: TransformNode,
         def: (isMirror: boolean) => {
             name: string;
             size: { width: number; height: number; depth: number };

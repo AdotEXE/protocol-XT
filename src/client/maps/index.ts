@@ -10,10 +10,10 @@
 
 // Shared utilities
 export { SeededRandom, MAP_TYPES, MapGeneratorFactory, BaseMapGenerator } from './shared';
-export type { 
-    ChunkData, 
-    ChunkConfig, 
-    BiomeType, 
+export type {
+    ChunkData,
+    ChunkConfig,
+    BiomeType,
     MapType,
     IMapGenerator,
     ChunkGenerationContext,
@@ -34,6 +34,8 @@ export { MadnessGenerator, DEFAULT_MADNESS_CONFIG } from './madness';
 export { ExpoGenerator, DEFAULT_EXPO_CONFIG } from './expo';
 export { BrestGenerator, DEFAULT_BREST_CONFIG } from './brest';
 export { ArenaGenerator, DEFAULT_ARENA_CONFIG } from './arena';
+export { CustomMapGenerator, getCustomMapGenerator, loadCustomMap } from './custom';
+export type { TXMapData, TXPlacedObject, TXMapTrigger } from './custom';
 
 // Map info exports
 export { POLYGON_MAP_INFO } from './polygon';
@@ -71,7 +73,8 @@ export const ALL_MAPS = [
     'expo',
     'brest',
     'arena',
-    'tartaria'
+    'tartaria',
+    'custom'
 ] as const;
 
 export type MapId = typeof ALL_MAPS[number];

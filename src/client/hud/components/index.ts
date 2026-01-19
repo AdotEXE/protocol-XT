@@ -104,3 +104,6 @@ export type { HUDManagerConfig } from './HUDManager';
 export { TouchControls, DEFAULT_TOUCH_CONTROLS_CONFIG } from './TouchControls';
 export type { TouchControlsConfig, TouchInputState } from './TouchControls';
 
+// Виньетка при низком здоровье
+export { LowHealthVignette, DEFAULT_LOW_HEALTH_CONFIG } from './LowHealthVignette';
+export type { LowHealthVignetteConfig } from './LowHealthVignette';

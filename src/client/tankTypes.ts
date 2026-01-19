@@ -358,9 +358,9 @@ export const CANNON_TYPES: CannonType[] = [
         recoilMultiplier: 0.5, // Минимальная отдача (скорострельность) (x2)
         maxRange: calculateMaxRange(1.9, 180)
     },
-    
+
     // === NEW 20 CANNONS ===
-    
+
     // === ENERGY WEAPONS ===
     {
         id: "plasma",
@@ -418,7 +418,7 @@ export const CANNON_TYPES: CannonType[] = [
         recoilMultiplier: 5.0, // Максимальная отдача! (x2)
         maxRange: calculateMaxRange(3.5, 500)
     },
-    
+
     // === EXPLOSIVE WEAPONS ===
     {
         id: "rocket",
@@ -476,15 +476,15 @@ export const CANNON_TYPES: CannonType[] = [
         recoilMultiplier: 3.4, // Взрывная отдача (x2)
         maxRange: calculateMaxRange(2.4, 180)
     },
-    
+
     // === SPECIAL EFFECT WEAPONS ===
     {
         id: "flamethrower",
         name: "Flamethrower",
         barrelLength: 1.6,
         barrelWidth: 0.24,
-        damage: 12,
-        cooldown: 100,
+        damage: 8,      // НЕРФ: Было 12. Снижение урона в 1.5 раза.
+        cooldown: 150,  // НЕРФ: Было 100. Снижение скорострельности в 1.5 раза.
         projectileSpeed: 120,
         projectileSize: 0.18,
         color: "#ff3300",
@@ -548,7 +548,7 @@ export const CANNON_TYPES: CannonType[] = [
         recoilMultiplier: 0.8, // ЭМИ - электромагнитное, слабая отдача (x2)
         maxRange: calculateMaxRange(2.2, 200)
     },
-    
+
     // === MULTI-SHOT WEAPONS ===
     {
         id: "shotgun",
@@ -578,7 +578,7 @@ export const CANNON_TYPES: CannonType[] = [
         recoilMultiplier: 2.2, // Многоствольная - суммарная отдача (x2)
         maxRange: calculateMaxRange(2.1, 175)
     },
-    
+
     // === ADVANCED WEAPONS ===
     {
         id: "homing",
@@ -664,7 +664,7 @@ export const CANNON_TYPES: CannonType[] = [
         recoilMultiplier: 0.6, // Ремонтный луч - минимальная отдача (x2)
         maxRange: calculateMaxRange(2.2, 250)
     },
-    
+
     // === RICOCHET CANNON ===
     {
         id: "ricochet",

@@ -103,7 +103,7 @@ const BIOME_COLORS: Record<BiomeType, { r: number; g: number; b: number }> = {
 
 export class ChunkSystem {
     private scene: Scene;
-    private config: ChunkConfig;
+    public config: ChunkConfig;
 
     // Public getter for mapType
     public get mapType(): MapType {
@@ -512,7 +512,7 @@ export class ChunkSystem {
             ["leaves", 0.25, 0.35, 0.20],       // Dark green leaves
             ["water", 0.15, 0.25, 0.35],        // Water (dark blue-green)
             ["rock", 0.35, 0.32, 0.30],         // Rock/stone
-            
+
             // ОПТИМИЗАЦИЯ: Кэшированные материалы для объектов (вместо создания новых)
             ["tireBlack", 0.1, 0.1, 0.1],       // Черные шины
             ["barrelGreen", 0.1, 0.4, 0.1],     // Зеленые бочки
@@ -534,7 +534,7 @@ export class ChunkSystem {
             mat.freeze();
             this.materials.set(name, mat);
         });
-        
+
         // ОПТИМИЗАЦИЯ: Специальные материалы с emissive (мишени)
         const targetMat = new StandardMaterial("targetRedEmissive", this.scene);
         targetMat.diffuseColor = new Color3(0.9, 0.1, 0.1);
@@ -542,14 +542,14 @@ export class ChunkSystem {
         targetMat.specularColor = Color3.Black();
         targetMat.freeze();
         this.materials.set("targetRedEmissive", targetMat);
-        
+
         const movingTargetMat = new StandardMaterial("movingTargetRedEmissive", this.scene);
         movingTargetMat.diffuseColor = new Color3(0.9, 0.1, 0.1);
         movingTargetMat.emissiveColor = new Color3(0.3, 0, 0);
         movingTargetMat.specularColor = Color3.Black();
         movingTargetMat.freeze();
         this.materials.set("movingTargetRedEmissive", movingTargetMat);
-        
+
         // ОПТИМИЗАЦИЯ: Материал дыма с прозрачностью
         const smokeMat = new StandardMaterial("smokeGray", this.scene);
         smokeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -557,7 +557,7 @@ export class ChunkSystem {
         smokeMat.specularColor = Color3.Black();
         smokeMat.freeze();
         this.materials.set("smokeGray", smokeMat);
-        
+
         // ОПТИМИЗАЦИЯ: Материал забора с прозрачностью
         const fenceMat = new StandardMaterial("fenceGray", this.scene);
         fenceMat.diffuseColor = new Color3(0.5, 0.5, 0.5);
@@ -565,7 +565,7 @@ export class ChunkSystem {
         fenceMat.specularColor = Color3.Black();
         fenceMat.freeze();
         this.materials.set("fenceGray", fenceMat);
-        
+
         // ОПТИМИЗАЦИЯ: Материал остановки с прозрачностью
         const shelterMat = new StandardMaterial("shelterGray", this.scene);
         shelterMat.diffuseColor = new Color3(0.4, 0.4, 0.5);
@@ -573,7 +573,7 @@ export class ChunkSystem {
         shelterMat.specularColor = Color3.Black();
         shelterMat.freeze();
         this.materials.set("shelterGray", shelterMat);
-        
+
         // ОПТИМИЗАЦИЯ: Материал уличного фонаря с emissive
         const streetLightMat = new StandardMaterial("streetLight", this.scene);
         streetLightMat.diffuseColor = new Color3(1, 0.95, 0.8);
@@ -581,7 +581,7 @@ export class ChunkSystem {
         streetLightMat.specularColor = Color3.Black();
         streetLightMat.freeze();
         this.materials.set("streetLight", streetLightMat);
-        
+
         // ОПТИМИЗАЦИЯ: Материалы припасов (consumables) с emissive
         const consumableTypes: { [key: string]: Color3 } = {
             "health": new Color3(1, 0, 0),
@@ -2892,7 +2892,8 @@ export class ChunkSystem {
                             this.config.mapType === "madness" ? "wasteland" :
                                 this.config.mapType === "expo" ? "wasteland" :
                                     this.config.mapType === "brest" ? "wasteland" :
-                                        this.config.mapType === "arena" ? "wasteland" : "military";
+                                        this.config.mapType === "arena" ? "wasteland" :
+                                            this.config.mapType === "underground" ? "wasteland" : "military";
                 const chunkContext: ChunkGenerationContext = {
                     scene: this.scene,
                     chunkX: cx,
@@ -6825,7 +6826,7 @@ export class ChunkSystem {
                     turret.position = new Vector3(x, hullH + turretSize * 0.35, z);
                 }
                 turret.rotation.y = random.range(0, Math.PI * 2);
-                turret.material = wreckMat;
+                turret.material = this.getMat("metalRust");
                 turret.parent = chunkParent;
                 turret.freezeWorldMatrix();
                 // chunk.meshes.push(turret);
@@ -7816,7 +7817,7 @@ export class ChunkSystem {
                 } catch (e) {
                     // Игнорируем ошибки при удалении физики
                 }
-                
+
                 // Удаляем меш, но НЕ удаляем материалы (они переиспользуются)
                 child.dispose(false, false);
             }
@@ -7835,7 +7836,7 @@ export class ChunkSystem {
         this.stats.loadedChunks = loadedChunks;
         this.stats.totalMeshes = totalMeshes;
     }
-    
+
     /**
      * ДИАГНОСТИКА: Логирование количества материалов и мешей для отладки утечек памяти
      * Вызывать периодически при отладке проблем с памятью
@@ -7845,7 +7846,7 @@ export class ChunkSystem {
         const meshCount = this.scene.meshes.length;
         const textureCount = this.scene.textures.length;
         const cachedMaterialCount = this.materials.size;
-        
+
         console.log(`[ChunkSystem Memory] Materials: ${materialCount} (cached: ${cachedMaterialCount}), Meshes: ${meshCount}, Textures: ${textureCount}, Chunks: ${this.chunks.size}`);
     }
 
@@ -10377,7 +10378,7 @@ export class ChunkSystem {
             // Используем кэшированный материал с цветом припаса и свечением
             const consumableMat = this.getMat(`consumable_${type}`);
             consumable.material = consumableMat;
-            
+
             // Получаем цвет из материала для анимации
             const consumableColor = (consumableMat as StandardMaterial).diffuseColor;
 

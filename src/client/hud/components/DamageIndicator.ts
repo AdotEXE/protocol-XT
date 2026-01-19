@@ -1,11 +1,10 @@
 /**
  * @module hud/components/DamageIndicator
- * @description Индикатор урона - показывает направление полученного урона
+ * @description Индикатор урона - показывает направление полученного урона (шеврон)
  */
 
-import { AdvancedDynamicTexture, Rectangle, Control } from "@babylonjs/gui";
+import { AdvancedDynamicTexture, Rectangle, Control, Image } from "@babylonjs/gui";
 import { Vector3 } from "@babylonjs/core";
-import { HUD_COLORS } from "../HUDConstants";
 import { scalePixels } from "../../utils/uiScale";
 
 /**
@@ -22,47 +21,51 @@ export interface DamageIndicatorConfig {
  * Конфигурация по умолчанию
  */
 export const DEFAULT_DAMAGE_CONFIG: DamageIndicatorConfig = {
-    fadeTime: 1500,
-    indicatorSize: 60,
+    fadeTime: 2500, // 2.5 seconds active duration
+    indicatorSize: 64,
     indicatorOffset: 150,
-    maxIndicators: 8
+    maxIndicators: 10
 };
 
 /**
  * Данные о направлении урона
  */
 interface DamageDirection {
-    angle: number;      // Угол в радианах
-    intensity: number;  // Интенсивность (0-1)
-    fadeStart: number;  // Время начала затухания
-    element: Rectangle; // UI элемент
+    sourcePosition: Vector3 | null; // Null for general damage
+    angle: number;      // Current angle (cached)
+    intensity: number;
+    fadeStart: number;
+    element: Control;
 }
+
+// Chevron SVG: Arrow pointing UP. (Used for rotation 0 being UP)
+const CHEVRON_SVG = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNMzAgNSBMNTUgNTUgTDMwIDQwIEw1IDU1IFoiIGZpbGw9IiNGRjAwMDAiIHN0cm9rZT0iIzhBMDAwMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PC9zdmc+";
 
 /**
  * DamageIndicator - Индикатор направления урона
  * 
- * Показывает красные индикаторы по краям экрана,
+ * Показывает красные шевроны по краям экрана,
  * указывающие направление полученного урона.
  */
 export class DamageIndicator {
     private guiTexture: AdvancedDynamicTexture;
     private config: DamageIndicatorConfig;
-    
+
     // Контейнер для индикаторов
     private container: Rectangle | null = null;
-    
+
     // Активные индикаторы
     private indicators: DamageDirection[] = [];
-    
+
     // Пул индикаторов для переиспользования
-    private indicatorPool: Rectangle[] = [];
-    
+    private indicatorPool: Control[] = [];
+
     constructor(guiTexture: AdvancedDynamicTexture, config: Partial<DamageIndicatorConfig> = {}) {
         this.guiTexture = guiTexture;
         this.config = { ...DEFAULT_DAMAGE_CONFIG, ...config };
         this.create();
     }
-    
+
     /**
      * Создание контейнера
      */
@@ -73,7 +76,7 @@ export class DamageIndicator {
         this.container.thickness = 0;
         this.container.isPointerBlocker = false;
         this.guiTexture.addControl(this.container);
-        
+
         // Создаём пул индикаторов
         for (let i = 0; i < this.config.maxIndicators; i++) {
             const indicator = this.createIndicatorElement();
@@ -82,25 +85,24 @@ export class DamageIndicator {
             this.indicatorPool.push(indicator);
         }
     }
-    
+
     /**
-     * Создание элемента индикатора
+     * Создание элемента индикатора (Image Chevron)
      */
-    private createIndicatorElement(): Rectangle {
-        const indicator = new Rectangle("damageDir");
+    private createIndicatorElement(): Control {
+        const indicator = new Image("damageChevron", CHEVRON_SVG);
         indicator.width = `${scalePixels(this.config.indicatorSize)}px`;
-        indicator.height = `${scalePixels(20)}px`;
-        indicator.background = HUD_COLORS.DANGER;
+        indicator.height = `${scalePixels(this.config.indicatorSize)}px`;
+        indicator.stretch = Image.STRETCH_UNIFORM;
         indicator.alpha = 0;
-        indicator.thickness = 0;
-        indicator.cornerRadius = 4;
+        indicator.isPointerBlocker = false;
         return indicator;
     }
-    
+
     /**
      * Получение индикатора из пула
      */
-    private getIndicator(): Rectangle | null {
+    private getIndicator(): Control | null {
         for (const indicator of this.indicatorPool) {
             if (!indicator.isVisible) {
                 return indicator;
@@ -108,69 +110,43 @@ export class DamageIndicator {
         }
         return null;
     }
-    
+
     /**
-     * Показать урон с направления
-     * @param direction - вектор направления атаки (от врага к игроку)
-     * @param playerForward - направление, куда смотрит игрок
-     * @param intensity - интенсивность урона (0-1)
+     * Показать урон от источника
+     * @param sourcePosition - абсолютная позиция источника урона
+     * @param intensity - интенсивность
      */
-    showDamage(direction: Vector3, playerForward: Vector3, intensity: number = 1): void {
-        // Вычисляем угол между направлением атаки и направлением игрока
-        const dx = direction.x;
-        const dz = direction.z;
-        const fx = playerForward.x;
-        const fz = playerForward.z;
-        
-        // Угол атаки в мировых координатах
-        const attackAngle = Math.atan2(dx, dz);
-        // Угол взгляда игрока
-        const playerAngle = Math.atan2(fx, fz);
-        // Относительный угол
-        let relativeAngle = attackAngle - playerAngle;
-        
-        // Нормализация угла
-        while (relativeAngle < -Math.PI) relativeAngle += Math.PI * 2;
-        while (relativeAngle > Math.PI) relativeAngle -= Math.PI * 2;
-        
-        // Создаём индикатор
+    showDamage(sourcePosition: Vector3, intensity: number = 1): void {
         const indicator = this.getIndicator();
         if (!indicator) return;
-        
-        // Позиционируем индикатор
-        const offsetX = Math.sin(relativeAngle) * this.config.indicatorOffset;
-        const offsetY = -Math.cos(relativeAngle) * this.config.indicatorOffset;
-        
-        indicator.left = `${scalePixels(offsetX)}px`;
-        indicator.top = `${scalePixels(offsetY)}px`;
-        indicator.rotation = relativeAngle;
+
+        // Initial setup (position will be updated in update())
         indicator.alpha = Math.min(1, intensity);
         indicator.isVisible = true;
         indicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         indicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-        
-        // Добавляем в активные
+
         this.indicators.push({
-            angle: relativeAngle,
+            sourcePosition: sourcePosition.clone(),
+            angle: 0,
             intensity: intensity,
             fadeStart: Date.now(),
             element: indicator
         });
     }
-    
+
     /**
-     * Показать урон без направления (общий)
+     * Показать урон без направления (общий) - просто 4 шеврона
      */
     showGeneralDamage(intensity: number = 0.5): void {
-        // Показываем индикаторы со всех сторон
         const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
         for (const angle of angles) {
             const indicator = this.getIndicator();
             if (!indicator) break;
-            
+
             const offsetX = Math.sin(angle) * this.config.indicatorOffset;
             const offsetY = -Math.cos(angle) * this.config.indicatorOffset;
-            
+
             indicator.left = `${scalePixels(offsetX)}px`;
             indicator.top = `${scalePixels(offsetY)}px`;
             indicator.rotation = angle;
@@ -178,8 +154,9 @@ export class DamageIndicator {
             indicator.isVisible = true;
             indicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
             indicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
-            
+
             this.indicators.push({
+                sourcePosition: null, // General damage has no source
                 angle: angle,
                 intensity: intensity * 0.5,
                 fadeStart: Date.now(),
@@ -187,33 +164,61 @@ export class DamageIndicator {
             });
         }
     }
-    
+
     /**
      * Обновление каждый кадр
      */
-    update(deltaTime: number): void {
+    update(deltaTime: number, playerPos?: Vector3, playerForward?: Vector3): void {
         const now = Date.now();
-        
+
         // Обновляем затухание индикаторов
         for (let i = this.indicators.length - 1; i >= 0; i--) {
             const indicator = this.indicators[i];
-            if (!indicator) continue; // Защита от undefined
-            
+            if (!indicator) continue;
+
             const elapsed = now - indicator.fadeStart;
-            
+
             if (elapsed >= this.config.fadeTime) {
                 // Скрываем и удаляем
                 indicator.element.isVisible = false;
                 indicator.element.alpha = 0;
                 this.indicators.splice(i, 1);
             } else {
-                // Затухаем
+                // Затухание
                 const fadeProgress = elapsed / this.config.fadeTime;
                 indicator.element.alpha = indicator.intensity * (1 - fadeProgress);
+
+                // COMPASS UPDATE: Пересчитываем позицию если есть данные игрока
+                if (playerPos && playerForward && indicator.sourcePosition) {
+                    // Вектор на источник
+                    const dx = indicator.sourcePosition.x - playerPos.x;
+                    const dz = indicator.sourcePosition.z - playerPos.z;
+
+                    // Угол на источник
+                    const attackAngle = Math.atan2(dx, dz);
+                    // Угол игрока
+                    const playerAngle = Math.atan2(playerForward.x, playerForward.z);
+
+                    let relativeAngle = attackAngle - playerAngle;
+
+                    // Нормализация
+                    while (relativeAngle < -Math.PI) relativeAngle += Math.PI * 2;
+                    while (relativeAngle > Math.PI) relativeAngle -= Math.PI * 2;
+
+                    // Позиционирование
+                    const offsetX = Math.sin(relativeAngle) * this.config.indicatorOffset;
+                    const offsetY = -Math.cos(relativeAngle) * this.config.indicatorOffset;
+
+                    indicator.element.left = `${scalePixels(offsetX)}px`;
+                    indicator.element.top = `${scalePixels(offsetY)}px`;
+                    indicator.element.rotation = relativeAngle;
+
+                    indicator.angle = relativeAngle;
+                }
             }
         }
     }
-    
+
     /**
      * Очистить все индикаторы
      */
@@ -224,20 +229,19 @@ export class DamageIndicator {
         }
         this.indicators = [];
     }
-    
+
     /**
      * Dispose
      */
     dispose(): void {
         this.clear();
-        
+
         if (this.container) {
             this.guiTexture.removeControl(this.container);
             this.container.dispose();
             this.container = null;
         }
-        
+
         this.indicatorPool = [];
     }
 }
-

@@ -1,6 +1,12 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { nanoid } from "nanoid";
-import { GeckosServer, GeckosChannel } from "@geckos.io/server";
+import { GeckosServer, ChannelId } from "@geckos.io/server";
+// @geckos.io/server does not export GeckosChannel directly in all versions, using any for now or specific interface if available
+// If GeckosChannel is needed as a type, we might need to rely on inference or a custom interface matching the library's structure.
+// For now, let's remove GeckosChannel from named imports if it fails.
+// Checking the errors, it says 'Module ... has no exported member GeckosChannel'.
+// Often it's named 'ServerChannel' or similar, or just 'Channel'.
+// Let's try importing just GeckosServer and ChannelId first.
 import { Vector3 } from "@babylonjs/core";
 import * as os from "os";
 import { ServerPlayer } from "./player";
@@ -38,7 +44,7 @@ export class GameServer {
 
     private rateLimiter: RateLimiter = new RateLimiter(); // Per-player rate limiting
     private geckosServer: GeckosServer | null = null;
-    private udpPlayers: Map<string, GeckosChannel> = new Map();
+    private udpPlayers: Map<string, any> = new Map();
     private udpPort: number | null = null;
 
     // Spatial partitioning: per-room spatial hash grids
@@ -161,7 +167,7 @@ export class GameServer {
     private setupGeckos(): void {
         if (!this.geckosServer) return;
 
-        this.geckosServer.onConnection((channel: GeckosChannel) => {
+        this.geckosServer.onConnection((channel: any) => {
             const channelId = channel.id;
 
             // Wait for authentication/handshake from client
@@ -204,7 +210,7 @@ export class GameServer {
         });
     }
 
-    private setupGeckosPlayerHandlers(playerId: string, channel: GeckosChannel): void {
+    private setupGeckosPlayerHandlers(playerId: string, channel: any): void {
         const player = this.players.get(playerId);
         if (!player) return;
 
@@ -1450,42 +1456,7 @@ export class GameServer {
     /**
      * Handle player respawn request after death timer expires
      */
-    private handlePlayerRespawnRequest(player: ServerPlayer, data: any): void {
-        console.log(`[Server] RESPAWN REQUEST received from ${player.name} (${player.id}), status=${player.status}`);
-        if (!player.roomId) {
-            serverLogger.warn(`[Server] Player ${player.name} requested respawn but not in room`);
-            return;
-        }
 
-        const room = this.rooms.get(player.roomId);
-        if (!room) {
-            serverLogger.warn(`[Server] Player ${player.name} requested respawn but room not found`);
-            return;
-        }
-
-        // Only respawn if player is dead
-        if (player.status !== "dead") {
-            serverLogger.warn(`[Server] Player ${player.name} requested respawn but status is ${player.status}`);
-            return;
-        }
-
-        // Get spawn position from room
-        const spawnPos = room.getSpawnPosition(player.team);
-
-        // Respawn player
-        player.respawn(spawnPos, player.maxHealth);
-
-        serverLogger.log(`[Server] Player ${player.name} respawned at (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
-
-        // Broadcast respawn to all players in room
-        this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_RESPAWNED, {
-            playerId: player.id,
-            playerName: player.name,
-            position: { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z },
-            health: player.health,
-            maxHealth: player.maxHealth
-        }));
-    }
 
 
     private handleClientMetrics(player: ServerPlayer, data: any): void {

@@ -5,6 +5,7 @@
 
 import { socialSystem, Friend, FriendRequest, Clan } from "./socialSystem";
 import { CommonStyles } from "./commonStyles";
+import { escapeHTML } from "./utils/stringUtils";
 
 export class SocialMenu {
     private container: HTMLDivElement | null = null;
@@ -13,29 +14,29 @@ export class SocialMenu {
     private friendsList: Friend[] = [];
     private friendRequests: FriendRequest[] = [];
     private currentClan: Clan | null = null;
-    
+
     constructor() {
         // Инициализация будет вызвана при первом открытии
     }
-    
+
     /**
      * Открыть меню социальных функций
      */
     async open(): Promise<void> {
         if (this._isOpen) return;
-        
+
         // Инициализируем систему, если еще не инициализирована
         await socialSystem.initialize();
-        
+
         this._isOpen = true;
         this.createUI();
-        
+
         // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {
             document.exitPointerLock();
         }
         document.body.style.cursor = 'default';
-        
+
         // Добавляем класс "in-battle" если игра запущена (для полупрозрачного фона)
         if (this.container) {
             const game = (window as any).gameInstance;
@@ -45,10 +46,10 @@ export class SocialMenu {
                 this.container.classList.remove("in-battle");
             }
         }
-        
+
         await this.refreshData();
     }
-    
+
     /**
      * Закрыть меню
      */
@@ -59,37 +60,37 @@ export class SocialMenu {
             this.container.remove();
             this.container = null;
         }
-        
+
         // Восстанавливаем курсор только если игра активна
         const game = (window as any).gameInstance;
         if (game?.gameStarted && !game.gamePaused) {
             document.body.style.cursor = 'none';
         }
     }
-    
+
     /**
      * Переключить меню (открыть/закрыть)
      */
     async toggle(): Promise<void> {
-        
+
         if (this._isOpen) {
             this.close();
         } else {
             await this.open();
         }
     }
-    
+
     /**
      * Создать UI
      */
     private createUI(): void {
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
-        
-        
+
+
         this.container = document.createElement("div");
         this.container.className = "panel-overlay";
-        
+
         this.container.innerHTML = `
             <div class="panel" style="width: min(90vw, 800px); max-height: min(85vh, 700px);">
                 <div class="panel-header">
@@ -112,18 +113,18 @@ export class SocialMenu {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(this.container);
         this.injectStyles();
         this.setupEventListeners();
     }
-    
+
     /**
      * Инъектировать стили
      */
     private injectStyles(): void {
         if (document.getElementById("social-menu-styles")) return;
-        
+
         const style = document.createElement("style");
         style.id = "social-menu-styles";
         style.textContent = `
@@ -224,18 +225,18 @@ export class SocialMenu {
         `;
         document.head.appendChild(style);
     }
-    
+
     /**
      * Настроить обработчики событий
      */
     private setupEventListeners(): void {
         if (!this.container) return;
-        
+
         // Кнопка закрытия
         this.container.querySelector("#social-close")?.addEventListener("click", () => {
             this.close();
         });
-        
+
         // Переключение вкладок
         this.container.querySelectorAll(".social-tab").forEach(tab => {
             tab.addEventListener("click", (e) => {
@@ -246,7 +247,7 @@ export class SocialMenu {
                 }
             });
         });
-        
+
         // ESC для закрытия
         const escapeHandler = (e: KeyboardEvent) => {
             if (e.code === "Escape" && this._isOpen) {
@@ -256,7 +257,7 @@ export class SocialMenu {
             }
         };
         window.addEventListener("keydown", escapeHandler);
-        
+
         // 1-2 для переключения вкладок
         const tabHandler = (e: KeyboardEvent) => {
             if (!this._isOpen) return;
@@ -272,22 +273,22 @@ export class SocialMenu {
         };
         window.addEventListener("keydown", tabHandler);
     }
-    
+
     /**
      * Обновить данные и отобразить контент
      */
     private async refreshData(): Promise<void> {
         if (!this.container) return;
-        
+
         const contentEl = this.container.querySelector("#social-content");
         if (!contentEl) return;
-        
+
         if (this.currentTab === "friends") {
             await this.loadFriendsContent(contentEl as HTMLElement);
         } else {
             await this.loadClansContent(contentEl as HTMLElement);
         }
-        
+
         // Обновить активную вкладку
         this.container.querySelectorAll(".social-tab").forEach(tab => {
             const tabName = tab.getAttribute("data-tab");
@@ -298,27 +299,27 @@ export class SocialMenu {
             }
         });
     }
-    
+
     /**
      * Загрузить контент вкладки "Друзья"
      */
     private async loadFriendsContent(container: HTMLElement): Promise<void> {
         this.friendsList = await socialSystem.getFriends();
         this.friendRequests = await socialSystem.getFriendRequests();
-        
+
         // Обновить счетчик онлайн друзей
         this.updateOnlineCount();
-        
+
         let html = `<div style="margin-bottom: 20px;">
             <h3 style="color: #0f0; margin-bottom: 10px;">Заявки в друзья (${this.friendRequests.length})</h3>`;
-        
+
         if (this.friendRequests.length === 0) {
             html += `<div style="color: #080; padding: 10px;">Нет новых заявок</div>`;
         } else {
             this.friendRequests.forEach((request, index) => {
                 html += `
                     <div class="request-item">
-                        <div class="request-from">${request.fromPlayerName}</div>
+                        <div class="request-from">${escapeHTML(request.fromPlayerName)}</div>
                         <div class="friend-actions">
                             <button class="social-btn" data-action="accept-request" data-index="${index}">Принять</button>
                             <button class="social-btn danger" data-action="reject-request" data-index="${index}">Отклонить</button>
@@ -327,11 +328,11 @@ export class SocialMenu {
                 `;
             });
         }
-        
+
         html += `</div>
             <div>
                 <h3 style="color: #0f0; margin-bottom: 10px;">Друзья (${this.friendsList.length})</h3>`;
-        
+
         if (this.friendsList.length === 0) {
             html += `<div style="color: #080; padding: 10px;">У вас пока нет друзей</div>`;
         } else {
@@ -341,24 +342,24 @@ export class SocialMenu {
                 html += `
                     <div class="friend-item">
                         <div class="friend-info">
-                            <div class="friend-name">${friend.playerName}</div>
+                            <div class="friend-name">${escapeHTML(friend.playerName)}</div>
                             <div class="friend-status ${statusClass}">${this.getStatusText(friend.status)}</div>
                             <div class="friend-stats">Последний раз: ${lastSeen}</div>
                         </div>
                         <div class="friend-actions">
-                            <button class="social-btn" data-action="message-friend" data-id="${friend.playerId}" data-name="${friend.playerName}" ${friend.status === 'offline' ? 'disabled' : ''}>💬 Сообщение</button>
-                            <button class="social-btn" data-action="invite-friend" data-id="${friend.playerId}" data-name="${friend.playerName}" ${friend.status === 'offline' ? 'disabled' : ''}>🎮 Пригласить</button>
-                            <button class="social-btn danger" data-action="remove-friend" data-id="${friend.playerId}">Удалить</button>
+                            <button class="social-btn" data-action="message-friend" data-id="${escapeHTML(friend.playerId)}" data-name="${escapeHTML(friend.playerName)}" ${friend.status === 'offline' ? 'disabled' : ''}>💬 Сообщение</button>
+                            <button class="social-btn" data-action="invite-friend" data-id="${escapeHTML(friend.playerId)}" data-name="${escapeHTML(friend.playerName)}" ${friend.status === 'offline' ? 'disabled' : ''}>🎮 Пригласить</button>
+                            <button class="social-btn danger" data-action="remove-friend" data-id="${escapeHTML(friend.playerId)}">Удалить</button>
                         </div>
                     </div>
                 `;
             });
         }
-        
+
         html += `</div>`;
-        
+
         container.innerHTML = html;
-        
+
         // Добавить обработчики для кнопок
         container.querySelectorAll("[data-action]").forEach(btn => {
             btn.addEventListener("click", async (e) => {
@@ -383,30 +384,30 @@ export class SocialMenu {
                 }
             });
         });
-        
+
         // Кнопка добавления друга
         container.querySelector("#add-friend-btn")?.addEventListener("click", () => {
             this.showAddFriendDialog();
         });
     }
-    
+
     /**
      * Загрузить контент вкладки "Кланы"
      */
     private async loadClansContent(container: HTMLElement): Promise<void> {
         this.currentClan = await socialSystem.getPlayerClan();
-        
+
         let html = "";
-        
+
         if (this.currentClan) {
             // Показываем информацию о текущем клане
             html += `
                 <div class="clan-item">
                     <div class="clan-info">
-                        <div class="clan-name">${this.currentClan.name} [${this.currentClan.tag}]</div>
+                        <div class="clan-name">${escapeHTML(this.currentClan.name)} [${escapeHTML(this.currentClan.tag)}]</div>
                         <div style="color: #080; font-size: 12px; margin-top: 5px;">
                             Участников: ${this.currentClan.memberCount}/${this.currentClan.maxMembers}<br>
-                            Лидер: ${this.currentClan.leaderName}
+                            Лидер: ${escapeHTML(this.currentClan.leaderName)}
                         </div>
                     </div>
                     <div class="clan-actions">
@@ -416,18 +417,18 @@ export class SocialMenu {
                 <h3 style="color: #0f0; margin-top: 20px; margin-bottom: 10px;">Участники</h3>
                 <div style="max-height: 300px; overflow-y: auto;">
             `;
-            
+
             this.currentClan.members.forEach(member => {
                 html += `
                     <div class="friend-item">
                         <div class="friend-info">
-                            <div class="friend-name">${member.playerName} <span style="color: #080;">(${member.role})</span></div>
+                            <div class="friend-name">${escapeHTML(member.playerName)} <span style="color: #080;">(${escapeHTML(member.role)})</span></div>
                             <div style="color: #080; font-size: 12px;">Вклад: ${member.contribution}</div>
                         </div>
                     </div>
                 `;
             });
-            
+
             html += `</div>`;
         } else {
             // Показываем поиск и создание клана
@@ -444,30 +445,30 @@ export class SocialMenu {
                 </div>
             `;
         }
-        
+
         container.innerHTML = html;
-        
+
         // Обработчики для кнопок
         container.querySelector("[data-action='leave-clan']")?.addEventListener("click", async () => {
             await this.leaveClan();
         });
-        
+
         container.querySelector("#create-clan-btn")?.addEventListener("click", () => {
             this.showCreateClanDialog();
         });
-        
+
         container.querySelector("#search-clan-btn")?.addEventListener("click", async () => {
             await this.showClanSearch();
         });
     }
-    
+
     /**
      * Проверить, открыто ли меню
      */
     isOpen(): boolean {
         return this._isOpen;
     }
-    
+
     /**
      * Получить текстовое описание статуса
      */
@@ -479,20 +480,20 @@ export class SocialMenu {
             default: return "Неизвестно";
         }
     }
-    
+
     /**
      * Обновить счетчик онлайн друзей
      */
     private updateOnlineCount(): void {
         if (!this.container) return;
-        
+
         const onlineCount = this.friendsList.filter(f => f.status === "online" || f.status === "in_game").length;
         const countEl = this.container.querySelector("#online-count");
         if (countEl) {
             countEl.textContent = onlineCount.toString();
         }
     }
-    
+
     /**
      * Форматировать время последнего визита
      */
@@ -503,7 +504,7 @@ export class SocialMenu {
         const minutes = Math.floor(seconds / 60);
         const hours = Math.floor(minutes / 60);
         const days = Math.floor(hours / 24);
-        
+
         if (days > 0) {
             return `${days} дн. назад`;
         } else if (hours > 0) {
@@ -514,71 +515,71 @@ export class SocialMenu {
             return "Только что";
         }
     }
-    
+
     /**
      * Принять заявку в друзья
      */
     private async acceptFriendRequest(index: number): Promise<void> {
         const request = this.friendRequests[index];
         if (!request) return;
-        
+
         const requestId = `${request.fromPlayerId}_${request.toPlayerId}`;
         const success = await socialSystem.acceptFriendRequest(requestId);
         if (success) {
             await this.refreshData();
         }
     }
-    
+
     /**
      * Отклонить заявку в друзья
      */
     private async rejectFriendRequest(index: number): Promise<void> {
         const request = this.friendRequests[index];
         if (!request) return;
-        
+
         const requestId = `${request.fromPlayerId}_${request.toPlayerId}`;
         const success = await socialSystem.rejectFriendRequest(requestId);
         if (success) {
             await this.refreshData();
         }
     }
-    
+
     /**
      * Удалить друга
      */
     private async removeFriend(friendId: string): Promise<void> {
         if (!confirm("Вы уверены, что хотите удалить этого друга?")) return;
-        
+
         const success = await socialSystem.removeFriend(friendId);
         if (success) {
             await this.refreshData();
         }
     }
-    
+
     /**
      * Покинуть клан
      */
     private async leaveClan(): Promise<void> {
         if (!confirm("Вы уверены, что хотите покинуть клан?")) return;
-        
+
         const success = await socialSystem.leaveClan();
         if (success) {
             await this.refreshData();
         }
     }
-    
+
     /**
      * Показать диалог создания клана
      */
     private showCreateClanDialog(): void {
         const name = prompt("Название клана:");
         if (!name) return;
-        
+
         const tag = prompt("Тег клана (3-4 символа):");
         if (!tag) return;
-        
+
         const description = prompt("Описание клана:") || "";
-        
+
         socialSystem.createClan(name, tag, description).then(clanId => {
             if (clanId) {
                 alert(`Клан "${name}" успешно создан!`);
@@ -588,7 +589,7 @@ export class SocialMenu {
             }
         });
     }
-    
+
     /**
      * Показать диалог отправки сообщения другу (без prompt - используем встроенный UI)
      */
@@ -599,7 +600,7 @@ export class SocialMenu {
             game.mainMenu.showMessageDialog(friendId, friendName);
             return;
         }
-        
+
         // Fallback: создаем простое модальное окно
         const modal = document.createElement("div");
         modal.style.cssText = `
@@ -617,10 +618,10 @@ export class SocialMenu {
             font-family: 'Consolas', 'Monaco', monospace;
             box-shadow: 0 0 30px rgba(0, 255, 0, 0.5);
         `;
-        
+
         modal.innerHTML = `
             <div style="margin-bottom: 15px;">
-                <div style="font-size: 18px; color: #0f0; margin-bottom: 10px;">💬 Отправить сообщение ${friendName}</div>
+                <div style="font-size: 18px; color: #0f0; margin-bottom: 10px;">💬 Отправить сообщение ${escapeHTML(friendName)}</div>
                 <textarea id="chat-message-input" placeholder="Введите сообщение..." style="
                     width: 100%;
                     min-height: 100px;
@@ -658,15 +659,15 @@ export class SocialMenu {
                 ">Отмена</button>
             </div>
         `;
-        
+
         document.body.appendChild(modal);
-        
+
         const input = modal.querySelector("#chat-message-input") as HTMLTextAreaElement;
         const sendBtn = modal.querySelector("#chat-send-btn") as HTMLButtonElement;
         const cancelBtn = modal.querySelector("#chat-cancel-btn") as HTMLButtonElement;
-        
+
         if (input) input.focus();
-        
+
         if (input) {
             input.addEventListener("keydown", (e) => {
                 if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey) {
@@ -675,7 +676,7 @@ export class SocialMenu {
                 }
             });
         }
-        
+
         if (sendBtn) {
             sendBtn.onclick = () => {
                 const message = input?.value.trim() || "";
@@ -683,35 +684,35 @@ export class SocialMenu {
                     modal.remove();
                     return;
                 }
-                
+
                 // Интеграция с ChatSystem через gameInstance
                 if (game?.chatSystem) {
                     game.chatSystem.addMessage(`📤 → ${friendName}: ${message}`, "info", 1);
-                    
+
                     // Если есть multiplayerManager, отправляем через сервер
                     if (game.multiplayerManager?.isConnected()) {
                         game.multiplayerManager.sendChatMessage(`[DM to ${friendName}] ${message}`);
                     }
                 }
-                
+
                 this.showNotification(`Сообщение отправлено ${friendName}: "${message}"`);
                 console.log(`[Social] Message to ${friendName} (${friendId}): ${message}`);
                 modal.remove();
             };
         }
-        
+
         if (cancelBtn) {
             cancelBtn.onclick = () => {
                 modal.remove();
             };
         }
-        
+
         modal.addEventListener("click", (e) => {
             if (e.target === modal) {
                 modal.remove();
             }
         });
-        
+
         const escapeHandler = (e: KeyboardEvent) => {
             if (e.key === "Escape") {
                 modal.remove();
@@ -720,38 +721,38 @@ export class SocialMenu {
         };
         document.addEventListener("keydown", escapeHandler);
     }
-    
+
     /**
      * Пригласить друга в игру
      */
     private async inviteFriendToGame(friendId: string, friendName: string): Promise<void> {
         const game = (window as any).gameInstance;
         const multiplayerManager = game?.multiplayerManager;
-        
+
         if (multiplayerManager?.isConnected()) {
             // Отправляем приглашение через MultiplayerManager
             multiplayerManager.sendGameInvite(friendId);
-            
+
             // Добавляем сообщение в чат
             if (game.chatSystem) {
                 game.chatSystem.addMessage(`🎮 Приглашение отправлено ${friendName}`, "success", 1);
             }
-            
+
             this.showNotification(`Приглашение отправлено ${friendName}`);
         } else {
             // Офлайн режим - показываем уведомление что нужно подключиться
             this.showNotification(`Для приглашения необходимо подключиться к серверу`);
         }
-        
+
         console.log(`[Social] Game invite sent to ${friendName} (${friendId})`);
     }
-    
+
     /**
      * Показать уведомление
      */
     private showNotification(message: string): void {
         if (!this.container) return;
-        
+
         const notification = document.createElement("div");
         notification.style.cssText = `
             position: fixed;
@@ -768,19 +769,19 @@ export class SocialMenu {
         `;
         notification.textContent = message;
         document.body.appendChild(notification);
-        
+
         setTimeout(() => {
             notification.remove();
         }, 2000);
     }
-    
+
     /**
      * Показать диалог добавления друга
      */
     private async showAddFriendDialog(): Promise<void> {
         const playerNameOrId = prompt("Введите имя или ID игрока:");
         if (!playerNameOrId) return;
-        
+
         // В реальной системе здесь нужно найти игрока по имени/ID
         // Пока что используем введенное значение как ID
         const success = await socialSystem.sendFriendRequest(playerNameOrId, playerNameOrId);
@@ -790,25 +791,25 @@ export class SocialMenu {
             alert("Ошибка при отправке заявки. Проверьте имя/ID игрока.");
         }
     }
-    
+
     /**
      * Показать поиск кланов
      */
     private async showClanSearch(): Promise<void> {
         const searchQuery = prompt("Введите название или тег клана для поиска:") || "";
         if (!searchQuery) return;
-        
+
         const results = await socialSystem.searchClans(searchQuery, 10);
         const resultsEl = document.getElementById("clan-search-results");
         if (!resultsEl) return;
-        
+
         resultsEl.style.display = "block";
-        
+
         if (results.length === 0) {
             resultsEl.innerHTML = `<div style="color: #080; padding: 10px;">Кланы не найдены</div>`;
             return;
         }
-        
+
         let html = `<h3 style="color: #0f0; margin-bottom: 10px;">Результаты поиска</h3>`;
         results.forEach(clan => {
             html += `
@@ -826,9 +827,9 @@ export class SocialMenu {
                 </div>
             `;
         });
-        
+
         resultsEl.innerHTML = html;
-        
+
         // Обработчики для кнопок вступления
         resultsEl.querySelectorAll("[data-action='join-clan']").forEach(btn => {
             btn.addEventListener("click", async (e) => {

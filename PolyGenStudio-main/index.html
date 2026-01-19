@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PolyGen AI Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;700&family=Share+Tech+Mono&family=Press+Start+2P&display=swap" rel="stylesheet">
+
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              gray: {
+                900: 'rgb(var(--bg-main) / <alpha-value>)',
+                850: 'rgb(var(--bg-panel) / <alpha-value>)',
+                950: 'rgb(var(--bg-input) / <alpha-value>)',
+                800: 'rgb(var(--bg-hover) / <alpha-value>)',
+                750: 'rgb(var(--border) / <alpha-value>)',
+                700: 'rgb(var(--border-dim) / <alpha-value>)',
+                
+                100: 'rgb(var(--text-main) / <alpha-value>)',
+                200: 'rgb(var(--text-main) / <alpha-value>)', 
+                300: 'rgb(var(--text-dim) / <alpha-value>)',
+                400: 'rgb(var(--text-dim) / <alpha-value>)', // Icon default
+                500: 'rgb(var(--text-muted) / <alpha-value>)',
+              },
+              accent: {
+                500: 'rgb(var(--accent) / <alpha-value>)',
+                600: 'rgb(var(--accent-hover) / <alpha-value>)',
+              }
+            },
+            fontFamily: {
+              sans: ['var(--font-main)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+              mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body { margin: 0; background-color: rgb(var(--bg-main)); color: rgb(var(--text-main)); overflow: hidden; transition: background-color 0.3s, color 0.3s; }
+      
+      /* Scrollbar */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: rgb(var(--bg-panel)); }
+      ::-webkit-scrollbar-thumb { background: rgb(var(--border)); border-radius: 4px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgb(var(--text-muted)); }
+
+      /* THEMES */
+      
+      /* 1. Dark (Default) */
+      body.dark {
+        --bg-main: 13 17 23;      /* #0d1117 */
+        --bg-panel: 26 32 44;     /* #1a202c */
+        --bg-input: 1 4 9;        /* #010409 */
+        --bg-hover: 33 38 45;     /* #21262d */
+        --border: 48 54 61;       /* #30363d */
+        --border-dim: 33 38 45;
+        --text-main: 226 232 240; /* #e2e8f0 */
+        --text-dim: 148 163 184;  /* #94a3b8 */
+        --text-muted: 100 116 139;
+        --accent: 59 130 246;     /* #3b82f6 */
+        --accent-hover: 37 99 235;
+        --font-main: 'Inter', sans-serif;
+        --font-mono: 'JetBrains Mono', monospace;
+      }
+
+      /* 2. Light */
+      body.light {
+        --bg-main: 248 250 252;   /* #f8fafc */
+        --bg-panel: 255 255 255;  /* #ffffff */
+        --bg-input: 241 245 249;  /* #f1f5f9 */
+        --bg-hover: 226 232 240;  /* #e2e8f0 */
+        --border: 203 213 225;    /* #cbd5e1 */
+        --border-dim: 226 232 240;
+        --text-main: 15 23 42;    /* #0f172a */
+        --text-dim: 71 85 105;    /* #475569 */
+        --text-muted: 148 163 184;
+        --accent: 37 99 235;      /* #2563eb */
+        --accent-hover: 29 78 216;
+        --font-main: 'Inter', sans-serif;
+        --font-mono: 'JetBrains Mono', monospace;
+      }
+
+      /* 3. Cyberpunk (Matrix) */
+      body.cyberpunk {
+        --bg-main: 5 5 5;
+        --bg-panel: 0 0 0;
+        --bg-input: 10 10 10;
+        --bg-hover: 20 40 20;
+        --border: 0 50 0;
+        --border-dim: 0 30 0;
+        --text-main: 0 255 0;     /* Neon Green */
+        --text-dim: 0 180 0;
+        --text-muted: 0 100 0;
+        --accent: 0 255 0;
+        --accent-hover: 50 255 50;
+        --font-main: 'Share Tech Mono', monospace;
+        --font-mono: 'Share Tech Mono', monospace;
+      }
+
+      /* 4. FUI (Iron Man / Sci-Fi) */
+      body.fui {
+        --bg-main: 2 4 8;         /* Deep Navy */
+        --bg-panel: 5 10 20;      
+        --bg-input: 4 8 16;
+        --bg-hover: 10 25 50;
+        --border: 0 100 255;      /* Cyan Border */
+        --border-dim: 0 60 150;
+        --text-main: 200 240 255;
+        --text-dim: 100 200 255;
+        --text-muted: 50 100 150;
+        --accent: 0 200 255;      /* Cyan */
+        --accent-hover: 100 220 255;
+        --font-main: 'Share Tech Mono', monospace;
+        --font-mono: 'JetBrains Mono', monospace;
+      }
+      body.fui * { letter-spacing: 0.5px; }
+
+      /* 5. Industrial */
+      body.industrial {
+        --bg-main: 26 26 24;      /* Dirty Dark */
+        --bg-panel: 38 38 36;
+        --bg-input: 18 18 16;
+        --bg-hover: 50 50 45;
+        --border: 80 80 70;
+        --border-dim: 60 60 50;
+        --text-main: 240 240 230;
+        --text-dim: 180 180 170;
+        --text-muted: 120 120 110;
+        --accent: 255 153 0;      /* Safety Orange */
+        --accent-hover: 255 180 50;
+        --font-main: 'JetBrains Mono', monospace;
+        --font-mono: 'JetBrains Mono', monospace;
+      }
+      body.industrial * { border-radius: 0 !important; } /* Sharp edges */
+
+      /* 6. Mix (PolyGen Prime) */
+      body.mix {
+        --bg-main: 8 7 12;        /* Dark Violet Tint */
+        --bg-panel: 15 13 22;
+        --bg-input: 6 5 10;
+        --bg-hover: 30 20 40;
+        --border: 88 28 135;      /* Purple border */
+        --border-dim: 59 7 100;
+        --text-main: 232 121 249; /* Pink/Purple Text */
+        --text-dim: 192 132 252;
+        --text-muted: 107 33 168;
+        --accent: 217 70 239;     /* Fuchsia */
+        --accent-hover: 232 121 249;
+        --font-main: 'Share Tech Mono', monospace;
+        --font-mono: 'JetBrains Mono', monospace;
+      }
+      /* 7. TX Protocol (Game Style) */
+      body.tx {
+        --bg-main: 0 5 0;         /* #000500 - Deepest Green/Black */
+        --bg-panel: 0 15 0;       /* #000F00 */
+        --bg-input: 0 8 0;        /* #000800 */
+        --bg-hover: 0 30 0;       /* #001E00 */
+        --border: 0 255 0;        /* #00FF00 - Terminal Green */
+        --border-dim: 0 100 0;    /* #006400 */
+        --text-main: 220 255 220; /* Pale Green Text */
+        --text-dim: 100 200 100;  /* Standard Green Text */
+        --text-muted: 50 100 50;  /* Muted Green */
+        --accent: 255 170 0;      /* #FFAA00 - Safety Orange Accent */
+        --accent-hover: 255 200 50;
+        --font-main: 'Press Start 2P', cursive; 
+        --font-mono: 'Consolas', monospace;
+      }
+      body.tx * { letter-spacing: 0.5px; border-radius: 2px !important; } /* Military sharp edges */
+      body.tx button { border: 1px solid rgb(var(--border-dim)); } 
+      body.tx button:hover { border-color: rgb(var(--accent)); }
+
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.3",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
+    "@react-three/fiber": "https://esm.sh/@react-three/fiber@^9.4.2?external=react,react-dom,three",
+    "uuid": "https://esm.sh/uuid@^13.0.0",
+    "@react-three/drei": "https://esm.sh/@react-three/drei@^10.7.7?external=react,react-dom,three,@react-three/fiber",
+    "three": "https://esm.sh/three@^0.182.0",
+    "three/": "https://esm.sh/three@^0.182.0/",
+    "three-stdlib": "https://esm.sh/three-stdlib@^2.35.0?external=three",
+    "idb-keyval": "https://esm.sh/idb-keyval@^6.2.1",
+    "this": "https://esm.sh/this@^1.1.0"
+  }
+}
+</script>
+</head>
+  <body class="tx">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>

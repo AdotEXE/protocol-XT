@@ -365,6 +365,18 @@ export function applySettings(
 ): void {
     if (!engine || !scene) return;
 
+    // Try to use the central Game instance method first
+    const game = (window as any).gameInstance;
+    if (game && typeof game.applySettings === 'function') {
+        // Update Game's internal settings state if possible
+        if (game.mainMenu && typeof game.mainMenu.getSettings === 'function') {
+            // Ensure Game pulls the latest settings
+            // This is handled inside game.applySettings() but we can't be too safe
+        }
+        game.applySettings();
+        console.log("[Settings] Applied via Game instance");
+    }
+
     // === ГРАФИЧЕСКИЕ НАСТРОЙКИ ===
 
     // Качество графики и масштабирование
@@ -375,7 +387,6 @@ export function applySettings(
 
     // VSync
     if (settings.vsync !== undefined) {
-        engine.setHardwareScalingLevel(engine.getHardwareScalingLevel());
         // VSync управляется через engine, но для полного контроля можно добавить
         if (settings.vsync && engine.setTargetFPS) {
             engine.setTargetFPS(60);
@@ -388,13 +399,19 @@ export function applySettings(
     }
 
     // Качество частиц
-    if (settings.particleQuality !== undefined && scene.getParticleSystem) {
-        // Применяется при создании частиц через EffectsManager
+    if (settings.particleQuality !== undefined) {
+        if (scene.particlesEnabled !== undefined) {
+            scene.particlesEnabled = settings.particleQuality > 0;
+        }
     }
 
     // Качество теней
-    if (settings.shadowQuality !== undefined && scene.shadowsEnabled !== undefined) {
-        // Управление тенями на уровне сцены
+    if (settings.shadowQuality !== undefined) {
+        // Respect both standard shadow toggle and quality level
+        const shadowsEnabled = (settings.shadows ?? true) && settings.shadowQuality > 0;
+        if (scene.shadowsEnabled !== undefined) {
+            scene.shadowsEnabled = shadowsEnabled;
+        }
     }
 
     // Антиалиасинг

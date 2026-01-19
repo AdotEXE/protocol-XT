@@ -12,30 +12,30 @@ export interface WorldGenSettings {
     chunkSize: number;
     renderDistance: number;
     unloadDistance: number;
-    
+
     // World settings
     worldSeed: number;
     useRandomSeed: boolean;
-    
+
     // Road network settings
     highwaySpacing: number;
     streetSpacing: number;
-    
+
     // POI settings
     poiSpacing: number;
     poiDensity: number; // multiplier 0.5 - 2.0
-    
+
     // Cover settings
     coverDensity: number; // multiplier 0.5 - 2.0
-    
+
     // Consumables settings
     consumablesMin: number;
     consumablesMax: number;
-    
+
     // Terrain settings
     terrainDetail: number; // 0.5 - 2.0
     biomeTransitionSmoothness: number; // 0.1 - 1.0
-    
+
     // Map-specific settings
     mapSpecific: {
         polygon?: {
@@ -97,7 +97,7 @@ export class WorldGenerationMenu {
     private currentTab: string = "general";
     private profiles: WorldGenProfile[] = [];
     private currentProfile: string | null = null;
-    
+
     private settings: WorldGenSettings = {
         chunkSize: 80,
         renderDistance: 1.5,
@@ -115,7 +115,7 @@ export class WorldGenerationMenu {
         biomeTransitionSmoothness: 0.5,
         mapSpecific: {}
     };
-    
+
     constructor() {
         this.createUI();
         this.setupToggle();
@@ -126,7 +126,7 @@ export class WorldGenerationMenu {
         this.container.classList.add("hidden");
         this.container.style.display = "none";
     }
-    
+
     private setupEscHandler(): void {
         window.addEventListener("keydown", (e) => {
             if (e.code === "Escape" && this.visible) {
@@ -136,7 +136,7 @@ export class WorldGenerationMenu {
             }
         }, true);
     }
-    
+
     setGame(game: Game): void {
         this.game = game;
         if (game.chunkSystem) {
@@ -145,10 +145,10 @@ export class WorldGenerationMenu {
             this.updateMapInfo();
         }
     }
-    
+
     private loadCurrentSettings(): void {
         if (!this.chunkSystem) return;
-        
+
         // Загружаем текущие настройки из ChunkSystem
         const config = (this.chunkSystem as any).config;
         if (config) {
@@ -156,20 +156,25 @@ export class WorldGenerationMenu {
             this.settings.renderDistance = config.renderDistance || 1.5;
             this.settings.unloadDistance = config.unloadDistance || 2.5;
             this.settings.worldSeed = config.worldSeed || 12345;
-            
+
             this.updateUI();
         }
     }
-    
+
     private updateMapInfo(): void {
         if (!this.game) return;
-        
+
         const mapType = (this.game as any).currentMapType || "normal";
         const mapInfoEl = document.getElementById("current-map-info");
         if (mapInfoEl) {
             const mapNames: Record<MapType, string> = {
                 normal: "Обычная",
                 sandbox: "Песочница",
+                sand: "Песок",
+                madness: "Безумие",
+                expo: "Экспо",
+                brest: "Брест",
+                arena: "Арена",
                 polygon: "Полигон",
                 frontline: "Передовая",
                 ruins: "Руины",
@@ -178,23 +183,24 @@ export class WorldGenerationMenu {
                 urban_warfare: "Городские бои",
                 underground: "Подземная",
                 coastal: "Прибрежная",
-                tartaria: "Тартария"
+                tartaria: "Тартария",
+                custom: "Пользовательская"
             };
             const key = mapType as MapType;
             const mapName = mapNames[key] ?? mapType;
             mapInfoEl.textContent = `Текущая карта: ${mapName}`;
         }
     }
-    
+
     private createUI(): void {
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
-        
+
         // Создаём контейнер
         this.container = document.createElement("div");
         this.container.id = "world-generation-menu";
         this.container.className = "panel-overlay";
-        
+
         // Создаём панель
         const panel = document.createElement("div");
         panel.className = "panel";
@@ -206,19 +212,19 @@ export class WorldGenerationMenu {
             flex-direction: column;
             overflow: hidden;
         `;
-        
+
         // Заголовок
         const header = document.createElement("div");
         header.className = "panel-header";
         header.style.cssText = `display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;`;
-        
+
         const titleGroup = document.createElement("div");
         titleGroup.style.cssText = `display: flex; flex-direction: column; gap: 5px;`;
-        
+
         const title = document.createElement("div");
         title.className = "panel-title";
         title.textContent = "ГЕНЕРАЦИЯ МИРА [Ctrl+9]";
-        
+
         const mapInfo = document.createElement("div");
         mapInfo.id = "current-map-info";
         mapInfo.textContent = "Текущая карта: Загрузка...";
@@ -227,18 +233,18 @@ export class WorldGenerationMenu {
             color: #7f7;
             font-family: Consolas, Monaco, 'Courier New', monospace;
         `;
-        
+
         titleGroup.appendChild(title);
         titleGroup.appendChild(mapInfo);
-        
+
         const closeBtn = document.createElement("button");
         closeBtn.className = "panel-close";
         closeBtn.textContent = "×";
         closeBtn.onclick = () => this.toggle();
-        
+
         header.appendChild(titleGroup);
         header.appendChild(closeBtn);
-        
+
         // Вкладки
         const tabsContainer = document.createElement("div");
         tabsContainer.style.cssText = `
@@ -249,7 +255,7 @@ export class WorldGenerationMenu {
             padding: 10px;
             overflow-x: auto;
         `;
-        
+
         const tabs = [
             { id: "general", label: "📊 Общие", icon: "📊" },
             { id: "world", label: "🌍 Мир", icon: "🌍" },
@@ -258,7 +264,7 @@ export class WorldGenerationMenu {
             { id: "profiles", label: "💾 Профили", icon: "💾" },
             { id: "stats", label: "📈 Статистика", icon: "📈" }
         ];
-        
+
         tabs.forEach(tab => {
             const tabBtn = document.createElement("button");
             tabBtn.id = `tab-${tab.id}`;
@@ -290,7 +296,7 @@ export class WorldGenerationMenu {
             tabBtn.onclick = () => this.switchTab(tab.id);
             tabsContainer.appendChild(tabBtn);
         });
-        
+
         // Контент с прокруткой
         const content = document.createElement("div");
         content.id = "menu-content";
@@ -298,7 +304,7 @@ export class WorldGenerationMenu {
         content.style.cssText = `
             flex: 1;
         `;
-        
+
         // Футер с кнопками
         const footer = document.createElement("div");
         footer.style.cssText = `
@@ -312,7 +318,7 @@ export class WorldGenerationMenu {
             flex-wrap: wrap;
             font-family: Consolas, Monaco, 'Courier New', monospace;
         `;
-        
+
         const infoText = document.createElement("div");
         infoText.textContent = "⚠️ Изменения применяются при следующей генерации чанков или перезапуске игры";
         infoText.style.cssText = `
@@ -322,54 +328,54 @@ export class WorldGenerationMenu {
             align-items: center;
             font-family: Consolas, Monaco, 'Courier New', monospace;
         `;
-        
+
         const buttonGroup = document.createElement("div");
         buttonGroup.style.cssText = `display: flex; gap: 10px; flex-wrap: wrap;`;
-        
+
         const exportBtn = this.createButton("📥 Экспорт", "#9b59b6", () => this.exportSettings());
         const importBtn = this.createButton("📤 Импорт", "#9b59b6", () => this.importSettings());
         const resetBtn = this.createButton("🔄 Сбросить", "#666", () => this.resetSettings());
         const saveBtn = this.createButton("💾 Сохранить", "#4a9eff", () => this.saveSettings());
         const applyBtn = this.createButton("✅ Применить", "#44ff44", () => this.applySettings());
         const reloadBtn = this.createButton("🔄 Перезагрузить мир", "#ff8844", () => this.reloadWorld());
-        
+
         buttonGroup.appendChild(exportBtn);
         buttonGroup.appendChild(importBtn);
         buttonGroup.appendChild(resetBtn);
         buttonGroup.appendChild(saveBtn);
         buttonGroup.appendChild(applyBtn);
         buttonGroup.appendChild(reloadBtn);
-        
+
         footer.appendChild(infoText);
         footer.appendChild(buttonGroup);
-        
+
         panel.appendChild(tabsContainer);
         panel.appendChild(content);
         panel.appendChild(footer);
-        
+
         this.container.appendChild(panel);
         document.body.appendChild(this.container);
-        
+
         // Инициализируем первую вкладку
         this.switchTab("general");
     }
-    
+
     private switchTab(tabId: string): void {
         this.currentTab = tabId;
-        
+
         // Обновляем стили вкладок
         document.querySelectorAll("#world-generation-menu button[id^='tab-']").forEach(btn => {
             const isActive = btn.id === `tab-${tabId}`;
             (btn as HTMLButtonElement).style.background = isActive ? "#4a9eff" : "rgba(15, 52, 96, 0.5)";
             (btn as HTMLButtonElement).style.borderColor = isActive ? "#4a9eff" : "#0f3460";
         });
-        
+
         // Обновляем контент
         const content = document.getElementById("menu-content");
         if (!content) return;
-        
+
         content.innerHTML = "";
-        
+
         switch (tabId) {
             case "general":
                 this.createGeneralTab(content);
@@ -391,103 +397,103 @@ export class WorldGenerationMenu {
                 break;
         }
     }
-    
+
     private createGeneralTab(container: HTMLElement): void {
         const grid = document.createElement("div");
         grid.style.cssText = `display: grid; grid-template-columns: 1fr 1fr; gap: 20px;`;
-        
+
         // Левая колонка
         const leftColumn = document.createElement("div");
         leftColumn.style.cssText = `display: flex; flex-direction: column; gap: 20px;`;
-        
+
         // Правая колонка
         const rightColumn = document.createElement("div");
         rightColumn.style.cssText = `display: flex; flex-direction: column; gap: 20px;`;
-        
+
         // === НАСТРОЙКИ ЧАНКОВ ===
         leftColumn.appendChild(this.createSection("📦 Чанки", [
             this.createSlider("chunkSize", "Размер чанка", 50, 150, 10, "единиц", "Размер каждого чанка мира"),
             this.createSlider("renderDistance", "Дистанция рендеринга", 0.5, 3.0, 0.1, "чанков", "На каком расстоянии генерируются чанки"),
             this.createSlider("unloadDistance", "Дистанция выгрузки", 1.5, 5.0, 0.1, "чанков", "На каком расстоянии выгружаются чанки")
         ]));
-        
+
         // === НАСТРОЙКИ ДОРОГ ===
         leftColumn.appendChild(this.createSection("🛣️ Дороги", [
             this.createSlider("highwaySpacing", "Расстояние между магистралями", 100, 500, 10, "единиц", "Промежуток между основными дорогами"),
             this.createSlider("streetSpacing", "Расстояние между улицами", 20, 60, 5, "единиц", "Промежуток между обычными улицами")
         ]));
-        
+
         // === НАСТРОЙКИ ЛАНДШАФТА ===
         rightColumn.appendChild(this.createSection("🏔️ Ландшафт", [
             this.createSlider("terrainDetail", "Детализация ландшафта", 0.5, 2.0, 0.1, "x", "Уровень детализации рельефа"),
             this.createSlider("biomeTransitionSmoothness", "Плавность переходов биомов", 0.1, 1.0, 0.1, "", "Насколько плавно переходят биомы друг в друга")
         ]));
-        
+
         // === БЫСТРЫЕ ПРЕСЕТЫ ===
         rightColumn.appendChild(this.createSection("⚡ Быстрые пресеты", [
             this.createPresetButtons()
         ]));
-        
+
         grid.appendChild(leftColumn);
         grid.appendChild(rightColumn);
         container.appendChild(grid);
     }
-    
+
     private createWorldTab(container: HTMLElement): void {
         const grid = document.createElement("div");
         grid.style.cssText = `display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 600px; margin: 0 auto;`;
-        
+
         grid.appendChild(this.createSection("🌍 Настройки мира", [
             this.createNumberInput("worldSeed", "Seed мира", 0, 999999999, 1, "Число для генерации мира (одинаковый seed = одинаковый мир)"),
             this.createCheckbox("useRandomSeed", "Случайный seed", "Генерировать случайный seed при каждом запуске"),
             this.createSeedGenerator()
         ]));
-        
+
         container.appendChild(grid);
     }
-    
+
     private createObjectsTab(container: HTMLElement): void {
         const grid = document.createElement("div");
         grid.style.cssText = `display: grid; grid-template-columns: 1fr 1fr; gap: 20px;`;
-        
+
         // Левая колонка
         const leftColumn = document.createElement("div");
         leftColumn.style.cssText = `display: flex; flex-direction: column; gap: 20px;`;
-        
+
         // Правая колонка
         const rightColumn = document.createElement("div");
         rightColumn.style.cssText = `display: flex; flex-direction: column; gap: 20px;`;
-        
+
         // === НАСТРОЙКИ POI ===
         leftColumn.appendChild(this.createSection("📍 Точки интереса (POI)", [
             this.createSlider("poiSpacing", "Расстояние между POI", 50, 300, 10, "единиц", "Минимальное расстояние между точками интереса"),
             this.createSlider("poiDensity", "Плотность POI", 0.5, 2.0, 0.1, "x", "Множитель количества POI")
         ]));
-        
+
         // === НАСТРОЙКИ УКРЫТИЙ ===
         leftColumn.appendChild(this.createSection("🛡️ Укрытия", [
             this.createSlider("coverDensity", "Плотность укрытий", 0.5, 2.0, 0.1, "x", "Множитель количества укрытий")
         ]));
-        
+
         // === НАСТРОЙКИ ПРИПАСОВ ===
         rightColumn.appendChild(this.createSection("📦 Припасы", [
             this.createSlider("consumablesMin", "Минимум припасов на чанк", 1, 5, 1, "шт", "Минимальное количество припасов"),
             this.createSlider("consumablesMax", "Максимум припасов на чанк", 2, 8, 1, "шт", "Максимальное количество припасов")
         ]));
-        
+
         grid.appendChild(leftColumn);
         grid.appendChild(rightColumn);
         container.appendChild(grid);
     }
-    
+
     private createMapSpecificTab(container: HTMLElement): void {
         if (!this.game) {
             container.innerHTML = "<div style='text-align: center; color: #ffaa44; padding: 20px;'>Игра не инициализирована</div>";
             return;
         }
-        
+
         const mapType = (this.game as any).currentMapType || "normal";
-        
+
         if (mapType === "normal" || mapType === "sandbox") {
             container.innerHTML = `
                 <div style="text-align: center; color: #88ccff; padding: 40px;">
@@ -498,15 +504,15 @@ export class WorldGenerationMenu {
             `;
             return;
         }
-        
+
         const grid = document.createElement("div");
         grid.style.cssText = `display: grid; grid-template-columns: 1fr; gap: 20px; max-width: 800px; margin: 0 auto;`;
-        
+
         // Инициализируем mapSpecific если нужно
         if (!this.settings.mapSpecific) {
             this.settings.mapSpecific = {};
         }
-        
+
         // Создаём настройки для текущей карты
         switch (mapType) {
             case "polygon":
@@ -567,46 +573,46 @@ export class WorldGenerationMenu {
                 ]));
                 break;
         }
-        
+
         container.appendChild(grid);
     }
-    
+
     private createProfilesTab(container: HTMLElement): void {
         const grid = document.createElement("div");
         grid.style.cssText = `display: grid; grid-template-columns: 1fr 1fr; gap: 20px;`;
-        
+
         // Левая колонка - список профилей
         const leftColumn = document.createElement("div");
         leftColumn.style.cssText = `display: flex; flex-direction: column; gap: 20px;`;
-        
+
         const profileListSection = this.createSection("💾 Профили настроек", [
             this.createProfileList()
         ]);
         leftColumn.appendChild(profileListSection);
-        
+
         // Правая колонка - создание/редактирование профиля
         const rightColumn = document.createElement("div");
         rightColumn.style.cssText = `display: flex; flex-direction: column; gap: 20px;`;
-        
+
         const createProfileSection = this.createSection("➕ Создать профиль", [
             this.createProfileEditor()
         ]);
         rightColumn.appendChild(createProfileSection);
-        
+
         grid.appendChild(leftColumn);
         grid.appendChild(rightColumn);
         container.appendChild(grid);
     }
-    
+
     private createStatsTab(container: HTMLElement): void {
         if (!this.chunkSystem) {
             container.innerHTML = "<div style='text-align: center; color: #ffaa44; padding: 20px;'>ChunkSystem не инициализирован</div>";
             return;
         }
-        
+
         const stats = (this.chunkSystem as any).stats || {};
         const config = (this.chunkSystem as any).config || {};
-        
+
         const statsHTML = `
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; max-width: 800px; margin: 0 auto;">
                 ${this.createStatCard("📦 Загружено чанков", stats.loadedChunks || 0, "Количество активных чанков")}
@@ -617,10 +623,10 @@ export class WorldGenerationMenu {
                 ${this.createStatCard("👁️ Дистанция рендеринга", `${config.renderDistance || 1.5} чанков`, "Максимальная дистанция рендеринга")}
             </div>
         `;
-        
+
         container.innerHTML = statsHTML;
     }
-    
+
     private createStatCard(title: string, value: string | number, description: string): string {
         return `
             <div style="
@@ -635,27 +641,27 @@ export class WorldGenerationMenu {
             </div>
         `;
     }
-    
+
     private createPresetButtons(): HTMLDivElement {
         const wrapper = document.createElement("div");
         wrapper.style.cssText = `display: flex; flex-direction: column; gap: 10px;`;
-        
+
         const presets = [
             { name: "⚡ Производительность", action: () => this.applyPreset("performance") },
             { name: "🎨 Качество", action: () => this.applyPreset("quality") },
             { name: "⚖️ Сбалансированно", action: () => this.applyPreset("balanced") },
             { name: "🌍 Большой мир", action: () => this.applyPreset("large") }
         ];
-        
+
         presets.forEach(preset => {
             const btn = this.createButton(preset.name, "#6c5ce7", preset.action);
             btn.style.width = "100%";
             wrapper.appendChild(btn);
         });
-        
+
         return wrapper;
     }
-    
+
     private applyPreset(preset: string): void {
         switch (preset) {
             case "performance":
@@ -694,43 +700,43 @@ export class WorldGenerationMenu {
         this.updateUI();
         alert(`✅ Пресет "${preset}" применён!`);
     }
-    
+
     private createSeedGenerator(): HTMLDivElement {
         const wrapper = document.createElement("div");
         wrapper.style.cssText = `margin-top: 10px;`;
-        
+
         const btn = this.createButton("🎲 Сгенерировать случайный seed", "#9b59b6", () => {
             this.settings.worldSeed = Math.floor(Math.random() * 999999999);
             this.settings.useRandomSeed = false;
             this.updateUI();
         });
         btn.style.width = "100%";
-        
+
         wrapper.appendChild(btn);
         return wrapper;
     }
-    
+
     private createProfileList(): HTMLDivElement {
         const wrapper = document.createElement("div");
         wrapper.id = "profile-list";
         wrapper.style.cssText = `display: flex; flex-direction: column; gap: 10px; max-height: 400px; overflow-y: auto;`;
-        
+
         this.updateProfileList();
-        
+
         return wrapper;
     }
-    
+
     private updateProfileList(): void {
         const list = document.getElementById("profile-list");
         if (!list) return;
-        
+
         list.innerHTML = "";
-        
+
         if (this.profiles.length === 0) {
             list.innerHTML = `<div style="text-align: center; color: #aaa; padding: 20px;">Нет сохранённых профилей</div>`;
             return;
         }
-        
+
         this.profiles.forEach((profile, index) => {
             const profileItem = document.createElement("div");
             profileItem.style.cssText = `
@@ -752,29 +758,29 @@ export class WorldGenerationMenu {
                 profileItem.style.background = "rgba(15, 52, 96, 0.5)";
                 profileItem.style.borderColor = "#0f3460";
             };
-            
+
             const info = document.createElement("div");
             info.style.cssText = `flex: 1;`;
-            
+
             const name = document.createElement("div");
             name.textContent = profile.name;
             name.style.cssText = `font-weight: bold; color: #4a9eff; margin-bottom: 4px;`;
-            
+
             const desc = document.createElement("div");
             desc.textContent = profile.description || "Без описания";
             desc.style.cssText = `font-size: 12px; color: #aaa;`;
-            
+
             const date = document.createElement("div");
             date.textContent = new Date(profile.createdAt).toLocaleDateString();
             date.style.cssText = `font-size: 11px; color: #666; margin-top: 4px;`;
-            
+
             info.appendChild(name);
             info.appendChild(desc);
             info.appendChild(date);
-            
+
             const buttons = document.createElement("div");
             buttons.style.cssText = `display: flex; gap: 5px;`;
-            
+
             const loadBtn = document.createElement("button");
             loadBtn.textContent = "📂";
             loadBtn.title = "Загрузить";
@@ -790,7 +796,7 @@ export class WorldGenerationMenu {
                 e.stopPropagation();
                 this.loadProfile(index);
             };
-            
+
             const deleteBtn = document.createElement("button");
             deleteBtn.textContent = "🗑️";
             deleteBtn.title = "Удалить";
@@ -810,20 +816,20 @@ export class WorldGenerationMenu {
                     this.updateProfileList();
                 }
             };
-            
+
             buttons.appendChild(loadBtn);
             buttons.appendChild(deleteBtn);
-            
+
             profileItem.appendChild(info);
             profileItem.appendChild(buttons);
             list.appendChild(profileItem);
         });
     }
-    
+
     private createProfileEditor(): HTMLDivElement {
         const wrapper = document.createElement("div");
         wrapper.style.cssText = `display: flex; flex-direction: column; gap: 15px;`;
-        
+
         const nameInput = document.createElement("input");
         nameInput.type = "text";
         nameInput.placeholder = "Название профиля";
@@ -836,7 +842,7 @@ export class WorldGenerationMenu {
             color: #e0e0e0;
             font-size: 14px;
         `;
-        
+
         const descInput = document.createElement("textarea");
         descInput.placeholder = "Описание (необязательно)";
         descInput.id = "profile-desc-input";
@@ -850,43 +856,43 @@ export class WorldGenerationMenu {
             min-height: 60px;
             resize: vertical;
         `;
-        
+
         const saveBtn = this.createButton("💾 Сохранить профиль", "#4a9eff", () => {
             const name = (document.getElementById("profile-name-input") as HTMLInputElement)?.value.trim();
             if (!name) {
                 alert("❌ Введите название профиля!");
                 return;
             }
-            
+
             const desc = (document.getElementById("profile-desc-input") as HTMLTextAreaElement)?.value.trim();
-            
+
             const profile: WorldGenProfile = {
                 name,
                 description: desc || undefined,
                 settings: JSON.parse(JSON.stringify(this.settings)), // Deep copy
                 createdAt: Date.now()
             };
-            
+
             this.profiles.push(profile);
             this.saveProfiles();
             this.updateProfileList();
-            
+
             (document.getElementById("profile-name-input") as HTMLInputElement).value = "";
             (document.getElementById("profile-desc-input") as HTMLTextAreaElement).value = "";
-            
+
             alert(`✅ Профиль "${name}" сохранён!`);
         });
-        
+
         wrapper.appendChild(nameInput);
         wrapper.appendChild(descInput);
         wrapper.appendChild(saveBtn);
-        
+
         return wrapper;
     }
-    
+
     private loadProfile(index: number): void {
         if (index < 0 || index >= this.profiles.length) return;
-        
+
         const profile = this.profiles[index];
         if (!profile) return;
         this.settings = JSON.parse(JSON.stringify(profile.settings)); // Deep copy
@@ -896,7 +902,7 @@ export class WorldGenerationMenu {
         this.updateUI();
         alert(`✅ Профиль "${profile.name}" загружен!`);
     }
-    
+
     private saveProfiles(): void {
         try {
             localStorage.setItem("worldGenProfiles", JSON.stringify(this.profiles));
@@ -904,7 +910,7 @@ export class WorldGenerationMenu {
             console.warn("[WorldGenerationMenu] Failed to save profiles:", e);
         }
     }
-    
+
     private loadProfiles(): void {
         try {
             const saved = localStorage.getItem("worldGenProfiles");
@@ -915,7 +921,7 @@ export class WorldGenerationMenu {
             console.warn("[WorldGenerationMenu] Failed to load profiles:", e);
         }
     }
-    
+
     private exportSettings(): void {
         const dataStr = JSON.stringify(this.settings, null, 2);
         const dataBlob = new Blob([dataStr], { type: "application/json" });
@@ -927,7 +933,7 @@ export class WorldGenerationMenu {
         URL.revokeObjectURL(url);
         alert("✅ Настройки экспортированы!");
     }
-    
+
     private importSettings(): void {
         const input = document.createElement("input");
         input.type = "file";
@@ -935,7 +941,7 @@ export class WorldGenerationMenu {
         input.onchange = (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
             reader.onload = (event) => {
                 try {
@@ -951,7 +957,7 @@ export class WorldGenerationMenu {
         };
         input.click();
     }
-    
+
     private createSection(title: string, controls: HTMLElement[]): HTMLDivElement {
         const section = document.createElement("div");
         section.style.cssText = `
@@ -960,7 +966,7 @@ export class WorldGenerationMenu {
             border-radius: 8px;
             padding: 15px;
         `;
-        
+
         const sectionTitle = document.createElement("h3");
         sectionTitle.textContent = title;
         sectionTitle.style.cssText = `
@@ -970,24 +976,24 @@ export class WorldGenerationMenu {
             border-bottom: 1px solid #0f3460;
             padding-bottom: 8px;
         `;
-        
+
         section.appendChild(sectionTitle);
         controls.forEach(control => section.appendChild(control));
-        
+
         return section;
     }
-    
+
     private createMapSection(title: string, controls: HTMLElement[]): HTMLDivElement {
         return this.createSection(title, controls);
     }
-    
+
     private createSlider(key: string, label: string, min: number, max: number, step: number, unit: string, tooltip?: string): HTMLDivElement {
         const wrapper = document.createElement("div");
         wrapper.style.cssText = `margin-bottom: 15px;`;
-        
+
         const labelDiv = document.createElement("div");
         labelDiv.style.cssText = `display: flex; justify-content: space-between; margin-bottom: 5px;`;
-        
+
         const labelText = document.createElement("label");
         labelText.textContent = label;
         labelText.style.cssText = `color: #e0e0e0; font-size: 14px;`;
@@ -995,18 +1001,18 @@ export class WorldGenerationMenu {
             labelText.title = tooltip;
             labelText.style.cursor = "help";
         }
-        
+
         const valueSpan = document.createElement("span");
         valueSpan.id = `${key.replace(/\./g, "_")}_value`;
         valueSpan.style.cssText = `color: #4a9eff; font-weight: bold;`;
-        
+
         // Получаем значение из настроек
         const value = this.getNestedValue(this.settings, key);
         valueSpan.textContent = `${value.toFixed(step < 1 ? 1 : 0)} ${unit}`;
-        
+
         labelDiv.appendChild(labelText);
         labelDiv.appendChild(valueSpan);
-        
+
         const slider = document.createElement("input");
         slider.type = "range";
         slider.min = min.toString();
@@ -1021,23 +1027,23 @@ export class WorldGenerationMenu {
             outline: none;
             cursor: pointer;
         `;
-        
+
         slider.oninput = () => {
             const val = parseFloat(slider.value);
             this.setNestedValue(this.settings, key, val);
             valueSpan.textContent = `${val.toFixed(step < 1 ? 1 : 0)} ${unit}`;
         };
-        
+
         wrapper.appendChild(labelDiv);
         wrapper.appendChild(slider);
-        
+
         return wrapper;
     }
-    
+
     private createNumberInput(key: keyof WorldGenSettings, label: string, min: number, max: number, step: number, tooltip?: string): HTMLDivElement {
         const wrapper = document.createElement("div");
         wrapper.style.cssText = `margin-bottom: 15px;`;
-        
+
         const labelEl = document.createElement("label");
         labelEl.textContent = label;
         labelEl.style.cssText = `display: block; color: #e0e0e0; font-size: 14px; margin-bottom: 5px;`;
@@ -1045,7 +1051,7 @@ export class WorldGenerationMenu {
             labelEl.title = tooltip;
             labelEl.style.cursor = "help";
         }
-        
+
         const input = document.createElement("input");
         input.type = "number";
         input.min = min.toString();
@@ -1061,28 +1067,28 @@ export class WorldGenerationMenu {
             color: #e0e0e0;
             font-size: 14px;
         `;
-        
+
         input.oninput = () => {
             const value = Math.max(min, Math.min(max, parseFloat(input.value) || min));
             (this.settings[key] as number) = value;
             input.value = value.toString();
         };
-        
+
         wrapper.appendChild(labelEl);
         wrapper.appendChild(input);
-        
+
         return wrapper;
     }
-    
+
     private createCheckbox(key: keyof WorldGenSettings, label: string, tooltip?: string): HTMLDivElement {
         const wrapper = document.createElement("div");
         wrapper.style.cssText = `margin-bottom: 15px; display: flex; align-items: center; gap: 10px;`;
-        
+
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.checked = this.settings[key] as boolean;
         checkbox.style.cssText = `width: 20px; height: 20px; cursor: pointer;`;
-        
+
         checkbox.onchange = () => {
             (this.settings[key] as boolean) = checkbox.checked;
             if (key === "useRandomSeed" && checkbox.checked) {
@@ -1090,7 +1096,7 @@ export class WorldGenerationMenu {
                 this.updateUI();
             }
         };
-        
+
         const labelEl = document.createElement("label");
         labelEl.textContent = label;
         labelEl.style.cssText = `color: #e0e0e0; font-size: 14px; cursor: pointer;`;
@@ -1098,13 +1104,13 @@ export class WorldGenerationMenu {
             labelEl.title = tooltip;
         }
         labelEl.onclick = () => checkbox.click();
-        
+
         wrapper.appendChild(checkbox);
         wrapper.appendChild(labelEl);
-        
+
         return wrapper;
     }
-    
+
     private createButton(text: string, color: string, onClick: () => void): HTMLButtonElement {
         const btn = document.createElement("button");
         btn.textContent = text;
@@ -1124,11 +1130,11 @@ export class WorldGenerationMenu {
         btn.onclick = onClick;
         return btn;
     }
-    
+
     private getNestedValue(obj: any, path: string): any {
         return path.split(".").reduce((o, p) => o?.[p], obj) ?? 0;
     }
-    
+
     private setNestedValue(obj: any, path: string, value: any): void {
         const keys = path.split(".");
         const lastKey = keys.pop()!;
@@ -1138,7 +1144,7 @@ export class WorldGenerationMenu {
         }, obj);
         target[lastKey] = value;
     }
-    
+
     private updateUI(): void {
         // Обновляем все значения в UI
         document.querySelectorAll("[id$='_value']").forEach(el => {
@@ -1154,7 +1160,7 @@ export class WorldGenerationMenu {
                 }
             }
         });
-        
+
         // Обновляем number inputs
         Object.keys(this.settings).forEach(key => {
             if (key === "mapSpecific") return;
@@ -1163,7 +1169,7 @@ export class WorldGenerationMenu {
                 input.value = (this.settings[key as keyof WorldGenSettings] as number).toString();
             }
         });
-        
+
         // Обновляем checkboxes
         Object.keys(this.settings).forEach(key => {
             if (key === "mapSpecific") return;
@@ -1173,7 +1179,7 @@ export class WorldGenerationMenu {
             }
         });
     }
-    
+
     private saveSettings(): void {
         try {
             localStorage.setItem("worldGenSettings", JSON.stringify(this.settings));
@@ -1182,7 +1188,7 @@ export class WorldGenerationMenu {
             this.showNotification("❌ Ошибка сохранения: " + e, "error");
         }
     }
-    
+
     private loadSettings(): void {
         try {
             const saved = localStorage.getItem("worldGenSettings");
@@ -1199,7 +1205,7 @@ export class WorldGenerationMenu {
             console.warn("[WorldGenerationMenu] Failed to load settings:", e);
         }
     }
-    
+
     private resetSettings(): void {
         if (confirm("Сбросить все настройки к значениям по умолчанию?")) {
             this.settings = {
@@ -1223,23 +1229,23 @@ export class WorldGenerationMenu {
             this.showNotification("✅ Настройки сброшены!", "success");
         }
     }
-    
+
     private applySettings(): void {
         if (!this.chunkSystem) {
             this.showNotification("❌ ChunkSystem не инициализирован!", "error");
             return;
         }
-        
+
         // Применяем настройки к ChunkSystem
         const config = (this.chunkSystem as any).config;
         if (config) {
             config.chunkSize = this.settings.chunkSize;
             config.renderDistance = this.settings.renderDistance;
             config.unloadDistance = this.settings.unloadDistance;
-            config.worldSeed = this.settings.useRandomSeed 
+            config.worldSeed = this.settings.useRandomSeed
                 ? Math.floor(Math.random() * 999999999)
                 : this.settings.worldSeed;
-            
+
             // Применяем к подсистемам если они есть
             const roadNetwork = (this.chunkSystem as any).roadNetwork;
             if (roadNetwork) {
@@ -1255,47 +1261,47 @@ export class WorldGenerationMenu {
                     roadNetwork.config.mapType = mapType;
                 }
             }
-            
+
             const poiSystem = (this.chunkSystem as any).poiSystem;
             if (poiSystem && poiSystem.config) {
                 poiSystem.config.poiSpacing = this.settings.poiSpacing;
                 (poiSystem as any).poiDensityMultiplier = this.settings.poiDensity;
             }
-            
+
             const coverGenerator = (this.chunkSystem as any).coverGenerator;
             if (coverGenerator) {
                 (coverGenerator as any).coverDensityMultiplier = this.settings.coverDensity;
             }
-            
+
             (this.chunkSystem as any).consumablesMin = this.settings.consumablesMin;
             (this.chunkSystem as any).consumablesMax = this.settings.consumablesMax;
-            
+
             this.showNotification("✅ Настройки применены! Изменения вступят в силу при генерации новых чанков.", "success");
         }
     }
-    
+
     private reloadWorld(): void {
         if (!this.game) {
             this.showNotification("❌ Game не инициализирован!", "error");
             return;
         }
-        
+
         if (confirm("⚠️ Перезагрузить весь мир? Все текущие чанки будут удалены и перегенерированы. Это может занять некоторое время.")) {
             this.applySettings();
-            
+
             if (this.chunkSystem) {
                 this.chunkSystem.dispose();
-                
+
                 const config = {
                     chunkSize: this.settings.chunkSize,
                     renderDistance: this.settings.renderDistance,
                     unloadDistance: this.settings.unloadDistance,
-                    worldSeed: this.settings.useRandomSeed 
+                    worldSeed: this.settings.useRandomSeed
                         ? Math.floor(Math.random() * 999999999)
                         : this.settings.worldSeed,
                     mapType: (this.game as any).currentMapType || "normal"
                 };
-                
+
                 import("./chunkSystem").then(({ ChunkSystem }) => {
                     this.game!.chunkSystem = new ChunkSystem(this.game!.scene, config);
                     this.chunkSystem = this.game!.chunkSystem;
@@ -1306,7 +1312,7 @@ export class WorldGenerationMenu {
             }
         }
     }
-    
+
     private showNotification(message: string, type: "success" | "error" = "success"): void {
         // Создаём временное уведомление
         const notification = document.createElement("div");
@@ -1324,14 +1330,14 @@ export class WorldGenerationMenu {
             font-weight: bold;
             animation: slideIn 0.3s ease-out;
         `;
-        
+
         document.body.appendChild(notification);
-        
+
         setTimeout(() => {
             notification.style.animation = "slideOut 0.3s ease-out";
             setTimeout(() => notification.remove(), 300);
         }, 3000);
-        
+
         // Добавляем стили анимации если их ещё нет
         if (!document.getElementById("notification-styles")) {
             const style = document.createElement("style");
@@ -1349,12 +1355,12 @@ export class WorldGenerationMenu {
             document.head.appendChild(style);
         }
     }
-    
+
     private setupToggle(): void {
         // Ctrl+9 обработчик управляется в game.ts для консистентности
         // Этот метод оставлен для возможного будущего использования
     }
-    
+
     /**
      * Скрыть меню генерации мира (используется из game.ts)
      */
@@ -1365,29 +1371,29 @@ export class WorldGenerationMenu {
             this.container.classList.add("hidden");
             this.container.style.display = "none";
         }
-        
+
         // Восстанавливаем курсор только если игра активна
         const game = (window as any).gameInstance;
         if (game?.gameStarted && !game.gamePaused) {
             document.body.style.cursor = 'none';
         }
     }
-    
+
     toggle(): void {
         if (!this.container) return;
-        
+
         this.visible = !this.visible;
-        
+
         if (this.visible) {
             this.container.classList.remove("hidden");
             this.container.style.display = "flex";
-            
+
             // Показываем курсор и выходим из pointer lock
             if (document.pointerLockElement) {
                 document.exitPointerLock();
             }
             document.body.style.cursor = 'default';
-            
+
             // Добавляем класс "in-battle" если игра запущена (для полупрозрачного фона)
             const game = (window as any).gameInstance;
             if (game && game.gameStarted) {
@@ -1395,7 +1401,7 @@ export class WorldGenerationMenu {
             } else {
                 this.container.classList.remove("in-battle");
             }
-            
+
             this.loadCurrentSettings();
             this.updateMapInfo();
             // Обновляем статистику если открыта вкладка stats
@@ -1405,7 +1411,7 @@ export class WorldGenerationMenu {
         } else {
             this.container.classList.add("hidden");
             this.container.style.display = "none";
-            
+
             // Восстанавливаем курсор только если игра активна
             const game = (window as any).gameInstance;
             if (game?.gameStarted && !game.gamePaused) {
@@ -1413,11 +1419,11 @@ export class WorldGenerationMenu {
             }
         }
     }
-    
+
     isVisible(): boolean {
         return this.visible;
     }
-    
+
     /**
      * Рендерит контент в переданный контейнер (для UnifiedMenu)
      */
@@ -1425,7 +1431,7 @@ export class WorldGenerationMenu {
         container.innerHTML = this.getEmbeddedContentHTML();
         this.setupEmbeddedEventListeners(container);
     }
-    
+
     /**
      * Возвращает HTML контента без overlay wrapper
      */
@@ -1513,7 +1519,7 @@ export class WorldGenerationMenu {
             </div>
         `;
     }
-    
+
     /**
      * Привязывает обработчики событий для embedded режима
      */
@@ -1525,29 +1531,29 @@ export class WorldGenerationMenu {
         const densitySlider = container.querySelector(".world-density-emb") as HTMLInputElement;
         const densityVal = container.querySelector(".world-density-val");
         const generateBtn = container.querySelector(".world-generate-btn");
-        
+
         // Генерация случайного seed
         randomSeedBtn?.addEventListener("click", () => {
             const randomSeed = Math.floor(Math.random() * 999999999);
             if (seedInput) seedInput.value = String(randomSeed);
         });
-        
+
         // Обновление значения плотности
         densitySlider?.addEventListener("input", () => {
             if (densityVal) densityVal.textContent = `${densitySlider.value}%`;
         });
-        
+
         // Генерация мира
         generateBtn?.addEventListener("click", () => {
             const seed = seedInput?.value ? parseInt(seedInput.value) : Math.floor(Math.random() * 999999999);
             const size = sizeSelect?.value || "medium";
             const biome = biomeSelect?.value || "mixed";
             const density = parseInt(densitySlider?.value || "50") / 100;
-            
+
             if (this.game?.hud) {
                 this.game.hud.showMessage(`Генерация мира (seed: ${seed})...`, "#0ff", 3000);
             }
-            
+
             // Вызываем генерацию мира
             if (this.game && (this.game as any).generateWorld) {
                 (this.game as any).generateWorld({ seed, size, biome, density });

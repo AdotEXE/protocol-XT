@@ -1,0 +1,5 @@
+{
+  "name": "PolyGen AI Studio",
+  "description": "A powerful low-poly 3D modeler powered by Gemini. Generate Blockbench-style models from text, edit them manually, or refine them with AI.",
+  "requestFramePermissions": []
+}

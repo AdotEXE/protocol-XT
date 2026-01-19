@@ -17,14 +17,14 @@ export class FFAMode implements GameModeRules {
         const totalPlayers = room.getAllPlayers().length;
         const angle = (spawnIndex / totalPlayers) * Math.PI * 2;
         const radius = 30;
-        
+
         return new Vector3(
             Math.cos(angle) * radius,
-            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            5.0, // ИСПРАВЛЕНО: Спавн на 5 метров над поверхностью (падение на землю)
             Math.sin(angle) * radius
         );
     }
-    
+
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
         // FFA: First to X kills wins
         const maxKills = 20;
@@ -35,11 +35,11 @@ export class FFAMode implements GameModeRules {
         }
         return null;
     }
-    
+
     getMaxScore(): number {
         return 20; // First to 20 kills
     }
-    
+
     getRespawnDelay(): number {
         return 3000; // 3 seconds
     }
@@ -51,14 +51,14 @@ export class TDMMode implements GameModeRules {
         const team = player.team || 0;
         const teamPlayers = room.getAllPlayers().filter(p => (p.team || 0) === team);
         const spawnIndex = teamPlayers.indexOf(player);
-        
+
         // Spawn on opposite sides
         const baseX = team === 0 ? -40 : 40;
         const baseZ = (spawnIndex - teamPlayers.length / 2) * 15;
-        
+
         return new Vector3(baseX, 5, baseZ);
     }
-    
+
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
         // TDM: Team with most kills wins
         const team0Kills = room.getAllPlayers()
@@ -67,7 +67,7 @@ export class TDMMode implements GameModeRules {
         const team1Kills = room.getAllPlayers()
             .filter(p => (p.team || 0) === 1)
             .reduce((sum, p) => sum + p.kills, 0);
-        
+
         const maxKills = 50;
         if (team0Kills >= maxKills) {
             return { winner: "team0", reason: `Team 0 reached ${maxKills} kills` };
@@ -77,11 +77,11 @@ export class TDMMode implements GameModeRules {
         }
         return null;
     }
-    
+
     getMaxScore(): number {
         return 50; // Team total kills
     }
-    
+
     getRespawnDelay(): number {
         return 5000; // 5 seconds
     }
@@ -93,24 +93,24 @@ export class CoopPVEMode implements GameModeRules {
         const spawnIndex = Array.from(room.getAllPlayers()).indexOf(player);
         const angle = (spawnIndex / room.getAllPlayers().length) * Math.PI * 2;
         const radius = 15;
-        
+
         return new Vector3(
             Math.cos(angle) * radius,
-            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            5.0, // ИСПРАВЛЕНО: Спавн на 5 метров над поверхностью (падение на землю)
             Math.sin(angle) * radius
         );
     }
-    
+
     checkWinCondition(_room: GameRoom): { winner: string | null; reason: string } | null {
         // Co-op: Survive X waves or kill all enemies
         // This will be handled by AI system
         return null;
     }
-    
+
     getMaxScore(): number {
         return 100; // Wave-based scoring
     }
-    
+
     getRespawnDelay(): number {
         return 10000; // 10 seconds (longer in co-op)
     }
@@ -123,21 +123,21 @@ export class BattleRoyaleMode implements GameModeRules {
     private nextZoneCenter: Vector3 = new Vector3(0, 0, 0);
     private damagePerSecond: number = 5; // Damage outside safe zone
     private lastDamageTime: Map<string, number> = new Map();
-    
+
     getSpawnPosition(_player: ServerPlayer, _room: GameRoom): Vector3 {
         // Random spawn in safe zone (but not too close to center)
         const angle = Math.random() * Math.PI * 2;
         const minRadius = this.safeZoneRadius * 0.3; // Spawn in outer 70% of zone
         const maxRadius = this.safeZoneRadius * 0.9;
         const radius = minRadius + Math.random() * (maxRadius - minRadius);
-        
+
         return new Vector3(
             this.safeZoneCenter.x + Math.cos(angle) * radius,
             1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
             this.safeZoneCenter.z + Math.sin(angle) * radius
         );
     }
-    
+
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
         // Battle Royale: Last player standing
         const alivePlayers = room.getAllPlayers().filter(p => p.status === "alive");
@@ -152,24 +152,24 @@ export class BattleRoyaleMode implements GameModeRules {
         }
         return null;
     }
-    
+
     getMaxScore(): number {
         return 1; // Survival
     }
-    
+
     getRespawnDelay(): number {
         return 0; // No respawn in Battle Royale
     }
-    
+
     updateSafeZone(gameTime: number, room: GameRoom): void {
         // Shrink safe zone over time
         const totalShrinkTime = 300; // 5 minutes total
         const minRadius = 30; // Minimum safe zone radius
-        
+
         // Calculate current radius based on game time
         const shrinkProgress = Math.min(1, gameTime / totalShrinkTime);
         this.safeZoneRadius = 200 - (200 - minRadius) * shrinkProgress;
-        
+
         // Move center towards a random point (simplified - could be more complex)
         if (shrinkProgress > 0.5) {
             // Start moving center after 50% shrink
@@ -180,12 +180,12 @@ export class BattleRoyaleMode implements GameModeRules {
                 moveProgress
             );
         }
-        
+
         // Check players outside safe zone and apply damage
         const currentTime = Date.now();
         for (const player of room.getAllPlayers()) {
             if (player.status !== "alive") continue;
-            
+
             const distance = Vector3.Distance(player.position, this.safeZoneCenter);
             if (distance > this.safeZoneRadius) {
                 // Player is outside safe zone
@@ -197,12 +197,12 @@ export class BattleRoyaleMode implements GameModeRules {
             }
         }
     }
-    
-    getSafeZoneData(): { 
-        center: Vector3; 
-        radius: number; 
-        nextCenter: Vector3; 
-        nextRadius: number; 
+
+    getSafeZoneData(): {
+        center: Vector3;
+        radius: number;
+        nextCenter: Vector3;
+        nextRadius: number;
         shrinkProgress: number;
         timeUntilShrink: number;
         damagePerSecond: number;
@@ -211,7 +211,7 @@ export class BattleRoyaleMode implements GameModeRules {
         const totalShrinkTime = 300; // 5 minutes total
         const currentProgress = Math.min(1, (200 - this.safeZoneRadius) / (200 - 30));
         const timeUntilShrink = Math.max(0, (1 - currentProgress) * totalShrinkTime);
-        
+
         return {
             center: this.safeZoneCenter,
             radius: this.safeZoneRadius,
@@ -222,12 +222,12 @@ export class BattleRoyaleMode implements GameModeRules {
             damagePerSecond: this.damagePerSecond
         };
     }
-    
+
     initialize(_room: GameRoom): void {
         // Set initial safe zone
         this.safeZoneRadius = 200;
         this.safeZoneCenter = new Vector3(0, 0, 0);
-        
+
         // Choose random next zone center (within reasonable bounds)
         const nextAngle = Math.random() * Math.PI * 2;
         const nextDistance = 50 + Math.random() * 100;
@@ -245,20 +245,20 @@ export class CTFMode implements GameModeRules {
         // Spawn at team base
         const team = player.team || 0;
         const baseX = team === 0 ? -50 : 50;
-        
+
         return new Vector3(baseX, 1.0, 0); // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
     }
-    
+
     checkWinCondition(_room: GameRoom): { winner: string | null; reason: string } | null {
         // CTF: First team to capture X flags
         // This will be handled by flag system
         return null;
     }
-    
+
     getMaxScore(): number {
         return 3; // Flags to capture
     }
-    
+
     getRespawnDelay(): number {
         return 5000; // 5 seconds
     }
@@ -267,55 +267,55 @@ export class CTFMode implements GameModeRules {
 // Control Point Mode - захват контрольных точек
 export class ControlPointMode implements GameModeRules {
     private controlPoints: Array<{ id: string; position: Vector3; team: number | null; captureProgress: number }> = [];
-    
+
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         const team = player.team || 0;
         const teamPlayers = room.getAllPlayers().filter(p => (p.team || 0) === team);
         const spawnIndex = teamPlayers.indexOf(player);
-        
+
         // Spawn near team base
         const baseX = team === 0 ? -50 : 50;
         const baseZ = (spawnIndex - teamPlayers.length / 2) * 15;
-        
+
         return new Vector3(baseX, 1.0, baseZ); // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
     }
-    
+
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
         // Control Point: Team with all points or most points for X seconds
         // Simplified: First team to control 2 out of 3 points wins
         if (this.controlPoints.length === 0) {
             this.initializeControlPoints(room);
         }
-        
+
         let team0Points = 0;
         let team1Points = 0;
-        
+
         for (const point of this.controlPoints) {
             if (point.team === 0) team0Points++;
             if (point.team === 1) team1Points++;
         }
-        
+
         const totalPoints = this.controlPoints.length;
         const requiredPoints = Math.ceil(totalPoints / 2);
-        
+
         if (team0Points >= requiredPoints) {
             return { winner: "team0", reason: `Team 0 captured ${team0Points}/${totalPoints} control points` };
         }
         if (team1Points >= requiredPoints) {
             return { winner: "team1", reason: `Team 1 captured ${team1Points}/${totalPoints} control points` };
         }
-        
+
         return null;
     }
-    
+
     getMaxScore(): number {
         return 3; // Control points count
     }
-    
+
     getRespawnDelay(): number {
         return 5000; // 5 seconds
     }
-    
+
     private initializeControlPoints(room: GameRoom): void {
         // Create 3 control points in neutral positions
         this.controlPoints = [
@@ -331,10 +331,10 @@ export class EscortMode implements GameModeRules {
     private escortTarget: { position: Vector3; health: number; maxHealth: number; progress: number } | null = null;
     private escortStart: Vector3 = new Vector3(-100, 5, 0);
     private escortEnd: Vector3 = new Vector3(100, 5, 0);
-    
+
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         const team = player.team || 0;
-        
+
         if (team === 0) {
             // Attacking team spawns near escort start
             const spawnIndex = room.getAllPlayers().filter(p => (p.team || 0) === 0).indexOf(player);
@@ -347,7 +347,7 @@ export class EscortMode implements GameModeRules {
             return new Vector3(spawnPos.x, 5, spawnPos.z + (spawnIndex % 2 === 0 ? -15 : 15));
         }
     }
-    
+
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
         if (!this.escortTarget) {
             this.escortTarget = {
@@ -357,25 +357,25 @@ export class EscortMode implements GameModeRules {
                 progress: 0
             };
         }
-        
+
         // Attacking team (team 0) wins if escort reaches destination
         const distanceToEnd = Vector3.Distance(this.escortTarget.position, this.escortEnd);
         if (distanceToEnd < 10) {
             return { winner: "team0", reason: "Escort target reached destination" };
         }
-        
+
         // Defending team (team 1) wins if escort is destroyed
         if (this.escortTarget.health <= 0) {
             return { winner: "team1", reason: "Escort target destroyed" };
         }
-        
+
         return null;
     }
-    
+
     getMaxScore(): number {
         return 100; // Progress percentage
     }
-    
+
     getRespawnDelay(): number {
         return 5000; // 5 seconds
     }
@@ -387,41 +387,41 @@ export class SurvivalMode implements GameModeRules {
     private enemiesKilled: number = 0;
     private enemiesPerWave: number = 10;
     private waveStartTime: number = 0;
-    
+
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // All players spawn together in safe zone
         const spawnIndex = Array.from(room.getAllPlayers()).indexOf(player);
         const angle = (spawnIndex / room.getAllPlayers().length) * Math.PI * 2;
         const radius = 15;
-        
+
         return new Vector3(
             Math.cos(angle) * radius,
-            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            5.0, // ИСПРАВЛЕНО: Спавн на 5 метров над поверхностью (падение на землю)
             Math.sin(angle) * radius
         );
     }
-    
+
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
         // Survival: Players win if they survive X waves
         // Players lose if all are dead
         const alivePlayers = room.getAllPlayers().filter(p => p.status === "alive");
-        
+
         if (alivePlayers.length === 0) {
             return { winner: null, reason: "All players eliminated" };
         }
-        
+
         // Win condition: Survive 10 waves
         if (this.currentWave > 10) {
             return { winner: "players", reason: `Survived ${this.currentWave - 1} waves` };
         }
-        
+
         return null;
     }
-    
+
     getMaxScore(): number {
         return 10; // Waves to survive
     }
-    
+
     getRespawnDelay(): number {
         return 10000; // 10 seconds
     }
@@ -432,40 +432,40 @@ export class RaidMode implements GameModeRules {
     private currentBoss: { id: string; health: number; maxHealth: number } | null = null;
     private bossesDefeated: number = 0;
     private totalBosses: number = 3;
-    
+
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // All players spawn together
         const spawnIndex = Array.from(room.getAllPlayers()).indexOf(player);
         const angle = (spawnIndex / room.getAllPlayers().length) * Math.PI * 2;
         const radius = 15;
-        
+
         return new Vector3(
             Math.cos(angle) * radius,
-            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            5.0, // ИСПРАВЛЕНО: Спавн на 5 метров над поверхностью (падение на землю)
             Math.sin(angle) * radius
         );
     }
-    
+
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
         // Raid: Players win if they defeat all bosses
         // Players lose if all are dead
         const alivePlayers = room.getAllPlayers().filter(p => p.status === "alive");
-        
+
         if (alivePlayers.length === 0) {
             return { winner: null, reason: "All players eliminated" };
         }
-        
+
         if (this.bossesDefeated >= this.totalBosses) {
             return { winner: "players", reason: `Defeated all ${this.totalBosses} bosses` };
         }
-        
+
         return null;
     }
-    
+
     getMaxScore(): number {
         return this.totalBosses; // Bosses to defeat
     }
-    
+
     getRespawnDelay(): number {
         return 15000; // 15 seconds (longer in raids)
     }

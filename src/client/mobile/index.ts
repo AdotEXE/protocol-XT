@@ -9,5 +9,5 @@ export { default as FloatingJoystick, DEFAULT_FLOATING_JOYSTICK_CONFIG } from '.
 export { default as AimZoomButton, DEFAULT_AIM_ZOOM_CONFIG } from './AimZoomButton';
 export { default as MobileHUD, DEFAULT_MOBILE_HUD_CONFIG } from './MobileHUD';
 export { default as MobilePerformance, DEFAULT_MOBILE_PERFORMANCE } from './MobilePerformance';
-export { default as MobileControlsManager } from './MobileControlsManager';
+export { default as MobileControlsManager, type MobileInputState } from './MobileControlsManager';
 

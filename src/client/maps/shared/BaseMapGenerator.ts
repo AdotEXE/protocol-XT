@@ -51,22 +51,22 @@ interface PendingCollider {
 export abstract class BaseMapGenerator implements IMapGenerator {
     /** Идентификатор типа карты */
     abstract readonly mapType: string;
-    
+
     /** Отображаемое название карты */
     abstract readonly displayName: string;
-    
+
     /** Описание карты */
     abstract readonly description: string;
-    
+
     /** Контекст генерации с доступом к общим ресурсам */
     protected generationContext: GenerationContext | null = null;
-    
+
     // ОПТИМИЗАЦИЯ: Mesh merging - сбор мешей для последующего объединения
     /** Меши для объединения, сгруппированные по материалу */
     protected pendingMeshes: Map<string, Mesh[]> = new Map();
     /** Информация о коллайдерах для создания после объединения */
     protected pendingColliders: PendingCollider[] = [];
-    
+
     /**
      * Инициализирует генератор с контекстом
      * @param context - Контекст генерации с общими ресурсами
@@ -74,7 +74,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     initialize(context: GenerationContext): void {
         this.generationContext = context;
     }
-    
+
     /**
      * Получить сцену
      */
@@ -84,7 +84,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         }
         return this.generationContext.scene;
     }
-    
+
     /**
      * Проверить, доступна ли физика в сцене
      */
@@ -101,7 +101,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         // По умолчанию считаем, что если physicsEnabled = true, то физика доступна
         return true;
     }
-    
+
     /**
      * Получить материал по имени
      * @param name - Имя материала
@@ -112,7 +112,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         }
         return this.generationContext.getMat(name);
     }
-    
+
     /**
      * Проверить, находится ли позиция в зоне гаража
      * @param x - Мировая X координата
@@ -123,7 +123,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         if (!this.generationContext) return false;
         return this.generationContext.isPositionInGarageArea(x, z, margin);
     }
-    
+
     /**
      * Проверить, находится ли позиция рядом с дорогой
      * @param x - Мировая X координата
@@ -134,7 +134,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         if (!this.generationContext) return false;
         return this.generationContext.isPositionNearRoad(x, z, distance);
     }
-    
+
     /**
      * Проверить, попадает ли элемент в текущий чанк
      * @param worldX - Мировая X координата элемента
@@ -153,16 +153,16 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         const chunkMaxX = chunkWorldX + size;
         const chunkMinZ = chunkWorldZ;
         const chunkMaxZ = chunkWorldZ + size;
-        
+
         const elementMinX = worldX - elementSize;
         const elementMaxX = worldX + elementSize;
         const elementMinZ = worldZ - elementSize;
         const elementMaxZ = worldZ + elementSize;
-        
+
         return !(chunkMaxX < elementMinX || chunkMinX > elementMaxX ||
-                 chunkMaxZ < elementMinZ || chunkMinZ > elementMaxZ);
+            chunkMaxZ < elementMinZ || chunkMinZ > elementMaxZ);
     }
-    
+
     /**
      * Получить детерминированный SeededRandom на основе world координат
      * Используется для создания одинаковых элементов в разных чанках
@@ -174,7 +174,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         const seed = Math.floor(worldX * 1000 + worldZ * 100 + baseSeed);
         return new SeededRandom(seed);
     }
-    
+
     /**
      * Универсальный метод для детерминированной генерации элементов на сетке
      * @param context - Контекст генерации чанка
@@ -197,25 +197,25 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         const chunkMaxX = worldX + size;
         const chunkMinZ = worldZ;
         const chunkMaxZ = worldZ + size;
-        
+
         const startGridX = Math.floor(chunkMinX / spacing) * spacing;
         const startGridZ = Math.floor(chunkMinZ / spacing) * spacing;
-        
+
         for (let gridX = startGridX; gridX < chunkMaxX + spacing; gridX += spacing) {
             for (let gridZ = startGridZ; gridZ < chunkMaxZ + spacing; gridZ += spacing) {
                 if (!this.isElementInChunk(gridX, gridZ, elementSize / 2, context)) continue;
-                
+
                 const localRandom = this.getDeterministicRandom(gridX, gridZ, baseSeed);
                 if (!localRandom.chance(density)) continue;
-                
+
                 const localX = gridX - worldX;
                 const localZ = gridZ - worldZ;
-                
+
                 callback(gridX, gridZ, localRandom, localX, localZ);
             }
         }
     }
-    
+
     /**
      * Получить высоту рельефа в точке
      * @param x - Мировая X координата
@@ -226,7 +226,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         if (!this.generationContext) return 0;
         return this.generationContext.getTerrainHeight(x, z, biome);
     }
-    
+
     /**
      * Создать простой бокс с физикой
      * @param name - Имя меша
@@ -248,18 +248,18 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     ): Mesh {
         const box = MeshBuilder.CreateBox(name, options, this.scene);
         box.position = position;
-        
+
         const matName = typeof material === "string" ? material : material.name;
         box.material = typeof material === "string" ? this.getMat(material) : material;
         box.parent = parent;
-        
+
         if (deferMerge) {
             // ОПТИМИЗАЦИЯ: Собираем меши для последующего объединения
             if (!this.pendingMeshes.has(matName)) {
                 this.pendingMeshes.set(matName, []);
             }
             this.pendingMeshes.get(matName)!.push(box);
-            
+
             // Сохраняем информацию о коллайдере для создания после merge
             if (addPhysics) {
                 this.pendingColliders.push({
@@ -281,10 +281,10 @@ export abstract class BaseMapGenerator implements IMapGenerator {
             }
             box.freezeWorldMatrix();
         }
-        
+
         return box;
     }
-    
+
     /**
      * Создать цилиндр с физикой
      */
@@ -300,7 +300,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         cylinder.position = position;
         cylinder.material = typeof material === "string" ? this.getMat(material) : material;
         cylinder.parent = parent;
-        
+
         if (addPhysics && this.hasPhysics()) {
             try {
                 new PhysicsAggregate(cylinder, PhysicsShapeType.CYLINDER, { mass: 0, friction: 0.5 }, this.scene);
@@ -308,11 +308,11 @@ export abstract class BaseMapGenerator implements IMapGenerator {
                 console.warn("[BaseMapGenerator] Failed to create physics for cylinder:", error);
             }
         }
-        
+
         cylinder.freezeWorldMatrix();
         return cylinder;
     }
-    
+
     /**
      * Создать сферу
      */
@@ -328,7 +328,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         sphere.position = position;
         sphere.material = typeof material === "string" ? this.getMat(material) : material;
         sphere.parent = parent;
-        
+
         if (addPhysics && this.hasPhysics()) {
             try {
                 new PhysicsAggregate(sphere, PhysicsShapeType.SPHERE, { mass: 0, friction: 0.5 }, this.scene);
@@ -336,11 +336,11 @@ export abstract class BaseMapGenerator implements IMapGenerator {
                 console.warn("[BaseMapGenerator] Failed to create physics for sphere:", error);
             }
         }
-        
+
         sphere.freezeWorldMatrix();
         return sphere;
     }
-    
+
     /**
      * Создать плоскость (ground)
      * @param addPhysics - Добавить физику для коллизии (по умолчанию true)
@@ -358,7 +358,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         ground.material = typeof material === "string" ? this.getMat(material) : material;
         ground.parent = parent;
         ground.freezeWorldMatrix();
-        
+
         if (addPhysics && this.hasPhysics()) {
             try {
                 new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
@@ -366,10 +366,10 @@ export abstract class BaseMapGenerator implements IMapGenerator {
                 console.warn("[BaseMapGenerator] Failed to create physics for ground:", error);
             }
         }
-        
+
         return ground;
     }
-    
+
     /**
      * ОПТИМИЗАЦИЯ: Объединить накопленные меши в один меш на материал
      * Вызывать в конце generateContent() для уменьшения draw calls
@@ -379,13 +379,13 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         // Объединяем меши по материалам
         for (const [matName, meshes] of this.pendingMeshes) {
             if (meshes.length === 0) continue;
-            
+
             if (meshes.length === 1) {
                 // Один меш - просто замораживаем
-                meshes[0].freezeWorldMatrix();
+                meshes[0]!.freezeWorldMatrix();
                 continue;
             }
-            
+
             // Объединяем все меши с одинаковым материалом
             try {
                 const merged = Mesh.MergeMeshes(
@@ -396,7 +396,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
                     false, // subdivideWithSubMeshes
                     true   // multiMultiMaterials
                 );
-                
+
                 if (merged) {
                     merged.name = `merged_${matName}`;
                     merged.parent = parent;
@@ -413,10 +413,10 @@ export abstract class BaseMapGenerator implements IMapGenerator {
                 }
             }
         }
-        
+
         // Создаём невидимые коллайдеры для физики
         for (let i = 0; i < this.pendingColliders.length; i++) {
-            const col = this.pendingColliders[i];
+            const col = this.pendingColliders[i]!;
             const collider = MeshBuilder.CreateBox(`collider_${i}`, {
                 width: col.width,
                 height: col.height,
@@ -434,12 +434,12 @@ export abstract class BaseMapGenerator implements IMapGenerator {
                 }
             }
         }
-        
+
         // Очищаем списки
         this.pendingMeshes.clear();
         this.pendingColliders = [];
     }
-    
+
     /**
      * Создать материал с заданным цветом
      */
@@ -452,7 +452,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         mat.freeze();
         return mat;
     }
-    
+
     /**
      * Генерировать случайные позиции с минимальным расстоянием между объектами
      * @param count - Количество позиций
@@ -477,20 +477,20 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         const positions: Array<{ x: number; z: number }> = [];
         const maxAttempts = count * 10;
         let attempts = 0;
-        
+
         while (positions.length < count && attempts < maxAttempts) {
             attempts++;
             const x = random.range(margin, size - margin);
             const z = random.range(margin, size - margin);
-            
+
             // Check world position for garage
             const worldX = chunkX * chunkSize + x;
             const worldZ = chunkZ * chunkSize + z;
-            
+
             if (this.isPositionInGarageArea(worldX, worldZ, minDistance)) {
                 continue;
             }
-            
+
             // Check distance from other positions
             let tooClose = false;
             for (const pos of positions) {
@@ -501,15 +501,15 @@ export abstract class BaseMapGenerator implements IMapGenerator {
                     break;
                 }
             }
-            
+
             if (!tooClose) {
                 positions.push({ x, z });
             }
         }
-        
+
         return positions;
     }
-    
+
     /**
      * УЛУЧШЕНО: Создать группу объектов с вариациями размера и позиции
      * @param count - Количество объектов
@@ -534,7 +534,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
             context.chunkZ,
             context.size
         );
-        
+
         for (const pos of positions) {
             const worldPos = new Vector3(
                 pos.x - context.size / 2,
@@ -543,10 +543,10 @@ export abstract class BaseMapGenerator implements IMapGenerator {
             );
             objects.push(createFn(worldPos, context.random));
         }
-        
+
         return objects;
     }
-    
+
     /**
      * УЛУЧШЕНО: Создать объект с случайным поворотом
      * @param mesh - Меш для поворота
@@ -561,7 +561,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
             mesh.rotation.y = random.pick(angles);
         }
     }
-    
+
     /**
      * УЛУЧШЕНО: Создать объект с вариацией размера
      * @param baseSize - Базовый размер
@@ -571,7 +571,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     protected getVariedSize(baseSize: number, variation: number, random: SeededRandom): number {
         return baseSize * (1 + random.range(-variation, variation));
     }
-    
+
     /**
      * УЛУЧШЕНО: Проверить, можно ли разместить объект в позиции
      * @param x - Мировая X координата
@@ -587,7 +587,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         }
         return true;
     }
-    
+
     /**
      * УЛУЧШЕНО: Создать материал с вариацией цвета
      * @param baseColor - Базовый цвет
@@ -605,7 +605,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         const b = Math.max(0, Math.min(1, baseColor.b + random.range(-variation, variation)));
         return this.createMaterial(name, new Color3(r, g, b));
     }
-    
+
     /**
      * УЛУЧШЕНО: Создать LOD группу объектов (разные уровни детализации)
      * @param nearObjects - Объекты для близкого расстояния
@@ -619,7 +619,7 @@ export abstract class BaseMapGenerator implements IMapGenerator {
     ): { near: Mesh[]; far: Mesh[]; distance: number } {
         return { near: nearObjects, far: farObjects, distance };
     }
-    
+
     /**
      * Основной метод генерации контента чанка
      * Должен быть реализован в конкретных генераторах

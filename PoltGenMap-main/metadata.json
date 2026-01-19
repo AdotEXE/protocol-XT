@@ -1,0 +1,5 @@
+{
+  "name": "GeoPolyMap",
+  "description": "A technical demonstration of geospatial low-poly game world generation using Babylon.js patterns, Havok physics principles, and Gemini AI for procedural seeding.",
+  "requestFramePermissions": []
+}

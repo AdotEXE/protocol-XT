@@ -30,14 +30,14 @@ export class TUILogger {
     private recentEventsBox: blessed.Widgets.List;
     private aggregatedLogsBox: blessed.Widgets.List;
     private grid: contrib.grid;
-    
+
     private logEntries: LogEntry[] = [];
     private aggregatedLogs: Map<string, AggregatedLog> = new Map();
     private recentEvents: string[] = [];
     private maxLogEntries = 100;
     private maxRecentEvents = 20;
     private maxAggregatedLogs = 15;
-    
+
     private stats: {
         players: number;
         rooms: number;
@@ -46,14 +46,14 @@ export class TUILogger {
         errors: number;
         warnings: number;
     } = {
-        players: 0,
-        rooms: 0,
-        uptime: '0s',
-        messagesPerSecond: 0,
-        errors: 0,
-        warnings: 0
-    };
-    
+            players: 0,
+            rooms: 0,
+            uptime: '0s',
+            messagesPerSecond: 0,
+            errors: 0,
+            warnings: 0
+        };
+
     private startTime: number = Date.now();
     private messageCount: number = 0;
     private lastMessageCount: number = 0;
@@ -178,7 +178,7 @@ export class TUILogger {
      */
     setGameServer(server: GameServer): void {
         this.gameServer = server;
-        
+
         // Обновляем статистику каждую секунду
         this.statsUpdateInterval = setInterval(() => {
             this.updateStats();
@@ -216,7 +216,7 @@ export class TUILogger {
      */
     private updateStats(): void {
         if (this.gameServer) {
-            const serverStats = this.gameServer.getStats();
+            const serverStats = this.gameServer.getStats() as any;
             this.stats.players = serverStats.players || 0;
             this.stats.rooms = serverStats.rooms || 0;
         }
@@ -269,11 +269,11 @@ export class TUILogger {
                     .replace(/\[Server\]/g, '')
                     .replace(/\s+/g, ' ')
                     .trim();
-                
+
                 if (message.length > 40) {
                     message = message.substring(0, 37) + '...';
                 }
-                
+
                 return `${time} ${icon}${countStr} ${message}`;
             });
 
@@ -286,20 +286,20 @@ export class TUILogger {
     private addRecentEvent(message: string, level: 'log' | 'error' | 'warn'): void {
         const icon = level === 'error' ? '[ERR]' : level === 'warn' ? '[WRN]' : '[OK]';
         const time = this.formatTime();
-        
+
         // Очищаем сообщение от лишних символов
         let cleanMessage = message
             .replace(/\[Server\]/g, '')
             .replace(/\s+/g, ' ')
             .trim();
-        
+
         // Обрезаем длинные сообщения
         if (cleanMessage.length > 60) {
             cleanMessage = cleanMessage.substring(0, 57) + '...';
         }
-        
+
         const event = `${time} ${icon} ${cleanMessage}`;
-        
+
         this.recentEvents.unshift(event);
         if (this.recentEvents.length > this.maxRecentEvents) {
             this.recentEvents.pop();
@@ -314,7 +314,7 @@ export class TUILogger {
     private aggregateLog(message: string, level: 'log' | 'error' | 'warn'): void {
         const key = `${level}:${message}`;
         const existing = this.aggregatedLogs.get(key);
-        
+
         if (existing) {
             existing.count++;
             existing.lastSeen = new Date();
@@ -343,7 +343,7 @@ export class TUILogger {
      */
     private logMessage(level: 'log' | 'error' | 'warn', ...args: any[]): void {
         this.messageCount++;
-        
+
         // Формируем строку сообщения
         const messageStr = args.map(arg => {
             if (typeof arg === 'object') {
@@ -355,10 +355,10 @@ export class TUILogger {
             }
             return String(arg);
         }).join(' ')
-        // Очищаем от лишних символов blessed
-        .replace(/\{[^}]*\}/g, '') // Убираем все теги вида {xxx}
-        .replace(/\s+/g, ' ') // Множественные пробелы в один
-        .trim();
+            // Очищаем от лишних символов blessed
+            .replace(/\{[^}]*\}/g, '') // Убираем все теги вида {xxx}
+            .replace(/\s+/g, ' ') // Множественные пробелы в один
+            .trim();
 
         // Обновляем счетчики
         if (level === 'error') this.stats.errors++;
@@ -368,20 +368,20 @@ export class TUILogger {
         this.aggregateLog(messageStr, level);
 
         // Добавляем в детальные логи (только важные или первые)
-        const shouldShowDetail = level === 'error' || level === 'warn' || 
+        const shouldShowDetail = level === 'error' || level === 'warn' ||
             !this.aggregatedLogs.has(`${level}:${messageStr}`) ||
             this.aggregatedLogs.get(`${level}:${messageStr}`)?.count === 1;
 
         if (shouldShowDetail) {
             const timestamp = this.formatTime();
             const levelTag = level === 'error' ? '[ERR]' : level === 'warn' ? '[WRN]' : '[INF]';
-            
+
             // Очищаем сообщение от лишних символов
             let cleanMessage = messageStr
                 .replace(/\[Server\]/g, '')
                 .replace(/\s+/g, ' ')
                 .trim();
-            
+
             // Используем цвета для разных уровней
             if (level === 'error') {
                 this.logBox.log(`{red-fg}${timestamp} ${levelTag}{/} ${cleanMessage}`);

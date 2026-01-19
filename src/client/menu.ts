@@ -5,6 +5,8 @@
 // Импорты для скил-дерева перенесены в menu/skillTreeUI.ts
 import { createSkillsPanelHTML, updateSkillTreeDisplay, saveSkillTreeCameraPosition, type PlayerStats, type SkillTreeCallbacks } from "./menu/skillTreeUI";
 import { Scene, Engine } from "@babylonjs/core";
+import { VoxelEditor } from "./voxelEditor/VoxelEditor";
+import { VoxelEditor } from "./voxelEditor/VoxelEditor"; // Integrated Voxel Editor
 // Garage is lazy loaded - imported dynamically when needed
 import { CurrencyManager } from "./currencyManager";
 import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
@@ -12,6 +14,8 @@ import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
 import { authUI } from "./menu/authUI";
 import { firebaseService } from "./firebaseService";
 import { PlayerProgressionSystem, PLAYER_ACHIEVEMENTS, PLAYER_TITLES, getLevelBonuses, MAX_PLAYER_LEVEL, PLAYER_LEVEL_EXP, type PlayerAchievement, type DailyQuest } from "./playerProgression";
+import { initCustomMapBridge, type TXMapData, loadCustomMap, getCustomMapsList, getCustomMapData, deleteCustomMap } from "./maps/custom";
+import { ALL_MAPS, type MapId } from "./maps";
 
 // Version tracking
 // Версия генерируется во время сборки и одинакова для всех пользователей
@@ -71,7 +75,7 @@ const debugError = (...args: any[]) => {
 // Импорт функций настроек
 import {
     loadSettings as loadSettingsModule,
-    saveSettingsFromUI as saveSettingsFromUIModule,
+
     saveSettings as saveSettingsModule,
     DEFAULT_SETTINGS,
     type GameSettings
@@ -85,269 +89,9 @@ export { DEFAULT_SETTINGS } from "./menu/settings";
 // Старая реализация удалена, используется модульная версия
 
 // === LANGUAGE STRINGS ===
-const LANG = {
-    ru: {
-        play: "ИГРАТЬ",
-        quickStart: "БЫСТРЫЙ СТАРТ",
-        selectMap: "ВЫБОР КАРТЫ",
-        garage: "ГАРАЖ",
-        stats: "СТАТИСТИКА",
-        skills: "НАВЫКИ",
-        options: "НАСТРОЙКИ",
-        controls: "УПРАВЛЕНИЕ",
-        version: "Версия",
-        tankCombat: "ТАНКОВЫЙ СИМУЛЯТОР",
-        mapSelection: "ВЫБОР КАРТЫ",
-        normalMap: "Эта самая карта",
-        normalMapDesc: "Полностью случайная генерация с разнообразными биомами, дорогами и природой",
-        sandboxMap: "Песочница",
-        sandboxMapDesc: "Чистая плоская поверхность для тестирования",
-        sandMap: "Песок",
-        sandMapDesc: "Компактная двухуровневая арена в стиле Песочницы",
-        madnessMap: "Безумие",
-        madnessMapDesc: "Многоуровневая арена с мостиками, рампами и переходами",
-        expoMap: "Экспо",
-        expoMapDesc: "Киберспортивная арена среднего размера с множеством уровней",
-        brestMap: "Брест",
-        brestMapDesc: "Симметричная арена с крепостью в центре и базами по углам",
-        arenaMap: "Арена",
-        arenaMapDesc: "Киберспортивная арена с симметричной структурой и множеством тактических позиций",
-        polygonMap: "Полигон",
-        polygonMapDesc: "Военный полигон с ангарами, техникой, складами, кранами и вышками",
-        frontlineMap: "Передовая",
-        frontlineMapDesc: "Разрушенная линия фронта с кратерами, окопами и укреплениями",
-        ruinsMap: "Руины",
-        ruinsMapDesc: "Полуразрушенный город военного времени с обрушенными зданиями",
-        canyonMap: "Ущелье",
-        canyonMapDesc: "Горная местность с проходами, реками, озёрами, лесами и деревнями",
-        industrialMap: "Промзона",
-        industrialMapDesc: "Крупная промышленная зона с заводами, портом и ж/д терминалом",
-        urbanWarfareMap: "Городские бои",
-        urbanWarfareMapDesc: "Плотная городская застройка с баррикадами и укреплениями",
-        undergroundMap: "Подземелье",
-        undergroundMapDesc: "Система пещер, шахт и туннелей под землёй",
-        coastalMap: "Побережье",
-        coastalMapDesc: "Береговая линия с портом, маяками, пляжами и утёсами",
-        tartariaMap: "Тартария",
-        tartariaMapDesc: "Город Тарту на основе реальных данных высот (27-82м)",
-        // Controls
-        movement: "Движение",
-        combat: "Бой",
-        interface: "Интерфейс",
-        camera: "Камера",
-        comms: "Связь",
-        moveTank: "Движение",
-        rotateTurret: "Башня",
-        turretLR: "Башня Л/П",
-        fire: "Огонь",
-        aimMode: "Прицел",
-        useConsumables: "Расходники",
-        zoom: "Зум",
-        generalChat: "Общий чат",
-        teamChat: "Командный чат",
-        voicePTT: "Голосовой чат (PTT)",
-        voiceToggle: "Вкл/Выкл голосовой связи",
-        voiceMenu: "Меню/индикатор голоса",
-        tracerHotkey: "Трассер",
-        admin: "Админ",
-        adminTools: "Админ-инструменты",
-        adminCheatPanel: "Окно контроля читов",
-        adminF2: "Настройки скриншота (Ctrl+2)",
-        adminF3: "Dev Dashboard (Ctrl+3)",
-        adminF4: "Dev Console (Ctrl+4)",
-        adminF6: "Настройки физики (Ctrl+6)",
-        adminF7: "Меню читов (Ctrl+7)",
-        openCheatMenu: "Открыть меню читов",
-        garageKey: "Гараж",
-        map: "Карта",
-        statsKey: "Статистика",
-        pauseMenu: "Пауза / Меню",
-        freeLook: "Свободный обзор",
-        center: "Центрировать",
-        barrelPitch: "Наклон ствола",
-        barrelUp: "Поднять ствол",
-        barrelDown: "Опустить ствол",
-        cameraTilt: "Наклон камеры",
-        aimKey: "Прицеливание",
-        gameCursor: "Игровой курсор",
-        garageMenu: "Меню гаража",
-        missions: "Панель миссий",
-        consumables6to9: "Расходники 6-9",
-        adminF2Key: "F2",
-        adminF3Key: "F3",
-        adminF4Key: "F4",
-        adminF5Key: "F5",
-        adminF6Key: "F6",
-        adminF7Key: "F7",
-        // Settings
-        sound: "Звук",
-        music: "Музыка",
-        graphics: "Графика",
-        language: "Язык",
-        enemyDifficulty: "Сложность ботов",
-        diffEasy: "ЛЕГКО",
-        diffMedium: "СРЕДНЕ",
-        diffHard: "СЛОЖНО",
-        worldSeed: "Сид карты",
-        randomSeed: "Случайный сид",
-        copySeed: "Копировать",
-        seedCopied: "Сид скопирован!",
-        fullscreen: "Полный экран",
-        exitFullscreen: "Выйти из полноэкранного",
-        close: "ЗАКРЫТЬ",
-        apply: "ПРИМЕНИТЬ",
-        reset: "СБРОС",
-        // Stats
-        kills: "Убийств",
-        deaths: "Смертей",
-        playtime: "Время игры",
-        credits: "Кредиты",
-        // Garage
-        chassis: "КОРПУСА",
-        cannons: "ОРУДИЯ",
-        upgrades: "УЛУЧШЕНИЯ",
-        locked: "ЗАБЛОКИРОВАНО",
-        owned: "КУПЛЕНО",
-        buy: "КУПИТЬ",
-        select: "ВЫБРАТЬ",
-        maxLevel: "МАКС",
-        upgrade: "УЛУЧШИТЬ",
-        notEnoughCredits: "Недостаточно кредитов!"
-    },
-    en: {
-        play: "PLAY",
-        quickStart: "QUICK START",
-        selectMap: "SELECT MAP",
-        garage: "GARAGE",
-        stats: "STATS",
-        skills: "SKILLS",
-        options: "OPTIONS",
-        controls: "CONTROLS",
-        version: "Version",
-        tankCombat: "TANK SIMULATOR",
-        mapSelection: "MAP SELECTION",
-        normalMap: "Normal Map",
-        normalMapDesc: "Fully random generation with diverse biomes, roads and nature",
-        sandboxMap: "Sandbox",
-        sandboxMapDesc: "Clean flat surface for testing",
-        sandMap: "Sand",
-        sandMapDesc: "Compact two-level arena in Sandbox style",
-        madnessMap: "Madness",
-        madnessMapDesc: "Multi-level arena with bridges, ramps and passages",
-        expoMap: "Expo",
-        expoMapDesc: "Medium-sized esports arena with multiple levels",
-        brestMap: "Brest",
-        brestMapDesc: "Symmetric arena with fortress in center and corner bases",
-        arenaMap: "Arena",
-        arenaMapDesc: "Esports arena with symmetric structure and multiple tactical positions",
-        polygonMap: "Training Ground",
-        polygonMapDesc: "Military training ground with hangars, vehicles, warehouses, cranes and watchtowers",
-        frontlineMap: "Frontline",
-        frontlineMapDesc: "Destroyed frontline with craters, trenches and fortifications",
-        ruinsMap: "Ruins",
-        ruinsMapDesc: "Half-destroyed war-torn city with collapsed buildings",
-        canyonMap: "Canyon",
-        canyonMapDesc: "Mountainous terrain with passes, rivers, lakes, forests and villages",
-        industrialMap: "Industrial Zone",
-        industrialMapDesc: "Large industrial area with factories, port and railway terminal",
-        urbanWarfareMap: "Urban Warfare",
-        urbanWarfareMapDesc: "Dense urban environment with barricades and fortifications",
-        undergroundMap: "Underground",
-        undergroundMapDesc: "Cave system, mines and tunnels underground",
-        coastalMap: "Coastal",
-        coastalMapDesc: "Coastline with port, lighthouses, beaches and cliffs",
-        tartariaMap: "Tartaria",
-        tartariaMapDesc: "City of Tartu based on real elevation data (27-82m)",
-        // Controls
-        movement: "Movement",
-        combat: "Combat",
-        interface: "Interface",
-        camera: "Camera",
-        comms: "Comms",
-        moveTank: "Move tank",
-        rotateTurret: "Rotate turret",
-        turretLR: "Turret L/R",
-        fire: "Fire",
-        aimMode: "Aim mode",
-        useConsumables: "Use consumables",
-        zoom: "Zoom (aim)",
-        generalChat: "General chat",
-        teamChat: "Team chat",
-        voicePTT: "Voice chat (PTT)",
-        voiceToggle: "Voice toggle on/off",
-        voiceMenu: "Voice menu/indicator",
-        tracerHotkey: "Tracer",
-        admin: "Admin",
-        adminTools: "Admin tools",
-        adminCheatPanel: "Cheat control window",
-        adminF2: "Screenshot settings (Ctrl+2)",
-        adminF3: "Dev Dashboard (Ctrl+3)",
-        adminF4: "Dev Console (Ctrl+4)",
-        adminF6: "Physics settings (Ctrl+6)",
-        adminF7: "Cheat menu (Ctrl+7)",
-        openCheatMenu: "Open cheat menu",
-        garageKey: "Garage",
-        map: "Map",
-        statsKey: "Stats",
-        pauseMenu: "Pause / Menu",
-        freeLook: "Free look",
-        center: "Center",
-        barrelPitch: "Barrel Pitch",
-        barrelUp: "Raise Barrel",
-        barrelDown: "Lower Barrel",
-        cameraTilt: "Camera Tilt",
-        aimKey: "Aiming",
-        gameCursor: "Game Cursor",
-        garageMenu: "Garage Menu",
-        missions: "Missions Panel",
-        consumables6to9: "Consumables 6-9",
-        adminF2Key: "F2",
-        adminF3Key: "F3",
-        adminF4Key: "F4",
-        adminF5Key: "F5",
-        adminF6Key: "F6",
-        adminF7Key: "F7",
-        // Settings
-        sound: "Sound",
-        music: "Music",
-        graphics: "Graphics",
-        language: "Language",
-        enemyDifficulty: "Bot Difficulty",
-        diffEasy: "EASY",
-        diffMedium: "MEDIUM",
-        diffHard: "HARD",
-        worldSeed: "World Seed",
-        randomSeed: "Random Seed",
-        copySeed: "Copy",
-        seedCopied: "Seed copied!",
-        fullscreen: "Fullscreen",
-        exitFullscreen: "Exit Fullscreen",
-        close: "CLOSE",
-        apply: "APPLY",
-        reset: "RESET",
-        // Stats
-        kills: "Kills",
-        deaths: "Deaths",
-        playtime: "Playtime",
-        credits: "Credits",
-        // Garage
-        chassis: "CHASSIS",
-        cannons: "CANNONS",
-        upgrades: "UPGRADES",
-        locked: "LOCKED",
-        owned: "OWNED",
-        buy: "BUY",
-        select: "SELECT",
-        maxLevel: "MAX",
-        upgrade: "UPGRADE",
-        notEnoughCredits: "Not enough credits!"
-    }
-};
+import { LANG, getLang } from "./localization";
+import { SettingsPanel } from "./settingsPanel";
 
-// Get current language strings
-function getLang(settings: GameSettings): typeof LANG.ru {
-    return LANG[settings.language as keyof typeof LANG] || LANG.ru;
-}
 
 export interface TankConfig {
     color: string;
@@ -397,7 +141,11 @@ export class MainMenu {
     private garageScene: Scene | null = null; // Minimal scene for garage (if created in menu)
     private garageCurrencyManager: CurrencyManager | null = null; // Currency manager for garage
     private returnToPlayMenuAfterGarage = false;
-    private standaloneMapEditor: any | null = null; // StandaloneMapEditor instance (lazy loaded when needed)
+
+    private voxelEditor: VoxelEditor | null = null;
+    private editorContainer: HTMLElement | null = null;
+    private expandEditorBtn: HTMLButtonElement | null = null;
+
 
     private canvasObserver: MutationObserver | null = null;
     private canvasPointerEventsCheckInterval: number | null = null;
@@ -419,6 +167,7 @@ export class MainMenu {
     private allLobbyPlayers: any[] = []; // Все игроки для фильтрации
     private filteredLobbyPlayers: any[] = []; // Отфильтрованные игроки
     private friendsList: Set<string> = new Set(); // Список ID друзей
+    private settingsPanelComponent: SettingsPanel | null = null;
 
     // Throttling для логирования updateRoomList
     private _lastRoomListLogTime: number = 0;
@@ -439,6 +188,35 @@ export class MainMenu {
 
         // Загружаем список друзей
         this.loadFriendsList();
+
+        // Initialize Custom Map Bridge for interaction with Map Editor
+        // Initialize Custom Map Bridge for interaction with Map Editor
+        initCustomMapBridge((mapData, autoPlay) => {
+            logger.info("Main", `Loaded custom map from editor: ${mapData.name}`);
+
+            // Show notification
+            const notification = document.createElement('div');
+            notification.className = 'menu-notification';
+            notification.textContent = `Map Loaded: ${mapData.name}${autoPlay ? ' (Starting test...)' : ''}`;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 5000);
+
+            // Auto-select custom map
+            this.selectedMapType = 'custom';
+            this.updateCustomMapsUI();
+
+            if (autoPlay) {
+                logger.info("Main", "Auto-playing custom map");
+
+                // Collapse editor if it's open (Test Mode)
+                if (this.editorContainer) {
+                    this.collapseMapEditor();
+                }
+
+                // Small delay to ensure UI updates finish
+                setTimeout(() => this.onStartGame('custom'), 100);
+            }
+        });
 
         // ИСПРАВЛЕНО: Создаём PlayerProgressionSystem сразу при создании меню
         // чтобы данные аккаунта были доступны немедленно
@@ -924,12 +702,9 @@ export class MainMenu {
                             <span class="btn-icon">🗺</span>
                             <span class="btn-label">РЕДАКТОР КАРТ</span>
                         </button>
-                        <button class="menu-btn secondary under-construction-btn" id="btn-tank-editor">
+                        <button class="menu-btn secondary" id="btn-tank-editor">
                             <span class="btn-icon">🔧</span>
-                            <span class="btn-label">РЕДАКТОР ТАНКОВ</span>
-                            <div class="under-construction-overlay">
-                                <span class="under-construction-text">UNDER CONSTRUCTION</span>
-                            </div>
+                            <span class="btn-label">МАСТЕРСКАЯ ТАНКОВ</span>
                         </button>
                     </div>
                     <button class="menu-btn fullscreen-btn" id="btn-fullscreen">
@@ -4609,6 +4384,106 @@ export class MainMenu {
         this.setupLobbyCallbacks();
     }
 
+
+    private openTankEditor(): void {
+        console.log("[Menu] Opening PolyGenStudio Tank Workshop...");
+
+        // Hide menu
+        this.container.classList.add("hidden");
+
+        // Stop canvas protection temporarily
+        if (this.canvasPointerEventsCheckInterval !== null) {
+            clearInterval(this.canvasPointerEventsCheckInterval);
+        }
+        const gameCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+        if (gameCanvas) {
+            gameCanvas.style.display = 'none';
+        }
+
+        // Create container for PolyGenStudio
+        const editorContainer = document.createElement("div");
+        editorContainer.id = "polygen-editor-container";
+        editorContainer.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10000;
+            background-color: #000;
+        `;
+
+        // Create close button
+        const closeButton = document.createElement("button");
+        closeButton.id = "polygen-close-btn";
+        closeButton.innerHTML = "✕ ЗАКРЫТЬ";
+        closeButton.style.cssText = `
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 10001;
+            padding: 10px 20px;
+            background: linear-gradient(180deg, #400, #200);
+            border: 2px solid #f00;
+            color: #f00;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(255,0,0,0.5);
+            transition: all 0.3s ease;
+        `;
+        closeButton.onmouseenter = () => {
+            closeButton.style.background = "linear-gradient(180deg, #600, #400)";
+            closeButton.style.boxShadow = "0 0 20px rgba(255,0,0,0.8)";
+        };
+        closeButton.onmouseleave = () => {
+            closeButton.style.background = "linear-gradient(180deg, #400, #200)";
+            closeButton.style.boxShadow = "0 0 10px rgba(255,0,0,0.5)";
+        };
+
+        // Create iframe for PolyGenStudio
+        const iframe = document.createElement("iframe");
+        iframe.id = "polygen-iframe";
+        iframe.src = "http://127.0.0.1:3000/?mode=tank";
+        iframe.style.cssText = `
+            width: 100%;
+            height: 100%;
+            border: none;
+        `;
+        iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
+
+        editorContainer.appendChild(iframe);
+        document.body.appendChild(editorContainer);
+        document.body.appendChild(closeButton);
+
+        // Close handler
+        const closeEditor = () => {
+            console.log("[Menu] Closing PolyGenStudio Tank Workshop");
+            editorContainer.remove();
+            closeButton.remove();
+
+            // Show game canvas and menu
+            if (gameCanvas) {
+                gameCanvas.style.display = 'block';
+            }
+            this.container.classList.remove("hidden");
+
+            // Restore canvas protection
+            this.setupCanvasPointerEventsProtection();
+        };
+
+        closeButton.onclick = closeEditor;
+
+        // ESC key to close
+        const escHandler = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                closeEditor();
+                document.removeEventListener("keydown", escHandler);
+            }
+        };
+        document.addEventListener("keydown", escHandler);
+    }
+
     /**
      * Убеждаемся, что MultiplayerManager существует и подключен
      */
@@ -4671,7 +4546,11 @@ export class MainMenu {
                         });
                     }
                 },
-                { id: "btn-tank-editor", handler: () => this.openTankEditor() },
+                {
+                    id: "btn-tank-editor", handler: () => {
+                        this.openTankEditor();
+                    }
+                },
                 { id: "btn-settings", handler: () => this.showSettings() },
                 { id: "btn-fullscreen", handler: () => this.toggleFullscreen() },
                 { id: "btn-resume", handler: () => this.resumeGame() },
@@ -4716,8 +4595,8 @@ export class MainMenu {
                         canvas.style.setProperty("z-index", "0", "important");
                     }
 
-                    // Для кнопок авторизации и редактора карт используем и mousedown, и click для максимальной надежности
-                    if (id === "btn-login" || id === "btn-register" || id === "btn-map-editor") {
+                    // Для кнопок авторизации, редактора карт и танков используем и mousedown, и click для максимальной надежности
+                    if (id === "btn-login" || id === "btn-register" || id === "btn-map-editor" || id === "btn-tank-editor") {
                         // Обработчик mousedown - срабатывает первым
                         newBtn.addEventListener("mousedown", (e) => {
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
@@ -5158,623 +5037,31 @@ export class MainMenu {
         this.settingsPanel = document.createElement("div");
         this.settingsPanel.className = "panel-overlay";
         this.settingsPanel.id = "settings-panel";
-        const L = getLang(this.settings);
-        this.settingsPanel.innerHTML = `
-            <div class="panel-content">
-                <button class="panel-close" id="settings-close">✕</button>
-                <div class="panel-title">${L.options}</div>
 
-                <div class="settings-tabs" style="display: flex; gap: 5px; margin-bottom: 20px; border-bottom: 1px solid #444;">
-                    <button class="settings-tab active" data-tab="general">Общие</button>
-                    <button class="settings-tab" data-tab="graphics">Графика</button>
-                    <button class="settings-tab" data-tab="audio">Аудио</button>
-                    <button class="settings-tab" data-tab="controls">Управление</button>
-                    <button class="settings-tab" data-tab="gameplay">Игровой процесс</button>
-                    <button class="settings-tab" data-tab="camera">Камера</button>
-                    <button class="settings-tab" data-tab="network">Сеть</button>
-                    <button class="settings-tab" data-tab="accessibility">Доступность</button>
-                    <button class="settings-tab" data-tab="advanced">Дополнительно</button>
-                </div>
+        // Initialize SettingsPanel component (standalone mode)
+        this.settingsPanelComponent = new SettingsPanel(this.settings, false);
+        this.settingsPanelComponent.renderToContainer(this.settingsPanel);
 
-                <div id="settings-content">
-                    <!-- General Tab -->
-                    <div class="settings-tab-content active" data-content="general">
-                        <div class="setting-row">
-                            <span class="setting-label">${L.language}</span>
-                            <div class="setting-value lang-toggle">
-                                <button class="lang-btn ${this.settings.language === 'ru' ? 'active' : ''}" id="lang-ru">RU</button>
-                                <button class="lang-btn ${this.settings.language === 'en' ? 'active' : ''}" id="lang-en">EN</button>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">${L.enemyDifficulty}</span>
-                            <div class="setting-value difficulty-selector">
-                                <button class="diff-btn ${this.settings.enemyDifficulty === 'easy' ? 'active' : ''}" id="diff-easy" data-diff="easy">${L.diffEasy}</button>
-                                <button class="diff-btn ${this.settings.enemyDifficulty === 'medium' ? 'active' : ''}" id="diff-medium" data-diff="medium">${L.diffMedium}</button>
-                                <button class="diff-btn ${this.settings.enemyDifficulty === 'hard' ? 'active' : ''}" id="diff-hard" data-diff="hard">${L.diffHard}</button>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">${L.worldSeed}</span>
-                            <div class="setting-value seed-control">
-                                <input type="number" class="seed-input" id="set-seed" value="${this.settings.worldSeed}" ${this.settings.useRandomSeed ? 'disabled' : ''}>
-                                <button class="seed-btn" id="seed-copy" title="${L.copySeed}">📋</button>
-                                <button class="seed-btn" id="seed-random" title="${L.randomSeed}">🎲</button>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">${L.randomSeed}</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-random-seed" ${this.settings.useRandomSeed ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать FPS</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-fps" ${this.settings.showFPS ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать миникарту</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-minimap" ${this.settings.showMinimap ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать числа урона</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-damage-numbers" ${this.settings.showDamageNumbers ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                        <span class="setting-label">Показывать панель характеристик</span>
-                        <input type="checkbox" class="setting-checkbox" id="set-show-tank-stats-panel" ${this.settings.showTankStatsPanel ? 'checked' : ''}>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">Показывать системный терминал</span>
-                        <input type="checkbox" class="setting-checkbox" id="set-show-system-terminal" ${this.settings.showSystemTerminal ? 'checked' : ''}>
-                    </div>
-                    <div class="setting-row">
-                        <span class="setting-label">Помощь при прицеливании</span>
-                        <input type="checkbox" class="setting-checkbox" id="set-aim-assist" ${this.settings.aimAssist ? 'checked' : ''}>
-                    </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Размер интерфейса</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-ui-scale" min="50" max="150" step="5" value="${Math.round((this.settings.uiScale || 1) * 100)}">
-                                <span id="set-ui-scale-val">${Math.round((this.settings.uiScale || 1) * 100)}%</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Graphics Tab -->
-                    <div class="settings-tab-content" data-content="graphics">
-                        <div class="setting-row">
-                            <span class="setting-label">Качество графики</span>
-                            <div class="setting-value">
-                                <select class="setting-select" id="set-graphics">
-                                    <option value="0" ${this.settings.graphicsQuality === 0 ? 'selected' : ''}>Низкое</option>
-                                    <option value="1" ${this.settings.graphicsQuality === 1 ? 'selected' : ''}>Среднее</option>
-                                    <option value="2" ${this.settings.graphicsQuality === 2 ? 'selected' : ''}>Высокое</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Дальность прорисовки</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-render" min="1" max="5" value="${this.settings.renderDistance}">
-                                <span id="set-render-val">${this.settings.renderDistance}</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Качество частиц</span>
-                            <div class="setting-value">
-                                <select class="setting-select" id="set-particle-quality">
-                                    <option value="0" ${this.settings.particleQuality === 0 ? 'selected' : ''}>Низкое</option>
-                                    <option value="1" ${this.settings.particleQuality === 1 ? 'selected' : ''}>Среднее</option>
-                                    <option value="2" ${this.settings.particleQuality === 2 ? 'selected' : ''}>Высокое</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Качество теней</span>
-                            <div class="setting-value">
-                                <select class="setting-select" id="set-shadow-quality">
-                                    <option value="0" ${this.settings.shadowQuality === 0 ? 'selected' : ''}>Низкое</option>
-                                    <option value="1" ${this.settings.shadowQuality === 1 ? 'selected' : ''}>Среднее</option>
-                                    <option value="2" ${this.settings.shadowQuality === 2 ? 'selected' : ''}>Высокое</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Качество текстур</span>
-                            <div class="setting-value">
-                                <select class="setting-select" id="set-texture-quality">
-                                    <option value="0" ${this.settings.textureQuality === 0 ? 'selected' : ''}>Низкое</option>
-                                    <option value="1" ${this.settings.textureQuality === 1 ? 'selected' : ''}>Среднее</option>
-                                    <option value="2" ${this.settings.textureQuality === 2 ? 'selected' : ''}>Высокое</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Качество освещения</span>
-                            <div class="setting-value">
-                                <select class="setting-select" id="set-lighting-quality">
-                                    <option value="0" ${this.settings.lightingQuality === 0 ? 'selected' : ''}>Низкое</option>
-                                    <option value="1" ${this.settings.lightingQuality === 1 ? 'selected' : ''}>Среднее</option>
-                                    <option value="2" ${this.settings.lightingQuality === 2 ? 'selected' : ''}>Высокое</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Сглаживание (AA)</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-anti-aliasing" ${this.settings.antiAliasing ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Эффект свечения (Bloom)</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-bloom" ${this.settings.bloom ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Размытие движения</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-motion-blur" ${this.settings.motionBlur ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">VSync</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-vsync" ${this.settings.vsync ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Полноэкранный режим</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-fullscreen" ${this.settings.fullscreen ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Ограничение FPS</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-max-fps" min="0" max="240" step="30" value="${this.settings.maxFPS}">
-                                <span id="set-max-fps-val">${this.settings.maxFPS === 0 ? 'Без ограничений' : this.settings.maxFPS}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Audio Tab -->
-                    <div class="settings-tab-content" data-content="audio">
-                        <div class="setting-row">
-                            <span class="setting-label">Общая громкость</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-master-volume" min="0" max="100" value="${this.settings.masterVolume}">
-                                <span id="set-master-volume-val">${this.settings.masterVolume}%</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Громкость звуков</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-sound" min="0" max="100" value="${this.settings.soundVolume}">
-                                <span id="set-sound-val">${this.settings.soundVolume}%</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Громкость музыки</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-music" min="0" max="100" value="${this.settings.musicVolume}">
-                                <span id="set-music-val">${this.settings.musicVolume}%</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Громкость окружения</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-ambient-volume" min="0" max="100" value="${this.settings.ambientVolume}">
-                                <span id="set-ambient-volume-val">${this.settings.ambientVolume}%</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Громкость голоса</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-voice-volume" min="0" max="100" value="${this.settings.voiceVolume}">
-                                <span id="set-voice-volume-val">${this.settings.voiceVolume}%</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Отключить звук при потере фокуса</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-mute-on-focus-loss" ${this.settings.muteOnFocusLoss ? 'checked' : ''}>
-                        </div>
-                    </div>
-
-                    <!-- Controls Tab -->
-                    <div class="settings-tab-content" data-content="controls">
-                        <div class="setting-row">
-                            <span class="setting-label">Чувствительность мыши</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-mouse" min="1" max="10" value="${this.settings.mouseSensitivity}">
-                                <span id="set-mouse-val">${this.settings.mouseSensitivity}</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Инверсия мыши по Y</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-invert-mouse-y" ${this.settings.invertMouseY ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Раскладка клавиатуры</span>
-                            <div class="setting-value">
-                                <select class="setting-select" id="set-keyboard-layout">
-                                    <option value="qwerty" ${this.settings.keyboardLayout === 'qwerty' ? 'selected' : ''}>QWERTY</option>
-                                    <option value="azerty" ${this.settings.keyboardLayout === 'azerty' ? 'selected' : ''}>AZERTY</option>
-                                    <option value="qwertz" ${this.settings.keyboardLayout === 'qwertz' ? 'selected' : ''}>QWERTZ</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Автоматическая перезарядка</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-auto-reload" ${this.settings.autoReload ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Удержание для прицеливания</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-hold-to-aim" ${this.settings.holdToAim ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Виртуальная фиксация башни</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-virtual-fixation" ${this.settings.virtualTurretFixation ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Экранное управление (джойстик)</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-touch-controls" ${this.settings.showTouchControls ? 'checked' : ''}>
-                        </div>
-                    </div>
-
-                    <!-- Gameplay Tab -->
-                    <div class="settings-tab-content" data-content="gameplay">
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать обучение</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-tutorial" ${this.settings.showTutorial ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать подсказки</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-hints" ${this.settings.showHints ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать прицел</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-crosshair" ${this.settings.showCrosshair ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Стиль прицела</span>
-                            <div class="setting-value">
-                                <select class="setting-select" id="set-crosshair-style">
-                                    <option value="default" ${this.settings.crosshairStyle === 'default' ? 'selected' : ''}>По умолчанию</option>
-                                    <option value="dot" ${this.settings.crosshairStyle === 'dot' ? 'selected' : ''}>Точка</option>
-                                    <option value="cross" ${this.settings.crosshairStyle === 'cross' ? 'selected' : ''}>Крест</option>
-                                    <option value="circle" ${this.settings.crosshairStyle === 'circle' ? 'selected' : ''}>Круг</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать полоску здоровья</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-health-bar" ${this.settings.showHealthBar ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать счетчик патронов</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-ammo-counter" ${this.settings.showAmmoCounter ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Панель характеристик танка</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-tank-stats-panel" ${this.settings.showTankStatsPanel ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Автосохранение</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-auto-save" ${this.settings.autoSave ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Интервал автосохранения (сек)</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-auto-save-interval" min="60" max="600" step="60" value="${this.settings.autoSaveInterval}">
-                                <span id="set-auto-save-interval-val">${this.settings.autoSaveInterval}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Camera Tab -->
-                    <div class="settings-tab-content" data-content="camera">
-                        <div class="setting-row">
-                            <span class="setting-label">Расстояние камеры</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-camera-dist" min="5" max="25" value="${this.settings.cameraDistance}">
-                                <span id="set-camera-dist-val">${this.settings.cameraDistance}</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Высота камеры</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-camera-height" min="3" max="10" step="0.5" value="${this.settings.cameraHeight}">
-                                <span id="set-camera-height-val">${this.settings.cameraHeight}</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Поле зрения (FOV)</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-camera-fov" min="45" max="90" value="${this.settings.cameraFOV}">
-                                <span id="set-camera-fov-val">${this.settings.cameraFOV}</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Сглаживание камеры</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-camera-smoothing" min="0" max="1" step="0.1" value="${this.settings.cameraSmoothing}">
-                                <span id="set-camera-smoothing-val">${this.settings.cameraSmoothing}</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Тряска экрана</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-screen-shake" ${this.settings.screenShake ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Интенсивность тряски</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-camera-shake-intensity" min="0" max="1" step="0.1" value="${this.settings.cameraShakeIntensity}">
-                                <span id="set-camera-shake-intensity-val">${this.settings.cameraShakeIntensity}</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Режим от первого лица</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-first-person-mode" ${this.settings.firstPersonMode ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">FOV прицеливания</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-aim-fov" min="0.1" max="1" step="0.1" value="${this.settings.aimFOV}">
-                                <span id="set-aim-fov-val">${this.settings.aimFOV}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Network Tab -->
-                    <div class="settings-tab-content" data-content="network">
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать пинг</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-ping" ${this.settings.showPing ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать сетевую статистику</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-network-stats" ${this.settings.showNetworkStats ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать индикатор качества синхронизации</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-sync-quality" ${this.settings.showSyncQuality ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Качество сети</span>
-                            <div class="setting-value">
-                                <select class="setting-select" id="set-network-quality">
-                                    <option value="0" ${this.settings.networkQuality === 0 ? 'selected' : ''}>Низкое</option>
-                                    <option value="1" ${this.settings.networkQuality === 1 ? 'selected' : ''}>Среднее</option>
-                                    <option value="2" ${this.settings.networkQuality === 2 ? 'selected' : ''}>Высокое</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Accessibility Tab -->
-                    <div class="settings-tab-content" data-content="accessibility">
-                        <div class="setting-row">
-                            <span class="setting-label">Режим для дальтоников</span>
-                            <div class="setting-value">
-                                <select class="setting-select" id="set-color-blind-mode">
-                                    <option value="none" ${this.settings.colorBlindMode === 'none' ? 'selected' : ''}>Отключено</option>
-                                    <option value="protanopia" ${this.settings.colorBlindMode === 'protanopia' ? 'selected' : ''}>Протанопия</option>
-                                    <option value="deuteranopia" ${this.settings.colorBlindMode === 'deuteranopia' ? 'selected' : ''}>Дейтеранопия</option>
-                                    <option value="tritanopia" ${this.settings.colorBlindMode === 'tritanopia' ? 'selected' : ''}>Тританопия</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Размер шрифта</span>
-                            <div class="setting-value">
-                                <input type="range" class="setting-range" id="set-font-size" min="10" max="24" value="${this.settings.fontSize}">
-                                <span id="set-font-size-val">${this.settings.fontSize}</span>
-                            </div>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Высокий контраст</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-high-contrast" ${this.settings.highContrast ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Субтитры</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-subtitles" ${this.settings.subtitles ? 'checked' : ''}>
-                        </div>
-                    </div>
-
-                    <!-- Advanced Tab -->
-                    <div class="settings-tab-content" data-content="advanced">
-                        <div class="setting-row">
-                            <span class="setting-label">Показывать отладочную информацию</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-show-debug-info" ${this.settings.showDebugInfo ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">Включить читы (для разработки)</span>
-                            <input type="checkbox" class="setting-checkbox" id="set-enable-cheats" ${this.settings.enableCheats ? 'checked' : ''}>
-                        </div>
-                        <div class="setting-row">
-                            <span class="setting-label">${L.openCheatMenu}</span>
-                            <div class="setting-value">
-                                <button class="panel-btn secondary" id="open-cheat-menu">Ctrl+7</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="panel-buttons" style="margin-top: 20px;">
-                    <button class="panel-btn primary" id="settings-save">Сохранить</button>
-                    <button class="panel-btn danger" id="settings-reset">Сброс</button>
-                </div>
-            </div>
-        `;
+        // Pass game instance if available
+        if ((window as any).gameInstance) {
+            this.settingsPanelComponent.setGame((window as any).gameInstance);
+        }
 
         document.body.appendChild(this.settingsPanel);
 
-        // Add CSS for tabs
-        const style = document.createElement("style");
-        style.textContent = `
-            .settings-tabs {
-                display: flex;
-                gap: 5px;
-                margin-bottom: 20px;
-                border-bottom: 1px solid #444;
-                flex-wrap: wrap;
-            }
-            .settings-tab {
-                padding: 8px 16px;
-                background: #2a2a2a;
-                border: none;
-                color: #aaa;
-                cursor: pointer;
-                border-bottom: 2px solid transparent;
-                transition: all 0.2s;
-                font-family: 'Press Start 2P', 'Courier New', monospace;
-                font-size: 11px;
-                letter-spacing: 0.5px;
-            }
-            .settings-tab:hover {
-                background: #333;
-                color: #fff;
-            }
-            .settings-tab.active {
-                color: #5a8;
-                border-bottom-color: #5a8;
-                background: #1a1a1a;
-            }
-            .settings-tab-content {
-                display: none;
-            }
-            .settings-tab-content.active {
-                display: block;
-            }
-        `;
-        document.head.appendChild(style);
-
-        this.setupPanelCloseOnBackground(this.settingsPanel, () => this.hideSettings());
-
-        // Tab switching
-        document.querySelectorAll(".settings-tab").forEach(tab => {
-            tab.addEventListener("click", () => {
-                const tabName = (tab as HTMLElement).dataset.tab;
-                document.querySelectorAll(".settings-tab").forEach(t => t.classList.remove("active"));
-                document.querySelectorAll(".settings-tab-content").forEach(c => c.classList.remove("active"));
-                tab.classList.add("active");
-                document.querySelector(`[data-content="${tabName}"]`)?.classList.add("active");
-            });
-        });
-
-        const setupSlider = (id: string, valId: string, suffix: string = "", formatter?: (val: string) => string) => {
-            const slider = document.getElementById(id) as HTMLInputElement;
-            const val = document.getElementById(valId);
-            slider?.addEventListener("input", () => {
-                if (val) {
-                    val.textContent = formatter ? formatter(slider.value) : slider.value + suffix;
-                }
-            });
-        };
-
-        setupSlider("set-render", "set-render-val");
-        setupSlider("set-sound", "set-sound-val", "%");
-        setupSlider("set-music", "set-music-val", "%");
-        setupSlider("set-mouse", "set-mouse-val");
-        setupSlider("set-camera-dist", "set-camera-dist-val");
-        setupSlider("set-camera-height", "set-camera-height-val");
-        setupSlider("set-camera-fov", "set-camera-fov-val");
-        setupSlider("set-camera-smoothing", "set-camera-smoothing-val");
-        setupSlider("set-camera-shake-intensity", "set-camera-shake-intensity-val");
-        setupSlider("set-ui-scale", "set-ui-scale-val", "%");
-        setupSlider("set-aim-fov", "set-aim-fov-val");
-        setupSlider("set-master-volume", "set-master-volume-val", "%");
-        setupSlider("set-ambient-volume", "set-ambient-volume-val", "%");
-        setupSlider("set-voice-volume", "set-voice-volume-val", "%");
-        setupSlider("set-auto-save-interval", "set-auto-save-interval-val");
-        setupSlider("set-font-size", "set-font-size-val");
-        setupSlider("set-max-fps", "set-max-fps-val", "", (val) => val === "0" ? "Без ограничений" : val);
-
-        // Language toggle
-        document.getElementById("lang-ru")?.addEventListener("click", () => {
-            this.settings.language = "ru";
-            document.getElementById("lang-ru")?.classList.add("active");
-            document.getElementById("lang-en")?.classList.remove("active");
-        });
-
-        document.getElementById("lang-en")?.addEventListener("click", () => {
-            this.settings.language = "en";
-            document.getElementById("lang-en")?.classList.add("active");
-            document.getElementById("lang-ru")?.classList.remove("active");
-        });
-
-        // Difficulty selector
-        ["easy", "medium", "hard"].forEach(diff => {
-            document.getElementById(`diff-${diff}`)?.addEventListener("click", () => {
-                this.settings.enemyDifficulty = diff as "easy" | "medium" | "hard";
-                document.querySelectorAll(".diff-btn").forEach(btn => btn.classList.remove("active"));
-                document.getElementById(`diff-${diff}`)?.classList.add("active");
-            });
-        });
-
-        // Seed controls
-        const seedInput = document.getElementById("set-seed") as HTMLInputElement;
-        const randomSeedCheckbox = document.getElementById("set-random-seed") as HTMLInputElement;
-
-        randomSeedCheckbox?.addEventListener("change", () => {
-            this.settings.useRandomSeed = randomSeedCheckbox.checked;
-            if (seedInput) {
-                seedInput.disabled = randomSeedCheckbox.checked;
-                if (randomSeedCheckbox.checked) {
-                    const newSeed = Math.floor(Math.random() * 999999999);
-                    seedInput.value = newSeed.toString();
-                    this.settings.worldSeed = newSeed;
-                }
+        // Listen for settings changes from the component
+        this.settingsPanel.addEventListener('settingsChanged', (e) => {
+            const customEvent = e;
+            if (customEvent.detail) {
+                this.settings = customEvent.detail;
+                // Settings are already saved by the component
             }
         });
 
-        seedInput?.addEventListener("change", () => {
-            const value = parseInt(seedInput.value) || 12345;
-            this.settings.worldSeed = value;
-            seedInput.value = value.toString();
-        });
-
-        document.getElementById("seed-copy")?.addEventListener("click", () => {
-            const seed = this.settings.worldSeed.toString();
-            navigator.clipboard.writeText(seed).then(() => {
-                const btn = document.getElementById("seed-copy");
-                if (btn) {
-                    const originalText = btn.textContent;
-                    btn.textContent = "✓";
-                    setTimeout(() => { btn.textContent = originalText; }, 1000);
-                }
-            });
-        });
-
-        document.getElementById("seed-random")?.addEventListener("click", () => {
-            const newSeed = Math.floor(Math.random() * 999999999);
-            this.settings.worldSeed = newSeed;
-            if (seedInput) {
-                seedInput.value = newSeed.toString();
-            }
-        });
-
-        const fullscreenCheckbox = document.getElementById("set-fullscreen") as HTMLInputElement | null;
-        fullscreenCheckbox?.addEventListener("change", (e) => {
-            const target = e.target as HTMLInputElement;
-            this.handleFullscreenCheckbox(!!target?.checked);
-        });
-
-        // Open cheat menu button (simulates Ctrl+7 press)
-        const cheatBtn = document.getElementById("open-cheat-menu");
-        if (cheatBtn) {
-            cheatBtn.addEventListener("click", () => {
-                window.dispatchEvent(new KeyboardEvent("keydown", { key: "7", code: "Digit7", ctrlKey: true }));
-            });
-        }
-
-        document.getElementById("settings-save")?.addEventListener("click", () => {
-            this.saveSettingsFromUI();
-            this.hideSettings();
-            location.reload();
-        });
-
-        document.getElementById("settings-reset")?.addEventListener("click", () => {
-            // ИСПРАВЛЕНО: Сбрасываем настройки к значениям по умолчанию и сохраняем их напрямую
-            this.settings = { ...DEFAULT_SETTINGS };
-            saveSettingsModule(this.settings); // Сохраняем DEFAULT_SETTINGS напрямую
-            window.dispatchEvent(new CustomEvent("settingsChanged", { detail: this.settings }));
-            location.reload();
-        });
-
+        // Setup close button (component renders the button with id="settings-close")
         this.setupCloseButton("settings-close", () => this.hideSettings());
+        this.setupPanelCloseOnBackground(this.settingsPanel, () => this.hideSettings());
     }
-
     private createStatsPanel(): void {
         this.statsPanel = document.createElement("div");
         this.statsPanel.className = "panel-overlay";
@@ -5827,13 +5114,13 @@ export class MainMenu {
                 </div>
                 <div class="progress-content">
                     <div class="progress-tab-content active" id="progress-level-content">
-                        <!-- Level tab content will be rendered dynamically -->
+                        <!--Level tab content will be rendered dynamically-->
                     </div>
                     <div class="progress-tab-content" id="progress-achievements-content">
-                        <!-- Achievements tab content will be rendered dynamically -->
+                        <!--Achievements tab content will be rendered dynamically-->
                     </div>
                     <div class="progress-tab-content" id="progress-quests-content">
-                        <!-- Quests tab content will be rendered dynamically -->
+                        <!--Quests tab content will be rendered dynamically-->
                     </div>
                 </div>
             </div>
@@ -5867,7 +5154,7 @@ export class MainMenu {
             c.classList.remove("active");
         });
 
-        const contentId = `progress-${tab}-content`;
+        const contentId = `progress - ${tab} -content`;
         const contentEl = document.getElementById(contentId);
         if (contentEl) {
             contentEl.classList.add("active");
@@ -5955,66 +5242,66 @@ export class MainMenu {
 
         // Calculate XP per minute display
         const xpPerMin = Math.round(realTimeStats.experiencePerMinute);
-        const xpPerMinText = xpPerMin > 0 ? `+${xpPerMin} XP/мин` : "—";
+        const xpPerMinText = xpPerMin > 0 ? `+ ${xpPerMin} XP / мин` : "—";
 
         content.innerHTML = `
-            <div class="progress-level-section">
-                <div class="progress-level-badge">
-                    <div class="progress-level-number">${stats.level}</div>
-                </div>
-                <div class="progress-title" style="color: ${currentTitle.color}">
-                    <span class="progress-title-icon">${currentTitle.icon}</span>
+            <div class="progress-level-section" >
+                <div class="progress-level-badge" >
+                    <div class="progress-level-number" > ${stats.level} </div>
+                        </div>
+                        <div class="progress-title" style="color: ${currentTitle.color}" >
+                            <span class="progress-title-icon" > ${currentTitle.icon} </span>
                     ${currentTitle.title}
-                </div>
+        </div>
             </div>
 
-            <div class="progress-xp-bar-container">
-                <div class="progress-xp-bar-bg">
-                    <div class="progress-xp-bar-fill" style="width: ${xpProgress.percent}%"></div>
-                </div>
-                <div class="progress-xp-text">
-                    ${xpProgress.current.toLocaleString()} / ${xpProgress.required.toLocaleString()} XP
-                    <span class="progress-xp-percent">(${xpProgress.percent.toFixed(1)}%)</span>
-                </div>
-            </div>
+            <div class="progress-xp-bar-container" >
+                <div class="progress-xp-bar-bg" >
+                    <div class="progress-xp-bar-fill" style="width: ${xpProgress.percent}%" > </div>
+                        </div>
+                        <div class="progress-xp-text" >
+                            ${xpProgress.current.toLocaleString()} / ${xpProgress.required.toLocaleString()} XP
+                                <span class="progress-xp-percent" > (${xpProgress.percent.toFixed(1)}%)</span>
+                                    </div>
+                                    </div>
 
-            <div class="progress-stats-grid">
-                <div class="progress-stat-card">
-                    <div class="progress-stat-value">${stats.totalExperience.toLocaleString()}</div>
-                    <div class="progress-stat-label">ОБЩИЙ ОПЫТ</div>
-                </div>
-                <div class="progress-stat-card">
-                    <div class="progress-stat-value">${xpPerMinText}</div>
-                    <div class="progress-stat-label">СКОРОСТЬ НАБОРА</div>
-                </div>
-                <div class="progress-stat-card">
-                    <div class="progress-stat-value">${prestigeText}</div>
-                    <div class="progress-stat-label">ПРЕСТИЖ</div>
-                </div>
-                <div class="progress-stat-card">
-                    <div class="progress-stat-value">${this.playerProgression.getPlayTimeFormatted()}</div>
-                    <div class="progress-stat-label">ВРЕМЯ В ИГРЕ</div>
-                </div>
-            </div>
+                                    <div class="progress-stats-grid" >
+                                        <div class="progress-stat-card" >
+                                            <div class="progress-stat-value" > ${stats.totalExperience.toLocaleString()} </div>
+                                                <div class="progress-stat-label" > ОБЩИЙ ОПЫТ </div>
+                                                    </div>
+                                                    <div class="progress-stat-card" >
+                                                        <div class="progress-stat-value" > ${xpPerMinText} </div>
+                                                            <div class="progress-stat-label" > СКОРОСТЬ НАБОРА </div>
+                                                                </div>
+                                                                <div class="progress-stat-card" >
+                                                                    <div class="progress-stat-value" > ${prestigeText} </div>
+                                                                        <div class="progress-stat-label" > ПРЕСТИЖ </div>
+                                                                            </div>
+                                                                            <div class="progress-stat-card" >
+                                                                                <div class="progress-stat-value" > ${this.playerProgression.getPlayTimeFormatted()} </div>
+                                                                                    <div class="progress-stat-label" > ВРЕМЯ В ИГРЕ </div>
+                                                                                        </div>
+                                                                                        </div>
 
-            <div class="progress-bonuses-grid">
-                <div class="progress-bonus-item">
-                    <div class="progress-bonus-value">+${bonuses.healthBonus}</div>
-                    <div class="progress-bonus-label">ЗДОРОВЬЕ</div>
-                </div>
-                <div class="progress-bonus-item">
-                    <div class="progress-bonus-value">+${bonuses.damageBonus}</div>
-                    <div class="progress-bonus-label">УРОН</div>
-                </div>
-                <div class="progress-bonus-item">
-                    <div class="progress-bonus-value">+${bonuses.speedBonus.toFixed(1)}</div>
-                    <div class="progress-bonus-label">СКОРОСТЬ</div>
-                </div>
-                <div class="progress-bonus-item">
-                    <div class="progress-bonus-value">+${((bonuses.creditBonus - 1) * 100).toFixed(0)}%</div>
-                    <div class="progress-bonus-label">КРЕДИТЫ</div>
-                </div>
-            </div>
+                                                                                        <div class="progress-bonuses-grid" >
+                                                                                            <div class="progress-bonus-item" >
+                                                                                                <div class="progress-bonus-value" > +${bonuses.healthBonus} </div>
+                                                                                                    <div class="progress-bonus-label" > ЗДОРОВЬЕ </div>
+                                                                                                        </div>
+                                                                                                        <div class="progress-bonus-item" >
+                                                                                                            <div class="progress-bonus-value" > +${bonuses.damageBonus} </div>
+                                                                                                                <div class="progress-bonus-label" > УРОН </div>
+                                                                                                                    </div>
+                                                                                                                    <div class="progress-bonus-item" >
+                                                                                                                        <div class="progress-bonus-value" > +${bonuses.speedBonus.toFixed(1)} </div>
+                                                                                                                            <div class="progress-bonus-label" > СКОРОСТЬ </div>
+                                                                                                                                </div>
+                                                                                                                                <div class="progress-bonus-item" >
+                                                                                                                                    <div class="progress-bonus-value" > +${((bonuses.creditBonus - 1) * 100).toFixed(0)}% </div>
+                                                                                                                                        <div class="progress-bonus-label" > КРЕДИТЫ </div>
+                                                                                                                                            </div>
+                                                                                                                                            </div>
 
             ${nextTitle ? `
             <div class="progress-next-level">
@@ -6065,29 +5352,29 @@ export class MainMenu {
         const totalCount = allAchievements.length;
 
         content.innerHTML = `
-            <div style="margin-bottom: 15px; text-align: center; color: #0f0; font-size: 11px;">
+            <div style="margin-bottom: 15px; text-align: center; color: #0f0; font-size: 11px;" >
                 Разблокировано: ${unlockedCount} / ${totalCount}
+                    </div>
+
+                    <div class="achievements-category-tabs" >
+                        <button class="achievement-category-btn ${this.achievementCategoryFilter === 'all' ? 'active' : ''}" data-category="all" >
+                            ВСЕ(${categoryCounts.all})
+                            </button>
+                            <button class="achievement-category-btn ${this.achievementCategoryFilter === 'combat' ? 'active' : ''}" data-category="combat" >
+                    ⚔ БОЙ(${categoryCounts.combat})
+            </button>
+            <button class="achievement-category-btn ${this.achievementCategoryFilter === 'survival' ? 'active' : ''}" data-category="survival" >
+                    🛡 ВЫЖИВАНИЕ(${categoryCounts.survival})
+            </button>
+            <button class="achievement-category-btn ${this.achievementCategoryFilter === 'progression' ? 'active' : ''}" data-category="progression" >
+                    📈 ПРОГРЕСС(${categoryCounts.progression})
+            </button>
+            <button class="achievement-category-btn ${this.achievementCategoryFilter === 'special' ? 'active' : ''}" data-category="special" >
+                    ⭐ ОСОБЫЕ(${categoryCounts.special})
+            </button>
             </div>
 
-            <div class="achievements-category-tabs">
-                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'all' ? 'active' : ''}" data-category="all">
-                    ВСЕ (${categoryCounts.all})
-                </button>
-                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'combat' ? 'active' : ''}" data-category="combat">
-                    ⚔ БОЙ (${categoryCounts.combat})
-                </button>
-                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'survival' ? 'active' : ''}" data-category="survival">
-                    🛡 ВЫЖИВАНИЕ (${categoryCounts.survival})
-                </button>
-                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'progression' ? 'active' : ''}" data-category="progression">
-                    📈 ПРОГРЕСС (${categoryCounts.progression})
-                </button>
-                <button class="achievement-category-btn ${this.achievementCategoryFilter === 'special' ? 'active' : ''}" data-category="special">
-                    ⭐ ОСОБЫЕ (${categoryCounts.special})
-                </button>
-            </div>
-
-            <div class="achievements-grid">
+            <div class="achievements-grid" >
                 ${filtered.map(achievement => {
             const isUnlocked = unlocked.some((u: PlayerAchievement) => u.id === achievement.id);
             return `
@@ -6106,9 +5393,10 @@ export class MainMenu {
                             <span class="achievement-status">${isUnlocked ? '✅' : '🔒'}</span>
                         </div>
                     `;
-        }).join('')}
-            </div>
-        `;
+        }).join('')
+            }
+        </div>
+            `;
 
         // Setup category filter buttons
         content.querySelectorAll(".achievement-category-btn").forEach(btn => {
@@ -6137,25 +5425,25 @@ export class MainMenu {
 
         if (dailyQuests.length === 0) {
             content.innerHTML = `
-                <div class="quests-header">
-                    <div class="quests-title">ЕЖЕДНЕВНЫЕ ЗАДАНИЯ</div>
-                    <div class="quests-reset-timer">Обновление через: ${hoursLeft}ч ${minutesLeft}м</div>
-                </div>
-                <div class="no-quests-message">
-                    Нет активных заданий.<br>
+            <div class="quests-header" >
+                <div class="quests-title" > ЕЖЕДНЕВНЫЕ ЗАДАНИЯ </div>
+                    <div class="quests-reset-timer" > Обновление через: ${hoursLeft}ч ${minutesLeft} м </div>
+                        </div>
+                        <div class="no-quests-message" >
+                            Нет активных заданий.<br>
                     Задания обновляются ежедневно в полночь.
                 </div>
-            `;
+                `;
             return;
         }
 
         const completedCount = dailyQuests.filter(q => q.completed).length;
 
         content.innerHTML = `
-            <div class="quests-header">
-                <div class="quests-title">ЕЖЕДНЕВНЫЕ ЗАДАНИЯ (${completedCount}/${dailyQuests.length})</div>
-                <div class="quests-reset-timer">Обновление через: ${hoursLeft}ч ${minutesLeft}м</div>
-            </div>
+            <div class="quests-header" >
+                <div class="quests-title" > ЕЖЕДНЕВНЫЕ ЗАДАНИЯ(${completedCount} / ${dailyQuests.length}) </div>
+                    <div class="quests-reset-timer" > Обновление через: ${hoursLeft}ч ${minutesLeft} м </div>
+                        </div>
 
             ${dailyQuests.map(quest => {
             const progressPercent = Math.min(100, (quest.progress / quest.target) * 100);
@@ -6180,7 +5468,8 @@ export class MainMenu {
                         </div>
                     </div>
                 `;
-        }).join('')}
+        }).join('')
+            }
         `;
     }
 
@@ -6190,99 +5479,108 @@ export class MainMenu {
         this.mapSelectionPanel.id = "map-selection-panel";
         const L = getLang(this.settings);
         this.mapSelectionPanel.innerHTML = `
-            <div class="panel-content">
-                <button class="panel-close" id="map-selection-close">✕</button>
-                <div class="panel-title">${L.mapSelection}</div>
+            <div class="panel-content" >
+                <button class="panel-close" id="map-selection-close" >✕</button>
+                    <div class="panel-title" > ${L.mapSelection} </div>
 
-                <div class="map-grid">
-                    <div class="map-card recommended" id="btn-map-normal">
-                        <span class="map-card-icon">🗺</span>
-                        <span class="map-card-name">${L.normalMap}</span>
-                        <span class="map-card-desc">${L.normalMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-sandbox">
-                        <span class="map-card-icon">🏖</span>
-                        <span class="map-card-name">${L.sandboxMap}</span>
-                        <span class="map-card-desc">${L.sandboxMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-sand">
-                        <span class="map-card-icon">🏜</span>
-                        <span class="map-card-name">${L.sandMap}</span>
-                        <span class="map-card-desc">${L.sandMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-madness">
-                        <span class="map-card-icon">🌉</span>
-                        <span class="map-card-name">${L.madnessMap}</span>
-                        <span class="map-card-desc">${L.madnessMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-expo">
-                        <span class="map-card-icon">🏆</span>
-                        <span class="map-card-name">${L.expoMap}</span>
-                        <span class="map-card-desc">${L.expoMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-brest">
-                        <span class="map-card-icon">🏰</span>
-                        <span class="map-card-name">${L.brestMap}</span>
-                        <span class="map-card-desc">${L.brestMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-arena">
-                        <span class="map-card-icon">⚔️</span>
-                        <span class="map-card-name">${L.arenaMap}</span>
-                        <span class="map-card-desc">${L.arenaMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-polygon">
-                        <span class="map-card-icon">🎯</span>
-                        <span class="map-card-name">${L.polygonMap}</span>
-                        <span class="map-card-desc">${L.polygonMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-frontline">
-                        <span class="map-card-icon">💥</span>
-                        <span class="map-card-name">${L.frontlineMap}</span>
-                        <span class="map-card-desc">${L.frontlineMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-ruins">
-                        <span class="map-card-icon">🏚</span>
-                        <span class="map-card-name">${L.ruinsMap}</span>
-                        <span class="map-card-desc">${L.ruinsMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-canyon">
-                        <span class="map-card-icon">⛰</span>
-                        <span class="map-card-name">${L.canyonMap}</span>
-                        <span class="map-card-desc">${L.canyonMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-industrial">
-                        <span class="map-card-icon">🏭</span>
-                        <span class="map-card-name">${L.industrialMap}</span>
-                        <span class="map-card-desc">${L.industrialMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-urban_warfare">
-                        <span class="map-card-icon">🏙</span>
-                        <span class="map-card-name">${L.urbanWarfareMap}</span>
-                        <span class="map-card-desc">${L.urbanWarfareMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-underground">
-                        <span class="map-card-icon">🕳</span>
-                        <span class="map-card-name">${L.undergroundMap}</span>
-                        <span class="map-card-desc">${L.undergroundMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-coastal">
-                        <span class="map-card-icon">🌊</span>
-                        <span class="map-card-name">${L.coastalMap}</span>
-                        <span class="map-card-desc">${L.coastalMapDesc}</span>
-                    </div>
-                    <div class="map-card" id="btn-map-tartaria">
-                        <span class="map-card-new">NEW</span>
-                        <span class="map-card-icon">🏛</span>
-                        <span class="map-card-name">${L.tartariaMap}</span>
-                        <span class="map-card-desc">${L.tartariaMapDesc}</span>
-                    </div>
-                </div>
+                        <div class="map-grid" >
+                            <div class="map-card recommended" id="btn-map-normal" >
+                                <span class="map-card-icon" >🗺</span>
+                                    <span class="map-card-name" > ${L.normalMap} </span>
+                                        <span class="map-card-desc" > ${L.normalMapDesc} </span>
+                                            </div>
+                                            <div class="map-card" id="btn-map-sandbox" >
+                                                <span class="map-card-icon" >🏖</span>
+                                                    <span class="map-card-name" > ${L.sandboxMap} </span>
+                                                        <span class="map-card-desc" > ${L.sandboxMapDesc} </span>
+                                                            </div>
+                                                            <div class="map-card" id="btn-map-sand" >
+                                                                <span class="map-card-icon" >🏜</span>
+                                                                    <span class="map-card-name" > ${L.sandMap} </span>
+                                                                        <span class="map-card-desc" > ${L.sandMapDesc} </span>
+                                                                            </div>
+                                                                            <div class="map-card" id="btn-map-madness" >
+                                                                                <span class="map-card-icon" >🌉</span>
+                                                                                    <span class="map-card-name" > ${L.madnessMap} </span>
+                                                                                        <span class="map-card-desc" > ${L.madnessMapDesc} </span>
+                                                                                            </div>
+                                                                                            <div class="map-card" id="btn-map-expo" >
+                                                                                                <span class="map-card-icon" >🏆</span>
+                                                                                                    <span class="map-card-name" > ${L.expoMap} </span>
+                                                                                                        <span class="map-card-desc" > ${L.expoMapDesc} </span>
+                                                                                                            </div>
+                                                                                                            <div class="map-card" id="btn-map-brest" >
+                                                                                                                <span class="map-card-icon" >🏰</span>
+                                                                                                                    <span class="map-card-name" > ${L.brestMap} </span>
+                                                                                                                        <span class="map-card-desc" > ${L.brestMapDesc} </span>
+                                                                                                                            </div>
+                                                                                                                            <div class="map-card" id="btn-map-arena" >
+                                                                                                                                <span class="map-card-icon" >⚔️</span>
+                                                                                                                                    <span class="map-card-name" > ${L.arenaMap} </span>
+                                                                                                                                        <span class="map-card-desc" > ${L.arenaMapDesc} </span>
+                                                                                                                                            </div>
+                                                                                                                                            <div class="map-card" id="btn-map-polygon" >
+                                                                                                                                                <span class="map-card-icon" >🎯</span>
+                                                                                                                                                    <span class="map-card-name" > ${L.polygonMap} </span>
+                                                                                                                                                        <span class="map-card-desc" > ${L.polygonMapDesc} </span>
+                                                                                                                                                            </div>
+                                                                                                                                                            <div class="map-card" id="btn-map-frontline" >
+                                                                                                                                                                <span class="map-card-icon" >💥</span>
+                                                                                                                                                                    <span class="map-card-name" > ${L.frontlineMap} </span>
+                                                                                                                                                                        <span class="map-card-desc" > ${L.frontlineMapDesc} </span>
+                                                                                                                                                                            </div>
+                                                                                                                                                                            <div class="map-card" id="btn-map-ruins" >
+                                                                                                                                                                                <span class="map-card-icon" >🏚</span>
+                                                                                                                                                                                    <span class="map-card-name" > ${L.ruinsMap} </span>
+                                                                                                                                                                                        <span class="map-card-desc" > ${L.ruinsMapDesc} </span>
+                                                                                                                                                                                            </div>
+                                                                                                                                                                                            <div class="map-card" id="btn-map-canyon" >
+                                                                                                                                                                                                <span class="map-card-icon" >⛰</span>
+                                                                                                                                                                                                    <span class="map-card-name" > ${L.canyonMap} </span>
+                                                                                                                                                                                                        <span class="map-card-desc" > ${L.canyonMapDesc} </span>
+                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                            <div class="map-card" id="btn-map-industrial" >
+                                                                                                                                                                                                                <span class="map-card-icon" >🏭</span>
+                                                                                                                                                                                                                    <span class="map-card-name" > ${L.industrialMap} </span>
+                                                                                                                                                                                                                        <span class="map-card-desc" > ${L.industrialMapDesc} </span>
+                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                            <div class="map-card" id="btn-map-urban_warfare" >
+                                                                                                                                                                                                                                <span class="map-card-icon" >🏙</span>
+                                                                                                                                                                                                                                    <span class="map-card-name" > ${L.urbanWarfareMap} </span>
+                                                                                                                                                                                                                                        <span class="map-card-desc" > ${L.urbanWarfareMapDesc} </span>
+                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                            <div class="map-card" id="btn-map-underground" >
+                                                                                                                                                                                                                                                <span class="map-card-icon" >🕳</span>
+                                                                                                                                                                                                                                                    <span class="map-card-name" > ${L.undergroundMap} </span>
+                                                                                                                                                                                                                                                        <span class="map-card-desc" > ${L.undergroundMapDesc} </span>
+                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                            <div class="map-card" id="btn-map-coastal" >
+                                                                                                                                                                                                                                                                <span class="map-card-icon" >🌊</span>
+                                                                                                                                                                                                                                                                    <span class="map-card-name" > ${L.coastalMap} </span>
+                                                                                                                                                                                                                                                                        <span class="map-card-desc" > ${L.coastalMapDesc} </span>
+                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                            <div class="map-card" id="btn-map-tartaria" >
+                                                                                                                                                                                                                                                                                <span class="map-card-new" > NEW </span>
+                                                                                                                                                                                                                                                                                    <span class="map-card-icon" >🏛</span>
+                                                                                                                                                                                                                                                                                        <span class="map-card-name" > ${L.tartariaMap} </span>
+                                                                                                                                                                                                                                                                                            <span class="map-card-desc" > ${L.tartariaMapDesc} </span>
+                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                </div>
 
-                <div class="panel-buttons" style="margin-top: 20px;">
-                    <button class="panel-btn" id="map-selection-back">Назад</button>
-                </div>
-            </div>
-        `;
+                                                                                                                                                                                                                                                                                                <!-- CUSTOM MAPS SECTION -->
+                                                                                                                                                                                                                                                                                                <div class="panel-section-title" style="margin-top: 25px; color: #fbbf24; border-bottom: 1px solid rgba(251, 191, 36, 0.3); padding-bottom: 8px; margin-bottom: 15px; font-weight: bold; font-family: 'Press Start 2P'; font-size: 12px;">ПОЛЬЗОВАТЕЛЬСКИЕ КАРТЫ</div>
+                                                                                                                                                                                                                                                                                                <div class="map-grid" id="custom-maps-grid">
+                                                                                                                                                                                                                                                                                                    <div style="grid-column: 1 / -1; text-align: center; color: #888; font-size: 11px; padding: 20px; background: rgba(0,0,0,0.2); border-radius: 4px; border: 1px dashed #444;">
+                                                                                                                                                                                                                                                                                                        <div>Нет сохраненных карт</div>
+                                                                                                                                                                                                                                                                                                        <div style="margin-top: 8px; color: #555;">Создайте карту в редакторе и отправьте её в игру</div>
+                                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                                </div>
+
+                                                                                                                                                                                                                                                                                                <div class="panel-buttons" style="margin-top: 20px;" >
+                                                                                                                                                                                                                                                                                                    <button class="panel-btn" id="map-selection-back" > Назад </button>
+                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                            `;
 
         document.body.appendChild(this.mapSelectionPanel);
 
@@ -6320,7 +5618,89 @@ export class MainMenu {
         this.setupCloseButton("map-selection-close", () => this.hideMapSelection());
         this.setupCloseButton("map-selection-back", () => this.hideMapSelection());
         this.setupPanelCloseOnBackground(this.mapSelectionPanel, () => this.hideMapSelection());
+        this.updateCustomMapsUI();
     }
+
+    private updateCustomMapsUI(): void {
+        // Try both containers (panel and play window)
+        const containers = [
+            document.getElementById("custom-maps-grid"),
+            document.getElementById("custom-maps-list-play-window")
+        ];
+
+        const maps = getCustomMapsList();
+
+        containers.forEach(container => {
+            if (!container) return;
+
+            if (maps.length === 0) {
+                container.innerHTML = `
+                    <div style="grid-column: 1 / -1; text-align: center; color: #888; font-size: 11px; padding: 20px; background: rgba(0,0,0,0.2); border-radius: 4px; border: 1px dashed #444;">
+                        <div>Нет сохраненных карт</div>
+                        <div style="margin-top: 8px; color: #555;">Создайте карту в редакторе и отправьте её в игру</div>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = "";
+            maps.forEach(mapName => {
+                const card = document.createElement("div");
+                card.className = "map-card custom-map-card";
+                card.id = `btn-map-custom-${mapName}-${container.id}`; // Unique ID per container
+
+                card.innerHTML = `
+                    <span class="map-card-icon" style="filter: hue-rotate(90deg);">🗺</span>
+                    <span class="map-card-name" style="word-break: break-all;">${mapName}</span>
+                    <span class="map-card-desc">Пользовательская карта</span>
+                    <button class="custom-map-delete" title="Удалить" style="position: absolute; top: 5px; right: 5px; background: rgba(255,0,0,0.2); border: none; color: #f55; border-radius: 4px; cursor: pointer; padding: 4px 8px; font-size: 12px; transition: all 0.2s;">✕</button>
+                `;
+
+                // Delete handler
+                const deleteBtn = card.querySelector(".custom-map-delete");
+                if (deleteBtn) {
+                    deleteBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        if (confirm(`Удалить карту "${mapName}"?`)) {
+                            deleteCustomMap(mapName);
+                            this.updateCustomMapsUI();
+                        }
+                    });
+
+                    deleteBtn.addEventListener("mouseenter", () => {
+                        (deleteBtn as HTMLElement).style.background = "rgba(255,0,0,0.8)";
+                        (deleteBtn as HTMLElement).style.color = "#fff";
+                    });
+                    deleteBtn.addEventListener("mouseleave", () => {
+                        (deleteBtn as HTMLElement).style.background = "rgba(255,0,0,0.2)";
+                        (deleteBtn as HTMLElement).style.color = "#f55";
+                    });
+                }
+
+                // Select handler
+                card.addEventListener("click", () => {
+                    // If in Play Window, we might need a different flow?
+                    // Current flow: Load map -> Start Game immediately
+                    if (loadCustomMap(mapName)) {
+                        this.hide();
+                        this.hideMapSelection();
+                        // Also hide play window?
+                        const playMenu = document.getElementById("play-menu-panel");
+                        if (playMenu) playMenu.classList.remove("visible");
+
+                        if (this.onStartGame && typeof this.onStartGame === 'function') {
+                            this.onStartGame('custom');
+                        }
+                    } else {
+                        alert("Ошибка загрузки карты!");
+                    }
+                });
+
+                container.appendChild(card);
+            });
+        });
+    }
+
+
 
     private createPlayMenuPanel(): void {
         this.playMenuPanel = document.createElement("div");
@@ -6335,7 +5715,7 @@ export class MainMenu {
         this.selectedCannon = savedCannon;
 
         this.playMenuPanel.innerHTML = `
-                <div class="panel-content" style="position: relative; min-height: 100vh; height: 100%;">
+            <div class="panel-content" style="position: relative; min-height: 100vh; height: 100%;">
                 <div class="panel-title">${L.play || "ИГРАТЬ"}</div>
 
                 <!-- 1. Выбор типа игры (Одиночная / Мультиплеер) -->
@@ -6347,1049 +5727,1054 @@ export class MainMenu {
                         </div>
                     </div>
                     <div class="section-title">1. Выбор типа игры</div>
-                    <div class="mode-buttons" style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
-                        <button class="menu-btn play-btn game-type-btn" id="btn-type-single" data-type="single" style="padding: 25px 20px;">
-                            <span class="btn-icon" style="font-size: 32px;">🎮</span>
-                            <span class="btn-label" style="font-size: 16px;">ОДИНОЧНАЯ ИГРА</span>
-                        </button>
-                        <button class="menu-btn play-btn game-type-btn" id="btn-type-multiplayer" data-type="multiplayer" style="padding: 25px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                            <span class="btn-icon" style="font-size: 32px;">🌐</span>
-                            <span class="btn-label" style="font-size: 16px;">МУЛЬТИПЛЕЕР</span>
-                        </button>
+                <div class="mode-buttons" style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
+                    <button class="menu-btn play-btn game-type-btn" id="btn-type-single" data-type="single" style="padding: 25px 20px;">
+                        <span class="btn-icon" style="font-size: 32px;">🎮</span>
+                        <span class="btn-label" style="font-size: 16px;">ОДИНОЧНАЯ ИГРА</span>
+                    </button>
+                    <button class="menu-btn play-btn game-type-btn" id="btn-type-multiplayer" data-type="multiplayer" style="padding: 25px 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                        <span class="btn-icon" style="font-size: 32px;">🌐</span>
+                        <span class="btn-label" style="font-size: 16px;">МУЛЬТИПЛЕЕР</span>
+                    </button>
+                </div>
+            </div>
+
+                                                                                                                                                                                                                                                                                                                                                                                    <!-- 2. Выбор режима игры -->
+            <div class="play-window" id="play-window-gamemode" data-order="1" data-step="1" style="display: none;">
+                <div class="play-window-header">
+                    <div class="play-window-title">/[user_id]/single/mode</div>
+                    <div class="window-actions">
+                        <button class="window-btn" data-nav="back" data-step="1">⟵</button>
+                        <button class="window-btn" data-nav="forward" data-step="1">⟶</button>
+                        <button class="window-btn" data-nav="close" data-step="1">✕</button>
                     </div>
                 </div>
-
-                <!-- 2. Выбор режима игры -->
-                <div class="play-window" id="play-window-gamemode" data-order="1" data-step="1" style="display: none;">
-                    <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/single/mode</div>
-                        <div class="window-actions">
-                            <button class="window-btn" data-nav="back" data-step="1">⟵</button>
-                            <button class="window-btn" data-nav="forward" data-step="1">⟶</button>
-                            <button class="window-btn" data-nav="close" data-step="1">✕</button>
-                        </div>
-                    </div>
-                    <div class="section-title">2. Выбор режима игры</div>
-                    <div class="gamemode-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 15px;">
-                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-ffa" data-gamemode="ffa">
-                            <span class="btn-icon">⚔️</span>
-                            <span class="btn-label">Free-for-All</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-tdm" data-gamemode="tdm">
-                            <span class="btn-icon">👥</span>
-                            <span class="btn-label">Team Deathmatch</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-coop" data-gamemode="coop">
-                            <span class="btn-icon">🤝</span>
-                            <span class="btn-label">Co-op PvE</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-br" data-gamemode="battle_royale">
-                            <span class="btn-icon">👑</span>
-                            <span class="btn-label">Battle Royale</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-ctf" data-gamemode="ctf">
-                            <span class="btn-icon">🚩</span>
-                            <span class="btn-label">Capture the Flag</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-control-point" data-gamemode="control_point">
-                            <span class="btn-icon">📍</span>
-                            <span class="btn-label">Control Point</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-escort" data-gamemode="escort">
-                            <span class="btn-icon">🚛</span>
-                            <span class="btn-label">Escort</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-survival" data-gamemode="survival">
-                            <span class="btn-icon">⚔️</span>
-                            <span class="btn-label">Survival</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-raid" data-gamemode="raid">
-                            <span class="btn-icon">👹</span>
-                            <span class="btn-label">Raid</span>
-                        </button>
-                    </div>
+                <div class="section-title">2. Выбор режима игры</div>
+                <div class="gamemode-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 15px;">
+                    <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-ffa" data-gamemode="ffa">
+                        <span class="btn-icon">⚔️</span>
+                        <span class="btn-label">Free-for-All</span>
+                    </button>
+                    <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-tdm" data-gamemode="tdm">
+                        <span class="btn-icon">👥</span>
+                        <span class="btn-label">Team Deathmatch</span>
+                    </button>
+                    <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-coop" data-gamemode="coop">
+                        <span class="btn-icon">🤝</span>
+                        <span class="btn-label">Co-op PvE</span>
+                    </button>
+                    <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-br" data-gamemode="battle_royale">
+                        <span class="btn-icon">👑</span>
+                        <span class="btn-label">Battle Royale</span>
+                    </button>
+                    <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-ctf" data-gamemode="ctf">
+                        <span class="btn-icon">🚩</span>
+                        <span class="btn-label">Capture the Flag</span>
+                    </button>
+                    <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-control-point" data-gamemode="control_point">
+                        <span class="btn-icon">📍</span>
+                        <span class="btn-label">Control Point</span>
+                    </button>
+                    <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-escort" data-gamemode="escort">
+                        <span class="btn-icon">🚛</span>
+                        <span class="btn-label">Escort</span>
+                    </button>
+                    <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-survival" data-gamemode="survival">
+                        <span class="btn-icon">⚔️</span>
+                        <span class="btn-label">Survival</span>
+                    </button>
+                    <button class="menu-btn secondary gamemode-btn" id="btn-gamemode-raid" data-gamemode="raid">
+                        <span class="btn-icon">👹</span>
+                        <span class="btn-label">Raid</span>
+                    </button>
                 </div>
+            </div>
 
-                <!-- 1.5. Мультиплеер меню -->
-                <div class="play-window" id="play-window-multiplayer" data-order="0.5" data-step="0.5" style="display: none;">
-                    <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/multiplayer</div>
-                        <div class="window-actions">
-                            <button class="window-btn" data-nav="back" data-step="0.5">⟵</button>
-                            <button class="window-btn" data-nav="close" data-step="0.5">✕</button>
-                        </div>
-                    </div>
-                    <div class="section-title">🌐 МУЛЬТИПЛЕЕР</div>
+            <!-- 1.5. Мультиплеер меню -->
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                <div class="play-window" id="play-window-multiplayer" data-order="0.5" data-step="0.5" style="display: none;" >
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    <div class="play-window-header" >
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        <div class="play-window-title" > /[user_id]/multiplayer </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            <div class="window-actions" >
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                <button class="window-btn" data-nav="back" data-step="0.5" >⟵</button>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    <button class="window-btn" data-nav="close" data-step="0.5" >✕</button>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        <div class="section-title" >🌐 МУЛЬТИПЛЕЕР </div>
 
-                    <!-- Кнопки действий -->
-                    <div style="margin: 20px 0;">
-                        <div style="display: flex; gap: 10px; flex-direction: column;">
-                            <button class="panel-btn primary" id="mp-btn-quick-play" style="width: 100%; padding: 14px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); transition: all 0.2s;">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            <!--Кнопки действий-->
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                <div style="margin: 20px 0;" >
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    <div style="display: flex; gap: 10px; flex-direction: column;" >
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        <button class="panel-btn primary" id="mp-btn-quick-play" style="width: 100%; padding: 14px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); transition: all 0.2s;" >
                                 🔍 БЫСТРЫЙ ПОИСК
-                            </button>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                                <button class="panel-btn" id="mp-btn-create-room" style="padding: 12px; transition: all 0.2s;">
+            </button>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;" >
+                <button class="panel-btn" id="mp-btn-create-room" style="padding: 12px; transition: all 0.2s;" >
                                     ➕ Создать комнату
-                                </button>
-                                <button class="panel-btn" id="mp-btn-join-room" style="padding: 12px; transition: all 0.2s;">
+            </button>
+            <button class="panel-btn" id="mp-btn-join-room" style="padding: 12px; transition: all 0.2s;" >
                                     🔗 Присоединиться
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+            </button>
+            </div>
+            </div>
+            </div>
 
-                    <!-- Список доступных комнат -->
-                    <div id="mp-rooms-list" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid #0f0;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                            <div style="font-weight: bold; color: #0f0; font-size: 14px;">📋 Доступные комнаты</div>
-                            <button id="mp-btn-refresh-rooms" style="padding: 4px 8px; font-size: 10px; background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; border-radius: 4px; color: #0f0; cursor: pointer; transition: all 0.2s;" title="Обновить список">
+            <!--Список доступных комнат-->
+                <div id="mp-rooms-list" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid #0f0;" >
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;" >
+                        <div style="font-weight: bold; color: #0f0; font-size: 14px;" >📋 Доступные комнаты </div>
+                            <button id="mp-btn-refresh-rooms" style="padding: 4px 8px; font-size: 10px; background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; border-radius: 4px; color: #0f0; cursor: pointer; transition: all 0.2s;" title="Обновить список" >
                                 🔄
-                            </button>
-                        </div>
-                        <div id="mp-rooms-items" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #0f0 rgba(0, 0, 0, 0.3);">
-                            <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;">Загрузка списка комнат...</div>
-                        </div>
+        </button>
+            </div>
+            <div id="mp-rooms-items" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #0f0 rgba(0, 0, 0, 0.3);" >
+                <div style="text-align: center; padding: 20px; color: #888; font-size: 12px;" > Загрузка списка комнат...</div>
+                    </div>
                     </div>
 
-                    <!-- Статус подключения -->
-                    <div id="mp-status-container" style="margin: 15px 0; padding: 10px; background: rgba(0, 0, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
-                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span id="mp-connection-indicator" style="width: 10px; height: 10px; border-radius: 50%; background: #888; display: inline-block;"></span>
-                                <span id="mp-connection-status" style="font-size: 12px; color: #aaa;">Не подключен</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <button id="mp-btn-check-ws" class="panel-btn" style="padding: 6px 12px; font-size: 11px; font-weight: bold; background: linear-gradient(135deg, rgba(0, 100, 0, 0.6) 0%, rgba(0, 60, 0, 0.8) 100%); border: 1px solid rgba(0, 255, 0, 0.6); border-radius: 4px; transition: all 0.2s ease;" title="Проверить WebSocket соединение">
+                    <!--Статус подключения-->
+                        <div id="mp-status-container" style="margin: 15px 0; padding: 10px; background: rgba(0, 0, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);" >
+                            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;" >
+                                <div style="display: flex; align-items: center; gap: 10px;" >
+                                    <span id="mp-connection-indicator" style="width: 10px; height: 10px; border-radius: 50%; background: #888; display: inline-block;" > </span>
+                                        <span id="mp-connection-status" style="font-size: 12px; color: #aaa;" > Не подключен </span>
+                                            </div>
+                                            <div style="display: flex; align-items: center; gap: 8px;" >
+                                                <button id="mp-btn-check-ws" class="panel-btn" style="padding: 6px 12px; font-size: 11px; font-weight: bold; background: linear-gradient(135deg, rgba(0, 100, 0, 0.6) 0%, rgba(0, 60, 0, 0.8) 100%); border: 1px solid rgba(0, 255, 0, 0.6); border-radius: 4px; transition: all 0.2s ease;" title="Проверить WebSocket соединение" >
                                     🔌 WebSocket
-                                </button>
-                                <button id="mp-btn-check-firebase" class="panel-btn" style="padding: 6px 12px; font-size: 11px; font-weight: bold; background: linear-gradient(135deg, rgba(120, 60, 0, 0.6) 0%, rgba(80, 40, 0, 0.8) 100%); border: 1px solid rgba(255, 165, 0, 0.6); border-radius: 4px; transition: all 0.2s ease;" title="Проверить Firebase соединение">
+            </button>
+            <button id="mp-btn-check-firebase" class="panel-btn" style="padding: 6px 12px; font-size: 11px; font-weight: bold; background: linear-gradient(135deg, rgba(120, 60, 0, 0.6) 0%, rgba(80, 40, 0, 0.8) 100%); border: 1px solid rgba(255, 165, 0, 0.6); border-radius: 4px; transition: all 0.2s ease;" title="Проверить Firebase соединение" >
                                     🔥 Firebase
-                                </button>
-                                <button id="mp-btn-reconnect" class="panel-btn" style="padding: 6px 12px; font-size: 11px; display: none; border-radius: 4px;">
+            </button>
+            <button id="mp-btn-reconnect" class="panel-btn" style="padding: 6px 12px; font-size: 11px; display: none; border-radius: 4px;" >
                                     🔄 Переподключить
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+            </button>
+            </div>
+            </div>
+            </div>
 
-                    <!-- Модальное окно для присоединения к комнате -->
-                    <div id="mp-join-room-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 100005 !important; align-items: center; justify-content: center; pointer-events: auto;">
-                        <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 40, 0.95) 100%); border: 2px solid #667eea; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); position: relative; z-index: 100006;">
-                            <div style="font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #fff;">Присоединиться к комнате</div>
-                            <div style="margin-bottom: 20px;">
-                                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 8px;">ID комнаты:</label>
-                                <input type="text" id="mp-room-id-input" placeholder="Введите ID комнаты" style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.4); border: 1px solid #444; border-radius: 6px; color: #fff; font-family: monospace; font-size: 14px; outline: none; transition: border-color 0.2s;" />
-                                <div id="mp-room-id-error" style="display: none; color: #ef4444; font-size: 11px; margin-top: 6px;"></div>
-                            </div>
-                            <div style="display: flex; gap: 10px;">
-                                <button id="mp-modal-join-btn" class="panel-btn primary" style="flex: 1; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
-                                    Присоединиться
-                                </button>
-                                <button id="mp-modal-cancel-btn" class="panel-btn" style="flex: 1; padding: 12px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
-                                    Отмена
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+            <!--Модальное окно для присоединения к комнате-->
+                <div id="mp-join-room-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.8); z-index: 100005 !important; align-items: center; justify-content: center; pointer-events: auto;" >
+                    <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 40, 0.95) 100%); border: 2px solid #667eea; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); position: relative; z-index: 100006;" >
+                        <div style="font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #fff;" > Присоединиться к комнате </div>
+                            <div style="margin-bottom: 20px;" >
+                                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 8px;" > ID комнаты: </label>
+                                    <input type="text" id="mp-room-id-input" placeholder="Введите ID комнаты" style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.4); border: 1px solid #444; border-radius: 6px; color: #fff; font-family: monospace; font-size: 14px; outline: none; transition: border-color 0.2s;" />
+                                        <div id="mp-room-id-error" style="display: none; color: #ef4444; font-size: 11px; margin-top: 6px;" > </div>
+                                            </div>
+                                            <div style="display: flex; gap: 10px;" >
+                                                <button id="mp-modal-join-btn" class="panel-btn primary" style="flex: 1; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;" >
+                                                    Присоединиться
+                                                    </button>
+                                                    <button id="mp-modal-cancel-btn" class="panel-btn" style="flex: 1; padding: 12px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;" >
+                                                        Отмена
+                                                        </button>
+                                                        </div>
+                                                        </div>
+                                                        </div>
 
-                    <!-- Модальное окно с детальной информацией о комнате -->
-                    <div id="mp-room-details-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 100007 !important; align-items: center; justify-content: center; pointer-events: auto; overflow-y: auto;">
-                        <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.98) 0%, rgba(30, 30, 40, 0.98) 100%); border: 2px solid #667eea; border-radius: 16px; padding: 30px; max-width: 500px; width: 90%; max-height: 90vh; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6); position: relative; z-index: 100008; margin: 20px 0;">
-                            <!-- Заголовок -->
-                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid rgba(102, 126, 234, 0.3);">
-                                <div style="font-size: 20px; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 10px;">
-                                    <span>🏠</span>
-                                    <span>Детали комнаты</span>
-                                </div>
-                                <button id="mp-room-details-close" style="width: 32px; height: 32px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 6px; color: #ef4444; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" title="Закрыть">
+                                                        <!--Модальное окно с детальной информацией о комнате-->
+                                                            <div id="mp-room-details-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 100007 !important; align-items: center; justify-content: center; pointer-events: auto; overflow-y: auto;" >
+                                                                <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.98) 0%, rgba(30, 30, 40, 0.98) 100%); border: 2px solid #667eea; border-radius: 16px; padding: 30px; max-width: 500px; width: 90%; max-height: 90vh; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6); position: relative; z-index: 100008; margin: 20px 0;" >
+                                                                    <!--Заголовок -->
+                                                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid rgba(102, 126, 234, 0.3);" >
+                                                                            <div style="font-size: 20px; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 10px;" >
+                                                                                <span>🏠</span>
+                                                                                    <span > Детали комнаты </span>
+                                                                                        </div>
+                                                                                        <button id="mp-room-details-close" style="width: 32px; height: 32px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 6px; color: #ef4444; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" title="Закрыть" >
                                     ×
-                                </button>
-                            </div>
+        </button>
+            </div>
 
-                            <!-- Основная информация -->
-                            <div style="margin-bottom: 20px;">
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
-                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
-                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">ID комнаты</div>
-                                        <div id="mp-room-details-id" style="font-size: 16px; font-weight: bold; color: #a78bfa; font-family: monospace;">-</div>
+            <!--Основная информация-->
+                <div style="margin-bottom: 20px;" >
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;" >
+                        <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);" >
+                            <div style="font-size: 11px; color: #888; margin-bottom: 4px;" > ID комнаты </div>
+                                <div id="mp-room-details-id" style="font-size: 16px; font-weight: bold; color: #a78bfa; font-family: monospace;" > -</div>
                                     </div>
-                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
-                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Режим</div>
-                                        <div id="mp-room-details-mode" style="font-size: 16px; font-weight: bold; color: #667eea;">-</div>
-                                    </div>
-                                </div>
+                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);" >
+                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;" > Режим </div>
+                                            <div id="mp-room-details-mode" style="font-size: 16px; font-weight: bold; color: #667eea;" > -</div>
+                                                </div>
+                                                </div>
 
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
-                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
-                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Игроков</div>
-                                        <div id="mp-room-details-players" style="font-size: 16px; font-weight: bold; color: #4ade80;">-</div>
-                                    </div>
-                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);">
-                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Статус</div>
-                                        <div id="mp-room-details-status" style="font-size: 16px; font-weight: bold; color: #a78bfa;">-</div>
-                                    </div>
-                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;" >
+                                                    <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);" >
+                                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;" > Игроков </div>
+                                                            <div id="mp-room-details-players" style="font-size: 16px; font-weight: bold; color: #4ade80;" > -</div>
+                                                                </div>
+                                                                <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2);" >
+                                                                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;" > Статус </div>
+                                                                        <div id="mp-room-details-status" style="font-size: 16px; font-weight: bold; color: #a78bfa;" > -</div>
+                                                                            </div>
+                                                                            </div>
 
-                                <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2); margin-bottom: 15px;">
-                                    <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Время игры</div>
-                                    <div id="mp-room-details-time" style="font-size: 14px; color: #aaa; font-family: monospace;">-</div>
-                                </div>
-                            </div>
+                                                                            <div style="background: rgba(0, 0, 0, 0.3); padding: 12px; border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.2); margin-bottom: 15px;" >
+                                                                                <div style="font-size: 11px; color: #888; margin-bottom: 4px;" > Время игры </div>
+                                                                                    <div id="mp-room-details-time" style="font-size: 14px; color: #aaa; font-family: monospace;" > -</div>
+                                                                                        </div>
+                                                                                        </div>
 
-                            <!-- Прогресс-бар заполненности -->
-                            <div style="margin-bottom: 20px;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
-                                    <span style="font-size: 12px; color: #aaa;">Заполненность</span>
-                                    <span id="mp-room-details-progress-text" style="font-size: 12px; color: #4ade80; font-weight: 600;">-</span>
-                                </div>
-                                <div style="width: 100%; height: 8px; background: rgba(0, 0, 0, 0.4); border-radius: 4px; overflow: hidden;">
-                                    <div id="mp-room-details-progress-bar" style="height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); width: 0%; transition: width 0.3s; border-radius: 4px;"></div>
-                                </div>
-                            </div>
+                                                                                        <!--Прогресс - бар заполненности-->
+                                                                                            <div style="margin-bottom: 20px;" >
+                                                                                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;" >
+                                                                                                    <span style="font-size: 12px; color: #aaa;" > Заполненность </span>
+                                                                                                        <span id="mp-room-details-progress-text" style="font-size: 12px; color: #4ade80; font-weight: 600;" > -</span>
+                                                                                                            </div>
+                                                                                                            <div style="width: 100%; height: 8px; background: rgba(0, 0, 0, 0.4); border-radius: 4px; overflow: hidden;" >
+                                                                                                                <div id="mp-room-details-progress-bar" style="height: 100%; background: linear-gradient(90deg, #667eea 0%, #764ba2 100%); width: 0%; transition: width 0.3s; border-radius: 4px;" > </div>
+                                                                                                                    </div>
+                                                                                                                    </div>
 
-                            <!-- Список игроков в комнате -->
-                            <div style="margin-bottom: 20px;">
-                                <div style="font-size: 12px; font-weight: 600; color: #667eea; margin-bottom: 10px;">👥 Игроки в комнате:</div>
-                                <div id="mp-room-details-players-list" style="max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #667eea rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; gap: 6px;">
-                                    <div style="text-align: center; padding: 10px; color: #888; font-size: 11px;">Загрузка списка игроков...</div>
-                                </div>
-                            </div>
+                                                                                                                    <!--Список игроков в комнате-->
+                                                                                                                        <div style="margin-bottom: 20px;" >
+                                                                                                                            <div style="font-size: 12px; font-weight: 600; color: #667eea; margin-bottom: 10px;" >👥 Игроки в комнате: </div>
+                                                                                                                                <div id="mp-room-details-players-list" style="max-height: 200px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #667eea rgba(0, 0, 0, 0.3); display: flex; flex-direction: column; gap: 6px;" >
+                                                                                                                                    <div style="text-align: center; padding: 10px; color: #888; font-size: 11px;" > Загрузка списка игроков...</div>
+                                                                                                                                        </div>
+                                                                                                                                        </div>
 
-                            <!-- Панель управления (только для создателя комнаты) -->
-                            <div id="mp-room-details-admin-panel" style="display: none; margin-bottom: 20px; padding: 15px; background: rgba(102, 126, 234, 0.1); border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.3);">
-                                <div style="font-size: 12px; font-weight: 600; color: #a78bfa; margin-bottom: 12px;">⚙️ Управление комнатой:</div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
-                                    <button id="mp-room-details-change-mode" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;">
+                                                                                                                                        <!--Панель управления(только для создателя комнаты)-->
+                                                                                                                                            <div id="mp-room-details-admin-panel" style="display: none; margin-bottom: 20px; padding: 15px; background: rgba(102, 126, 234, 0.1); border-radius: 8px; border: 1px solid rgba(102, 126, 234, 0.3);" >
+                                                                                                                                                <div style="font-size: 12px; font-weight: 600; color: #a78bfa; margin-bottom: 12px;" >⚙️ Управление комнатой: </div>
+                                                                                                                                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;" >
+                                                                                                                                                        <button id="mp-room-details-change-mode" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;" >
                                         🔄 Изменить режим
-                                    </button>
-                                    <button id="mp-room-details-change-max" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;">
-                                        👥 Макс. игроков
-                                    </button>
-                                </div>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-                                    <button id="mp-room-details-toggle-private" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;">
+            </button>
+            <button id="mp-room-details-change-max" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;" >
+                                        👥 Макс.игроков
+            </button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;" >
+                <button id="mp-room-details-toggle-private" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;" >
                                         🔒 Приватность
-                                    </button>
-                                    <button id="mp-room-details-transfer" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;">
+            </button>
+            <button id="mp-room-details-transfer" class="panel-btn" style="padding: 10px; font-size: 11px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa;" >
                                         👑 Передать права
-                                    </button>
-                                </div>
-                            </div>
+            </button>
+            </div>
+            </div>
 
-                            <!-- Кнопки действий -->
-                            <div style="display: flex; gap: 10px; margin-top: 25px;">
-                                <button id="mp-room-details-join" class="panel-btn primary" style="flex: 1; padding: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; font-size: 14px; font-weight: 600;">
+            <!--Кнопки действий-->
+                <div style="display: flex; gap: 10px; margin-top: 25px;" >
+                    <button id="mp-room-details-join" class="panel-btn primary" style="flex: 1; padding: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; font-size: 14px; font-weight: 600;" >
                                     🎮 Присоединиться
-                                </button>
-                                <button id="mp-room-details-copy-id" class="panel-btn" style="padding: 14px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa; min-width: 50px;" title="Копировать ID">
+            </button>
+            <button id="mp-room-details-copy-id" class="panel-btn" style="padding: 14px; background: rgba(102, 126, 234, 0.2); border-color: #667eea; color: #a78bfa; min-width: 50px;" title="Копировать ID" >
                                     📋
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+        </button>
+            </div>
+            </div>
+            </div>
 
-                    <style>
-                        @keyframes pulse {
-                            0%, 100% { opacity: 1; transform: scale(1); }
-                            50% { opacity: 0.7; transform: scale(1.1); }
-                        }
-                        @keyframes fadeIn {
+            <style>
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+        @keyframes fadeIn {
                             from { opacity: 0; transform: translateY(-10px); }
                             to { opacity: 1; transform: translateY(0); }
-                        }
+        }
 
-                        /* Анимации для кнопки "В БОЙ!" */
-                        @keyframes battlePulse {
-                            0%, 100% {
-                                box-shadow: 0 0 20px rgba(74, 222, 128, 0.6),
-                                           0 0 40px rgba(74, 222, 128, 0.4),
-                                           0 0 60px rgba(74, 222, 128, 0.2);
-                                transform: scale(1);
-                            }
-                            50% {
-                                box-shadow: 0 0 30px rgba(74, 222, 128, 0.8),
-                                           0 0 60px rgba(74, 222, 128, 0.6),
-                                           0 0 90px rgba(74, 222, 128, 0.4);
-                                transform: scale(1.02);
-                            }
-                        }
+        /* Анимации для кнопки "В БОЙ!" */
+        @keyframes battlePulse {
+            0%, 100% {
+                box-shadow: 0 0 20px rgba(74, 222, 128, 0.6),
+                    0 0 40px rgba(74, 222, 128, 0.4),
+                        0 0 60px rgba(74, 222, 128, 0.2);
+            transform: scale(1);
+        }
+        50% {
+            box-shadow: 0 0 30px rgba(74, 222, 128, 0.8),
+                0 0 60px rgba(74, 222, 128, 0.6),
+                    0 0 90px rgba(74, 222, 128, 0.4);
+        transform: scale(1.02);
+    }
+}
 
-                        @keyframes battleShine {
-                            0% {
-                                transform: translateX(-100%) translateY(-100%) rotate(45deg);
-                            }
-                            100% {
-                                transform: translateX(200%) translateY(200%) rotate(45deg);
-                            }
-                        }
-
-                        @keyframes battleGradient {
-                            0% {
-                                background-position: 0% 50%;
-                            }
-                            50% {
-                                background-position: 100% 50%;
-                            }
-                            100% {
-                                background-position: 0% 50%;
+@keyframes battleShine {
+    0% {
+        transform: translateX(-100%) translateY(-100%) rotate(45deg);
+}
+100% {
+    transform: translateX(200%) translateY(200%) rotate(45deg);
                             }
                         }
 
-                        @keyframes battleConstruction {
-                            0% {
-                                background-position: -100% 0;
+@keyframes battleGradient {
+    0% {
+        background-position: 0% 50%;
+}
+50% {
+    background-position: 100% 50%;
                             }
-                            100% {
-                                background-position: 200% 0;
+100% {
+    background-position: 0% 50%;
                             }
                         }
 
-                        @keyframes battleTextGlow {
-                            0%, 100% {
-                                text-shadow: 0 0 10px rgba(74, 222, 128, 0.8),
-                                            0 0 20px rgba(74, 222, 128, 0.6),
-                                            0 0 30px rgba(74, 222, 128, 0.4);
+@keyframes battleConstruction {
+    0% {
+        background-position: -100% 0;
+}
+100% {
+    background-position: 200% 0;
                             }
-                            50% {
-                                text-shadow: 0 0 15px rgba(74, 222, 128, 1),
-                                            0 0 30px rgba(74, 222, 128, 0.8),
-                                            0 0 45px rgba(74, 222, 128, 0.6);
+                        }
+
+@keyframes battleTextGlow {
+    0%, 100% {
+        text-shadow: 0 0 10px rgba(74, 222, 128, 0.8),
+            0 0 20px rgba(74, 222, 128, 0.6),
+                0 0 30px rgba(74, 222, 128, 0.4);
+}
+50% {
+    text-shadow: 0 0 15px rgba(74, 222, 128, 1),
+        0 0 30px rgba(74, 222, 128, 0.8),
+            0 0 45px rgba(74, 222, 128, 0.6);
                             }
                         }
 
                         /* Стили кнопки "В БОЙ!" */
                         .battle-btn {
-                            background: linear-gradient(135deg,
-                                rgba(74, 222, 128, 0.4) 0%,
-                                rgba(34, 197, 94, 0.4) 50%,
-                                rgba(74, 222, 128, 0.4) 100%);
-                            background-size: 200% 200%;
-                            border: 2px solid #4ade80;
-                            color: #4ade80;
-                            cursor: pointer;
-                            position: relative;
-                            overflow: hidden;
-                            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-                            animation: battleGradient 3s ease infinite, battlePulse 2s ease-in-out infinite;
-                        }
+    background: linear-gradient(135deg,
+        rgba(74, 222, 128, 0.4) 0%,
+        rgba(34, 197, 94, 0.4) 50%,
+        rgba(74, 222, 128, 0.4) 100%);
+    background-size: 200% 200%;
+    border: 2px solid #4ade80;
+    color: #4ade80;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: battleGradient 3s ease infinite, battlePulse 2s ease-in-out infinite;
+}
 
                         .battle-btn::before {
-                            content: '';
-                            position: absolute;
-                            top: 0;
-                            left: -100%;
-                            width: 100%;
-                            height: 100%;
-                            background: repeating-linear-gradient(
-                                45deg,
-                                transparent,
-                                transparent 10px,
-                                rgba(255, 255, 255, 0.1) 10px,
-                                rgba(255, 255, 255, 0.1) 20px
-                            );
-                            animation: battleConstruction 3s linear infinite;
-                            pointer-events: none;
-                        }
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 10px,
+        rgba(255, 255, 255, 0.1) 10px,
+        rgba(255, 255, 255, 0.1) 20px
+    );
+    animation: battleConstruction 3s linear infinite;
+    pointer-events: none;
+}
 
                         .battle-btn-text {
-                            position: relative;
-                            z-index: 2;
-                            display: block;
-                            animation: battleTextGlow 2s ease-in-out infinite;
-                        }
+    position: relative;
+    z-index: 2;
+    display: block;
+    animation: battleTextGlow 2s ease-in-out infinite;
+}
 
                         .battle-btn-shine {
-                            position: absolute;
-                            top: -50%;
-                            left: -50%;
-                            width: 200%;
-                            height: 200%;
-                            background: linear-gradient(
-                                45deg,
-                                transparent 30%,
-                                rgba(255, 255, 255, 0.3) 50%,
-                                transparent 70%
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(
+        45deg,
+        transparent 30%,
+        rgba(255, 255, 255, 0.3) 50%,
+        transparent 70%
                             );
-                            animation: battleShine 3s ease-in-out infinite;
-                            pointer-events: none;
-                            z-index: 1;
-                        }
+    animation: battleShine 3s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 1;
+}
 
                         .battle-btn:hover {
-                            transform: scale(1.05) translateY(-2px);
-                            box-shadow: 0 0 40px rgba(74, 222, 128, 0.8),
-                                       0 0 80px rgba(74, 222, 128, 0.6),
-                                       0 0 120px rgba(74, 222, 128, 0.4);
-                            border-color: #22c55e;
-                            background: linear-gradient(135deg,
-                                rgba(74, 222, 128, 0.6) 0%,
-                                rgba(34, 197, 94, 0.6) 50%,
-                                rgba(74, 222, 128, 0.6) 100%);
-                            background-size: 200% 200%;
-                        }
+    transform: scale(1.05) translateY(-2px);
+    box-shadow: 0 0 40px rgba(74, 222, 128, 0.8),
+        0 0 80px rgba(74, 222, 128, 0.6),
+            0 0 120px rgba(74, 222, 128, 0.4);
+    border-color: #22c55e;
+    background: linear-gradient(135deg,
+        rgba(74, 222, 128, 0.6) 0%,
+        rgba(34, 197, 94, 0.6) 50%,
+        rgba(74, 222, 128, 0.6) 100%);
+    background-size: 200% 200%;
+}
 
                         .battle-btn:active {
-                            transform: scale(0.98) translateY(0);
-                            animation: none;
-                        }
+    transform: scale(0.98) translateY(0);
+    animation: none;
+}
 
                         .battle-btn-ready {
-                            animation: battleGradient 3s ease infinite, battlePulse 2s ease-in-out infinite;
-                        }
+    animation: battleGradient 3s ease infinite, battlePulse 2s ease-in-out infinite;
+}
                         .mp-mode-btn {
-                            transition: all 0.2s ease;
-                            text-align: left;
-                        }
+    transition: all 0.2s ease;
+    text-align: left;
+}
                         .mp-mode-btn:hover {
-                            transform: translateY(-2px);
-                            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-                        }
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
                         .mp-mode-btn.active {
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            border-color: #667eea;
-                            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
-                        }
-                        #mp-join-room-modal {
-                            animation: fadeIn 0.2s ease;
-                            z-index: 100005 !important;
-                            position: fixed !important;
-                            pointer-events: auto !important;
-                        }
-                        #mp-join-room-modal > div {
-                            position: relative;
-                            z-index: 100006;
-                            pointer-events: auto;
-                        }
-                        #mp-join-room-modal input:focus {
-                            border-color: #667eea;
-                            box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
-                        }
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: #667eea;
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+}
+#mp-join-room-modal {
+    animation: fadeIn 0.2s ease;
+    z-index: 100005!important;
+    position: fixed!important;
+    pointer-events: auto!important;
+}
+#mp-join-room-modal > div {
+    position: relative;
+    z-index: 100006;
+    pointer-events: auto;
+}
+#mp-join-room-modal input:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 8px rgba(102, 126, 234, 0.4);
+}
 
-                        /* Стили для детального меню комнаты */
-                        #mp-room-details-modal {
-                            animation: fadeIn 0.3s ease;
-                        }
+/* Стили для детального меню комнаты */
+#mp-room-details-modal {
+    animation: fadeIn 0.3s ease;
+}
 
-                        #mp-room-details-modal > div {
-                            animation: slideUp 0.3s ease;
-                        }
+#mp-room-details-modal > div {
+    animation: slideUp 0.3s ease;
+}
 
-                        #mp-room-details-close:hover {
-                            background: rgba(239, 68, 68, 0.4) !important;
-                            transform: scale(1.1);
-                        }
+#mp-room-details-close:hover {
+    background: rgba(239, 68, 68, 0.4)!important;
+    transform: scale(1.1);
+}
 
-                        #mp-room-details-join:hover {
-                            transform: translateY(-2px);
-                            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-                        }
+#mp-room-details-join:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
 
-                        #mp-room-details-copy-id:hover {
-                            background: rgba(102, 126, 234, 0.3) !important;
-                            transform: scale(1.1);
-                        }
+#mp-room-details-copy-id:hover {
+    background: rgba(102, 126, 234, 0.3)!important;
+    transform: scale(1.1);
+}
 
-                        @keyframes slideUp {
+@keyframes slideUp {
                             from {
-                                opacity: 0;
-                                transform: translateY(20px);
-                            }
+        opacity: 0;
+        transform: translateY(20px);
+    }
                             to {
-                                opacity: 1;
-                                transform: translateY(0);
-                            }
-                        }
-                    </style>
-                </div>
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+</style>
+    </div>
 
-                <!-- Панель выбора режима для создания комнаты -->
-                <div class="play-window" id="mp-create-room-mode" data-order="1" data-step="1" style="display: none;">
-                    <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/multiplayer/mode</div>
-                        <div class="window-actions">
-                            <button class="window-btn" data-nav="back" data-step="1">⟵</button>
-                            <button class="window-btn" data-nav="close" data-step="1">✕</button>
-                        </div>
-                    </div>
-                    <div class="section-title">Выбор режима игры</div>
-                    <div class="gamemode-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 15px;">
-                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('ffa')">
-                            <span class="btn-icon">⚔️</span>
-                            <span class="btn-label">Free-for-All</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('tdm')">
-                            <span class="btn-icon">👥</span>
-                            <span class="btn-label">Team Deathmatch</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('coop')">
-                            <span class="btn-icon">🤝</span>
-                            <span class="btn-label">Co-op PvE</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('battle_royale')">
-                            <span class="btn-icon">👑</span>
-                            <span class="btn-label">Battle Royale</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('ctf')">
-                            <span class="btn-icon">🚩</span>
-                            <span class="btn-label">Capture the Flag</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('survival')">
-                            <span class="btn-icon">⚔️</span>
-                            <span class="btn-label">Survival</span>
-                        </button>
-                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('raid')">
-                            <span class="btn-icon">👹</span>
-                            <span class="btn-label">Raid</span>
-                        </button>
-                    </div>
-                </div>
+    <!--Панель выбора режима для создания комнаты-->
+        <div class="play-window" id="mp-create-room-mode" data-order="1" data-step="1" style="display: none;" >
+            <div class="play-window-header" >
+                <div class="play-window-title" > /[user_id]/multiplayer / mode </div>
+                    <div class="window-actions" >
+                        <button class="window-btn" data-nav="back" data-step="1" >⟵</button>
+                            <button class="window-btn" data-nav="close" data-step="1" >✕</button>
+                                </div>
+                                </div>
+                                <div class="section-title" > Выбор режима игры </div>
+                                    <div class="gamemode-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 15px;" >
+                                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('ffa')" >
+                                            <span class="btn-icon" >⚔️</span>
+                                                <span class="btn-label" > Free-for-All </span>
+                                                    </button>
+                                                    <button class= "menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('tdm')" >
+                                                    <span class= "btn-icon" >👥</span>
+                                                        <span class="btn-label" > Team Deathmatch </span>
+                                                            </button>
+                                                            <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('coop')" >
+                                                                <span class="btn-icon" >🤝</span>
+                                                                    <span class="btn-label" > Co-op PvE </span>
+                                                                        </button>
+                                                                        <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('battle_royale')" >
+                                                                            <span class="btn-icon" >👑</span>
+                                                                                <span class="btn-label" > Battle Royale </span>
+                                                                                    </button>
+                                                                                    <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('ctf')" >
+                                                                                        <span class="btn-icon" >🚩</span>
+                                                                                            <span class="btn-label" > Capture the Flag </span>
+                                                                                                </button>
+                                                                                                <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('survival')" >
+                                                                                                    <span class="btn-icon" >⚔️</span>
+                                                                                                        <span class="btn-label" > Survival </span>
+                                                                                                            </button>
+                                                                                                            <button class="menu-btn secondary gamemode-btn" onclick="window.selectMpCreateRoomMode('raid')" >
+                                                                                                                <span class="btn-icon" >👹</span>
+                                                                                                                    <span class="btn-label" > Raid </span>
+                                                                                                                        </button>
+                                                                                                                        </div>
+                                                                                                                        </div>
 
-                <!-- Панель выбора карты для создания комнаты -->
-                <div class="play-window play-window-wide" id="mp-create-room-map" data-order="2" data-step="2" style="display: none; pointer-events: auto; position: relative; z-index: 100010;">
-                    <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/multiplayer/mode/map</div>
-                        <div class="window-actions">
-                            <button class="window-btn" data-nav="back" data-step="2">⟵</button>
-                            <button class="window-btn" data-nav="close" data-step="2">✕</button>
-                        </div>
-                    </div>
-                    <div class="section-title">Выбор карты</div>
-                    <div class="map-grid" style="pointer-events: auto;">
-                        <div class="map-card recommended" onclick="window.selectMpCreateRoomMap('normal', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🗺</span>
-                            <span class="map-card-name">${L.normalMap || "Обычная карта"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('sandbox', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🏖</span>
-                            <span class="map-card-name">${L.sandboxMap || "Песочница"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('sand', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🏜</span>
-                            <span class="map-card-name">${L.sandMap || "Песок"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('madness', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🎪</span>
-                            <span class="map-card-name">${L.madnessMap || "Безумие"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('expo', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🎡</span>
-                            <span class="map-card-name">${L.expoMap || "Expo"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('brest', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🏰</span>
-                            <span class="map-card-name">${L.brestMap || "Брестская крепость"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('arena', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🏟</span>
-                            <span class="map-card-name">${L.arenaMap || "Арена"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('polygon', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🎯</span>
-                            <span class="map-card-name">${L.polygonMap || "Полигон"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('frontline', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">💥</span>
-                            <span class="map-card-name">${L.frontlineMap || "Передовая"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('ruins', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🏚</span>
-                            <span class="map-card-name">${L.ruinsMap || "Руины"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('canyon', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">⛰</span>
-                            <span class="map-card-name">${L.canyonMap || "Ущелье"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('industrial', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🏭</span>
-                            <span class="map-card-name">${L.industrialMap || "Промзона"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('urban_warfare', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🏙</span>
-                            <span class="map-card-name">${L.urbanWarfareMap || "Городские бои"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('underground', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🕳</span>
-                            <span class="map-card-name">${L.undergroundMap || "Подземелье"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('coastal', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-icon">🌊</span>
-                            <span class="map-card-name">${L.coastalMap || "Побережье"}</span>
-                        </div>
-                        <div class="map-card" onclick="window.selectMpCreateRoomMap('tartaria', this)" style="cursor: pointer; pointer-events: auto;">
-                            <span class="map-card-new">NEW</span>
-                            <span class="map-card-icon">🏛</span>
-                            <span class="map-card-name">${L.tartariaMap || "Тартария"}</span>
-                        </div>
-                    </div>
+                                                                                                                        <!--Панель выбора карты для создания комнаты-->
+                                                                                                                            <div class="play-window play-window-wide" id="mp-create-room-map" data-order="2" data-step="2" style="display: none; pointer-events: auto; position: relative; z-index: 100010;" >
+                                                                                                                                <div class="play-window-header" >
+                                                                                                                                    <div class="play-window-title" > /[user_id]/multiplayer / mode / map </div>
+                                                                                                                                        <div class="window-actions" >
+                                                                                                                                            <button class="window-btn" data-nav="back" data-step="2" >⟵</button>
+                                                                                                                                                <button class="window-btn" data-nav="close" data-step="2" >✕</button>
+                                                                                                                                                    </div>
+                                                                                                                                                    </div>
+                                                                                                                                                    <div class="section-title" > Выбор карты </div>
+                                                                                                                                                        <div class="map-grid" style="pointer-events: auto;" >
+                                                                                                                                                            <div class="map-card recommended" onclick="window.selectMpCreateRoomMap('normal', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                <span class="map-card-icon" >🗺</span>
+                                                                                                                                                                    <span class="map-card-name" > ${L.normalMap || "Обычная карта"} </span>
+                                                                                                                                                                        </div>
+                                                                                                                                                                        <div class="map-card" onclick="window.selectMpCreateRoomMap('sandbox', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                            <span class="map-card-icon" >🏖</span>
+                                                                                                                                                                                <span class="map-card-name" > ${L.sandboxMap || "Песочница"} </span>
+                                                                                                                                                                                    </div>
+                                                                                                                                                                                    <div class="map-card" onclick="window.selectMpCreateRoomMap('sand', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                        <span class="map-card-icon" >🏜</span>
+                                                                                                                                                                                            <span class="map-card-name" > ${L.sandMap || "Песок"} </span>
+                                                                                                                                                                                                </div>
+                                                                                                                                                                                                <div class="map-card" onclick="window.selectMpCreateRoomMap('madness', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                    <span class="map-card-icon" >🎪</span>
+                                                                                                                                                                                                        <span class="map-card-name" > ${L.madnessMap || "Безумие"} </span>
+                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                            <div class="map-card" onclick="window.selectMpCreateRoomMap('expo', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                <span class="map-card-icon" >🎡</span>
+                                                                                                                                                                                                                    <span class="map-card-name" > ${L.expoMap || "Expo"} </span>
+                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                        <div class="map-card" onclick="window.selectMpCreateRoomMap('brest', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                            <span class="map-card-icon" >🏰</span>
+                                                                                                                                                                                                                                <span class="map-card-name" > ${L.brestMap || "Брестская крепость"} </span>
+                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                    <div class="map-card" onclick="window.selectMpCreateRoomMap('arena', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                        <span class="map-card-icon" >🏟</span>
+                                                                                                                                                                                                                                            <span class="map-card-name" > ${L.arenaMap || "Арена"} </span>
+                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                <div class="map-card" onclick="window.selectMpCreateRoomMap('polygon', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                                    <span class="map-card-icon" >🎯</span>
+                                                                                                                                                                                                                                                        <span class="map-card-name" > ${L.polygonMap || "Полигон"} </span>
+                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                            <div class="map-card" onclick="window.selectMpCreateRoomMap('frontline', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                                                <span class="map-card-icon" >💥</span>
+                                                                                                                                                                                                                                                                    <span class="map-card-name" > ${L.frontlineMap || "Передовая"} </span>
+                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                        <div class="map-card" onclick="window.selectMpCreateRoomMap('ruins', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                                                            <span class="map-card-icon" >🏚</span>
+                                                                                                                                                                                                                                                                                <span class="map-card-name" > ${L.ruinsMap || "Руины"} </span>
+                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                    <div class="map-card" onclick="window.selectMpCreateRoomMap('canyon', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                                                                        <span class="map-card-icon" >⛰</span>
+                                                                                                                                                                                                                                                                                            <span class="map-card-name" > ${L.canyonMap || "Ущелье"} </span>
+                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                <div class="map-card" onclick="window.selectMpCreateRoomMap('industrial', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                                                                                    <span class="map-card-icon" >🏭</span>
+                                                                                                                                                                                                                                                                                                        <span class="map-card-name" > ${L.industrialMap || "Промзона"} </span>
+                                                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                                                            <div class="map-card" onclick="window.selectMpCreateRoomMap('urban_warfare', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                                                                                                <span class="map-card-icon" >🏙</span>
+                                                                                                                                                                                                                                                                                                                    <span class="map-card-name" > ${L.urbanWarfareMap || "Городские бои"} </span>
+                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                        <div class="map-card" onclick="window.selectMpCreateRoomMap('underground', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                                                                                                            <span class="map-card-icon" >🕳</span>
+                                                                                                                                                                                                                                                                                                                                <span class="map-card-name" > ${L.undergroundMap || "Подземелье"} </span>
+                                                                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                                                                    <div class="map-card" onclick="window.selectMpCreateRoomMap('coastal', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                                                                                                                        <span class="map-card-icon" >🌊</span>
+                                                                                                                                                                                                                                                                                                                                            <span class="map-card-name" > ${L.coastalMap || "Побережье"} </span>
+                                                                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                                                                <div class="map-card" onclick="window.selectMpCreateRoomMap('tartaria', this)" style="cursor: pointer; pointer-events: auto;" >
+                                                                                                                                                                                                                                                                                                                                                    <span class="map-card-new" > NEW </span>
+                                                                                                                                                                                                                                                                                                                                                        <span class="map-card-icon" >🏛</span>
+                                                                                                                                                                                                                                                                                                                                                            <span class="map-card-name" > ${L.tartariaMap || "Тартария"} </span>
+                                                                                                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                                                                                </div>
 
-                    <!-- Настройки ботов -->
-                    <div class="bot-settings" style="margin-top: 15px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1);">
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #fff; font-size: 14px;">
-                                <input type="checkbox" id="mp-enable-bots" style="width: 18px; height: 18px; cursor: pointer;">
-                                <span>🤖 Включить ботов</span>
-                            </label>
-                        </div>
-                        <div id="mp-bot-count-wrapper" style="display: none; margin-top: 10px;">
-                            <label style="color: #aaa; font-size: 12px; display: block; margin-bottom: 5px;">Количество ботов:</label>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <input type="range" id="mp-bot-count" min="1" max="16" value="4" style="flex: 1; cursor: pointer;">
-                                <span id="mp-bot-count-value" style="color: #4ade80; font-weight: bold; min-width: 30px; text-align: center;">4</span>
-                            </div>
-                        </div>
-                    </div>
+                                                                                                                                                                                                                                                                                                                                                                <!--Настройки ботов-->
+                                                                                                                                                                                                                                                                                                                                                                    <div class="bot-settings" style="margin-top: 15px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1);" >
+                                                                                                                                                                                                                                                                                                                                                                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;" >
+                                                                                                                                                                                                                                                                                                                                                                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #fff; font-size: 14px;" >
+                                                                                                                                                                                                                                                                                                                                                                                <input type="checkbox" id="mp-enable-bots" style="width: 18px; height: 18px; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                                                                                    <span>🤖 Включить ботов </span>
+                                                                                                                                                                                                                                                                                                                                                                                        </label>
+                                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                                        <div id="mp-bot-count-wrapper" style="display: none; margin-top: 10px;" >
+                                                                                                                                                                                                                                                                                                                                                                                            <label style="color: #aaa; font-size: 12px; display: block; margin-bottom: 5px;" > Количество ботов: </label>
+                                                                                                                                                                                                                                                                                                                                                                                                <div style="display: flex; align-items: center; gap: 10px;" >
+                                                                                                                                                                                                                                                                                                                                                                                                    <input type="range" id="mp-bot-count" min="1" max="16" value="4" style="flex: 1; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                                                                                                        <span id="mp-bot-count-value" style="color: #4ade80; font-weight: bold; min-width: 30px; text-align: center;" > 4 </span>
+                                                                                                                                                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                                                                                                                                                            </div>
 
-                    <!-- Кнопка "Создать комнату" -->
-                    <div class="panel-buttons" style="margin-top: 20px; display: flex; gap: 10px;">
-                        <button class="panel-btn primary" id="mp-create-room-start-btn" onclick="window.startMpCreateRoom()" style="flex: 1; padding: 14px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%); border: none;">
+                                                                                                                                                                                                                                                                                                                                                                                                            <!--Кнопка "Создать комнату" -->
+                                                                                                                                                                                                                                                                                                                                                                                                                <div class="panel-buttons" style="margin-top: 20px; display: flex; gap: 10px;" >
+                                                                                                                                                                                                                                                                                                                                                                                                                    <button class="panel-btn primary" id="mp-create-room-start-btn" onclick="window.startMpCreateRoom()" style="flex: 1; padding: 14px; font-size: 16px; font-weight: bold; background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%); border: none;" >
                             ➕ Создать комнату
-                        </button>
-                    </div>
-                </div>
+    </button>
+    </div>
+    </div>
 
-                <!-- Панель созданной комнаты -->
-                <div class="play-window" id="mp-room-panel" data-order="3" data-step="3" style="display: none;">
-                    <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/multiplayer/room</div>
-                        <div class="window-actions">
-                            <button class="window-btn" id="mp-room-panel-minimize" title="Свернуть">─</button>
-                            <button class="window-btn" data-nav="back" data-step="3">⟵</button>
-                            <button class="window-btn" data-nav="close" data-step="3">✕</button>
-                        </div>
-                    </div>
-                    <div class="section-title" style="display: flex; align-items: center; gap: 10px;">
+    <!--Панель созданной комнаты-->
+        <div class="play-window" id="mp-room-panel" data-order="3" data-step="3" style="display: none;" >
+            <div class="play-window-header" >
+                <div class="play-window-title" > /[user_id]/multiplayer / room </div>
+                    <div class="window-actions" >
+                        <button class="window-btn" id="mp-room-panel-minimize" title="Свернуть" >─</button>
+                            <button class="window-btn" data-nav="back" data-step="3" >⟵</button>
+                                <button class="window-btn" data-nav="close" data-step="3" >✕</button>
+                                    </div>
+                                    </div>
+                                    <div class="section-title" style="display: flex; align-items: center; gap: 10px;" >
                         🏠 КОМНАТА
-                        <span id="mp-room-panel-id" style="font-size: 14px; color: #4ade80; font-family: monospace; background: rgba(0, 0, 0, 0.3); padding: 4px 10px; border-radius: 4px;">----</span>
-                        <button id="mp-room-panel-copy-id" style="padding: 4px 8px; font-size: 12px; background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; border-radius: 4px; color: #0f0; cursor: pointer;" title="Копировать ID">📋</button>
-                    </div>
+    <span id="mp-room-panel-id" style="font-size: 14px; color: #4ade80; font-family: monospace; background: rgba(0, 0, 0, 0.3); padding: 4px 10px; border-radius: 4px;" > ----</span>
+        <button id="mp-room-panel-copy-id" style="padding: 4px 8px; font-size: 12px; background: rgba(0, 255, 0, 0.2); border: 1px solid #0f0; border-radius: 4px; color: #0f0; cursor: pointer;" title="Копировать ID" >📋</button>
+            </div>
 
-                    <!-- Информация о комнате -->
-                    <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                            <div style="padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
-                                <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Режим</div>
-                                <div id="mp-room-panel-mode" style="font-size: 16px; font-weight: bold; color: #0f0;">FFA</div>
-                            </div>
-                            <div style="padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;">
-                                <div style="font-size: 11px; color: #888; margin-bottom: 4px;">Карта</div>
-                                <div id="mp-room-panel-map" style="font-size: 16px; font-weight: bold; color: #0f0;">Обычная</div>
-                            </div>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div style="font-size: 13px; color: #aaa;">
-                                Игроков: <span id="mp-room-panel-players" style="color: #4ade80; font-weight: bold;">1/32</span>
-                            </div>
-                            <div id="mp-room-panel-status" style="font-size: 12px; padding: 4px 10px; background: rgba(74, 222, 128, 0.2); border-radius: 4px; color: #4ade80;">
-                                Ожидание игроков
-                            </div>
-                        </div>
-                    </div>
+            <!--Информация о комнате-->
+                <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);" >
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;" >
+                        <div style="padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;" >
+                            <div style="font-size: 11px; color: #888; margin-bottom: 4px;" > Режим </div>
+                                <div id="mp-room-panel-mode" style="font-size: 16px; font-weight: bold; color: #0f0;" > FFA </div>
+                                    </div>
+                                    <div style="padding: 10px; background: rgba(0, 0, 0, 0.3); border-radius: 6px;" >
+                                        <div style="font-size: 11px; color: #888; margin-bottom: 4px;" > Карта </div>
+                                            <div id="mp-room-panel-map" style="font-size: 16px; font-weight: bold; color: #0f0;" > Обычная </div>
+                                                </div>
+                                                </div>
+                                                <div style="display: flex; justify-content: space-between; align-items: center;" >
+                                                    <div style="font-size: 13px; color: #aaa;" >
+                                                        Игроков: <span id="mp-room-panel-players" style="color: #4ade80; font-weight: bold;" > 1 / 32 </span>
+                                                            </div>
+                                                            <div id="mp-room-panel-status" style="font-size: 12px; padding: 4px 10px; background: rgba(74, 222, 128, 0.2); border-radius: 4px; color: #4ade80;" >
+                                                                Ожидание игроков
+                                                                    </div>
+                                                                    </div>
+                                                                    </div>
 
-                    <!-- Команды (для TDM/CTF) -->
-                    <div id="mp-room-panel-teams" style="display: none; margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <div style="font-weight: bold; color: #0f0; font-size: 14px;">⚔️ Команды</div>
-                            <button class="panel-btn" id="mp-room-panel-auto-balance" style="padding: 6px 12px; font-size: 11px;">
+                                                                    <!--Команды(для TDM / CTF) -->
+                                                                        <div id="mp-room-panel-teams" style="display: none; margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);" >
+                                                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;" >
+                                                                                <div style="font-weight: bold; color: #0f0; font-size: 14px;" >⚔️ Команды </div>
+                                                                                    <button class="panel-btn" id="mp-room-panel-auto-balance" style="padding: 6px 12px; font-size: 11px;" >
                                 ⚖️ Автобаланс
-                            </button>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                            <!-- Команда 1 -->
-                            <div style="padding: 10px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px;">
-                                <div style="font-weight: bold; color: #ef4444; font-size: 12px; margin-bottom: 8px;">
+    </button>
+    </div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;" >
+        <!--Команда 1 -->
+            <div style="padding: 10px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px;" >
+                <div style="font-weight: bold; color: #ef4444; font-size: 12px; margin-bottom: 8px;" >
                                     🔴 Команда 1
-                                    <span id="mp-room-panel-team1-count" style="float: right; color: #aaa; font-size: 11px;">0 игроков</span>
-                                </div>
-                                <div id="mp-room-panel-team1-players" style="display: flex; flex-direction: column; gap: 4px; min-height: 40px;">
-                                    <!-- Игроки команды 1 -->
-                                </div>
-                            </div>
-                            <!-- Команда 2 -->
-                            <div style="padding: 10px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px;">
-                                <div style="font-weight: bold; color: #3b82f6; font-size: 12px; margin-bottom: 8px;">
+    <span id="mp-room-panel-team1-count" style="float: right; color: #aaa; font-size: 11px;" > 0 игроков </span>
+        </div>
+        <div id="mp-room-panel-team1-players" style="display: flex; flex-direction: column; gap: 4px; min-height: 40px;" >
+            <!--Игроки команды 1 -->
+                </div>
+                </div>
+                <!--Команда 2 -->
+                    <div style="padding: 10px; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 6px;" >
+                        <div style="font-weight: bold; color: #3b82f6; font-size: 12px; margin-bottom: 8px;" >
                                     🔵 Команда 2
-                                    <span id="mp-room-panel-team2-count" style="float: right; color: #aaa; font-size: 11px;">0 игроков</span>
-                                </div>
-                                <div id="mp-room-panel-team2-players" style="display: flex; flex-direction: column; gap: 4px; min-height: 40px;">
-                                    <!-- Игроки команды 2 -->
-                                </div>
-                            </div>
+    <span id="mp-room-panel-team2-count" style="float: right; color: #aaa; font-size: 11px;" > 0 игроков </span>
+        </div>
+        <div id="mp-room-panel-team2-players" style="display: flex; flex-direction: column; gap: 4px; min-height: 40px;" >
+            <!--Игроки команды 2 -->
+                </div>
+                </div>
+                </div>
+                <div style="margin-top: 10px; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 4px; font-size: 11px; color: #aaa;" >
+                    Баланс: <span id="mp-room-panel-balance-status" style="color: #4ade80;" > Сбалансировано </span>
                         </div>
-                        <div style="margin-top: 10px; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 4px; font-size: 11px; color: #aaa;">
-                            Баланс: <span id="mp-room-panel-balance-status" style="color: #4ade80;">Сбалансировано</span>
                         </div>
-                    </div>
 
-                    <!-- Список игроков -->
-                    <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                            <div style="font-weight: bold; color: #0f0; font-size: 14px;">👥 Игроки в комнате</div>
-                            <div id="mp-room-panel-ready-status" style="font-size: 11px; color: #888;">
-                                Готовы: <span id="mp-room-panel-ready-count" style="color: #4ade80; font-weight: bold;">0/1</span>
-                            </div>
-                        </div>
-                        <div id="mp-room-panel-players-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;">
-                            <div style="padding: 10px; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-                                <div style="display: flex; align-items: center; gap: 10px;">
-                                    <span style="font-size: 18px;">👑</span>
-                                    <span id="mp-room-panel-host-name" style="color: #4ade80; font-weight: bold;">Вы (Хост)</span>
-                                </div>
-                                <button id="mp-room-panel-ready-btn" class="panel-btn" style="padding: 6px 12px; font-size: 11px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80;">
+                        <!--Список игроков-->
+                            <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);" >
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;" >
+                                    <div style="font-weight: bold; color: #0f0; font-size: 14px;" >👥 Игроки в комнате </div>
+                                        <div id="mp-room-panel-ready-status" style="font-size: 11px; color: #888;" >
+                                            Готовы: <span id="mp-room-panel-ready-count" style="color: #4ade80; font-weight: bold;" > 0 / 1 </span>
+                                                </div>
+                                                </div>
+                                                <div id="mp-room-panel-players-list" style="display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto;" >
+                                                    <div style="padding: 10px; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 10px;" >
+                                                        <div style="display: flex; align-items: center; gap: 10px;" >
+                                                            <span style="font-size: 18px;" >👑</span>
+                                                                <span id="mp-room-panel-host-name" style="color: #4ade80; font-weight: bold;" > Вы(Хост) </span>
+                                                                    </div>
+                                                                    <button id="mp-room-panel-ready-btn" class="panel-btn" style="padding: 6px 12px; font-size: 11px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80;" >
                                     ✓ Готов
-                                </button>
-                            </div>
-                        </div>
-                    </div>
+    </button>
+    </div>
+    </div>
+    </div>
 
-                    <!-- Чат комнаты -->
-                    <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
-                        <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">💬 Чат комнаты</div>
-                        <div id="mp-room-panel-chat-messages" style="max-height: 150px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #0f0 rgba(0, 0, 0, 0.3); margin-bottom: 10px; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 4px; font-size: 11px; font-family: 'Consolas', 'Monaco', monospace; min-height: 80px;">
-                            <div style="text-align: center; padding: 10px; color: #888; font-size: 10px;">Сообщения чата появятся здесь...</div>
+    <!--Чат комнаты-->
+        <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);" >
+            <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;" >💬 Чат комнаты </div>
+                <div id="mp-room-panel-chat-messages" style="max-height: 150px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #0f0 rgba(0, 0, 0, 0.3); margin-bottom: 10px; padding: 8px; background: rgba(0, 0, 0, 0.3); border-radius: 4px; font-size: 11px; font-family: 'Consolas', 'Monaco', monospace; min-height: 80px;" >
+                    <div style="text-align: center; padding: 10px; color: #888; font-size: 10px;" > Сообщения чата появятся здесь...</div>
                         </div>
-                        <div style="display: flex; gap: 8px;">
+                        <div style="display: flex; gap: 8px;" >
                             <input type="text" id="mp-room-panel-chat-input" placeholder="Введите сообщение... (Enter для отправки)" style="
-                                flex: 1;
-                                padding: 8px;
-                                background: rgba(0, 0, 0, 0.5);
-                                border: 1px solid rgba(0, 255, 0, 0.3);
-                                border-radius: 4px;
-                                color: #0f0;
-                                font-family: 'Consolas', 'Monaco', monospace;
-                                font-size: 11px;
-                                outline: none;
-                            " />
-                            <button id="mp-room-panel-chat-send" style="
-                                padding: 8px 16px;
-                                background: rgba(0, 255, 0, 0.2);
-                                border: 1px solid #0f0;
-                                border-radius: 4px;
-                                color: #0f0;
-                                font-family: 'Consolas', 'Monaco', monospace;
-                                font-size: 11px;
-                                cursor: pointer;
-                                transition: all 0.2s;
-                            ">Отправить</button>
-                        </div>
-                    </div>
+flex: 1;
+padding: 8px;
+background: rgba(0, 0, 0, 0.5);
+border: 1px solid rgba(0, 255, 0, 0.3);
+border-radius: 4px;
+color: #0f0;
+font-family: 'Consolas', 'Monaco', monospace;
+font-size: 11px;
+outline: none;
+" />
+    <button id="mp-room-panel-chat-send" style="
+padding: 8px 16px;
+background: rgba(0, 255, 0, 0.2);
+border: 1px solid #0f0;
+border-radius: 4px;
+color: #0f0;
+font-family: 'Consolas', 'Monaco', monospace;
+font-size: 11px;
+cursor: pointer;
+transition: all 0.2s;
+">Отправить</button>
+    </div>
+    </div>
 
-                    <!-- Настройки комнаты (только для хоста) -->
-                    <div id="mp-room-panel-settings" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                            <div style="font-weight: bold; color: #0f0; font-size: 14px;">⚙️ Настройки комнаты</div>
-                            <button id="mp-room-panel-settings-toggle" style="
-                                padding: 4px 8px;
-                                font-size: 12px;
-                                background: rgba(0, 255, 0, 0.2);
-                                border: 1px solid rgba(0, 255, 0, 0.4);
-                                border-radius: 4px;
-                                color: #0f0;
-                                cursor: pointer;
-                                transition: all 0.2s;
-                            " title="Свернуть/развернуть">▼</button>
-                        </div>
-                        <div id="mp-room-panel-settings-content">
-                        <!-- Максимальное количество игроков -->
-                        <div style="margin-bottom: 15px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <label style="font-size: 12px; color: #aaa;">Максимум игроков:</label>
-                                <span id="mp-room-panel-max-players-value" style="font-size: 14px; color: #4ade80; font-weight: bold;">32</span>
+    <!--Настройки комнаты(только для хоста)-->
+        <div id="mp-room-panel-settings" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);" >
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;" >
+                <div style="font-weight: bold; color: #0f0; font-size: 14px;" >⚙️ Настройки комнаты </div>
+                    <button id="mp-room-panel-settings-toggle" style="
+padding: 4px 8px;
+font-size: 12px;
+background: rgba(0, 255, 0, 0.2);
+border: 1px solid rgba(0, 255, 0, 0.4);
+border-radius: 4px;
+color: #0f0;
+cursor: pointer;
+transition: all 0.2s;
+" title="Свернуть / развернуть">▼</button>
+    </div>
+    <div id="mp-room-panel-settings-content" >
+        <!--Максимальное количество игроков-->
+            <div style="margin-bottom: 15px;" >
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;" >
+                    <label style="font-size: 12px; color: #aaa;" > Максимум игроков: </label>
+                        <span id="mp-room-panel-max-players-value" style="font-size: 14px; color: #4ade80; font-weight: bold;" > 32 </span>
                             </div>
-                            <input type="range" id="mp-room-panel-max-players" min="2" max="32" value="32" step="1" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;">
-                            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 4px;">
-                                <span>2</span>
-                                <span>32</span>
-                            </div>
-                        </div>
+                            <input type="range" id="mp-room-panel-max-players" min="2" max="32" value="32" step="1" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 4px;" >
+                                    <span>2 </span>
+                                    <span > 32 </span>
+                                    </div>
+                                    </div>
 
-                        <!-- Время раунда -->
-                        <div style="margin-bottom: 15px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <label style="font-size: 12px; color: #aaa;">Время раунда (мин):</label>
-                                <span id="mp-room-panel-round-time-value" style="font-size: 14px; color: #4ade80; font-weight: bold;">10</span>
-                            </div>
-                            <input type="range" id="mp-room-panel-round-time" min="5" max="60" value="10" step="5" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;">
-                            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 4px;">
-                                <span>5</span>
-                                <span>60</span>
-                            </div>
-                        </div>
+                                    <!--Время раунда-->
+                                        <div style="margin-bottom: 15px;" >
+                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;" >
+                                                <label style="font-size: 12px; color: #aaa;" > Время раунда(мин): </label>
+                                                    <span id="mp-room-panel-round-time-value" style="font-size: 14px; color: #4ade80; font-weight: bold;" > 10 </span>
+                                                        </div>
+                                                        <input type="range" id="mp-room-panel-round-time" min="5" max="60" value="10" step="5" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 4px;" >
+                                                                <span>5 </span>
+                                                                <span > 60 </span>
+                                                                </div>
+                                                                </div>
 
-                        <!-- Лимит убийств/очков -->
-                        <div style="margin-bottom: 15px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <label style="font-size: 12px; color: #aaa;">Лимит убийств для победы:</label>
-                                <span id="mp-room-panel-kill-limit-value" style="font-size: 14px; color: #4ade80; font-weight: bold;">50</span>
-                            </div>
-                            <input type="range" id="mp-room-panel-kill-limit" min="10" max="200" value="50" step="10" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;">
-                            <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 4px;">
-                                <span>10</span>
-                                <span>200</span>
-                            </div>
-                        </div>
+                                                                <!--Лимит убийств / очков-->
+                                                                    <div style="margin-bottom: 15px;" >
+                                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;" >
+                                                                            <label style="font-size: 12px; color: #aaa;" > Лимит убийств для победы: </label>
+                                                                                <span id="mp-room-panel-kill-limit-value" style="font-size: 14px; color: #4ade80; font-weight: bold;" > 50 </span>
+                                                                                    </div>
+                                                                                    <input type="range" id="mp-room-panel-kill-limit" min="10" max="200" value="50" step="10" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                        <div style="display: flex; justify-content: space-between; font-size: 10px; color: #666; margin-top: 4px;" >
+                                                                                            <span>10 </span>
+                                                                                            <span > 200 </span>
+                                                                                            </div>
+                                                                                            </div>
 
-                        <!-- Настройки танков и оружия -->
-                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0, 255, 0, 0.2);">
-                            <div style="font-weight: bold; color: #0f0; font-size: 12px; margin-bottom: 10px;">🚫 Ограничения</div>
+                                                                                            <!--Настройки танков и оружия-->
+                                                                                                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0, 255, 0, 0.2);" >
+                                                                                                    <div style="font-weight: bold; color: #0f0; font-size: 12px; margin-bottom: 10px;" >🚫 Ограничения </div>
 
-                            <!-- Разрешенные танки -->
-                            <div style="margin-bottom: 10px;">
-                                <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;">Разрешенные классы танков:</label>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
-                                        <input type="checkbox" id="mp-room-panel-allow-light" checked style="cursor: pointer;">
-                                        <span>⚡ Легкие</span>
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
-                                        <input type="checkbox" id="mp-room-panel-allow-medium" checked style="cursor: pointer;">
-                                        <span>⚖️ Средние</span>
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
-                                        <input type="checkbox" id="mp-room-panel-allow-heavy" checked style="cursor: pointer;">
-                                        <span>🛡️ Тяжелые</span>
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
-                                        <input type="checkbox" id="mp-room-panel-allow-assault" checked style="cursor: pointer;">
-                                        <span>⚔️ Штурмовые</span>
-                                    </label>
-                                </div>
-                            </div>
+                                                                                                        <!--Разрешенные танки-->
+                                                                                                            <div style="margin-bottom: 10px;" >
+                                                                                                                <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;" > Разрешенные классы танков: </label>
+                                                                                                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;" >
+                                                                                                                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                            <input type="checkbox" id="mp-room-panel-allow-light" checked style="cursor: pointer;" >
+                                                                                                                                <span>⚡ Легкие </span>
+                                                                                                                                    </label>
+                                                                                                                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                                        <input type="checkbox" id="mp-room-panel-allow-medium" checked style="cursor: pointer;" >
+                                                                                                                                            <span>⚖️ Средние </span>
+                                                                                                                                                </label>
+                                                                                                                                                <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                                                    <input type="checkbox" id="mp-room-panel-allow-heavy" checked style="cursor: pointer;" >
+                                                                                                                                                        <span>🛡️ Тяжелые </span>
+                                                                                                                                                            </label>
+                                                                                                                                                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                                                                <input type="checkbox" id="mp-room-panel-allow-assault" checked style="cursor: pointer;" >
+                                                                                                                                                                    <span>⚔️ Штурмовые </span>
+                                                                                                                                                                        </label>
+                                                                                                                                                                        </div>
+                                                                                                                                                                        </div>
 
-                            <!-- Разрешенное оружие -->
-                            <div style="margin-bottom: 10px;">
-                                <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;">Разрешенные типы оружия:</label>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
-                                        <input type="checkbox" id="mp-room-panel-allow-standard" checked style="cursor: pointer;">
-                                        <span>🔫 Стандартные</span>
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
-                                        <input type="checkbox" id="mp-room-panel-allow-rapid" checked style="cursor: pointer;">
-                                        <span>💨 Быстрые</span>
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
-                                        <input type="checkbox" id="mp-room-panel-allow-heavy-gun" checked style="cursor: pointer;">
-                                        <span>💣 Тяжелые</span>
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;">
-                                        <input type="checkbox" id="mp-room-panel-allow-sniper" checked style="cursor: pointer;">
-                                        <span>🎯 Снайперские</span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
+                                                                                                                                                                        <!--Разрешенное оружие-->
+                                                                                                                                                                            <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;" > Разрешенные типы оружия: </label>
+                                                                                                                                                                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;" >
+                                                                                                                                                                                        <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                                                                                            <input type="checkbox" id="mp-room-panel-allow-standard" checked style="cursor: pointer;" >
+                                                                                                                                                                                                <span>🔫 Стандартные </span>
+                                                                                                                                                                                                    </label>
+                                                                                                                                                                                                    <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                                                                                                        <input type="checkbox" id="mp-room-panel-allow-rapid" checked style="cursor: pointer;" >
+                                                                                                                                                                                                            <span>💨 Быстрые </span>
+                                                                                                                                                                                                                </label>
+                                                                                                                                                                                                                <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                                                                                                                    <input type="checkbox" id="mp-room-panel-allow-heavy-gun" checked style="cursor: pointer;" >
+                                                                                                                                                                                                                        <span>💣 Тяжелые </span>
+                                                                                                                                                                                                                            </label>
+                                                                                                                                                                                                                            <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                                                                                                                                <input type="checkbox" id="mp-room-panel-allow-sniper" checked style="cursor: pointer;" >
+                                                                                                                                                                                                                                    <span>🎯 Снайперские </span>
+                                                                                                                                                                                                                                        </label>
+                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                        </div>
 
-                        <!-- Автозапуск при готовности -->
-                        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0, 255, 0, 0.2);">
-                            <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #aaa; cursor: pointer;">
-                                <input type="checkbox" id="mp-room-panel-auto-start" style="cursor: pointer;">
-                                <span>🚀 Автозапуск при готовности всех игроков</span>
-                            </label>
-                        </div>
+                                                                                                                                                                                                                                        <!--Автозапуск при готовности-->
+                                                                                                                                                                                                                                            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0, 255, 0, 0.2);" >
+                                                                                                                                                                                                                                                <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                                                                                                                                                    <input type="checkbox" id="mp-room-panel-auto-start" style="cursor: pointer;" >
+                                                                                                                                                                                                                                                        <span>🚀 Автозапуск при готовности всех игроков </span>
+                                                                                                                                                                                                                                                            </label>
+                                                                                                                                                                                                                                                            </div>
 
-                        <!-- Кнопка сохранения настроек -->
-                        <button class="panel-btn" id="mp-room-panel-save-settings" style="width: 100%; padding: 10px; font-size: 12px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80; margin-top: 10px;">
+                                                                                                                                                                                                                                                            <!--Кнопка сохранения настроек-->
+                                                                                                                                                                                                                                                                <button class="panel-btn" id="mp-room-panel-save-settings" style="width: 100%; padding: 10px; font-size: 12px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80; margin-top: 10px;" >
                             💾 Сохранить настройки
-                        </button>
-                        </div>
-                    </div>
+    </button>
+    </div>
+    </div>
 
-                    <!-- Приглашения -->
-                    <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
-                        <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">📨 Приглашения</div>
-                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                            <button class="panel-btn" id="mp-room-panel-invite-friends" style="flex: 1; padding: 10px; font-size: 12px;">
+    <!--Приглашения -->
+        <div style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);" >
+            <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;" >📨 Приглашения </div>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px;" >
+                    <button class="panel-btn" id="mp-room-panel-invite-friends" style="flex: 1; padding: 10px; font-size: 12px;" >
                                 👥 Пригласить друзей
-                            </button>
-                            <button class="panel-btn" id="mp-room-panel-invite-by-id" style="flex: 1; padding: 10px; font-size: 12px;">
+    </button>
+    <button class="panel-btn" id="mp-room-panel-invite-by-id" style="flex: 1; padding: 10px; font-size: 12px;" >
                                 🔗 Пригласить по ID
+    </button>
+    </div>
+    <div id="mp-room-panel-friends-list" style="display: none; max-height: 150px; overflow-y: auto; margin-top: 10px;" >
+        <!--Список друзей будет добавлен динамически-->
+            </div>
+            <div id="mp-room-panel-invite-by-id-form" style="display: none; margin-top: 10px;" >
+                <input type="text" id="mp-room-panel-invite-id-input" placeholder="Введите ID игрока" style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(0, 255, 0, 0.3); border-radius: 4px; color: #0f0; font-size: 11px; margin-bottom: 6px;" >
+                    <button class="panel-btn" id="mp-room-panel-send-invite" style="width: 100%; padding: 8px; font-size: 11px;" >
+                        Отправить приглашение
                             </button>
-                        </div>
-                        <div id="mp-room-panel-friends-list" style="display: none; max-height: 150px; overflow-y: auto; margin-top: 10px;">
-                            <!-- Список друзей будет добавлен динамически -->
-                        </div>
-                        <div id="mp-room-panel-invite-by-id-form" style="display: none; margin-top: 10px;">
-                            <input type="text" id="mp-room-panel-invite-id-input" placeholder="Введите ID игрока" style="width: 100%; padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(0, 255, 0, 0.3); border-radius: 4px; color: #0f0; font-size: 11px; margin-bottom: 6px;">
-                            <button class="panel-btn" id="mp-room-panel-send-invite" style="width: 100%; padding: 8px; font-size: 11px;">
-                                Отправить приглашение
-                            </button>
-                        </div>
-                    </div>
+                            </div>
+                            </div>
 
-                    <!-- Управление комнатой (только для хоста) -->
-                    <div id="mp-room-panel-controls" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);">
-                        <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;">⚙️ Управление комнатой</div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-                            <button class="panel-btn" id="mp-room-panel-change-mode" style="padding: 10px; font-size: 12px;">
+                            <!--Управление комнатой(только для хоста)-->
+                                <div id="mp-room-panel-controls" style="margin: 15px 0; padding: 15px; background: rgba(0, 20, 0, 0.4); border-radius: 8px; border: 1px solid rgba(0, 255, 0, 0.3);" >
+                                    <div style="font-weight: bold; color: #0f0; font-size: 14px; margin-bottom: 10px;" >⚙️ Управление комнатой </div>
+                                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;" >
+                                            <button class="panel-btn" id="mp-room-panel-change-mode" style="padding: 10px; font-size: 12px;" >
                                 🔄 Изменить режим
-                            </button>
-                            <button class="panel-btn" id="mp-room-panel-change-map" style="padding: 10px; font-size: 12px;">
+    </button>
+    <button class="panel-btn" id="mp-room-panel-change-map" style="padding: 10px; font-size: 12px;" >
                                 🗺 Изменить карту
-                            </button>
-                            <button class="panel-btn" id="mp-room-panel-toggle-private" style="padding: 10px; font-size: 12px;">
+    </button>
+    <button class="panel-btn" id="mp-room-panel-toggle-private" style="padding: 10px; font-size: 12px;" >
                                 🔒 Сделать приватной
-                            </button>
-                            <button class="panel-btn" id="mp-room-panel-kick-player" style="padding: 10px; font-size: 12px;">
+    </button>
+    <button class="panel-btn" id="mp-room-panel-kick-player" style="padding: 10px; font-size: 12px;" >
                                 👢 Кикнуть игрока
-                            </button>
-                        </div>
-                    </div>
+    </button>
+    </div>
+    </div>
 
-                    <!-- Кнопки действий -->
-                    <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 10px;">
-                        <button class="panel-btn primary battle-btn" id="mp-room-panel-start-game" style="width: 100%; padding: 14px; font-size: 18px; font-weight: bold;">
-                            <span class="battle-btn-text">⚔️ НАЧАТЬ ИГРУ</span>
-                            <span class="battle-btn-shine"></span>
+    <!--Кнопки действий-->
+        <div style="margin-top: 20px; display: flex; flex-direction: column; gap: 10px;" >
+            <button class="panel-btn primary battle-btn" id="mp-room-panel-start-game" style="width: 100%; padding: 14px; font-size: 18px; font-weight: bold;" >
+                <span class="battle-btn-text" >⚔️ НАЧАТЬ ИГРУ </span>
+                    <span class="battle-btn-shine" > </span>
                         </button>
-                        <button class="panel-btn" id="mp-room-panel-leave" style="width: 100%; padding: 12px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;">
+                        <button class="panel-btn" id="mp-room-panel-leave" style="width: 100%; padding: 12px; font-size: 14px; background: rgba(239, 68, 68, 0.2); border-color: #ef4444; color: #ef4444;" >
                             🚪 Покинуть комнату
-                        </button>
-                    </div>
-                </div>
+    </button>
+    </div>
+    </div>
 
-                <!-- 3. Выбор карты -->
-                <div class="play-window play-window-wide" id="play-window-map" data-order="2" data-step="2">
-                    <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/single/mode/map</div>
-                        <div class="window-actions">
-                            <button class="window-btn" data-nav="back" data-step="2">⟵</button>
-                            <button class="window-btn" data-nav="forward" data-step="2">⟶</button>
-                            <button class="window-btn" data-nav="close" data-step="2">✕</button>
-                        </div>
-                    </div>
-                    <div class="section-title">3. Выбор карты</div>
-                    <div class="map-grid">
-                        <div class="map-card recommended" id="play-btn-map-normal" data-map="normal">
-                            <span class="map-card-icon">🗺</span>
-                            <span class="map-card-name">${L.normalMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-sandbox" data-map="sandbox">
-                            <span class="map-card-icon">🏖</span>
-                            <span class="map-card-name">${L.sandboxMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-sand" data-map="sand">
-                            <span class="map-card-icon">🏜</span>
-                            <span class="map-card-name">${L.sandMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-madness" data-map="madness">
-                            <span class="map-card-icon">🌉</span>
-                            <span class="map-card-name">${L.madnessMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-expo" data-map="expo">
-                            <span class="map-card-icon">🏆</span>
-                            <span class="map-card-name">${L.expoMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-brest" data-map="brest">
-                            <span class="map-card-icon">🏰</span>
-                            <span class="map-card-name">${L.brestMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-arena" data-map="arena">
-                            <span class="map-card-icon">⚔️</span>
-                            <span class="map-card-name">${L.arenaMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-polygon" data-map="polygon">
-                            <span class="map-card-icon">🎯</span>
-                            <span class="map-card-name">${L.polygonMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-frontline" data-map="frontline">
-                            <span class="map-card-icon">💥</span>
-                            <span class="map-card-name">${L.frontlineMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-ruins" data-map="ruins">
-                            <span class="map-card-icon">🏚</span>
-                            <span class="map-card-name">${L.ruinsMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-canyon" data-map="canyon">
-                            <span class="map-card-icon">⛰</span>
-                            <span class="map-card-name">${L.canyonMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-industrial" data-map="industrial">
-                            <span class="map-card-icon">🏭</span>
-                            <span class="map-card-name">${L.industrialMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-urban_warfare" data-map="urban_warfare">
-                            <span class="map-card-icon">🏙</span>
-                            <span class="map-card-name">${L.urbanWarfareMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-underground" data-map="underground">
-                            <span class="map-card-icon">🕳</span>
-                            <span class="map-card-name">${L.undergroundMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-coastal" data-map="coastal">
-                            <span class="map-card-icon">🌊</span>
-                            <span class="map-card-name">${L.coastalMap}</span>
-                        </div>
-                        <div class="map-card" id="play-btn-map-tartaria" data-map="tartaria">
-                            <span class="map-card-new">NEW</span>
-                            <span class="map-card-icon">🏛</span>
-                            <span class="map-card-name">${L.tartariaMap}</span>
-                        </div>
-                    </div>
-                    <!-- Динамически добавляем сохраненные карты -->
-                    <div id="custom-maps-container" style="margin-top: 20px;"></div>
-                </div>
-
-                <!-- 4. Выбор танка -->
-                <div class="play-window" id="play-window-tank" data-order="3" data-step="3">
-                    <div class="play-window-header">
-                        <div class="play-window-title">/[user_id]/single/mode/map/preset</div>
-                        <div class="window-actions">
-                            <button class="window-btn" data-nav="back" data-step="3">⟵</button>
-                            <button class="window-btn" data-nav="forward" data-step="3">⟶</button>
-                            <button class="window-btn" data-nav="close" data-step="3">✕</button>
-                        </div>
-                    </div>
-                    <div class="section-title">3. Выбор танка</div>
-
-                    <!-- Пресеты танков -->
-                    <div style="margin-bottom: 20px;">
-                        <div style="font-weight: bold; margin-bottom: 10px;">Пресет танка:</div>
-                        <div class="preset-buttons" style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button class="menu-btn play-btn" id="preset-balanced" data-preset="balanced">
-                                <span class="btn-label">⚖️ Баланс</span>
-                            </button>
-                            <button class="menu-btn secondary" id="preset-speed" data-preset="speed">
-                                <span class="btn-label">⚡ Скорость</span>
-                            </button>
-                            <button class="menu-btn secondary" id="preset-defense" data-preset="defense">
-                                <span class="btn-label">🛡️ Защита</span>
-                            </button>
-                            <button class="menu-btn secondary" id="preset-damage" data-preset="damage">
-                                <span class="btn-label">💥 Урон</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Детальный выбор -->
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
-                        <div>
-                            <div style="font-weight: bold; margin-bottom: 10px;">Корпус:</div>
-                            <div class="tank-options" id="chassis-options" style="display: flex; flex-direction: column; gap: 8px;">
-                                <!-- Заполнится динамически -->
-                            </div>
-                        </div>
-                        <div>
-                            <div style="font-weight: bold; margin-bottom: 10px;">Пушка:</div>
-                            <div class="tank-options" id="cannon-options" style="display: flex; flex-direction: column; gap: 8px;">
-                                <!-- Заполнится динамически -->
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Кнопки действий -->
-                    <div class="panel-buttons" style="margin-top: 20px; display: flex; gap: 10px;">
-                        <button class="panel-btn" id="btn-tank-garage" style="flex: 1;">⚙️ ГАРАЖ</button>
-                        <button class="panel-btn primary" id="btn-start-game" style="flex: 2;">В БОЙ!</button>
-                    </div>
-                </div>
-
-
-                <!-- Кнопка назад -->
-                <div class="panel-buttons" style="margin-top: 20px;">
-                    <button class="panel-btn" id="play-menu-back">Назад</button>
+    <!--3. Выбор карты-->
+        <div class="play-window play-window-wide" id="play-window-map" data-order="2" data-step="2">
+            <div class="play-window-header">
+                <div class="play-window-title">/[user_id]/single/mode/map</div>
+                <div class="window-actions">
+                    <button class="window-btn" data-nav="back" data-step="2">⟵</button>
+                    <button class="window-btn" data-nav="forward" data-step="2">⟶</button>
+                    <button class="window-btn" data-nav="close" data-step="2">✕</button>
                 </div>
             </div>
-        `;
+            <div class="section-title">3. Выбор карты</div>
+            <div class="map-grid">
+                <div class="map-card recommended" id="play-btn-map-normal" data-map="normal">
+                    <span class="map-card-icon">🗺</span>
+                    <span class="map-card-name">${L.normalMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-sandbox" data-map="sandbox">
+                    <span class="map-card-icon">🏖</span>
+                    <span class="map-card-name">${L.sandboxMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-sand" data-map="sand">
+                    <span class="map-card-icon">🏜</span>
+                    <span class="map-card-name">${L.sandMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-madness" data-map="madness">
+                    <span class="map-card-icon">🌉</span>
+                    <span class="map-card-name">${L.madnessMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-expo" data-map="expo">
+                    <span class="map-card-icon">🏆</span>
+                    <span class="map-card-name">${L.expoMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-brest" data-map="brest">
+                    <span class="map-card-icon">🏰</span>
+                    <span class="map-card-name">${L.brestMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-arena" data-map="arena">
+                    <span class="map-card-icon">⚔️</span>
+                    <span class="map-card-name">${L.arenaMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-polygon" data-map="polygon">
+                    <span class="map-card-icon">🎯</span>
+                    <span class="map-card-name">${L.polygonMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-frontline" data-map="frontline">
+                    <span class="map-card-icon">💥</span>
+                    <span class="map-card-name">${L.frontlineMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-ruins" data-map="ruins">
+                    <span class="map-card-icon">🏚</span>
+                    <span class="map-card-name">${L.ruinsMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-canyon" data-map="canyon">
+                    <span class="map-card-icon">⛰</span>
+                    <span class="map-card-name">${L.canyonMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-industrial" data-map="industrial">
+                    <span class="map-card-icon">🏭</span>
+                    <span class="map-card-name">${L.industrialMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-urban_warfare" data-map="urban_warfare">
+                    <span class="map-card-icon">🏙</span>
+                    <span class="map-card-name">${L.urbanWarfareMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-underground" data-map="underground">
+                    <span class="map-card-icon">🕳</span>
+                    <span class="map-card-name">${L.undergroundMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-coastal" data-map="coastal">
+                    <span class="map-card-icon">🌊</span>
+                    <span class="map-card-name">${L.coastalMap}</span>
+                </div>
+                <div class="map-card" id="play-btn-map-tartaria" data-map="tartaria">
+                    <span class="map-card-new">NEW</span>
+                    <span class="map-card-icon">🏛</span>
+                    <span class="map-card-name">${L.tartariaMap}</span>
+                </div>
+            </div>
+            
+            <!-- CUSTOM MAPS SECTION -->
+            <div class="panel-section-title" style="margin-top: 25px; color: #fbbf24; border-bottom: 1px solid rgba(251, 191, 36, 0.3); padding-bottom: 8px; margin-bottom: 15px; font-weight: bold; font-family: 'Press Start 2P'; font-size: 12px;">ПОЛЬЗОВАТЕЛЬСКИЕ КАРТЫ</div>
+            <div class="map-grid" id="custom-maps-list-play-window">
+                <!-- Custom maps will be injected here -->
+            </div>
+            <!--Динамически добавляем сохраненные карты-->
+            <div id="custom-maps-container" style="margin-top: 20px;"></div>
+        </div>
+
+        <!--4. Выбор танка-->
+        <div class="play-window" id="play-window-tank" data-order="3" data-step="3">
+            <div class="play-window-header">
+                <div class="play-window-title">/[user_id]/single/mode/map/preset</div>
+                <div class="window-actions">
+                    <button class="window-btn" data-nav="back" data-step="3">⟵</button>
+                    <button class="window-btn" data-nav="forward" data-step="3">⟶</button>
+                    <button class="window-btn" data-nav="close" data-step="3">✕</button>
+                </div>
+            </div>
+            <div class="section-title">3. Выбор танка</div>
+
+            <!--Пресеты танков-->
+            <div style="margin-bottom: 20px;">
+                <div style="font-weight: bold; margin-bottom: 10px;">Пресет танка:</div>
+                <div class="preset-buttons" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button class="menu-btn play-btn" id="preset-balanced" data-preset="balanced">
+                        <span class="btn-label">⚖️ Баланс</span>
+                    </button>
+                    <button class="menu-btn secondary" id="preset-speed" data-preset="speed">
+                        <span class="btn-label">⚡ Скорость</span>
+                    </button>
+                    <button class="menu-btn secondary" id="preset-defense" data-preset="defense">
+                        <span class="btn-label">🛡️ Защита</span>
+                    </button>
+                    <button class="menu-btn secondary" id="preset-damage" data-preset="damage">
+                        <span class="btn-label">💥 Урон</span>
+                    </button>
+                </div>
+            </div>
+
+            <!--Детальный выбор-->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                <div>
+                    <div style="font-weight: bold; margin-bottom: 10px;">Корпус:</div>
+                    <div class="tank-options" id="chassis-options" style="display: flex; flex-direction: column; gap: 8px;">
+                        <!--Заполнится динамически-->
+                    </div>
+                </div>
+                <div>
+                    <div style="font-weight: bold; margin-bottom: 10px;">Пушка:</div>
+                    <div class="tank-options" id="cannon-options" style="display: flex; flex-direction: column; gap: 8px;">
+                        <!--Заполнится динамически-->
+                    </div>
+                </div>
+            </div>
+
+            <!--Кнопки действий-->
+            <div class="panel-buttons" style="margin-top: 20px; display: flex; gap: 10px;">
+                <button class="panel-btn" id="btn-tank-garage" style="flex: 1;">⚙️ ГАРАЖ</button>
+                <button class="panel-btn primary" id="btn-start-game" style="flex: 2;">В БОЙ!</button>
+            </div>
+        </div>
+
+        <!--Кнопка назад-->
+        <div class="panel-buttons" style="margin-top: 20px;">
+            <button class="panel-btn" id="play-menu-back">Назад</button>
+        </div>
+    </div>
+`;
 
         document.body.appendChild(this.playMenuPanel);
 
@@ -7508,12 +6893,12 @@ export class MainMenu {
             chassisContainer.innerHTML = ""; // Очищаем перед заполнением
             CHASSIS_TYPES.filter(chassis => this.ownedChassisIds.has(chassis.id)).forEach(chassis => {
                 const btn = document.createElement("button");
-                btn.className = `menu-btn ${this.selectedChassis === chassis.id ? "play-btn" : ""}`;
+                btn.className = `menu-btn ${this.selectedChassis === chassis.id ? "play-btn" : ""} `;
                 btn.innerHTML = `
-                    <span class="btn-label">${chassis.name}</span>
-                    <span style="font-size:10px; opacity:0.8;">
-                        ${Math.round(chassis.maxHealth)} HP • ${Math.round(chassis.moveSpeed)} SPD
-                    </span>`;
+    <span class="btn-label" > ${chassis.name} </span>
+        <span style="font-size:10px; opacity:0.8;" >
+            ${Math.round(chassis.maxHealth)} HP • ${Math.round(chassis.moveSpeed)} SPD
+                </span>`;
                 btn.dataset.chassis = chassis.id;
                 btn.addEventListener("click", () => this.selectChassis(chassis.id));
                 chassisContainer.appendChild(btn);
@@ -7576,6 +6961,7 @@ export class MainMenu {
      * Загрузить и отобразить сохраненные карты из редактора
      */
     private loadCustomMaps(): void {
+        this.updateCustomMapsUI();
         const container = document.getElementById("custom-maps-container");
         if (!container) return;
 
@@ -8618,7 +8004,7 @@ export class MainMenu {
      */
     private showPlayerProfile(playerId: string, playerName: string): void {
         // TODO: Реализовать просмотр профиля игрока
-        alert(`Профиль игрока ${playerName}\nID: ${playerId}\n\nФункция просмотра профиля будет реализована позже.`);
+        alert(`Профиль игрока ${playerName}\nID: ${playerId} \n\nФункция просмотра профиля будет реализована позже.`);
     }
 
     private startMultiplayerQuickPlay(mode: string): void {
@@ -8782,7 +8168,7 @@ export class MainMenu {
             const roomId = data.roomId || multiplayerManager.getRoomId();
             if (roomId) {
                 this.showMultiplayerNotification(
-                    `✅ Комната создана! ID: ${roomId.substring(0, 12)}`,
+                    `✅ Комната создана! ID: ${roomId.substring(0, 12)} `,
                     "#4ade80"
                 );
             } else {
@@ -8810,7 +8196,7 @@ export class MainMenu {
             }
         } catch (error: any) {
             debugError("[Menu] Error creating room:", error);
-            this.showMultiplayerError(`Ошибка при создании комнаты: ${error.message || "Неизвестная ошибка"}`);
+            this.showMultiplayerError(`Ошибка при создании комнаты: ${error.message || "Неизвестная ошибка"} `);
         }
     }
 
@@ -8918,7 +8304,7 @@ export class MainMenu {
         }
 
         // Убрано для уменьшения спама в логах
-        // console.log(`[Menu] 📋 Обновление списка комнат в меню мультиплеера: ${rooms.length} комнат (показано: ${filteredRooms.length})`);
+        // console.log(`[Menu] 📋 Обновление списка комнат в меню мультиплеера: ${ rooms.length } комнат(показано: ${ filteredRooms.length })`);
 
         roomsContainer.innerHTML = "";
 
@@ -8930,13 +8316,13 @@ export class MainMenu {
         filteredRooms.forEach(room => {
             const roomItem = document.createElement("div");
             roomItem.style.cssText = `
-                padding: 10px;
-                background: rgba(0, 0, 0, 0.3);
-                border: 1px solid rgba(102, 126, 234, 0.3);
-                border-radius: 6px;
-                cursor: pointer;
-                transition: all 0.2s;
-            `;
+padding: 10px;
+background: rgba(0, 0, 0, 0.3);
+border: 1px solid rgba(102, 126, 234, 0.3);
+border - radius: 6px;
+cursor: pointer;
+transition: all 0.2s;
+`;
             roomItem.onmouseenter = () => {
                 roomItem.style.background = "rgba(102, 126, 234, 0.2)";
                 roomItem.style.borderColor = "#667eea";
@@ -8953,7 +8339,7 @@ export class MainMenu {
             roomItem.ondblclick = () => {
                 const game = (window as any).gameInstance as any;
                 if (game?.multiplayerManager) {
-                    console.log(`[Menu] 🎮 Быстрое присоединение к комнате ${room.id} (двойной клик)`);
+                    debugLog(`[Menu] 🎮 Быстрое присоединение к комнате ${room.id} (двойной клик)`);
                     this.joinRoom(room.id);
                 }
             };
@@ -8964,21 +8350,21 @@ export class MainMenu {
             const mapType = room.mapType || "normal";
 
             roomItem.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <div style="font-weight: bold; color: #fff; font-size: 13px;">Комната ${room.id}</div>
-                    <div style="font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;">${statusText}</div>
+    < div style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+        <div style="font-weight: bold; color: #fff; font-size: 13px;" > Комната ${room.id} </div>
+            < div style = "font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;" > ${statusText} </div>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;">
-                    <span>Режим: <span style="color: #fff;">${room.mode.toUpperCase()}</span></span>
-                    <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};">${room.players}/${room.maxPlayers}</span></span>
-                </div>
-                <div style="font-size: 11px; color: #aaa;">
-                    <span>Карта: <span style="color: #fbbf24;">${mapType}</span></span>
-                </div>
-                <div style="margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;">
-                    Клик — детали • Двойной клик — войти
-                </div>
-            `;
+                < div style = "display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;" >
+                    <span>Режим: <span style="color: #fff;" > ${room.mode.toUpperCase()} </span></span >
+                        <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};" > ${room.players} /${room.maxPlayers}</span > </span>
+                            </div>
+                            < div style = "font-size: 11px; color: #aaa;" >
+                                <span>Карта: <span style="color: #fbbf24;" > ${mapType} </span></span >
+                                    </div>
+                                    < div style = "margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;" >
+                                        Клик — детали • Двойной клик — войти
+                                            </div>
+                                                `;
 
             roomsContainer.appendChild(roomItem);
         });
@@ -9145,7 +8531,7 @@ export class MainMenu {
                         const header = panel.querySelector(".play-window-header");
                         if (header) {
                             const headerHeight = (header as HTMLElement).offsetHeight;
-                            panel.style.height = `${headerHeight}px`;
+                            panel.style.height = `${headerHeight} px`;
                             panel.style.overflow = "hidden";
                             minimizeBtn.textContent = "□";
                             minimizeBtn.title = "Развернуть";
@@ -9539,7 +8925,7 @@ export class MainMenu {
                 if (playerId) {
                     console.log("[Menu] Sending invite to player:", playerId);
                     // TODO: Отправить приглашение на сервер
-                    this.addRoomSystemMessage(`Приглашение отправлено игроку ${playerId}`);
+                    this.addRoomSystemMessage(`Приглашение отправлено игроку ${playerId} `);
                     inviteIdInput.value = "";
                 }
             };
@@ -9581,7 +8967,7 @@ export class MainMenu {
         (this as any).previousPlayerCount = 1;
 
         // Добавляем системное сообщение о создании комнаты
-        this.addRoomSystemMessage(`Комната ${roomId} создана. Ожидание игроков...`);
+        this.addRoomSystemMessage(`Комната ${roomId} создана.Ожидание игроков...`);
 
         // Подписываемся на обновления списка комнат для обновления количества игроков
         if (game?.multiplayerManager) {
@@ -9606,9 +8992,9 @@ export class MainMenu {
 
                         // Отправляем системные сообщения об изменении количества игроков
                         if (newPlayerCount > oldPlayerCount) {
-                            this.addRoomSystemMessage(`Игрок присоединился к комнате (${oldPlayerCount} → ${newPlayerCount})`);
+                            this.addRoomSystemMessage(`Игрок присоединился к комнате(${oldPlayerCount} → ${newPlayerCount})`);
                         } else if (newPlayerCount < oldPlayerCount) {
-                            this.addRoomSystemMessage(`Игрок покинул комнату (${oldPlayerCount} → ${newPlayerCount})`);
+                            this.addRoomSystemMessage(`Игрок покинул комнату(${oldPlayerCount} → ${newPlayerCount})`);
                         }
 
                         (this as any).previousPlayerCount = newPlayerCount;
@@ -9660,7 +9046,7 @@ export class MainMenu {
         if (type === "system") {
             messageDiv.style.background = "rgba(74, 222, 128, 0.1)";
             messageDiv.style.borderLeft = "2px solid #4ade80";
-            messageDiv.innerHTML = `<span style="color: #4ade80; font-style: italic;">${escapeHtml(message)}</span>`;
+            messageDiv.innerHTML = `< span style = "color: #4ade80; font-style: italic;" > ${escapeHtml(message)} </span>`;
         } else {
             messageDiv.style.background = "rgba(0, 0, 0, 0.2)";
             messageDiv.innerHTML = `<span style="color: #4ade80; font-weight: bold;">${escapeHtml(playerName)}:</span> <span style="color: #0f0;">${escapeHtml(message)}</span>`;
@@ -11640,7 +11026,10 @@ export class MainMenu {
                     console.warn("[Menu] ⚠️ Превышено время ожидания подключения");
                     clearInterval(checkConnection);
                 } else {
-                    console.log(`[Menu] ⏳ Ожидание подключения... (попытка ${attempts}/${maxAttempts})`);
+                    // Only log every 5 attempts to reduce spam
+                    if (attempts % 5 === 0) {
+                        console.log(`[Menu] ⏳ Ожидание подключения... (попытка ${attempts}/${maxAttempts})`);
+                    }
                 }
             }, 500);
         }
@@ -13394,6 +12783,7 @@ export class MainMenu {
     }
 
     private showMapSelection(): void {
+        this.updateCustomMapsUI();
         debugLog("[Menu] showMapSelection() called");
         debugLog("[Menu] mapSelectionPanel exists:", !!this.mapSelectionPanel);
         if (this.mapSelectionPanel) {
@@ -13694,78 +13084,183 @@ export class MainMenu {
      * Открыть редактор карт
      */
     private async openMapEditor(): Promise<void> {
-        console.log("[Menu] ====== openMapEditor() CALLED ======");
+        console.log("[Menu] Opening PolyGenStudio Map Editor...");
 
-        try {
-            // Загружаем MapEditorLauncher для выбора карты
-            console.log("[Menu] Loading MapEditorLauncher...");
-            const { MapEditorLauncher } = await import("./mapEditorLauncher");
-            const launcher = new MapEditorLauncher();
+        // Hide menu
+        this.container.classList.add("hidden");
 
-            // Показываем лаунчер и ждем выбора пользователя
-            console.log("[Menu] Showing map editor launcher...");
-            const result = await launcher.show();
+        // Stop canvas protection temporarily
+        if (this.canvasPointerEventsCheckInterval !== null) {
+            clearInterval(this.canvasPointerEventsCheckInterval);
+        }
+        const gameCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+        if (gameCanvas) {
+            gameCanvas.style.display = 'none';
+        }
 
-            if (result.action === "cancel") {
-                console.log("[Menu] User cancelled map editor");
-                return;
+        // Create container for PolyGenStudio Map Editor
+        const editorContainer = document.createElement("div");
+        editorContainer.id = "polygen-map-editor-container";
+        editorContainer.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10000;
+            background-color: #000;
+        `;
+
+        // Create iframe for PolyGenStudio
+        const iframe = document.createElement("iframe");
+        iframe.id = "polygen-map-iframe";
+        iframe.src = "http://127.0.0.1:3000/?mode=map";
+        iframe.style.cssText = `
+            width: 100%;
+            height: 100%;
+            border: none;
+        `;
+        iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
+
+        editorContainer.appendChild(iframe);
+        document.body.appendChild(editorContainer);
+
+        // Close handler
+        const closeEditor = () => {
+            console.log("[Menu] Closing PolyGenStudio Map Editor");
+            // Show menu again
+            this.container.classList.remove("hidden");
+
+            const gameCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+            if (gameCanvas) {
+                gameCanvas.style.display = 'block';
             }
 
-            // Lazy load StandaloneMapEditor
-            if (!this.standaloneMapEditor) {
-                console.log("[Menu] Loading StandaloneMapEditor...");
-                const { StandaloneMapEditor } = await import("./standaloneMapEditor");
-                console.log("[Menu] StandaloneMapEditor imported, creating instance...");
-                this.standaloneMapEditor = new StandaloneMapEditor(this);
-                console.log("[Menu] ✅ StandaloneMapEditor instance created");
-            } else {
-                console.log("[Menu] StandaloneMapEditor already loaded");
+            // Resume canvas protection
+            this.setupCanvasPointerEventsProtection();
+
+            // Remove editor container
+            editorContainer.remove();
+
+            // Reload custom maps list potentially
+            // Reload custom maps list potentially
+            // const maps = getCustomMapsList(); 
+            // Refresh logic if needed
+
+        };
+
+        // Listen for close message from iframe
+        const messageHandler = (event: MessageEvent) => {
+            if (event.data && event.data.type === 'CLOSE_EDITOR') {
+                window.removeEventListener('message', messageHandler);
+                closeEditor();
+            }
+        };
+        window.addEventListener('message', messageHandler);
+
+        // Also allow Escape to close (optional, but good for UX)
+        /*
+        const keyHandler = (e: KeyboardEvent) => {
+             if (e.key === "Escape") {
+                 window.removeEventListener('keydown', keyHandler);
+                 window.removeEventListener('message', messageHandler);
+                 closeEditor();
+             }
+        };
+        window.addEventListener('keydown', keyHandler);
+        */
+
+    }
+
+    /**
+     * Collapse editor to allow game to run (Test Mode)
+     */
+    private collapseMapEditor(): void {
+        console.log("[Menu] Collapsing map editor for test mode...");
+
+        if (this.editorContainer) {
+            // Hide editor container but keep it in DOM
+            this.editorContainer.style.display = 'none';
+
+            // Show game canvas
+            const gameCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+            if (gameCanvas) {
+                gameCanvas.style.display = 'block';
             }
 
-            // Открываем редактор с выбранной конфигурацией
-            if (this.standaloneMapEditor && typeof this.standaloneMapEditor.open === "function" && result.config) {
-                console.log("[Menu] Opening StandaloneMapEditor with config:", result.config);
-                await this.standaloneMapEditor.open(result.config);
-                console.log("[Menu] ✅ StandaloneMapEditor opened successfully");
-            } else {
-                const error = new Error(`Cannot open editor: ${!this.standaloneMapEditor ? "StandaloneMapEditor not loaded" : !result.config ? "No config provided" : "open method not available"}`);
-                console.error("[Menu] ❌", error);
-                throw error;
-            }
-        } catch (error) {
-            console.error("[Menu] ❌ Failed to open StandaloneMapEditor:", error);
-            if (error instanceof Error) {
-                console.error("[Menu] Error message:", error.message);
-                console.error("[Menu] Error stack:", error.stack);
-            }
-
-            // Fallback: пытаемся через gameInstance (если игра запущена)
-            const gameInstance = (window as any).gameInstance;
-            console.log("[Menu] Trying fallback... gameInstance:", !!gameInstance);
-            if (gameInstance && typeof gameInstance.openMapEditorFromMenu === "function") {
-                console.log("[Menu] Fallback: calling gameInstance.openMapEditorFromMenu()...");
-                try {
-                    await gameInstance.openMapEditorFromMenu();
-                    console.log("[Menu] ✅ Fallback: opened via gameInstance");
-                    return;
-                } catch (fallbackError) {
-                    console.error("[Menu] ❌ Fallback also failed:", fallbackError);
-                }
-            }
-
-            // Показываем сообщение об ошибке пользователю
-            alert(`Не удалось открыть редактор карт:\n${error instanceof Error ? error.message : String(error)}`);
+            // Create expand button to restore editor
+            this.createExpandEditorButton();
         }
     }
 
     /**
-     * Открыть редактор танков
+     * Expand editor back to full screen
      */
-    private openTankEditor(): void {
-        debugLog("[Menu] openTankEditor() called");
-        // Редактор танков доступен через гараж
-        // Открываем гараж, где можно редактировать танк
-        this.showGarage();
+    private expandMapEditor(): void {
+        console.log("[Menu] Expanding map editor...");
+
+        if (this.editorContainer) {
+            this.editorContainer.style.display = 'block';
+        }
+
+        // Hide game canvas
+        const gameCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+        if (gameCanvas) {
+            gameCanvas.style.display = 'none';
+        }
+
+        // Remove expand button
+        if (this.expandEditorBtn) {
+            this.expandEditorBtn.remove();
+            this.expandEditorBtn = null;
+        }
+    }
+
+    /**
+     * Create floating button to expand editor
+     */
+    private createExpandEditorButton(): void {
+        // Remove old button if exists
+        if (this.expandEditorBtn) {
+            this.expandEditorBtn.remove();
+        }
+
+        const btn = document.createElement('button');
+        btn.id = 'expand-editor-btn';
+        btn.innerHTML = '📝 РЕДАКТОР';
+        btn.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100000;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #0f0 0%, #0a0 100%);
+            color: #000;
+            border: 2px solid #0f0;
+            border-radius: 8px;
+            font-family: 'Consolas', monospace;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+            transition: all 0.3s ease;
+        `;
+
+        btn.onmouseenter = () => {
+            btn.style.transform = 'scale(1.05)';
+            btn.style.boxShadow = '0 0 30px rgba(0, 255, 0, 0.8)';
+        };
+        btn.onmouseleave = () => {
+            btn.style.transform = 'scale(1)';
+            btn.style.boxShadow = '0 0 20px rgba(0, 255, 0, 0.5)';
+        };
+
+        btn.onclick = () => {
+            this.expandMapEditor();
+        };
+
+        document.body.appendChild(btn);
+        this.expandEditorBtn = btn;
     }
 
     private saveTankConfig(): void {
@@ -14091,10 +13586,7 @@ export class MainMenu {
         }
     }
 
-    private saveSettingsFromUI(): void {
-        this.settings = saveSettingsFromUIModule();
-        window.dispatchEvent(new CustomEvent("settingsChanged", { detail: this.settings }));
-    }
+
 
     private loadSettings(): GameSettings {
         return loadSettingsModule();
@@ -14763,3 +14255,5 @@ document.addEventListener("DOMContentLoaded", () => {
         alert("Игра не инициализирована. Попробуйте обновить страницу.");
     }
 };
+
+

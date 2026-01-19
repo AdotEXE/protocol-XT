@@ -174,16 +174,9 @@ export class MobileControlsManager {
             this.emulateKeyPress('ControlLeft', false);
             this.notifyInputChange();
         });
-        this.aimZoomButton.setOnFire(() => {
-            this.inputState.fire = true;
-            this.emulateKeyPress('Space', true);
-            // Выстрел должен быть мгновенным, поэтому сразу отпускаем
-            setTimeout(() => {
-                this.inputState.fire = false;
-                this.emulateKeyPress('Space', false);
-                this.notifyInputChange();
-            }, 50);
-        });
+        // Tap-to-shoot отключен по просьбе пользователя (Issue #12)
+        // Стрельба только отдельной кнопкой
+
         this.aimZoomButton.setOnZoomIn(() => {
             this.inputState.zoomIn = true;
             this.emulateKeyPress('Equal', true);
@@ -441,13 +434,13 @@ export class MobileControlsManager {
      */
     setVisible(visible: boolean): void {
         if (this.leftJoystick) {
-            // Джойстики управляются сами через touch события
+            this.leftJoystick.setVisible(visible);
         }
         if (this.rightJoystick) {
-            // Джойстики управляются сами через touch события
+            this.rightJoystick.setVisible(visible);
         }
         if (this.aimZoomButton) {
-            // Кнопка всегда видна
+            this.aimZoomButton.setVisible(visible);
         }
         this.buttons.forEach(button => {
             button.isVisible = visible;
@@ -470,9 +463,9 @@ export class MobileControlsManager {
      * Уничтожить менеджер
      */
     dispose(): void {
-        if (this.orientationHandler) {
-            // this.orientationHandler.dispose();
-        }
+        // if (this.orientationHandler) {
+        // this.orientationHandler.dispose();
+        // }
         if (this.leftJoystick) {
             this.leftJoystick.dispose();
         }

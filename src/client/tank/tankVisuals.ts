@@ -7,11 +7,11 @@ import type { ChassisType } from "../tankTypes";
 
 export class TankVisualsModule {
     private tank: ITankController;
-    
+
     constructor(tank: ITankController) {
         this.tank = tank;
     }
-    
+
     /**
      * Создание уникального корпуса танка
      */
@@ -21,7 +21,7 @@ export class TankVisualsModule {
         const animationElements = (tankAny.chassisAnimationElements || {}) as ChassisAnimationElements;
         return createUniqueChassis(chassisType, scene, position, animationElements);
     }
-    
+
     /**
      * Создание уникальной пушки
      */
@@ -30,33 +30,40 @@ export class TankVisualsModule {
         const animationElements = (this.tank as any).cannonAnimationElements || {};
         return createUniqueCannon(cannonType, scene, barrelWidth, barrelLength, animationElements);
     }
-    
+
     /**
      * Создание визуальных колес
      */
     createVisualWheels(): void {
         (this.tank as any).createVisualWheels?.();
     }
-    
+
     /**
      * Обновление анимаций пушки
      */
     updateCannonAnimations(): void {
         (this.tank as any).updateCannonAnimations?.();
     }
-    
+
     /**
      * Обновление анимаций корпуса
      */
     updateChassisAnimations(): void {
         (this.tank as any).updateChassisAnimations?.();
     }
-    
+
     /**
      * Обновление видимости пушки
      */
     updateBarrelVisibility(baseZ: number): void {
         (this.tank as any).updateBarrelVisibility?.(baseZ);
+    }
+    /**
+     * Обновление основных визуальных эффектов (вызывается каждый кадр)
+     */
+    updateVisuals(dt: number): void {
+        this.updateCannonAnimations();
+        this.updateChassisAnimations();
     }
 }
 

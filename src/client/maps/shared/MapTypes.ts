@@ -37,15 +37,15 @@ export interface IMapGenerator {
      * Генерирует контент чанка
      */
     generateContent(
-        chunkX: number, 
-        chunkZ: number, 
-        worldX: number, 
-        worldZ: number, 
-        size: number, 
-        random: SeededRandom, 
+        chunkX: number,
+        chunkZ: number,
+        worldX: number,
+        worldZ: number,
+        size: number,
+        random: SeededRandom,
         chunkParent: TransformNode
     ): void;
-    
+
     /**
      * Возвращает имя карты
      */
@@ -87,22 +87,8 @@ export interface ObjectPosition {
 /**
  * Тип карты
  */
-export type MapType = 
-    | "polygon"
-    | "frontline" 
-    | "ruins" 
-    | "canyon" 
-    | "industrial" 
-    | "urban_warfare" 
-    | "underground" 
-    | "coastal"
-    | "tartaria"
-    | "sandbox"
+export type MapType =
     | "sand"
-    | "madness"
-    | "expo"
-    | "brest"
-    | "arena"
     | "normal"
     | "custom";
 
@@ -120,21 +106,8 @@ export interface MapTypeInfo {
  * Список всех доступных типов карт
  */
 export const MAP_TYPES: MapTypeInfo[] = [
-    { id: "polygon", name: "Полигон", description: "Тренировочная арена с мишенями и препятствиями" },
-    { id: "frontline", name: "Линия фронта", description: "Окопы, траншеи и укрепления" },
-    { id: "ruins", name: "Руины", description: "Разрушенный город" },
-    { id: "canyon", name: "Каньон", description: "Горное ущелье" },
-    { id: "industrial", name: "Индустриальная", description: "Заводы и фабрики" },
-    { id: "urban_warfare", name: "Городской бой", description: "Городские улицы и здания" },
-    { id: "underground", name: "Подземелье", description: "Шахты и туннели" },
-    { id: "coastal", name: "Побережье", description: "Прибрежная зона с портом" },
-    { id: "tartaria", name: "Тартария", description: "Загадочные руины древней цивилизации" },
-    { id: "sandbox", name: "Песочница", description: "Свободный режим для тестов" },
-    { id: "sand", name: "Песок", description: "Компактная двухуровневая арена в стиле Песочницы" },
-    { id: "madness", name: "Безумие", description: "Многоуровневая арена с мостиками, рампами и переходами" },
-    { id: "expo", name: "Экспо", description: "Киберспортивная арена среднего размера с множеством уровней" },
-    { id: "brest", name: "Брест", description: "Симметричная арена с крепостью в центре и базами по углам" },
-    { id: "arena", name: "Арена", description: "Киберспортивная арена с симметричной структурой и множеством тактических позиций", icon: "⚔️" },
-    { id: "normal", name: "Обычная", description: "Стандартная карта с городами и природой" }
+    { id: "sand", name: "Песок", description: "Компактная двухуровневая арена для танковых боёв" },
+    { id: "normal", name: "Обычная", description: "Стандартная карта с городами и природой" },
+    { id: "custom", name: "Кастомная", description: "Пользовательская карта из редактора" }
 ];
 

@@ -15,17 +15,23 @@ export class NetworkProjectile {
     public isDisposed: boolean = false;
     private lastUpdateTime: number;
     private readonly maxLifetime: number = 5000; // 5 seconds max lifetime
+    private scene: Scene;
 
     private effectsManager: EffectsManager | null = null;
     // Removed unused trail timer fields
 
-    constructor(id: string, mesh: Mesh, velocity: Vector3, scene: Scene, effectsManager: EffectsManager | null) {
+    constructor(id: string, mesh: Mesh, velocity: Vector3, scene: Scene, effectsManager: EffectsManager | null, startDelay: number = 0) {
         this.id = id;
         this.mesh = mesh;
         this.velocity = velocity;
         this.scene = scene;
         this.effectsManager = effectsManager;
         this.lastUpdateTime = Date.now();
+
+        // Apply latency compensation (fast-forward)
+        if (startDelay > 0) {
+            this.mesh.position.addInPlace(this.velocity.scale(startDelay));
+        }
 
         // Initialize continuous trail matching local player visuals
         if (this.effectsManager) {

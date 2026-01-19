@@ -9,7 +9,7 @@ import {
     TextBlock,
     Control
 } from "@babylonjs/gui";
-import { Vector3, Scene, Camera } from "@babylonjs/core";
+import { Vector3, Scene, Camera, Viewport } from "@babylonjs/core";
 
 export interface DamageNumberConfig {
     maxNumbers: number;        // Максимум одновременных чисел
@@ -60,7 +60,7 @@ export class FloatingDamageNumbers {
     private config: DamageNumberConfig;
     private numbers: DamageNumber[] = [];
     private pool: PoolElement[] = [];
-    
+
     constructor(
         guiTexture: AdvancedDynamicTexture,
         scene: Scene,
@@ -71,7 +71,7 @@ export class FloatingDamageNumbers {
         this.config = { ...DEFAULT_DAMAGE_NUMBER_CONFIG, ...config };
         this.initPool();
     }
-    
+
     private initPool(): void {
         for (let i = 0; i < this.config.maxNumbers; i++) {
             const container = new Rectangle(`floatingDamage_${i}`);
@@ -83,7 +83,7 @@ export class FloatingDamageNumbers {
             container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             container.isPointerBlocker = false;
             this.guiTexture.addControl(container);
-            
+
             const text = new TextBlock(`floatingDamageText_${i}`);
             text.color = "#fff";
             text.fontSize = this.config.fontSize;
@@ -96,11 +96,11 @@ export class FloatingDamageNumbers {
             text.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             text.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
             container.addControl(text);
-            
+
             this.pool.push({ container, text, inUse: false });
         }
     }
-    
+
     /**
      * Показать число урона
      * @param worldPosition - позиция в 3D мире
@@ -134,7 +134,7 @@ export class FloatingDamageNumbers {
             this.setupDamageNumber(element, worldPosition, amount, type, isCritical);
         }
     }
-    
+
     private setupDamageNumber(
         element: PoolElement,
         worldPosition: Vector3,
@@ -143,11 +143,11 @@ export class FloatingDamageNumbers {
         isCritical: boolean
     ): void {
         element.inUse = true;
-        
+
         // Настраиваем текст
         const prefix = type === 'heal' ? '+' : (type === 'dealt' ? '' : '-');
         element.text.text = `${prefix}${Math.round(amount)}`;
-        
+
         // Цвет и размер
         if (type === 'heal') {
             element.text.color = this.config.healColor;
@@ -157,19 +157,19 @@ export class FloatingDamageNumbers {
             element.text.fontSize = Math.round(this.config.fontSize * this.config.criticalMultiplier);
             element.text.text = `💥${prefix}${Math.round(amount)}`;
         } else {
-            element.text.color = type === 'dealt' 
-                ? this.config.dealtColor 
+            element.text.color = type === 'dealt'
+                ? this.config.dealtColor
                 : this.config.receivedColor;
             element.text.fontSize = this.config.fontSize;
         }
-        
+
         // Показываем с полной прозрачностью
         element.container.isVisible = true;
         element.container.alpha = 1;
-        
+
         // Случайное смещение по X для избежания наложения
         const randomOffsetX = (Math.random() - 0.5) * 60;
-        
+
         // Добавляем в активные
         this.numbers.push({
             container: element.container,
@@ -182,29 +182,34 @@ export class FloatingDamageNumbers {
             randomOffsetX
         });
     }
-    
+
     /**
      * Обновление позиций и анимаций (вызывать каждый кадр)
      * @param camera - активная камера для проекции
      */
     update(camera: Camera): void {
         if (!camera) return;
-        
+
         const now = Date.now();
         const engine = this.scene.getEngine();
         const width = engine.getRenderWidth();
         const height = engine.getRenderHeight();
-        
+
         // Матрицы для проекции
         const viewMatrix = camera.getViewMatrix();
         const projectionMatrix = camera.getProjectionMatrix();
         const worldMatrix = this.scene.getTransformMatrix();
-        
+
+        if (!viewMatrix || !projectionMatrix || !worldMatrix) return;
+
+        const transformMatrix = viewMatrix.multiply(projectionMatrix);
+
         // Обновляем все активные числа
         for (let i = this.numbers.length - 1; i >= 0; i--) {
             const num = this.numbers[i];
+            if (!num) continue;
             const elapsed = now - num.startTime;
-            
+
             // Проверяем, истекло ли время показа
             const totalTime = this.config.displayTime + this.config.fadeTime;
             if (elapsed > totalTime) {
@@ -217,26 +222,26 @@ export class FloatingDamageNumbers {
                 this.numbers.splice(i, 1);
                 continue;
             }
-            
+
             // Анимация подъёма (в пикселях экрана, не в 3D)
             const floatOffset = (elapsed / 1000) * this.config.floatSpeed;
-            
+
             // Проецируем 3D позицию на экран
             const worldPos = num.worldPosition.clone();
-            
+
             const screenPos = Vector3.Project(
                 worldPos,
                 worldMatrix,
-                viewMatrix.multiply(projectionMatrix),
-                { x: 0, y: 0, width, height }
+                transformMatrix,
+                new Viewport(0, 0, width, height)
             );
-            
+
             // Проверяем, что точка перед камерой (z от 0 до 1 в NDC)
             if (screenPos.z > 0 && screenPos.z < 1) {
                 // Применяем смещение по экранным координатам
                 const screenX = screenPos.x + num.randomOffsetX;
                 const screenY = screenPos.y - floatOffset; // Минус потому что Y растёт вниз
-                
+
                 // Устанавливаем позицию (центрируем контейнер)
                 num.container.left = `${screenX - 60}px`;
                 num.container.top = `${screenY - 25}px`;
@@ -245,7 +250,7 @@ export class FloatingDamageNumbers {
                 // Точка за камерой - скрываем
                 num.container.isVisible = false;
             }
-            
+
             // Затухание в конце
             if (elapsed > this.config.displayTime) {
                 const fadeElapsed = elapsed - this.config.displayTime;
@@ -261,7 +266,7 @@ export class FloatingDamageNumbers {
             }
         }
     }
-    
+
     /**
      * Очистить все числа
      */
@@ -275,14 +280,14 @@ export class FloatingDamageNumbers {
         }
         this.numbers = [];
     }
-    
+
     /**
      * Получить количество активных чисел
      */
     getActiveCount(): number {
         return this.numbers.length;
     }
-    
+
     /**
      * Освободить ресурсы
      */

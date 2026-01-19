@@ -1,6 +1,6 @@
 import { Vector3 } from "@babylonjs/core";
 import { createClientMessage, deserializeMessage, serializeMessage } from "../shared/protocol";
-import type { ClientMessage, ServerMessage, ClientMetricsData, PingData, PongData, PlayerStatesData, ChatMessageData, ConsumablePickupData, ErrorData, OnlinePlayersListData } from "../shared/messages";
+import type { ClientMessage, ServerMessage, ClientMetricsData, PingData, PongData, PlayerStatesData, ChatMessageData, ConsumablePickupData, ErrorData, OnlinePlayersListData, RpcEventData } from "../shared/messages";
 import { ClientMessageType, ServerMessageType } from "../shared/messages";
 import type { PlayerData, PlayerInput, GameMode, PredictedState, ClientPredictionState, NetworkMetrics, ProjectileData, EnemyData, FlagData, Vector3Data } from "../shared/types";
 import { nanoid } from "nanoid";
@@ -144,14 +144,7 @@ export interface PlayerRespawnedData {
     maxHealth?: number;
 }
 
-export interface PlayerDamagedData {
-    playerId: string;
-    damage: number;
-    attackerId?: string;
-    health: number;
-    maxHealth: number;
-    hitPosition?: Vector3Data;
-}
+
 
 export interface CTFFlagPickupData {
     flagId: string;
@@ -201,6 +194,8 @@ export interface NetworkPlayer {
     maxHealth: number;
     status: "alive" | "dead" | "spectating";
     team?: number;
+    kills?: number;
+    deaths?: number;
     // Tank customization
     chassisType?: string;
     cannonType?: string;
@@ -384,6 +379,10 @@ export class MultiplayerManager {
     private pingSequence: number = 0;
     private lastPongTime: number = 0;
 
+    public getPing(): number {
+        return this.networkMetrics.rtt;
+    }
+
     // КРИТИЧНО: Трекинг времени отправки PING по sequence number
     // Это позволяет корректно вычислять RTT независимо от расхождения часов
     private pingSendTimes: Map<number, number> = new Map();
@@ -436,6 +435,13 @@ export class MultiplayerManager {
         }
     }
 
+    private handleRpc(data: RpcEventData) {
+        // RPC events are always processed, even for local player if echoed back (though usually server should exclude sender)
+        if (this.onRpcCallback) {
+            this.onRpcCallback(data);
+        }
+    }
+
     private handleProjectileUpdate(data: any) {
         // Ignore updates for local player projectiles
         if (data.ownerId === this.playerId) {
@@ -456,8 +462,8 @@ export class MultiplayerManager {
     // Callbacks
     private onConnectedCallback: (() => void) | null = null;
     private onDisconnectedCallback: (() => void) | null = null;
-    private onPlayerJoinedCallback: ((player: PlayerData) => void) | null = null;
-    private onPlayerLeftCallback: ((playerId: string) => void) | null = null;
+    private onPlayerJoinedCallbacks: Array<(player: PlayerData) => void> = [];
+    private onPlayerLeftCallbacks: Array<(playerId: string) => void> = [];
     private onGameStartCallback: ((data: GameStartData) => void) | null = null;
     private onGameEndCallback: ((data: GameEndData) => void) | null = null;
     private onPlayerStatesCallback: ((players: PlayerData[], isFullState?: boolean) => void) | null = null;
@@ -485,6 +491,7 @@ export class MultiplayerManager {
     private onOnlinePlayersListCallbacks: Array<(players: OnlinePlayersListData) => void> = []; // Поддержка нескольких callbacks
     private onWallSpawnCallback: ((data: WallSpawnData) => void) | null = null;
     private onErrorCallback: ((data: ErrorData) => void) | null = null;
+    private onRpcCallback: ((data: RpcEventData) => void) | null = null;
 
     constructor(serverUrl?: string, autoConnect: boolean = false) {
         // Если serverUrl не указан, автоматически определяем его
@@ -546,7 +553,7 @@ export class MultiplayerManager {
             // Set connection timeout (10 seconds)
             this.connectionTimeout = setTimeout(() => {
                 if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
-                    logger.error("[Multiplayer] Connection timeout - closing connection");
+                    logger.warn("[Multiplayer] Connection timeout - server may still be starting");
                     this.isConnecting = false;
                     this.ws.close();
                     this.ws = null;
@@ -749,7 +756,9 @@ export class MultiplayerManager {
         this.onRoomJoinedCallback = null;
         this.onRoomListCallbacks = [];
         this.onOnlinePlayersListCallbacks = [];
+        this.onOnlinePlayersListCallbacks = [];
         this.onErrorCallback = null;
+        this.onRpcCallback = null;
 
         // Reset network metrics
         this.networkMetrics = {
@@ -857,6 +866,7 @@ export class MultiplayerManager {
     private handleMessage(data: string | ArrayBuffer | Blob): void {
         try {
             // Convert Blob to ArrayBuffer if needed
+            // Convert Blob to ArrayBuffer if needed
             if (data instanceof Blob) {
                 // Проверяем размер Blob - если пустой, пропускаем
                 if (data.size === 0) {
@@ -864,36 +874,18 @@ export class MultiplayerManager {
                     return;
                 }
 
-                // Увеличиваем timeout до 10 секунд для больших Blob
-                const timeoutPromise = new Promise<ArrayBuffer>((_, reject) => {
-                    setTimeout(() => reject(new Error("Blob conversion timeout")), 10000);
-                });
+                // Use FileReader which is often more robust than arrayBuffer() in some contexts
+                const reader = new FileReader();
+                reader.onload = () => {
+                    if (reader.result instanceof ArrayBuffer) {
+                        this.handleMessage(reader.result);
+                    }
+                };
+                reader.onerror = () => {
+                    logger.error("[Multiplayer] Error converting Blob to ArrayBuffer via FileReader");
+                };
+                reader.readAsArrayBuffer(data);
 
-                Promise.race([
-                    data.arrayBuffer(),
-                    timeoutPromise
-                ]).then(buffer => {
-                    if (buffer.byteLength === 0) {
-                        logger.warn("[Multiplayer] Converted Blob is empty, skipping");
-                        return;
-                    }
-                    this.handleMessage(buffer);
-                }).catch(error => {
-                    // Логируем только один раз в секунду, чтобы не спамить
-                    const now = Date.now();
-                    if (!this._lastBlobErrorTime || (now - this._lastBlobErrorTime) > 1000) {
-                        logger.error("[Multiplayer] Error converting Blob to ArrayBuffer:", error);
-                        if (error instanceof Error && error.message === "Blob conversion timeout") {
-                            // Если маленький Blob (< 1000 байт) завис, возможно это поврежденные данные - пропускаем
-                            if (data.size < 1000) {
-                                logger.warn(`[Multiplayer] Пропускаем зависший маленький Blob (${data.size} bytes) - возможно поврежденные данные`);
-                                return;
-                            }
-                            logger.error(`[Multiplayer] Blob conversion timed out after 10 seconds (size: ${data.size} bytes)`);
-                        }
-                        this._lastBlobErrorTime = now;
-                    }
-                });
                 return;
             }
 
@@ -1073,6 +1065,10 @@ export class MultiplayerManager {
 
                 case ServerMessageType.WORLD_UPDATE:
                     this.handleWorldUpdate(message.data);
+                    break;
+
+                case ServerMessageType.RPC:
+                    this.handleRpc(message.data);
                     break;
 
                 default:
@@ -1301,7 +1297,7 @@ export class MultiplayerManager {
         // Update RTT history (only for valid RTT values)
         if (!isSuspiciousRTT) {
             this.networkMetrics.pingHistory.push(rtt);
-            if (this.networkMetrics.pingHistory.length > 10) {
+            if (this.networkMetrics.pingHistory.length > 60) {
                 this.networkMetrics.pingHistory.shift();
             }
         }
@@ -1698,9 +1694,10 @@ export class MultiplayerManager {
                 this._roomPlayersCount = this.networkPlayers.size + 1;
                 logger.log(`[Multiplayer] 📊 Игрок присоединился: ${player.name}, теперь в комнате: ${this._roomPlayersCount}`);
             }
-            if (this.onPlayerJoinedCallback) {
-                this.onPlayerJoinedCallback(player);
-            }
+            // Notify all callbacks
+            this.onPlayerJoinedCallbacks.forEach(cb => {
+                try { cb(player); } catch (e) { logger.error("[Multiplayer] Error in onPlayerJoined callback", e); }
+            });
         }
     }
 
@@ -1722,9 +1719,11 @@ export class MultiplayerManager {
             // Уменьшаем счетчик игроков
             this._roomPlayersCount = Math.max(1, this._roomPlayersCount - 1);
             logger.log(`[Multiplayer] 📊 Игрок вышел: ${playerId}, теперь в комнате: ${this._roomPlayersCount}`);
-            if (this.onPlayerLeftCallback) {
-                this.onPlayerLeftCallback(playerId);
-            }
+
+            // Notify all callbacks
+            this.onPlayerLeftCallbacks.forEach(cb => {
+                try { cb(playerId); } catch (e) { logger.error("[Multiplayer] Error in onPlayerLeft callback", e); }
+            });
         } else if (playerId === this.playerId) {
             // Если вышел текущий игрок, сбрасываем счетчик
             this._roomPlayersCount = 1;
@@ -2405,6 +2404,8 @@ export class MultiplayerManager {
             maxHealth: maxHealth,
             status: playerData.status || "alive", // КРИТИЧНО: По умолчанию "alive"
             team: playerData.team,
+            kills: playerData.kills || 0,
+            deaths: playerData.deaths || 0,
             // Tank customization
             chassisType: playerData.chassisType,
             cannonType: playerData.cannonType,
@@ -2590,6 +2591,8 @@ export class MultiplayerManager {
         networkPlayer.aimPitch = aimPitch;
         networkPlayer.health = health;
         networkPlayer.maxHealth = maxHealth;
+        networkPlayer.kills = playerData.kills;
+        networkPlayer.deaths = playerData.deaths;
 
         // Update chassis tilt
         if (playerData.chassisPitch !== undefined) networkPlayer.chassisPitch = playerData.chassisPitch;
@@ -3414,11 +3417,15 @@ export class MultiplayerManager {
     }
 
     onPlayerJoined(callback: (player: PlayerData) => void): void {
-        this.onPlayerJoinedCallback = callback;
+        if (!this.onPlayerJoinedCallbacks.includes(callback)) {
+            this.onPlayerJoinedCallbacks.push(callback);
+        }
     }
 
     onPlayerLeft(callback: (playerId: string) => void): void {
-        this.onPlayerLeftCallback = callback;
+        if (!this.onPlayerLeftCallbacks.includes(callback)) {
+            this.onPlayerLeftCallbacks.push(callback);
+        }
     }
 
     onGameStart(callback: (data: GameStartData) => void): void {
@@ -3657,7 +3664,26 @@ export class MultiplayerManager {
      */
     getRespawnDelay(): number {
         // 3 seconds for death screen, then 2 seconds for respawn animation
+        // 3 seconds for death screen, then 2 seconds for respawn animation
         return 3;
+    }
+
+    sendRpc(event: string, payload: any): void {
+        const data: RpcEventData = {
+            event,
+            payload,
+            sourceId: this.playerId,
+            timestamp: Date.now()
+        };
+        this.sendMessage({
+            type: ClientMessageType.RPC,
+            data,
+            timestamp: Date.now()
+        });
+    }
+
+    onRpc(callback: (data: RpcEventData) => void) {
+        this.onRpcCallback = callback;
     }
 }
 

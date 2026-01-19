@@ -1,5 +1,5 @@
 import "@babylonjs/core/Debug/debugLayer";
-import { logger, LogLevel, loggingSettings } from "./utils/logger";
+import { Logger, logger, LogLevel, loggingSettings } from "./utils/logger";
 // import { CommonStyles } from "./commonStyles"; // Не используется
 import {
     Engine,
@@ -366,6 +366,15 @@ export class Game {
         return this._gameUpdate;
     }
 
+    public async getUnifiedMenu(): Promise<UnifiedMenu> {
+        if (!this.unifiedMenu) {
+            const { UnifiedMenu } = await import("./unifiedMenu");
+            this.unifiedMenu = new UnifiedMenu();
+            this.unifiedMenu.setGame(this);
+        }
+        return this.unifiedMenu;
+    }
+
     // Main menu (lazy loaded)
     mainMenu: MainMenu | undefined; // Lazy loaded from "./menu"
     gameStarted = false;
@@ -657,16 +666,13 @@ export class Game {
 
                 if (!this.unifiedMenu) {
                     logger.log("[Game] Loading unified menu (Ctrl+7 CAPTURE)...");
-                    import("./unifiedMenu").then(({ UnifiedMenu }) => {
-                        this.unifiedMenu = new UnifiedMenu();
-                        this.unifiedMenu.setGame(this);
-                        if (typeof this.unifiedMenu.toggle === 'function') {
-                            this.unifiedMenu.toggle();
+                    this.getUnifiedMenu().then(menu => {
+                        if (typeof menu.toggle === 'function') {
+                            menu.toggle();
                         }
                         logger.log("[Game] Unified menu loaded (Ctrl+7)");
                     }).catch(error => {
                         logger.error("[Game] Failed to load unified menu:", error);
-                        this.unifiedMenu = undefined;
                     });
                 } else {
                     if (typeof this.unifiedMenu.toggle === 'function') {
@@ -689,16 +695,13 @@ export class Game {
 
                 if (!this.unifiedMenu) {
                     logger.log("[Game] Loading unified menu (F7)...");
-                    import("./unifiedMenu").then(({ UnifiedMenu }) => {
-                        this.unifiedMenu = new UnifiedMenu();
-                        this.unifiedMenu.setGame(this);
-                        if (typeof this.unifiedMenu.toggle === 'function') {
-                            this.unifiedMenu.toggle();
+                    this.getUnifiedMenu().then(menu => {
+                        if (typeof menu.toggle === 'function') {
+                            menu.toggle();
                         }
                         logger.log("[Game] Unified menu loaded (F7)");
                     }).catch(error => {
                         logger.error("[Game] Failed to load unified menu:", error);
-                        this.unifiedMenu = undefined;
                     });
                 } else {
                     if (typeof this.unifiedMenu.toggle === 'function') {
@@ -1213,6 +1216,12 @@ export class Game {
                     return;
                 }
 
+                if (this.unifiedMenu && this.unifiedMenu.visible) {
+                    // UnifiedMenu handles its own ESC (closes itself)
+                    // We just return here to prevent MainMenu from opening
+                    return;
+                }
+
                 // Обработка главного меню - переключатель (toggle)
                 if (this.mainMenu) {
                     const isMenuVisible = this.mainMenu.isVisible();
@@ -1403,7 +1412,20 @@ export class Game {
 
     // === SETTINGS APPLICATION ===
 
-    private applyGraphicsSettings(): void {
+
+
+    public applySettings(): void {
+        if (this.mainMenu) {
+            this.settings = this.mainMenu.getSettings();
+        }
+        this.applyGraphicsSettings();
+        this.applyAudioSettings();
+        this.applyControlSettings();
+        this.applyCameraSettings();
+        logger.info("All game settings applied dynamically");
+    }
+
+    public applyGraphicsSettings(): void {
         if (!this.engine || !this.scene) return;
 
         // Anti-aliasing
@@ -1418,9 +1440,8 @@ export class Game {
             // This is handled in the render loop
         }
 
-        // Shadow quality - ОПТИМИЗАЦИЯ: Отключаем в production независимо от настроек
-        const isProduction = (import.meta as any).env?.PROD || false;
-        this.scene.shadowsEnabled = !isProduction && this.settings.shadowQuality > 0;
+        // Shadow quality
+        this.scene.shadowsEnabled = (this.settings.shadows ?? true) && this.settings.shadowQuality > 0;
 
         // Particle quality
         this.scene.particlesEnabled = this.settings.particleQuality > 0;
@@ -1463,15 +1484,17 @@ export class Game {
         logger.log(`[Game] Fog setup: start=${fogStart}, end=${fogEnd} (all maps 500x500)`);
     }
 
-    private applyAudioSettings(): void {
+    public applyAudioSettings(): void {
         if (this.mainMenu) {
             const settings = this.mainMenu.getSettings();
+            // Update local settings copy
+            this.settings = settings;
             this.gameAudio.setSettings(settings);
             this.gameAudio.applySettings();
         }
     }
 
-    private applyControlSettings(): void {
+    public applyControlSettings(): void {
         if (!this.tank) return;
 
         // Invert mouse Y - would need to be applied in tank controller
@@ -1481,7 +1504,7 @@ export class Game {
         logger.debug("Control settings applied");
     }
 
-    private applyCameraSettings(): void {
+    public applyCameraSettings(): void {
         if (!this.camera) return;
 
         // Camera distance
@@ -2580,6 +2603,11 @@ export class Game {
                                     if (this._updateTick > 1000000) this._updateTick = 0;
                                     // Используем GameUpdate для обновления
                                     this.gameUpdate.update();
+
+                                    // Update HUD effects (Damage indicators, etc)
+                                    if (this.hud && this.camera) {
+                                        this.hud.update(this.engine.getDeltaTime(), this.camera);
+                                    }
                                 }
                                 // КРИТИЧНО: Рендерим сцену ТОЛЬКО ОДИН РАЗ за кадр!
                                 // Проверяем, не рендерится ли сцена дважды
@@ -3534,6 +3562,45 @@ export class Game {
             // Синхронизируем массив врагов
             this.enemyTanks = this.gameEnemies.enemyTanks;
 
+            // Initialize GameUpdate system
+            this.gameUpdate.initialize(
+                this.engine,
+                this.scene,
+                {
+                    tank: this.tank,
+                    hud: this.hud,
+                    enemyManager: this.enemyManager,
+                    enemyTanks: this.enemyTanks,
+                    chunkSystem: this.chunkSystem,
+                    consumablesManager: this.consumablesManager,
+                    missionSystem: this.missionSystem,
+                    achievementsSystem: this.achievementsSystem,
+                    experienceSystem: this.experienceSystem,
+                    playerProgression: this.playerProgression,
+                    multiplayerManager: this.multiplayerManager,
+                    aiCoordinator: this.aiCoordinator,
+                    performanceOptimizer: this.performanceOptimizer,
+                    gameStarted: true,
+                    gamePaused: false,
+                    isAiming: false
+                }
+            );
+
+            // Set garage respawn timer callback
+            this.gameUpdate.setOnUpdateGarageRespawnTimers((deltaTime) => {
+                if (this.gameGarage) {
+                    this.gameGarage.updateGarageRespawnTimers(deltaTime, (pos) => {
+                        // Respawn enemy at the garage position
+                        if (this.gameEnemies) {
+                            this.gameEnemies.respawnEnemyTank(
+                                pos,
+                                () => this.gameGarage.getPlayerGaragePosition(this.camera)
+                            );
+                        }
+                    });
+                }
+            });
+
             // Initialize GameStats
             this.gameStats.initialize({
                 playerProgression: this.playerProgression,
@@ -3554,6 +3621,18 @@ export class Game {
                 this.gameCamera = new GameCamera();
                 this.gameCamera.initialize(this.scene, this.tank, this.hud, this.aimingSystem, this.gameProjectile);
             }
+
+            // Initialize logging error handler
+            Logger.setOnError((args) => {
+                if (this.hud) {
+                    // Format error message safely
+                    const msg = args.map(a => (a instanceof Error ? a.message : String(a))).join(" ");
+                    this.hud.showNotification(`ERROR: ${msg.substring(0, 100)}...`, "error");
+                }
+            });
+
+            // Initialize HUD
+            this.hud = new HUD(this.scene, this.engine, this.experienceSystem, this.gameType);
 
             // Настраиваем callbacks для POI системы
             this.gamePOI.updateDependencies({
@@ -3880,7 +3959,7 @@ export class Game {
     }
 
     // Возвращает текущую сложность врагов с учётом sessionSettings и настроек главного меню
-    private getCurrentEnemyDifficulty(): "easy" | "medium" | "hard" {
+    private getCurrentEnemyDifficulty(): "easy" | "medium" | "hard" | "nightmare" {
         return this.gameEnemies.getCurrentDifficulty();
     }
 
@@ -4883,7 +4962,7 @@ export class Game {
     }
 
     // Спавн врагов в гаражах
-    spawnEnemiesInGarages() {
+    spawnEnemiesInGarages(attempts: number = 0) {
         if (!this.soundManager || !this.effectsManager) {
             logger.warn("Sound/Effects not ready, skipping enemy spawn");
             return;
@@ -4894,10 +4973,20 @@ export class Game {
             return;
         }
 
-        // КРИТИЧЕСКИ ВАЖНО: Если гараж игрока ещё не определён, НЕ СПАВНИМ врагов!
+        // КРИТИЧЕСКИ ВАЖНО: Если гараж игрока ещё не определён, пробуем подождать
         if (!this.gameGarage.playerGaragePosition) {
-            logger.error("CRITICAL: Player garage NOT SET! Aborting enemy spawn!");
-            return;
+            if (attempts < 10) {
+                logger.warn(`[Game] Player garage NOT SET! Retrying spawnEnemiesInGarages in 100ms (attempt ${attempts + 1}/10)...`);
+                setTimeout(() => {
+                    if (this.gameStarted && !this.gamePaused) {
+                        this.spawnEnemiesInGarages(attempts + 1);
+                    }
+                }, 100);
+                return;
+            } else {
+                logger.error("CRITICAL: Player garage NOT SET after 10 attempts! Aborting enemy spawn!");
+                return;
+            }
         }
 
         logger.log(`[Game] === ENEMY SPAWN CHECK ===`);
@@ -5912,6 +6001,37 @@ export class Game {
                 logger.warn(`[Game] Respawn event received but tank or turret is missing!`);
             }
         }) as EventListener);
+
+        // === TAB SCOREBOARD ===
+        window.addEventListener("keydown", (e: KeyboardEvent) => {
+            if (e.code === "Tab") {
+                e.preventDefault(); // Предотвращаем потерю фокуса
+                if (this.gameStatsOverlay && !this.gameStatsOverlay.isVisible()) {
+                    // Обновляем зависимости перед показом
+                    this.gameStatsOverlay.updateDependencies({
+                        enemyTanks: this.enemyTanks,
+                        enemyManager: this.enemyManager,
+                        playerProgression: this.playerProgression,
+                        currencyManager: this.currencyManager,
+                        experienceSystem: this.experienceSystem,
+                        realtimeStatsTracker: this.realtimeStatsTracker,
+                        multiplayerManager: this.multiplayerManager,
+                        getIsMultiplayer: () => this.isMultiplayer,
+                        currentMapType: this.currentMapType
+                    });
+                    this.gameStatsOverlay.show();
+                }
+            }
+        });
+
+        window.addEventListener("keyup", (e: KeyboardEvent) => {
+            if (e.code === "Tab") {
+                e.preventDefault();
+                if (this.gameStatsOverlay && this.gameStatsOverlay.isVisible()) {
+                    this.gameStatsOverlay.hide();
+                }
+            }
+        });
     }
 
     updateCamera() {
@@ -7756,7 +7876,7 @@ export class Game {
     }
 
     // === MAP EDITOR HELPERS ===
-    private async openMapEditorInternal(): Promise<void> {
+    private async openMapEditorInternal(config?: any): Promise<void> {
         if (!this.gameStarted) {
             const errorMsg = "Игра не запущена. Пожалуйста, сначала запустите игру.";
             logger.warn("[Game] Cannot open Map Editor: game not started");
@@ -7792,6 +7912,50 @@ export class Game {
             } else if (typeof this.mapEditor.open === "function") {
                 this.mapEditor.open();
                 logger.log("[Game] Map editor opened");
+
+                // Handle AI World Generation config
+                if (config && config.worldGen) {
+                    try {
+                        console.log("[Game] 🌍 Generating world from AI config:", config.worldGen);
+                        const { WorldBuilder } = await import("./services/WorldBuilder");
+                        const wb = new WorldBuilder(this.scene);
+
+                        if (this.hud) this.hud.showMessage(`Загрузка карты: ${config.worldGen.name}...`, "#0f0", 5000);
+
+                        const entities = await wb.downloadArea(config.worldGen.lat, config.worldGen.lon);
+
+                        const mapData: any = {
+                            name: config.worldGen.name,
+                            mapType: "world",
+                            placedObjects: [],
+                            terrainEdits: [],
+                            triggers: [],
+                            worldEntities: entities,
+                            metadata: {
+                                createdAt: Date.now(),
+                                modifiedAt: Date.now(),
+                                author: "AI World Gen",
+                                description: `Generated from ${config.worldGen.name}`
+                            }
+                        };
+
+                        if (typeof this.mapEditor.loadMapData === "function") {
+                            this.mapEditor.loadMapData(mapData);
+                        } else {
+                            // Fallback if loadMapData is not yet available (e.g. if we didn't update mapEditor.ts correctly)
+                            // But we did update it.
+                            (this.mapEditor as any).mapData = mapData;
+                            if (typeof (this.mapEditor as any).updateUI === "function") (this.mapEditor as any).updateUI();
+                        }
+
+                        await wb.buildWorldFromEntities(entities);
+                        if (this.hud) this.hud.showMessage("Карта загружена!", "#0f0", 3000);
+
+                    } catch (e) {
+                        console.error("[Game] Failed to generate world:", e);
+                        if (this.hud) this.hud.showMessage("Ошибка генерации мира", "#f00", 5000);
+                    }
+                }
             }
         } catch (error) {
             logger.error("[Game] Failed to open map editor:", error);
@@ -7916,6 +8080,10 @@ export class Game {
             // Применяем данные без открытия UI редактора
             await this.mapEditor.applyMapDataWithoutUI();
 
+            // CRITICAL: Inject spawn positions from custom map into chunkSystem.garagePositions
+            // This ensures players can spawn on custom maps
+            this.injectCustomMapSpawnPositions(customMapData);
+
             logger.log(`[Game] ===== Custom map "${customMapData.name}" loaded and applied successfully =====`);
         } catch (error) {
             logger.error("[Game] Failed to load custom map data:", error);
@@ -7926,7 +8094,71 @@ export class Game {
         }
     }
 
-    public async openMapEditorFromMenu(): Promise<void> {
+    /**
+     * Inject spawn positions from custom map data into chunkSystem.garagePositions
+     * This is critical for allowing players to spawn on custom maps
+     */
+    private injectCustomMapSpawnPositions(customMapData: any): void {
+        if (!this.chunkSystem) {
+            logger.error("[Game] Cannot inject spawn positions - ChunkSystem not initialized");
+            return;
+        }
+
+        const spawnPositions: Vector3[] = [];
+
+        // Extract spawn positions from triggers (type: 'spawn')
+        if (customMapData.triggers && Array.isArray(customMapData.triggers)) {
+            for (const trigger of customMapData.triggers) {
+                if (trigger.type === 'spawn' && trigger.position) {
+                    spawnPositions.push(new Vector3(
+                        trigger.position.x,
+                        trigger.position.y || 2,
+                        trigger.position.z
+                    ));
+                }
+            }
+        }
+
+        // Also check placedObjects for spawn-type objects (legacy support)
+        if (customMapData.placedObjects && Array.isArray(customMapData.placedObjects)) {
+            for (const obj of customMapData.placedObjects) {
+                if (obj.type === 'spawn' && obj.position) {
+                    spawnPositions.push(new Vector3(
+                        obj.position.x,
+                        obj.position.y || 2,
+                        obj.position.z
+                    ));
+                }
+            }
+        }
+
+        // If no spawns found in map data, create default spawn positions
+        if (spawnPositions.length === 0) {
+            logger.warn("[Game] No spawn positions in custom map - creating defaults");
+            const mapSize = customMapData.mapSize || 200;
+            const half = mapSize / 2;
+            const offset = half * 0.7;
+
+            spawnPositions.push(
+                new Vector3(-offset, 2, -offset),
+                new Vector3(offset, 2, -offset),
+                new Vector3(-offset, 2, offset),
+                new Vector3(offset, 2, offset),
+                new Vector3(0, 2, 0)
+            );
+        }
+
+        // Inject into chunkSystem.garagePositions (used by spawn system)
+        // Clear existing and add from custom map
+        this.chunkSystem.garagePositions.length = 0;
+        for (const pos of spawnPositions) {
+            this.chunkSystem.garagePositions.push(pos);
+        }
+
+        logger.log(`[Game] Injected ${spawnPositions.length} spawn positions from custom map`);
+    }
+
+    public async openMapEditorFromMenu(config?: any): Promise<void> {
         try {
             console.log("[Game] ====== openMapEditorFromMenu() CALLED ======");
             logger.log("[Game] openMapEditorFromMenu() called");
@@ -7970,7 +8202,7 @@ export class Game {
             }
 
             console.log("[Game] Opening map editor internal...");
-            await this.openMapEditorInternal();
+            await this.openMapEditorInternal(config);
             console.log("[Game] ✅ Map Editor opened successfully from menu");
             logger.log("[Game] Map Editor opened successfully from menu");
         } catch (error) {
@@ -8091,6 +8323,30 @@ export class Game {
             color: trackType.color
         };
 
+        // Бонусы от модулей (рассчитываем один раз)
+        const installedModules = upgradeManager.getUpgrades().modules;
+        let evasionBonus = 0;
+        let repairRateBonus = 0;
+        let fuelEfficiencyBonus = 0;
+
+        // Calculate Module Bonuses
+        Object.values(installedModules).forEach(m => {
+            if (m.level > 0) {
+                // Check module effects
+                // Check module effects
+                // const bonuses = upgradeManager.getModuleBonuses(m.elementId);
+                if (m.elementId === "shield") evasionBonus += 5 + (m.level * 1); // Example: 5% + 1% per level
+                if (m.elementId === "repair") repairRateBonus += 1 + (m.level * 0.5); // Example: 1 HP/s + 0.5 HP/s per level
+                if (m.elementId === "boost") fuelEfficiencyBonus += 10 + (m.level * 2); // 10% + 2% per level
+            }
+        });
+
+        const playerLevel = upgradeManager.getPlayerLevel();
+        const baseCrit = Math.min(25, playerLevel * 0.5);
+        const baseEvasion = Math.min(20, playerLevel * 0.2);
+        const baseRepair = playerLevel * 0.05;
+        const baseFuelEff = Math.min(30, playerLevel * 0.5);
+
         // Бонусы от всего
         const bonusesData = {
             damageBonus: (cannonBonuses.damageMultiplier ?? 1) - 1,
@@ -8101,13 +8357,36 @@ export class Game {
             turnSpeedBonus: (tracksBonuses.turnSpeedMultiplier ?? 1) - 1,
             accelerationBonus: (tracksBonuses.accelerationMultiplier ?? 1) - 1,
             projectileSpeedBonus: (cannonBonuses.projectileSpeedMultiplier ?? 1) - 1,
-            critChance: 0, // TODO: Получить из модулей если будут
-            evasion: 0,    // TODO: Получить из модулей если будут
-            repairRate: 0, // TODO: Получить из модулей если будут
-            fuelEfficiency: 0, // TODO: Получить из модулей если будут
-            playerLevel: upgradeManager.getPlayerLevel(),
-            installedModules: [] // TODO: Добавить модули если будут
+            playerLevel: playerLevel,
+            critChance: baseCrit,
+            evasion: baseEvasion + evasionBonus,
+            repairRate: baseRepair + repairRateBonus,
+            fuelEfficiency: baseFuelEff + fuelEfficiencyBonus,
+            installedModules: Object.values(upgradeManager.getUpgrades().modules)
+                .filter(m => m.level > 0)
+                .map(m => {
+                    const moduleMap: Record<string, { name: string, icon: string, rarity: "common" | "rare" | "epic" | "legendary" }> = {
+                        "shield": { name: "Energy Shield", icon: "🛡️", rarity: "rare" },
+                        "repair": { name: "Nano Repair", icon: "🔧", rarity: "epic" },
+                        "boost": { name: "Turbo Boost", icon: "⚡", rarity: "common" }
+                    };
+                    const info = moduleMap[m.elementId] || { name: m.elementId, icon: "📦", rarity: "common" };
+                    return {
+                        id: m.elementId,
+                        name: info.name,
+                        icon: info.icon,
+                        rarity: info.rarity
+                    };
+                })
         };
+
+        // Sync to TankController
+        if (tank) {
+            tank.critChance = bonusesData.critChance;
+            tank.evasion = bonusesData.evasion;
+            tank.repairRate = bonusesData.repairRate;
+            tank.fuelEfficiencyBonus = bonusesData.fuelEfficiency;
+        }
 
         const tankStatsData: TankStatsData = {
             chassis: chassisData,

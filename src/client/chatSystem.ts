@@ -223,10 +223,14 @@ export class ChatSystem {
             backdrop-filter: blur(4px);
         `;
 
-        // Check setting for visibility (Default: Hidden)
+        // Check setting for visibility (Default: Visible)
         const showTerminalSetting = localStorage.getItem("setting-show-system-terminal");
-        if (showTerminalSetting !== "true") {
+        // Only hide if explicitly set to "false"
+        if (showTerminalSetting === "false") {
             this.htmlContainer.style.display = "none";
+        } else {
+            // Default to visible
+            this.htmlContainer.style.display = "block";
         }
 
         document.body.appendChild(this.htmlContainer);

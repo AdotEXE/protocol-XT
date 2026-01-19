@@ -50,7 +50,7 @@ export class NetworkPlayerTank {
 
     // Interpolation
     private interpolationAlpha: number = 0;
-    private readonly INTERPOLATION_SPEED = 3; // КРИТИЧНО: Уменьшено до 3 для МАКСИМАЛЬНО плавного движения
+    private readonly INTERPOLATION_SPEED = 15; // КРИТИЧНО: Увеличено до 15 для РЕЗКОГО движения как в шутерах
     private lastNetworkUpdateTime: number = 0;
 
     // Position buffer for smooth interpolation
@@ -110,21 +110,6 @@ export class NetworkPlayerTank {
         this.chassisType = getChassisById(networkPlayer.chassisType || "medium");
         this.cannonType = getCannonById(networkPlayer.cannonType || "standard");
 
-        // DEBUG: Логируем полученные типы для диагностики синхронизации моделей
-        /*
-        console.log(`[NetworkPlayerTank] 🔧 Creating tank for ${networkPlayer.name || networkPlayer.id}:`, {
-            receivedChassisType: networkPlayer.chassisType,
-            receivedCannonType: networkPlayer.cannonType,
-            resolvedChassisType: this.chassisType.id,
-            resolvedCannonType: this.cannonType.id,
-            tankColor: networkPlayer.tankColor,
-            turretColor: networkPlayer.turretColor,
-            chassisPitch: networkPlayer.chassisPitch,
-            chassisRoll: networkPlayer.chassisRoll,
-            status: networkPlayer.status
-        });
-        */
-
         // Create tank visuals using REAL detailed models
         this.chassis = this.createDetailedChassis();
         this.turret = this.createDetailedTurret();
@@ -180,7 +165,6 @@ export class NetworkPlayerTank {
             this.scene
         );
         this.physicsAggregate.body.setMotionType(PhysicsMotionType.ANIMATED);
-        // Disable pre-step to save performance (we move it manually)
         this.physicsAggregate.body.disablePreStep = false;
 
         // КРИТИЧНО: Включаем checkCollisions для обнаружения попаданий через raycast
@@ -201,9 +185,140 @@ export class NetworkPlayerTank {
 
         // Mark network update time
         this.lastNetworkUpdateTime = Date.now();
+    }
 
-        // Уменьшен вывод логов - только один лог
-        console.log(`[NetworkPlayerTank] ✅ ${networkPlayer.name || this.playerId} at (${this.chassis.position.x.toFixed(1)}, ${this.chassis.position.y.toFixed(1)}, ${this.chassis.position.z.toFixed(1)})`);
+    /**
+     * Updates the visual parts of the tank (chassis, turret, barrel, colors).
+     * Used when receiving DRESS_UPDATE RPC or when player properties change.
+     */
+    updateParts(data: { chassisType?: string; cannonType?: string; tankColor?: string; turretColor?: string }): void {
+        console.log(`[NetworkPlayerTank] 🛠️ Updating parts for ${this.playerId}:`, data);
+
+        // Update local data
+        if (data.chassisType) this.networkPlayer.chassisType = data.chassisType;
+        if (data.cannonType) this.networkPlayer.cannonType = data.cannonType;
+        if (data.tankColor) this.networkPlayer.tankColor = data.tankColor;
+        if (data.turretColor) this.networkPlayer.turretColor = data.turretColor;
+
+        // Resolve new types
+        const newChassisType = getChassisById(this.networkPlayer.chassisType || "medium");
+        const newCannonType = getCannonById(this.networkPlayer.cannonType || "standard");
+
+        // Check if full recreation is needed
+        const chassisChanged = newChassisType.id !== this.chassisType.id;
+        const cannonChanged = newCannonType.id !== this.cannonType.id;
+        // Also recreate if colors changed significantly (simplest way to apply new materials)
+        const colorsChanged = !!data.tankColor || !!data.turretColor;
+
+        if (chassisChanged || colorsChanged) {
+            this.chassisType = newChassisType;
+
+            // Dispose old chassis parts (tracks etc are children usually, but we keep refs)
+            if (this.leftTrack) this.leftTrack.dispose();
+            if (this.rightTrack) this.rightTrack.dispose();
+
+            // Store current transform
+            const pos = this.chassis.position.clone();
+            const rot = this.chassis.rotationQuaternion ? this.chassis.rotationQuaternion.clone() : null;
+            const rotEuler = this.chassis.rotation.clone();
+
+            // Recreate chassis
+            // Note: This is complex because we need to dispose the ROOT mesh which destroys everything attached (turret, etc)
+            // So we really need to rebuild the whole tank.
+
+            this.rebuildTank();
+            return;
+        }
+
+        if (cannonChanged) {
+            this.cannonType = newCannonType;
+            // If only cannon changed, we could try to just replace the barrel, 
+            // but 'createDetailedBarrel' assumes it attaches to 'this.turret'.
+            // Safest to just rebuild turret + barrel or the whole tank.
+            this.rebuildTank();
+            return;
+        }
+    }
+
+    private rebuildTank(): void {
+        console.log(`[NetworkPlayerTank] 🔄 Rebuilding tank visual for ${this.playerId}`);
+
+        // Save state
+        const pos = this.chassis.position.clone();
+        const rotQ = this.chassis.rotationQuaternion ? this.chassis.rotationQuaternion.clone() : null;
+        const rotE = this.chassis.rotation.clone();
+        const turretMsgRot = this.turret ? this.turret.rotation.y : 0;
+        const barrelRot = this.barrel ? this.barrel.rotation.x : 0;
+
+        // Dispose everything
+        if (this.healthBar) this.healthBar.dispose();
+        if (this.healthBarBackground) this.healthBarBackground.dispose();
+        if (this.physicsAggregate) this.physicsAggregate.dispose();
+
+        // Disposing chassis recursively disposes children (turret, barrel, tracks)
+        if (this.chassis) this.chassis.dispose();
+
+        // Re-run creation logic
+        // We can reuse the constructor logic basically, but we need to ensure this class instance stays valid.
+
+        this.chassisType = getChassisById(this.networkPlayer.chassisType || "medium");
+        this.cannonType = getCannonById(this.networkPlayer.cannonType || "standard");
+
+        this.chassis = this.createDetailedChassis();
+        this.turret = this.createDetailedTurret();
+        this.barrel = this.createDetailedBarrel();
+
+        // Restore transform
+        this.chassis.position.copyFrom(pos);
+        if (rotQ) {
+            this.chassis.rotationQuaternion = rotQ;
+        } else {
+            this.chassis.rotation.copyFrom(rotE);
+        }
+
+        this.turret.rotation.y = turretMsgRot;
+        this.barrel.rotation.x = barrelRot;
+
+        // Restore visibility
+        this.chassis.isVisible = true;
+        this.chassis.setEnabled(true);
+        this.chassis.getChildMeshes().forEach(c => { c.isVisible = true; c.setEnabled(true); });
+
+        if (this.turret) {
+            this.turret.isVisible = true;
+            this.turret.setEnabled(true);
+        }
+        if (this.barrel) {
+            this.barrel.isVisible = true;
+            this.barrel.setEnabled(true);
+            this.barrel.getChildMeshes().forEach(c => { c.isVisible = true; c.setEnabled(true); });
+        }
+
+        // Restore physics
+        this.physicsAggregate = new PhysicsAggregate(
+            this.chassis,
+            PhysicsShapeType.BOX,
+            { mass: 0, restitution: 0, friction: 0 },
+            this.scene
+        );
+        this.physicsAggregate.body.setMotionType(PhysicsMotionType.ANIMATED);
+        this.physicsAggregate.body.disablePreStep = false;
+
+        // Restore collisions
+        this.chassis.checkCollisions = true;
+        this.chassis.getChildMeshes().forEach(m => m.checkCollisions = true);
+        if (this.turret) {
+            this.turret.checkCollisions = true;
+            this.turret.getChildMeshes().forEach(m => m.checkCollisions = true);
+        }
+        if (this.barrel) {
+            this.barrel.checkCollisions = true;
+            this.barrel.getChildMeshes().forEach(m => m.checkCollisions = true);
+        }
+
+        // Restore health bar
+        this.createHealthBar();
+        this.updateHealthBar();
     }
 
     /**
@@ -304,7 +419,7 @@ export class NetworkPlayerTank {
 
         let color: Color3;
         try {
-            color = Color3.FromHexString(turretColorHex);
+            color = Color3.FromHexString(turretColorHex || "#00ff00");
         } catch (e) {
             console.warn(`[NetworkPlayerTank] ⚠️ Failed to parse turret color '${turretColorHex}', using green`);
             color = new Color3(0, 1, 0);

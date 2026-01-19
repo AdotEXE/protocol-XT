@@ -333,6 +333,32 @@ export class GameStatsOverlay {
         const bots = this.collectBotsData();
         const botsHTML = this.generateBotsHTML(bots);
 
+        // Generate Player HTML Row
+        const game = (window as any).gameInstance;
+        let playerHealth = 100;
+        let maxHealth = 100;
+        if (game && game.tankController) {
+            playerHealth = Math.max(0, game.tankController.currentHealth);
+            maxHealth = game.tankController.maxHealth;
+        }
+
+        const healthPercent = Math.round((playerHealth / maxHealth) * 100);
+        const playerHealthBar = `
+                <div style="width:60px; height:4px; background:#333; border-radius:2px; overflow:hidden">
+                    <div style="width:${healthPercent}%; height:100%; background:${healthPercent > 50 ? '#0f0' : healthPercent > 25 ? '#ff0' : '#f00'}"></div>
+                </div>
+        `;
+
+        const playerHTML = `
+            <tr style="background:#0f03; border-bottom:1px solid #222; border-left: 2px solid #0f0">
+                <td style="padding:8px 12px; color:#0f0">●</td>
+                <td style="padding:8px 12px; color:#0ff; font-weight:bold">PLAYER (YOU)</td>
+                <td style="padding:8px 12px; text-align:center; color:#0f0">${playerData.kills}</td>
+                <td style="padding:8px 12px; text-align:center; color:#f00">${playerData.deaths}</td>
+                <td style="padding:8px 12px; text-align:center">${playerHealthBar}</td>
+            </tr>
+        `;
+
         const mapName = this.getMapDisplayName();
         content.innerHTML = `
             <div style="background:#0f02; padding:10px 20px; border-bottom:1px solid #0f04; display:flex; justify-content:space-between; align-items:center">
@@ -354,6 +380,7 @@ export class GameStatsOverlay {
                     </tr>
                 </thead>
                 <tbody>
+                    ${playerHTML}
                     ${botsHTML || '<tr><td colspan="5" style="padding:20px; text-align:center; color:#666">No bots in game</td></tr>'}
                 </tbody>
             </table>

@@ -76,6 +76,23 @@ export class AimZoomButton {
     }
 
     /**
+     * Показать/скрыть кнопку
+     */
+    public setVisible(visible: boolean): void {
+        const targetAlpha = visible ? 1 : 0;
+        // Don't just set isVisible, as that might break animation or state. 
+        // But for simply hiding it completely:
+        if (this.aimButton) {
+            this.aimButton.isVisible = visible;
+        }
+        if (!visible) {
+            this.hideZoomButtons();
+            this.isHolding = false;
+            this.pointerId = null;
+        }
+    }
+
+    /**
      * Создать UI элементы
      */
     private create(): void {

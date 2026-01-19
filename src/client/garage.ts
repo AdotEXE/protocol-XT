@@ -1,12 +1,12 @@
 // Garage System - HTML/CSS based UI for reliability
 import { CurrencyManager } from "./currencyManager";
-import { 
-    Scene, 
-    Mesh, 
-    MeshBuilder, 
-    StandardMaterial, 
+import {
+    Scene,
+    Mesh,
+    MeshBuilder,
+    StandardMaterial,
     Color3,
-    Vector3 
+    Vector3
 } from "@babylonjs/core";
 import { CHASSIS_TYPES, CANNON_TYPES, getChassisById, getCannonById } from "./tankTypes";
 import { TRACK_TYPES, getTrackById } from "./trackTypes";
@@ -73,6 +73,7 @@ export interface TankPart {
         firepower?: number;
         reload?: number;
         damage?: number;
+        dps?: number;
     };
 }
 
@@ -83,7 +84,7 @@ export class Garage {
     private _scene: Scene;
     private currencyManager: CurrencyManager;
     private isOpen: boolean = false;
-    
+
     // External systems
     private _chatSystem: GarageChatSystem | null = null;
     private tankController: GarageTankController | null = null;
@@ -91,17 +92,17 @@ export class Garage {
     private _playerProgression: GaragePlayerProgression | null = null;
     private soundManager: GarageSoundManager | null = null;
     private onCloseCallback: (() => void) | null = null;
-    
+
     // HTML Elements
     private overlay: HTMLDivElement | null = null;
-    
+
     // 3D Preview
     private previewSceneData: PreviewScene | null = null;
     private previewTank: PreviewTank | null = null;
     private previewTurretRotation: number = 0; // Угол поворота башни в предпросмотре
     private previewTurretKeysPressed: { z: boolean; x: boolean; c: boolean } = { z: false, x: false, c: false }; // Состояние клавиш
     private previewTurretAnimationFrame: number | null = null; // ID кадра анимации
-    
+
     // State
     private currentCategory: CategoryType = "chassis";
     private currentChassisId: string = "medium";
@@ -112,36 +113,36 @@ export class Garage {
     private filteredItems: (TankPart | TankUpgrade)[] = [];
     private tankEditor: TankEditor | null = null; // Редактор танков
     private savedTankConfigurations: TankConfiguration[] = []; // Сохраненные конфигурации
-    
+
     // Filters
     private searchText: string = "";
     private sortBy: "name" | "stats" | "custom" | "unique" = "name";
     private filterMode: "all" | "owned" | "locked" = "all";
-    
+
     // Pending changes (changes that need to be applied when entering garage)
     private pendingChassisId: string | null = null;
     private pendingCannonId: string | null = null;
     private pendingTrackId: string | null = null;
     private pendingSkinId: string | null = null;
-    
+
     // Fallback для применения скина
     private skinApplyInterval: number | null = null;
     private lastAppliedSkinId: string | null = null;
-    
+
     // Флаг что применение идёт из UI (чтобы GameGarage не применял одновременно)
     private isApplyingFromUI: boolean = false;
-    
+
     // ============ DATA ============
     // Map для сохранения порядка корпусов из CHASSIS_TYPES
     private chassisOrderMap: Map<string, number> = new Map(CHASSIS_TYPES.map((chassis, index) => [chassis.id, index]));
-    
+
     private chassisParts: TankPart[] = CHASSIS_TYPES.map(chassis => {
         // Balanced pricing based on stats and abilities
         // Formula: baseCost + (HP * 3) + (speed * 10) + (abilityBonus)
         const baseCost = 0;
         const hpMultiplier = 3;
         const speedMultiplier = 10;
-        
+
         // Ability bonuses (special abilities add value)
         const abilityBonuses: Record<string, number> = {
             stealth: 150,    // Stealth is very useful
@@ -155,16 +156,16 @@ export class Garage {
             destroyer: 80,   // Damage boost is good
             command: 150    // Team buff is powerful
         };
-        
+
         let cost = baseCost + (chassis.maxHealth * hpMultiplier) + (chassis.moveSpeed * speedMultiplier);
         if (chassis.specialAbility) {
             const bonus = abilityBonuses[chassis.specialAbility];
             if (bonus) cost += bonus;
         }
-        
+
         // Round to nearest 50 for cleaner prices
         cost = Math.round(cost / 50) * 50;
-        
+
         // Special cases for starter chassis
         if (chassis.id === "medium") {
             cost = 0; // Free starter
@@ -173,7 +174,7 @@ export class Garage {
         } else if (chassis.id === "scout") {
             cost = Math.min(cost, 500); // Cap at 500 for early game
         }
-        
+
         const abilityText = chassis.specialAbility ? ` [Ability: ${chassis.specialAbility}]` : "";
         return {
             id: chassis.id, name: chassis.name, description: chassis.description + abilityText,
@@ -182,17 +183,17 @@ export class Garage {
             stats: { health: chassis.maxHealth, speed: chassis.moveSpeed, armor: chassis.maxHealth / 50 }
         };
     });
-    
+
     private cannonParts: TankPart[] = CANNON_TYPES.map(cannon => {
         // Balanced pricing based on DPS and special effects
         // Formula: baseCost + (damage * 8) + (dps * 50) + (specialBonus)
         const baseCost = 0;
         const damageMultiplier = 8;
         const dpsMultiplier = 50;
-        
+
         // Calculate DPS (damage per second)
         const dps = (cannon.damage / (cannon.cooldown / 1000));
-        
+
         // Special effect bonuses
         const specialBonuses: Record<string, number> = {
             // Energy weapons (high tech)
@@ -200,44 +201,44 @@ export class Garage {
             laser: 150,  // Instant hit is valuable
             tesla: 180,  // Chain lightning is powerful
             railgun: 400, // Highest single shot damage
-            
+
             // Explosive weapons (AoE)
             rocket: 150,
             mortar: 250,  // High AoE damage
             cluster: 100,  // Multi-hit
             explosive: 120,
-            
+
             // Special effects (utility)
             flamethrower: 80,   // High DPS but close range
             acid: 100,          // Armor reduction
             freeze: 120,        // Slow is powerful
             poison: 90,          // DoT
             emp: 200,           // Ability disable is tactical
-            
+
             // Multi-shot
             shotgun: 60,        // Close range
             multishot: 80,      // Good DPS
-            
+
             // Advanced
             homing: 250,        // Auto-aim is valuable
             piercing: 150,       // Multi-hit
             shockwave: 120,     // Knockback
             beam: 140,          // Continuous damage
             vortex: 180,        // Pull effect
-            
+
             // Support
             support: 160         // Healing is valuable
         };
-        
+
         let cost = baseCost + (cannon.damage * damageMultiplier) + (dps * dpsMultiplier);
         const specialBonus = specialBonuses[cannon.id];
         if (specialBonus) {
             cost += specialBonus;
         }
-        
+
         // Round to nearest 50 for cleaner prices
         cost = Math.round(cost / 50) * 50;
-        
+
         // Special cases
         if (cannon.id === "standard") {
             cost = 0; // Free starter
@@ -246,21 +247,21 @@ export class Garage {
         } else if (cannon.id === "gatling") {
             cost = Math.min(cost, 550); // Cap for early game
         }
-        
+
         return {
             id: cannon.id, name: cannon.name, description: cannon.description,
             cost: cost, unlocked: cannon.id === "standard",
             type: "barrel" as const,
-            stats: { damage: cannon.damage, reload: cannon.cooldown }
+            stats: { damage: cannon.damage, reload: cannon.cooldown, dps: parseFloat(dps.toFixed(1)) }
         };
     });
-    
+
     private trackParts: TankPart[] = TRACK_TYPES.map(track => {
         const stats: any = {};
         if (track.stats.speedBonus) stats.speed = track.stats.speedBonus * 100;
         if (track.stats.durabilityBonus) stats.armor = track.stats.durabilityBonus * 100;
         if (track.stats.armorBonus) stats.armor = (stats.armor || 0) + track.stats.armorBonus * 100;
-        
+
         return {
             id: track.id,
             name: track.name,
@@ -271,7 +272,7 @@ export class Garage {
             stats
         };
     });
-    
+
     // УЛУЧШЕНО: Модули из централизованного хранилища с 5 новыми модулями
     private moduleParts: TankPart[] = MODULE_PRESETS.map(module => ({
         id: module.id,
@@ -280,32 +281,32 @@ export class Garage {
         cost: module.cost,
         unlocked: module.unlocked,
         type: "module" as const,
-        stats: { 
-            armor: module.stats.armor ? module.stats.armor * 100 : undefined, 
+        stats: {
+            armor: module.stats.armor ? module.stats.armor * 100 : undefined,
             speed: module.stats.speed ? module.stats.speed * 100 : undefined,
             reload: module.stats.reload ? Math.abs(module.stats.reload) * 100 : undefined,
             damage: module.stats.damage ? module.stats.damage * 100 : undefined,
             health: module.stats.health ? module.stats.health * 100 : undefined,
         }
     }));
-    
+
     private supplyParts: TankPart[] = [
         { id: "medkit", name: "Repair Kit", description: "Restore 30 HP", cost: 50, unlocked: true, type: "supply", stats: { health: 30 } },
         { id: "speed_boost", name: "Nitro", description: "+50% speed 5s", cost: 75, unlocked: true, type: "supply", stats: { speed: 0.5 } },
         { id: "shield", name: "Shield", description: "Block 50 dmg", cost: 100, unlocked: false, type: "supply", stats: { armor: 50 } },
     ];
-    
+
     private shopItems: TankPart[] = [
         { id: "premium_chassis", name: "Phantom", description: "Premium stealth", cost: 2000, unlocked: false, type: "chassis", stats: { health: 90, speed: 32 } },
         { id: "premium_cannon", name: "Devastator", description: "Premium heavy", cost: 2500, unlocked: false, type: "barrel", stats: { damage: 60, reload: 4500 } },
     ];
-    
+
     private upgrades: TankUpgrade[] = [
         { id: "health_1", name: "Health +20", description: "Max HP", cost: 200, level: 0, maxLevel: 5, stat: "health", value: 20 },
         { id: "speed_1", name: "Speed +2", description: "Move speed", cost: 250, level: 0, maxLevel: 5, stat: "speed", value: 2 },
         { id: "damage_1", name: "Damage +5", description: "Weapon dmg", cost: 300, level: 0, maxLevel: 5, stat: "damage", value: 5 },
     ];
-    
+
     // ============ CONSTRUCTOR ============
     constructor(scene: Scene, currencyManager: CurrencyManager) {
         this._scene = scene;
@@ -313,20 +314,20 @@ export class Garage {
         this.loadProgress();
         injectGarageStyles();
         this.setupKeyboardNavigation();
-        
+
         // Инициализируем редактор танков
         this.tankEditor = new TankEditor(scene);
         this.loadSavedTankConfigurations();
-        
+
         // Загружаем pending изменения из localStorage
         this.pendingChassisId = localStorage.getItem("pendingChassis");
         this.pendingCannonId = localStorage.getItem("pendingCannon");
         this.pendingTrackId = localStorage.getItem("pendingTrack");
         this.pendingSkinId = localStorage.getItem("pendingSkin");
-        
+
         console.log("[Garage] HTML-based garage initialized");
     }
-    
+
     // ============ STYLES ============
     // FUTURE: Styles are injected via injectGarageStyles() from garage/ui.ts
     // This method is reserved for future use
@@ -334,7 +335,7 @@ export class Garage {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _injectStyles(): void {
         if (document.getElementById('garage-styles')) return;
-        
+
         const style = document.createElement('style');
         style.id = 'garage-styles';
         style.textContent = `
@@ -669,7 +670,7 @@ export class Garage {
         `;
         document.head.appendChild(style);
     }
-    
+
     // ============ EXTERNAL SETTERS ============
     setChatSystem(chatSystem: any): void { this._chatSystem = chatSystem; }
     setTankController(tankController: any): void { this.tankController = tankController; }
@@ -679,7 +680,7 @@ export class Garage {
     setOnCloseCallback(callback: () => void): void { this.onCloseCallback = callback; }
     setGuiTexture(_texture: any): void { /* Not needed for HTML version */ }
     getGUI(): any { return null; }
-    
+
     // ============ PARTS APPLICATION ============
     /**
      * Применить выбранные части танка НЕМЕДЛЕННО (переодевание)
@@ -689,7 +690,7 @@ export class Garage {
         // Получаем танк через глобальный доступ (пробуем все способы)
         const game = (window as any).gameInstance;
         let tank = this.tankController || game?.tank || (window as any).game?.tank;
-        
+
         if (!tank) {
             console.error(`[GARAGE] ❌ Cannot find tank! Trying alternative methods...`);
             // Пробуем через другие пути
@@ -699,18 +700,18 @@ export class Garage {
                 return false;
             }
         }
-        
+
         // Получаем pending изменения
         const pending = {
             chassisId: this.pendingChassisId || localStorage.getItem("pendingChassis"),
             cannonId: this.pendingCannonId || localStorage.getItem("pendingCannon"),
             trackId: this.pendingTrackId || localStorage.getItem("pendingTrack")
         };
-        
+
         if (!pending.chassisId && !pending.cannonId && !pending.trackId) {
             return false;
         }
-        
+
         // Сохраняем выбранные части в localStorage (чтобы respawn использовал их)
         if (pending.chassisId) {
             localStorage.setItem("selectedChassis", pending.chassisId);
@@ -721,15 +722,15 @@ export class Garage {
         if (pending.trackId) {
             localStorage.setItem("selectedTrack", pending.trackId);
         }
-        
+
         // Сохраняем текущую позицию
         const currentPos = tank.chassis?.position?.clone() || new Vector3(0, 1.2, 0);
-        
+
         // Сохраняем старые типы для определения изменений
         const oldChassisId = tank.chassisType?.id || "";
         const oldCannonId = tank.cannonType?.id || "";
         const oldTrackId = tank.trackType?.id || "";
-        
+
         // Определяем какие части изменились (для анимации)
         const applied = {
             chassis: !!pending.chassisId && pending.chassisId !== oldChassisId,
@@ -737,7 +738,7 @@ export class Garage {
             track: !!pending.trackId && pending.trackId !== oldTrackId,
             skin: false
         };
-        
+
         // Вызываем respawn для пересоздания танка с новыми частями
         if (typeof tank.respawn === 'function') {
             // Временно устанавливаем callback для сохранения позиции
@@ -745,17 +746,17 @@ export class Garage {
             tank.setRespawnPositionCallback(() => {
                 return currentPos;
             });
-            
+
             // Вызываем respawn
             tank.respawn();
-            
+
             // Восстанавливаем callback
             if (originalCallback) {
                 tank.setRespawnPositionCallback(originalCallback);
             } else {
                 tank.respawnPositionCallback = null;
             }
-            
+
             // Запускаем анимацию смены частей (если есть изменённые части)
             // КРИТИЧНО: Анимация ТОЛЬКО если танк находится внутри гаража (не на потолке/крыше)
             if ((applied.chassis || applied.cannon || applied.track) && typeof (tank as any).playPartChangeAnimation === 'function') {
@@ -763,14 +764,14 @@ export class Garage {
                 const game = (window as any).gameInstance;
                 const gameGarage = game?.gameGarage;
                 const isInGarage = gameGarage && typeof gameGarage.isPlayerInAnyGarage === 'function' && gameGarage.isPlayerInAnyGarage();
-                
+
                 if (isInGarage) {
                     // Небольшая задержка, чтобы части успели пересоздаться
                     setTimeout(() => {
                         // Повторная проверка перед запуском анимации (на случай если танк переместился)
                         const stillInGarage = gameGarage && typeof gameGarage.isPlayerInAnyGarage === 'function' && gameGarage.isPlayerInAnyGarage();
                         if (stillInGarage) {
-                            (tank as any).playPartChangeAnimation(applied, () => {});
+                            (tank as any).playPartChangeAnimation(applied, () => { });
                         }
                     }, 100);
                 }
@@ -785,7 +786,7 @@ export class Garage {
                     }
                 }
             }
-            
+
             // Очищаем pending ТОЛЬКО если гараж закрыт (иначе пользователь не успеет закрыть)
             if (!this.isOpen) {
                 this.pendingChassisId = null;
@@ -795,14 +796,29 @@ export class Garage {
                 localStorage.removeItem("pendingCannon");
                 localStorage.removeItem("pendingTrack");
             }
-            
+
+            localStorage.removeItem("pendingTrack");
+
+
+            // Send RPC to notify other players of the look change
+            // Using global gameInstance access as Garage uses it elsewhere
+            const gameInstance = (window as any).gameInstance;
+            if (gameInstance && gameInstance.multiplayerManager) {
+                gameInstance.multiplayerManager.sendRpc("DRESS_UPDATE", {
+                    chassisType: tank.chassisType.id,
+                    cannonType: tank.cannonType.id,
+                    tankColor: tank.tankColor || localStorage.getItem("selectedColor") || "#00ff00",
+                    turretColor: tank.turretColor || localStorage.getItem("selectedTurretColor") || "#888888"
+                });
+            }
+
             return true;
         } else {
             console.error(`[GARAGE] ❌ tank.respawn is not a function!`);
             return false;
         }
     }
-    
+
     // ============ SKIN APPLICATION ============
     /**
      * Применить выбранный скин к танку СЕЙЧАС
@@ -813,62 +829,62 @@ export class Garage {
         if (!targetSkinId) {
             return false;
         }
-        
+
         // Способ 1: через this.tankController
         let tank = this.tankController;
-        
+
         // Способ 2: через глобальный gameInstance
         if (!tank) {
             const game = (window as any).gameInstance;
             tank = game?.tank;
         }
-        
+
         // Способ 3: через window.game
         if (!tank) {
             tank = (window as any).game?.tank;
         }
-        
+
         if (!tank) {
             console.warn(`[SKIN] Cannot find tank! tankController=${!!this.tankController}, gameInstance=${!!(window as any).gameInstance}`);
             return false;
         }
-        
+
         const skin = getSkinById(targetSkinId);
         if (!skin) {
             console.warn(`[SKIN] Skin not found: ${targetSkinId}`);
             return false;
         }
-        
+
         const skinColors = applySkinToTank(skin);
-        
+
         let applied = false;
-        
+
         // Применяем к chassis
         if (tank.chassis?.material) {
             applySkinColorToMaterial(tank.chassis.material as StandardMaterial, skinColors.chassisColor);
             applied = true;
         }
-        
+
         // Применяем к turret
         if (tank.turret?.material) {
             applySkinColorToMaterial(tank.turret.material as StandardMaterial, skinColors.turretColor);
             applied = true;
         }
-        
+
         if (applied) {
             this.lastAppliedSkinId = targetSkinId;
         }
-        
+
         return applied;
     }
-    
+
     /**
      * Запустить fallback интервал для применения скина
      */
     private startSkinFallback(): void {
         // Останавливаем предыдущий интервал если есть
         this.stopSkinFallback();
-        
+
         // Проверяем и применяем скин каждые 500ms
         this.skinApplyInterval = window.setInterval(() => {
             const selectedSkinId = loadSelectedSkin();
@@ -879,7 +895,7 @@ export class Garage {
             }
         }, 500);
     }
-    
+
     /**
      * Остановить fallback интервал
      */
@@ -890,7 +906,7 @@ export class Garage {
             this.lastAppliedSkinId = null;
         }
     }
-    
+
     // ============ PERSISTENCE ============
     private loadProgress(): void {
         try {
@@ -911,7 +927,7 @@ export class Garage {
             }
         } catch (e) { console.warn("[Garage] Load failed:", e); }
     }
-    
+
     private saveProgress(): void {
         try {
             const unlocked = [...this.chassisParts, ...this.cannonParts, ...this.trackParts, ...this.moduleParts, ...this.supplyParts]
@@ -926,36 +942,36 @@ export class Garage {
             }));
         } catch (e) { console.warn("[Garage] Save failed:", e); }
     }
-    
+
     // Публичный метод для принудительного сохранения
     public forceSave(): void {
         this.saveProgress();
     }
-    
+
     // ============ PUBLIC API ============
     isGarageOpen(): boolean { return this.isOpen; }
     getIsApplyingFromUI(): boolean { return this.isApplyingFromUI; }
-    
+
     open(): void {
         if (this.isOpen) return;
         console.log("[Garage] Opening HTML garage...");
-        
+
         // Show cursor and unlock pointer lock
         this.showCursor();
-        
+
         this.isOpen = true;
-        
+
         // Загружаем pending изменения из localStorage
         this.pendingChassisId = localStorage.getItem("pendingChassis");
         this.pendingCannonId = localStorage.getItem("pendingCannon");
         this.pendingTrackId = localStorage.getItem("pendingTrack");
         this.pendingSkinId = localStorage.getItem("pendingSkin");
-        
+
         // Текущие выбранные - показываем pending если есть, иначе активные
         this.currentChassisId = this.pendingChassisId || localStorage.getItem("selectedChassis") || "medium";
         this.currentCannonId = this.pendingCannonId || localStorage.getItem("selectedCannon") || "standard";
         this.currentTrackId = this.pendingTrackId || localStorage.getItem("selectedTrack") || "standard";
-        
+
         // Применяем выбранный скин при открытии гаража (если есть)
         const selectedSkinId = loadSelectedSkin();
         if (selectedSkinId) {
@@ -965,19 +981,19 @@ export class Garage {
                 this.applySkinToTankNow(selectedSkinId);
             }, 200);
         }
-        
+
         this.createUI();
-        
+
         // Сбрасываем угол поворота башни и состояние клавиш при открытии гаража
         this.previewTurretRotation = 0;
         this.previewTurretKeysPressed = { z: false, x: false, c: false };
-        
+
         // Останавливаем анимацию, если она была запущена
         if (this.previewTurretAnimationFrame !== null) {
             cancelAnimationFrame(this.previewTurretAnimationFrame);
             this.previewTurretAnimationFrame = null;
         }
-        
+
         // Initialize 3D preview after UI is created
         setTimeout(() => {
             this.init3DPreview();
@@ -986,7 +1002,7 @@ export class Garage {
                 this.previewTank.turret.rotation.y = this.previewTurretRotation;
             }
         }, 100);
-        
+
         // Показываем уведомление если есть pending изменения (кроме скинов - они применяются сразу)
         const hasNonSkinPending = this.pendingChassisId || this.pendingCannonId || this.pendingTrackId;
         if (hasNonSkinPending) {
@@ -994,39 +1010,41 @@ export class Garage {
                 this.showNotification("⚠️ Есть ожидающие изменения! Заедьте в гараж на карте для применения.", "info");
             }, 500);
         }
-        
+
         if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
-        
+
         // Запускаем fallback интервал для применения скина
         this.startSkinFallback();
-        
+
         console.log("[Garage] Opened");
     }
-    
+
     close(): void {
         if (!this.isOpen) {
             return;
         }
-        
+
+        console.log("[Garage] Closing garage...");
+
         // Останавливаем анимацию вращения башни
         if (this.previewTurretAnimationFrame !== null) {
             cancelAnimationFrame(this.previewTurretAnimationFrame);
             this.previewTurretAnimationFrame = null;
         }
-        
+
         // Сбрасываем состояние клавиш
         this.previewTurretKeysPressed = { z: false, x: false, c: false };
-        
+
         // КРИТИЧНО: Применяем pending изменения в зависимости от наличия гаражей на карте
         try {
             const hasPending = this.hasPendingChanges();
-            
+
             if (hasPending) {
                 // Проверяем, есть ли на карте гаражи
                 const game = (window as any).gameInstance;
                 const gameGarage = game?.gameGarage;
                 const mapHasGarages = gameGarage && typeof gameGarage.mapHasGarages === 'function' && gameGarage.mapHasGarages();
-                
+
                 if (mapHasGarages) {
                     // На карте есть гаражи - изменения будут применены при въезде в гараж
                     this.showNotification("⚠️ Заедьте в гараж на карте для применения изменений!", "info");
@@ -1041,80 +1059,79 @@ export class Garage {
                         this.applyPartsToTankNow();
                     }
                 }
-                this.isApplyingFromUI = false;
-            } else {
-                this.isApplyingFromUI = false;
             }
         } catch (error) {
             console.error("[Garage] ❌ Error applying parts on close:", error);
+            this.showNotification("❌ Ошибка при менении деталей", "error");
+        } finally {
             this.isApplyingFromUI = false;
         }
-        
+
         // Останавливаем fallback интервал
         this.stopSkinFallback();
-        
+
         // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Правильный порядок очистки
         // 1. Сначала устанавливаем флаг isOpen = false
         this.isOpen = false;
-        
-        // 2. Останавливаем все анимации и таймеры
+
+        // 2. Останавливаем все анимации и таймеры preview
         try {
             if (this.previewSceneData?.animationGroups) {
                 this.previewSceneData.animationGroups.forEach(ag => {
                     try {
                         ag.stop();
                     } catch (e) {
-                        console.warn("[Garage] Error stopping animation:", e);
+                        // ignore
                     }
                 });
             }
         } catch (error) {
             console.error("[Garage] Error stopping animations:", error);
         }
-        
+
         // 3. Очищаем 3D preview (самый критичный шаг)
+        // Делаем это ДО удаления DOM элементов, чтобы корректно отвязать canvas
         try {
             this.cleanup3DPreview();
         } catch (error) {
             console.error("[Garage] Error cleaning up 3D preview:", error);
-            // Продолжаем даже при ошибке
         }
-        
+
         // 4. Удаляем overlay (проверяем существование)
         try {
             if (this.overlay) {
                 if (this.overlay.parentNode) {
-                    this.overlay.remove();
+                    this.overlay.parentNode.removeChild(this.overlay);
                 } else if (this.overlay.parentElement) {
                     this.overlay.parentElement.removeChild(this.overlay);
+                } else {
+                    this.overlay.remove();
                 }
-                this.overlay = null;
             }
         } catch (error) {
             console.error("[Garage] Error removing overlay:", error);
-            if (this.overlay) {
-                this.overlay = null;
-            }
+        } finally {
+            // Гарантированно зануляем ссылку
+            this.overlay = null;
         }
-        
-        // 5. Скрываем курсор
+
+        // 5. Скрываем курсор (возвращаем управление игре)
         try {
             this.hideCursor();
         } catch (error) {
             console.error("[Garage] Error hiding cursor:", error);
         }
-        
+
         // 6. Воспроизводим звук (опционально)
         try {
             if (this.soundManager?.playGarageOpen) {
                 this.soundManager.playGarageOpen();
             }
         } catch (error) {
-            console.error("[Garage] Error playing sound:", error);
+            // ignore
         }
-        
+
         // 7. ВЫЗЫВАЕМ CALLBACK В САМОМ КОНЦЕ (после всей очистки)
-        // Примечание: pending изменения уже применены в начале close()
         try {
             if (this.onCloseCallback) {
                 const callback = this.onCloseCallback;
@@ -1124,10 +1141,10 @@ export class Garage {
         } catch (error) {
             console.error("[Garage] Error in close callback:", error);
         }
-        
-        console.log("[Garage] Closed");
+
+        console.log("[Garage] Closed successfully");
     }
-    
+
     // ============ 3D PREVIEW ============
     private init3DPreview(): void {
         const previewContainer = this.overlay?.querySelector('.garage-preview');
@@ -1135,25 +1152,25 @@ export class Garage {
             console.warn("[Garage] Preview container not found");
             return;
         }
-        
+
         // Initialize preview scene using module
         this.previewSceneData = initPreviewScene(previewContainer as HTMLElement);
-        
+
         if (this.previewSceneData && this.previewSceneData.scene) {
-        // Initial render
-        this.renderTankPreview(this.currentChassisId, this.currentCannonId);
+            // Initial render
+            this.renderTankPreview(this.currentChassisId, this.currentCannonId);
         }
     }
-    
+
     private renderTankPreview(chassisId: string, cannonId: string): void {
         if (!this.previewSceneData || !this.previewSceneData.scene) {
             console.warn("[Garage] Preview scene not initialized");
             return;
         }
-        
+
         // Сохраняем текущий угол поворота башни перед обновлением
         const savedTurretRotation = this.previewTurretRotation;
-        
+
         // Use module function to create/update preview tank
         this.previewTank = updatePreviewTank(
             this.previewTank,
@@ -1162,22 +1179,22 @@ export class Garage {
             this.currentTrackId,
             this.previewSceneData.scene
         );
-        
+
         // Восстанавливаем угол поворота башни после обновления
         if (this.previewTank && this.previewTank.turret) {
             this.previewTank.turret.rotation.y = savedTurretRotation;
         }
-        
+
         // ОПТИМИЗАЦИЯ: Принудительный рендер после обновления танка
         if (this.previewSceneData.triggerRender) {
             this.previewSceneData.triggerRender();
         }
     }
-    
+
     // NOTE: Preview methods moved to garage/preview.ts
     // Methods createUniqueChassisPreview, createTurretPreview, createUniqueCannonPreview, 
     // and createPreviewTracks have been moved to garage/preview.ts module
-    
+
     // Add chassis details - ПОЛНАЯ КОПИЯ из TankController
     // NOTE: This method should be moved to garage/preview.ts eventually
     // FUTURE: This method is reserved for future use
@@ -1187,7 +1204,7 @@ export class Garage {
         // ВСЕ ДЕТАЛИ ОТКЛЮЧЕНЫ - оставляем только простой прямоугольник корпуса
         // Весь код деталей был удалён по требованию пользователя
         return;
-        
+
         /* ОТКЛЮЧЕНО - весь код деталей удалён
         const w = chassisType.width;
         const h = chassisType.height;
@@ -3288,12 +3305,12 @@ export class Garage {
         }
         */
     }
-    
+
     // NOTE: createTurretPreview and createUniqueCannonPreview moved to garage/preview.ts
-    
+
     private cleanup3DPreview(): void {
         if (!this.previewSceneData) return;
-        
+
         try {
             // 1. Останавливаем все анимации
             if (this.previewSceneData.animationGroups) {
@@ -3307,14 +3324,14 @@ export class Garage {
                 });
                 this.previewSceneData.animationGroups = [];
             }
-            
+
             // 2. Используем модульную функцию очистки
             try {
                 cleanupPreviewScene(this.previewSceneData);
             } catch (e) {
                 console.warn("[Garage] Error in cleanupPreviewScene:", e);
             }
-            
+
             // 3. Очищаем ссылки
             this.previewSceneData = null;
             this.previewTank = null;
@@ -3325,14 +3342,14 @@ export class Garage {
             this.previewTank = null;
         }
     }
-    
+
     // ============ CURSOR MANAGEMENT ============
     private showCursor(): void {
         // Unlock pointer lock if active
         if (document.pointerLockElement) {
             document.exitPointerLock();
         }
-        
+
         // Show cursor
         const canvas = this._scene?.getEngine()?.getRenderingCanvas() as HTMLCanvasElement;
         if (canvas) {
@@ -3340,7 +3357,7 @@ export class Garage {
         }
         document.body.style.cursor = "default";
     }
-    
+
     private hideCursor(): void {
         // Hide cursor (will be locked again when user clicks on canvas)
         const canvas = this._scene?.getEngine()?.getRenderingCanvas() as HTMLCanvasElement;
@@ -3349,7 +3366,7 @@ export class Garage {
         }
         document.body.style.cursor = "none";
     }
-    
+
     // ============ UI CREATION ============
     private createUI(): void {
         this.overlay = document.createElement('div');
@@ -3404,19 +3421,19 @@ export class Garage {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(this.overlay);
-        
+
         // Ensure cursor is visible (in case createUI is called separately)
         this.showCursor();
-        
+
         this.setupEventListeners();
         this.refreshItemList();
     }
-    
+
     private setupEventListeners(): void {
         if (!this.overlay) return;
-        
+
         // ИСПРАВЛЕНО: Кнопка закрытия работает так же, как ESC
         const closeButton = this.overlay.querySelector('.garage-close');
         if (closeButton) {
@@ -3426,12 +3443,12 @@ export class Garage {
                 this.close();
             });
         }
-        
+
         // Кнопка сохранения пресета
         this.overlay.querySelector('#save-preset-btn')?.addEventListener('click', () => {
             this.saveCurrentConfigurationAsPreset();
         });
-        
+
         // Tabs
         this.overlay.querySelectorAll('.garage-tab').forEach(tab => {
             tab.addEventListener('click', (e) => {
@@ -3439,7 +3456,7 @@ export class Garage {
                 this.switchCategory(cat);
             });
         });
-        
+
         // Filters
         this.overlay.querySelectorAll('.garage-filter-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -3449,7 +3466,7 @@ export class Garage {
                 this.refreshItemList();
             });
         });
-        
+
         // Sort button
         const sortBtn = this.overlay.querySelector('#garage-sort-btn');
         sortBtn?.addEventListener('click', () => {
@@ -3460,34 +3477,34 @@ export class Garage {
             (sortBtn as HTMLElement).textContent = `SORT: ${this.sortBy.toUpperCase()}`;
             this.refreshItemList();
         });
-        
+
         // Search
         const searchInput = this.overlay.querySelector('#garage-search-input') as HTMLInputElement;
         searchInput?.addEventListener('input', () => {
             this.searchText = searchInput.value;
             this.refreshItemList();
         });
-        
+
         // Click outside to close
         this.overlay.addEventListener('click', (e) => {
             if (e.target === this.overlay) this.close();
         });
     }
-    
+
     private switchCategory(cat: CategoryType): void {
         this.currentCategory = cat;
         this.selectedItemIndex = 0;
-        
+
         this.overlay?.querySelectorAll('.garage-tab').forEach(tab => {
             tab.classList.toggle('active', tab.getAttribute('data-cat') === cat);
         });
-        
+
         this.refreshItemList();
     }
-    
+
     private getItemsForCategory(): (TankPart | TankUpgrade)[] {
         switch (this.currentCategory) {
-            case "chassis": 
+            case "chassis":
                 // ГАРАНТИРУЕМ правильный порядок: создаем массив в порядке CHASSIS_TYPES
                 const orderedChassis: TankPart[] = [];
                 // Проходим по CHASSIS_TYPES в правильном порядке
@@ -3512,7 +3529,7 @@ export class Garage {
             case "modules": return [...this.moduleParts, ...this.upgrades.filter(u => u.level < u.maxLevel)];
             case "supplies": return [...this.supplyParts];
             case "shop": return [...this.shopItems];
-            case "skins": 
+            case "skins":
                 // Преобразуем скины в формат TankPart для совместимости
                 return SKIN_PRESETS.map(skin => ({
                     id: skin.id,
@@ -3527,19 +3544,19 @@ export class Garage {
             default: return [];
         }
     }
-    
+
     // Максимальное количество слотов для пресетов
     private readonly MAX_PRESET_SLOTS = 3;
-    
+
     // Получить пресеты танков как TankPart для отображения в списке
     // Возвращает 3 слота - заполненные пресетами или пустые
     private getPresetParts(): TankPart[] {
         const presets: TankPart[] = [];
-        
+
         // Добавляем существующие пресеты
         for (let i = 0; i < this.MAX_PRESET_SLOTS; i++) {
             const config = this.savedTankConfigurations[i];
-            
+
             if (config) {
                 // Заполненный слот
                 presets.push({
@@ -3564,35 +3581,35 @@ export class Garage {
                 });
             }
         }
-        
+
         return presets;
     }
-    
+
     // Проверить, является ли слот пустым
     private isEmptyPresetSlot(slotId: string): boolean {
         return slotId.endsWith('_empty');
     }
-    
+
     // Получить индекс слота из ID
     private getPresetSlotIndex(slotId: string): number {
         const match = slotId.match(/preset_slot_(\d+)/);
-        return match ? parseInt(match[1], 10) : -1;
+        return match ? parseInt(match[1]!, 10) : -1;
     }
-    
+
     // Загрузить сохраненные конфигурации танков
     private loadSavedTankConfigurations(): void {
         if (this.tankEditor) {
             this.savedTankConfigurations = this.tankEditor.loadSavedTanks();
         }
     }
-    
+
     // Сохранить текущую конфигурацию как пресет
     private saveCurrentConfigurationAsPreset(): void {
         if (!this.tankEditor) return;
-        
+
         const name = prompt("Имя пресета:", `Tank_${Date.now()}`);
         if (!name) return;
-        
+
         const config: TankConfiguration = {
             chassisId: this.currentChassisId,
             cannonId: this.currentCannonId,
@@ -3600,24 +3617,24 @@ export class Garage {
             skinId: this.currentSkinId || "default",
             name: name
         };
-        
+
         this.tankEditor.setConfiguration(config);
         this.tankEditor.saveConfiguration(name);
         this.loadSavedTankConfigurations();
         this.refreshItemList();
-        
+
         // Показываем уведомление
         this.showNotification(`Пресет "${name}" сохранен!`, "success");
     }
-    
+
     // Применить пресет танка (сохраняет как pending)
     private applyPreset(presetId: string): void {
-        const preset = this.savedTankConfigurations.find(p => 
+        const preset = this.savedTankConfigurations.find(p =>
             (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
         );
-        
+
         if (!preset) return;
-        
+
         // === НОВАЯ ЛОГИКА: Сохраняем как pending изменения ===
         if (preset.chassisId) {
             const currentActive = localStorage.getItem("selectedChassis") || "medium";
@@ -3627,7 +3644,7 @@ export class Garage {
             }
             this.currentChassisId = preset.chassisId;
         }
-        
+
         if (preset.cannonId) {
             const currentActive = localStorage.getItem("selectedCannon") || "standard";
             if (preset.cannonId !== currentActive) {
@@ -3636,7 +3653,7 @@ export class Garage {
             }
             this.currentCannonId = preset.cannonId;
         }
-        
+
         if (preset.trackId) {
             const currentActive = localStorage.getItem("selectedTrack") || "standard";
             if (preset.trackId !== currentActive) {
@@ -3645,7 +3662,7 @@ export class Garage {
             }
             this.currentTrackId = preset.trackId;
         }
-        
+
         if (preset.skinId) {
             const currentActive = loadSelectedSkin() || "default";
             if (preset.skinId !== currentActive) {
@@ -3654,7 +3671,7 @@ export class Garage {
             }
             this.currentSkinId = preset.skinId;
         }
-        
+
         const hasPending = this.pendingChassisId || this.pendingCannonId || this.pendingTrackId || this.pendingSkinId;
         if (hasPending) {
             this.showNotification(`Пресет "${preset.name || presetId}" выбран. Заедьте в гараж для применения!`, "info");
@@ -3663,20 +3680,20 @@ export class Garage {
         }
         this.refreshItemList();
     }
-    
+
     // Получить HTML информацию о пресете
     private getPresetInfoHTML(item: TankPart): string {
-        const preset = this.savedTankConfigurations.find(p => 
+        const preset = this.savedTankConfigurations.find(p =>
             (p.name || `preset_${p.chassisId}_${p.cannonId}`) === item.id
         );
-        
+
         if (!preset) return '';
-        
+
         const chassis = getChassisById(preset.chassisId);
         const cannon = getCannonById(preset.cannonId);
         const track = getTrackById(preset.trackId);
         const skin = getSkinById(preset.skinId || "default");
-        
+
         return `
             <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;">
                 <div style="color: #0ff; font-size: 10px; margin-bottom: 8px; font-weight: bold;">КОНФИГУРАЦИЯ ПРЕСЕТА</div>
@@ -3724,28 +3741,28 @@ export class Garage {
             </div>
         `;
     }
-    
+
     // Переименовать пресет
     private renamePreset(presetId: string): void {
-        const preset = this.savedTankConfigurations.find(p => 
+        const preset = this.savedTankConfigurations.find(p =>
             (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
         );
-        
+
         if (!preset) return;
-        
+
         const newName = prompt(`Введите новое имя для пресета "${presetId}":`, preset.name || presetId);
         if (!newName || newName.trim() === '' || newName === preset.name) return;
-        
+
         // Находим индекс пресета в сохраненных конфигурациях
-        const presetIndex = this.savedTankConfigurations.findIndex(p => 
+        const presetIndex = this.savedTankConfigurations.findIndex(p =>
             (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
         );
-        
+
         if (presetIndex >= 0 && presetIndex < this.savedTankConfigurations.length) {
             // Обновляем имя пресета, сохраняя все остальные поля
             const originalConfig = this.savedTankConfigurations[presetIndex];
             if (!originalConfig) return;
-            
+
             const updatedConfig: TankConfiguration = {
                 chassisId: originalConfig.chassisId,
                 cannonId: originalConfig.cannonId,
@@ -3754,7 +3771,7 @@ export class Garage {
                 name: newName.trim()
             };
             this.savedTankConfigurations[presetIndex] = updatedConfig;
-            
+
             // Сохраняем все конфигурации обратно
             try {
                 const saved = localStorage.getItem("savedTankConfigurations");
@@ -3767,24 +3784,24 @@ export class Garage {
                 console.warn("Failed to rename preset:", e);
                 return;
             }
-            
+
             this.loadSavedTankConfigurations();
             this.refreshItemList();
             this.showNotification(`Пресет переименован в "${newName}"!`, "success");
         }
     }
-    
+
     // Удалить пресет
     private deletePreset(presetId: string): void {
         if (!confirm(`Удалить пресет "${presetId}"?`)) return;
-        
+
         if (!this.tankEditor) return;
-        
+
         // Находим индекс пресета в сохраненных конфигурациях
-        const presetIndex = this.savedTankConfigurations.findIndex(p => 
+        const presetIndex = this.savedTankConfigurations.findIndex(p =>
             (p.name || `preset_${p.chassisId}_${p.cannonId}`) === presetId
         );
-        
+
         if (presetIndex >= 0) {
             this.tankEditor.deleteSavedConfiguration(presetIndex);
             this.loadSavedTankConfigurations();
@@ -3792,24 +3809,24 @@ export class Garage {
             this.showNotification(`Пресет "${presetId}" удален!`, "info");
         }
     }
-    
+
     // === МЕТОДЫ ДЛЯ РАБОТЫ С ПРЕСЕТАМИ ПО СЛОТАМ ===
-    
+
     /**
      * Создать пресет в указанном слоте
      */
     private createPresetInSlot(slotIndex: number): void {
         if (slotIndex < 0 || slotIndex >= this.MAX_PRESET_SLOTS) return;
-        
+
         // Проверяем, не занят ли слот
         if (this.savedTankConfigurations[slotIndex]) {
             this.showNotification("Этот слот уже занят!", "error");
             return;
         }
-        
+
         const name = prompt("Введите имя для пресета:", `Пресет ${slotIndex + 1}`);
         if (!name || !name.trim()) return;
-        
+
         const config: TankConfiguration = {
             chassisId: this.currentChassisId,
             cannonId: this.currentCannonId,
@@ -3817,17 +3834,17 @@ export class Garage {
             skinId: this.currentSkinId || "default",
             name: name.trim()
         };
-        
+
         // Сохраняем в конкретный слот
         try {
             const saved = localStorage.getItem("savedTankConfigurations");
             const configs: TankConfiguration[] = saved ? JSON.parse(saved) : [];
-            
+
             // Убеждаемся, что массив имеет нужную длину
             while (configs.length < slotIndex) {
                 configs.push(null as any); // Заполняем пустыми слотами
             }
-            
+
             configs[slotIndex] = config;
             localStorage.setItem("savedTankConfigurations", JSON.stringify(configs.filter(c => c !== null)));
         } catch (e) {
@@ -3835,24 +3852,24 @@ export class Garage {
             this.showNotification("Ошибка сохранения пресета!", "error");
             return;
         }
-        
+
         this.loadSavedTankConfigurations();
         this.refreshItemList();
         this.showNotification(`Пресет "${name}" создан!`, "success");
     }
-    
+
     /**
      * Применить пресет из указанного слота
      */
     private applyPresetFromSlot(slotIndex: number): void {
         if (slotIndex < 0 || slotIndex >= this.savedTankConfigurations.length) return;
-        
+
         const preset = this.savedTankConfigurations[slotIndex];
         if (!preset) {
             this.showNotification("Слот пуст!", "error");
             return;
         }
-        
+
         // Применяем конфигурацию как pending
         if (preset.chassisId) {
             const currentActive = localStorage.getItem("selectedChassis") || "medium";
@@ -3862,7 +3879,7 @@ export class Garage {
             }
             this.currentChassisId = preset.chassisId;
         }
-        
+
         if (preset.cannonId) {
             const currentActive = localStorage.getItem("selectedCannon") || "standard";
             if (preset.cannonId !== currentActive) {
@@ -3871,7 +3888,7 @@ export class Garage {
             }
             this.currentCannonId = preset.cannonId;
         }
-        
+
         if (preset.trackId) {
             const currentActive = localStorage.getItem("selectedTrack") || "standard";
             if (preset.trackId !== currentActive) {
@@ -3880,48 +3897,50 @@ export class Garage {
             }
             this.currentTrackId = preset.trackId;
         }
-        
+
         if (preset.skinId) {
             // Скины применяются немедленно
             saveSelectedSkin(preset.skinId);
             this.currentSkinId = preset.skinId;
-            
+
             // Применяем скин к танку если он есть
             if (this.tankController?.chassis) {
                 const skin = getSkinById(preset.skinId);
                 if (skin) {
-                    applySkinColorToMaterial(this.tankController.chassis, skin.chassisColor);
+                    if (this.tankController.chassis.material) {
+                        applySkinColorToMaterial(this.tankController.chassis.material as StandardMaterial, Color3.FromHexString(skin.chassisColor));
+                    }
                 }
             }
         }
-        
+
         const hasPending = this.pendingChassisId || this.pendingCannonId || this.pendingTrackId;
         if (hasPending) {
             this.showNotification(`Пресет "${preset.name}" применён! Заедьте в гараж на карте для активации.`, "info");
         } else {
             this.showNotification(`Пресет "${preset.name}" активирован!`, "success");
         }
-        
+
         // Обновляем превью
         this.renderTankPreview(this.currentChassisId, this.currentCannonId);
         this.refreshItemList();
     }
-    
+
     /**
      * Переименовать пресет в указанном слоте
      */
     private renamePresetInSlot(slotIndex: number): void {
         if (slotIndex < 0 || slotIndex >= this.savedTankConfigurations.length) return;
-        
+
         const preset = this.savedTankConfigurations[slotIndex];
         if (!preset) {
             this.showNotification("Слот пуст!", "error");
             return;
         }
-        
+
         const newName = prompt("Новое имя пресета:", preset.name || `Пресет ${slotIndex + 1}`);
         if (!newName || !newName.trim()) return;
-        
+
         try {
             const saved = localStorage.getItem("savedTankConfigurations");
             if (saved) {
@@ -3936,26 +3955,26 @@ export class Garage {
             this.showNotification("Ошибка переименования!", "error");
             return;
         }
-        
+
         this.loadSavedTankConfigurations();
         this.refreshItemList();
         this.showNotification(`Пресет переименован в "${newName}"!`, "success");
     }
-    
+
     /**
      * Удалить пресет из указанного слота
      */
     private deletePresetFromSlot(slotIndex: number): void {
         if (slotIndex < 0 || slotIndex >= this.savedTankConfigurations.length) return;
-        
+
         const preset = this.savedTankConfigurations[slotIndex];
         if (!preset) {
             this.showNotification("Слот уже пуст!", "info");
             return;
         }
-        
+
         if (!confirm(`Удалить пресет "${preset.name || `Пресет ${slotIndex + 1}`}"?`)) return;
-        
+
         try {
             const saved = localStorage.getItem("savedTankConfigurations");
             if (saved) {
@@ -3968,12 +3987,12 @@ export class Garage {
             this.showNotification("Ошибка удаления!", "error");
             return;
         }
-        
+
         this.loadSavedTankConfigurations();
         this.refreshItemList();
         this.showNotification(`Пресет удалён!`, "info");
     }
-    
+
     // Показать уведомление
     private showNotification(message: string, type: "success" | "error" | "info" = "success"): void {
         // Создаем визуальное уведомление
@@ -3984,7 +4003,7 @@ export class Garage {
             info: { bg: "rgba(0, 30, 50, 0.95)", border: "#0aa", text: "#0aa" }
         };
         const color = colors[type];
-        
+
         notification.style.cssText = `
             background: ${color.bg};
             border: 2px solid ${color.border};
@@ -3999,7 +4018,7 @@ export class Garage {
             max-width: 400px;
             word-wrap: break-word;
         `;
-        
+
         // Добавляем стили для анимации, если их еще нет
         if (!document.getElementById("garage-notification-styles")) {
             const style = document.createElement("style");
@@ -4028,10 +4047,10 @@ export class Garage {
             `;
             document.head.appendChild(style);
         }
-        
+
         notification.textContent = message;
         document.body.appendChild(notification);
-        
+
         // Удаляем уведомление через 3 секунды
         setTimeout(() => {
             notification.style.animation = "slideOutRight 0.3s ease-out";
@@ -4039,22 +4058,22 @@ export class Garage {
                 notification.remove();
             }, 300);
         }, 3000);
-        
+
         console.log(`[Garage] ${message}`);
     }
-    
+
     private refreshItemList(): void {
         const container = this.overlay?.querySelector('#garage-items-list');
         if (!container) return;
-        
+
         let items = this.getItemsForCategory();
-        
+
         // Filter by search
         if (this.searchText.trim()) {
             const s = this.searchText.toLowerCase();
             items = items.filter(i => i.name.toLowerCase().includes(s) || i.description.toLowerCase().includes(s));
         }
-        
+
         // Filter by owned/locked
         if (this.filterMode !== 'all') {
             items = items.filter(i => {
@@ -4062,7 +4081,7 @@ export class Garage {
                 return this.filterMode === 'owned' ? owned : !owned;
             });
         }
-        
+
         // Sort items
         // ВАЖНО: Для корпусов порядок уже установлен в getItemsForCategory(), не меняем его!
         if (this.currentCategory === 'chassis') {
@@ -4096,41 +4115,41 @@ export class Garage {
                 }
             });
         }
-        
+
         this.filteredItems = items;
-        
+
         // Финальная проверка для корпусов
         if (this.currentCategory === 'chassis') {
             console.log('[Garage] Final chassis order:', this.filteredItems.map(i => (i as TankPart).name).join(' → '));
         }
         if (this.selectedItemIndex >= items.length) this.selectedItemIndex = Math.max(0, items.length - 1);
-        
+
         // Define new models
         const newChassisIds = new Set(["stealth", "hover", "siege", "racer", "amphibious", "shield", "drone", "artillery", "destroyer", "command"]);
         const newCannonIds = new Set(["plasma", "laser", "tesla", "railgun", "rocket", "mortar", "cluster", "explosive", "flamethrower", "acid", "freeze", "poison", "emp", "multishot", "homing", "piercing", "shockwave", "beam", "vortex", "support"]);
-        
+
         // Определяем какие элементы имеют pending статус
         const activeChassis = localStorage.getItem("selectedChassis") || "medium";
         const activeCannon = localStorage.getItem("selectedCannon") || "standard";
         const activeTrack = localStorage.getItem("selectedTrack") || "standard";
         const activeSkin = loadSelectedSkin() || "default";
-        
+
         // ОТЛАДКА: проверяем порядок перед отрисовкой
         if (this.currentCategory === 'chassis') {
             console.log('[Garage] Rendering chassis order:', items.map(i => (i as TankPart).name).join(' → '));
         }
-        
+
         container.innerHTML = items.map((item, i) => {
             const isUpgrade = 'level' in item;
             const owned = isUpgrade ? true : (item as TankPart).unlocked;
-            
+
             // Проверяем equipped - активное оборудование на танке
             const equipped = !isUpgrade && (
                 ((item as TankPart).type === 'chassis' && item.id === activeChassis) ||
                 ((item as TankPart).type === 'barrel' && item.id === activeCannon) ||
                 ((item as TankPart).type === 'module' && item.id === activeTrack)
             );
-            
+
             // Проверяем pending - выбранное, но ещё не примененное
             const isPending = !isUpgrade && (
                 ((item as TankPart).type === 'chassis' && item.id === this.pendingChassisId) ||
@@ -4138,20 +4157,20 @@ export class Garage {
                 ((item as TankPart).type === 'module' && item.id === this.pendingTrackId) ||
                 (this.currentCategory === 'skins' && item.id === this.pendingSkinId)
             );
-            
+
             const selected = i === this.selectedItemIndex;
             const isNew = !isUpgrade && (
                 ((item as TankPart).type === 'chassis' && newChassisIds.has(item.id)) ||
                 ((item as TankPart).type === 'barrel' && newCannonIds.has(item.id))
             );
-            
+
             const statsStr = this.formatStats(item);
             const priceStr = owned && !isUpgrade ? 'OWNED' : `${item.cost} CR`;
-            
+
             const itemNumber = i + 1; // Нумерация с 1
             const isPreset = !isUpgrade && (item as TankPart).type === 'preset';
             const isEmptyPreset = isPreset && this.isEmptyPresetSlot(item.id);
-            
+
             // Статус отображение
             let statusBadge = '';
             if (isPending) {
@@ -4159,7 +4178,7 @@ export class Garage {
             } else if (equipped) {
                 statusBadge = '<span style="color: #0f0; margin-left: 5px;">[✓ АКТИВНО]</span>';
             }
-            
+
             // Специальная отрисовка для пресетов
             if (isPreset) {
                 if (isEmptyPreset) {
@@ -4194,7 +4213,7 @@ export class Garage {
                     const chassisName = config?.chassisId || 'N/A';
                     const cannonName = config?.cannonId || 'N/A';
                     const trackName = config?.trackId || 'N/A';
-                    
+
                     return `
                         <div class="garage-item ${selected ? 'selected' : ''} preset-slot filled-slot" data-index="${i}" data-item-id="${item.id}">
                             <div class="garage-item-name">
@@ -4241,7 +4260,7 @@ export class Garage {
                     `;
                 }
             }
-            
+
             return `
                 <div class="garage-item ${selected ? 'selected' : ''} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''} ${isPending ? 'pending' : ''} ${isNew ? 'new-item' : ''}" data-index="${i}" data-item-id="${item.id}">
                     <div class="garage-item-name">
@@ -4254,7 +4273,7 @@ export class Garage {
                 </div>
             `;
         }).join('');
-        
+
         // ОТЛАДКА: проверяем порядок элементов в DOM после отрисовки
         if (this.currentCategory === 'chassis') {
             setTimeout(() => {
@@ -4265,7 +4284,7 @@ export class Garage {
                     return `${name}(${id})`;
                 }).join(' → ');
                 console.log('[Garage] DOM order after render:', domOrder);
-                
+
                 // Проверяем, что первый элемент - Racer
                 const firstItem = domItems[0];
                 if (firstItem) {
@@ -4278,65 +4297,65 @@ export class Garage {
                 }
             }, 0);
         }
-        
+
         // Add click listeners using event delegation (более надёжно)
         // Удаляем старые обработчики если есть
         const oldHandler = (container as any)._garageClickHandler;
         if (oldHandler) {
             container.removeEventListener('click', oldHandler);
         }
-        
+
         // Создаём новый обработчик
-        const clickHandler = (e: MouseEvent) => {
+        const clickHandler = (e: Event) => {
             const target = e.target as HTMLElement;
             const itemEl = target.closest('.garage-item') as HTMLElement;
-            
+
             if (!itemEl) {
                 // Клик не на элементе
                 return;
             }
-            
+
             // Не обрабатываем клик, если нажата кнопка действия
             if (target.closest('.preset-action-btn')) {
                 return;
             }
-            
+
             const clickedIdx = parseInt(itemEl.getAttribute('data-index') || '0');
             this.selectedItemIndex = clickedIdx;
             const item = this.filteredItems[clickedIdx];
-            
+
             if (!item) {
                 return;
             }
-            
+
             // Если часть разблокирована - применяем сразу, иначе показываем детали
             if ('unlocked' in item && item.unlocked) {
                 this.handleAction(item);
             } else {
                 this.showDetails(item);
             }
-            
-                // НЕ обновляем список сразу - это может вызвать проблемы
-                // Обновим только если нужно показать изменения
-                // this.refreshItemList();
+
+            // НЕ обновляем список сразу - это может вызвать проблемы
+            // Обновим только если нужно показать изменения
+            // this.refreshItemList();
         };
-        
+
         // Сохраняем ссылку на обработчик для возможности удаления
         (container as any)._garageClickHandler = clickHandler;
         container.addEventListener('click', clickHandler);
-        
+
         // Двойной клик - тоже применяем (для совместимости)
         const oldDblHandler = (container as any)._garageDblClickHandler;
         if (oldDblHandler) {
             container.removeEventListener('dblclick', oldDblHandler);
         }
-        
-        const dblClickHandler = (e: MouseEvent) => {
+
+        const dblClickHandler = (e: Event) => {
             const target = e.target as HTMLElement;
             const itemEl = target.closest('.garage-item') as HTMLElement;
-            
+
             if (!itemEl) return;
-            
+
             e.preventDefault();
             const idx = parseInt(itemEl.getAttribute('data-index') || '0');
             const item = this.filteredItems[idx];
@@ -4344,12 +4363,12 @@ export class Garage {
                 this.handleAction(item);
             }
         };
-        
+
         (container as any)._garageDblClickHandler = dblClickHandler;
         container.addEventListener('dblclick', dblClickHandler);
-        
+
         // Add listeners for preset action buttons
-        
+
         // Создание пресета
         container.querySelectorAll('[data-action="create-preset"]').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -4361,7 +4380,7 @@ export class Garage {
                 }
             });
         });
-        
+
         // Применение пресета
         container.querySelectorAll('[data-action="apply-preset"]').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -4373,7 +4392,7 @@ export class Garage {
                 }
             });
         });
-        
+
         // Переименование пресета
         container.querySelectorAll('[data-action="rename-preset"]').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -4385,7 +4404,7 @@ export class Garage {
                 }
             });
         });
-        
+
         // Удаление пресета
         container.querySelectorAll('[data-action="delete-preset"]').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -4397,7 +4416,7 @@ export class Garage {
                 }
             });
         });
-        
+
         // Show details if item selected
         if (items.length > 0 && items[this.selectedItemIndex]) {
             const selectedItem = items[this.selectedItemIndex];
@@ -4409,16 +4428,16 @@ export class Garage {
                 }
             }
         }
-        
+
         // Update currency
         const currencyEl = this.overlay?.querySelector('.garage-currency');
         if (currencyEl) currencyEl.textContent = `CR: ${this.currencyManager.getCurrency()}`;
     }
-    
+
     private updatePreview(item: TankPart | TankUpgrade): void {
         const previewInfo = this.overlay?.querySelector('.garage-preview-info');
         if (!previewInfo) return;
-        
+
         if ('level' in item) {
             // Upgrade preview
             previewInfo.innerHTML = `
@@ -4436,7 +4455,7 @@ export class Garage {
             let previewChassisId = this.currentChassisId;
             let previewCannonId = this.currentCannonId;
             let previewTrackId = this.currentTrackId;
-            
+
             if (part.type === 'chassis') {
                 chassisName = part.name;
                 previewChassisId = part.id;
@@ -4451,10 +4470,10 @@ export class Garage {
                 <div style="color: #0f0;">CHASSIS: ${chassisName}</div>
                 <div style="color: #0aa; margin-top: 5px;">CANNON: ${cannonName}</div>
                 <div style="color: #ff0; margin-top: 5px;">TRACKS: ${trackName}</div>
-                ${part.type === 'chassis' || part.type === 'barrel' || (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) ? 
+                ${part.type === 'chassis' || part.type === 'barrel' || (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) ?
                     '<div style="color: #ff0; font-size: 10px; margin-top: 8px;">[ PREVIEW ]</div>' : ''}
             `;
-            
+
             // Update 3D preview if chassis, barrel or tracks changed (only if scene is initialized)
             if ((part.type === 'chassis' || part.type === 'barrel' || (part.type === 'module' && this.trackParts.find(t => t.id === part.id))) && this.previewSceneData?.scene) {
                 if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
@@ -4464,7 +4483,7 @@ export class Garage {
             }
         }
     }
-    
+
     private getTotalStats(item: TankPart | TankUpgrade): number {
         if ('level' in item) {
             return item.value * item.level;
@@ -4478,7 +4497,7 @@ export class Garage {
         if (part.stats.reload) total += Math.abs(part.stats.reload) * 0.1;
         return total;
     }
-    
+
     private formatStats(item: TankPart | TankUpgrade): string {
         if ('level' in item) return `Lv.${item.level}/${item.maxLevel} | ${item.stat.toUpperCase()}: ${item.value > 0 ? '+' : ''}${item.value}`;
         const p = item as TankPart;
@@ -4486,14 +4505,15 @@ export class Garage {
         if (p.stats.health) s.push(`HP:${p.stats.health}`);
         if (p.stats.speed) s.push(`SPD:${p.stats.speed}`);
         if (p.stats.damage) s.push(`DMG:${p.stats.damage}`);
+        if (p.stats.dps) s.push(`DPS:${p.stats.dps}`);
         if (p.stats.reload) s.push(`RLD:${p.stats.reload}ms`);
         return s.join(' | ');
     }
-    
+
     private showDetails(item: TankPart | TankUpgrade): void {
         const container = this.overlay?.querySelector('#garage-details');
         if (!container) return;
-        
+
         const isUpgrade = 'level' in item;
         const canAfford = this.currencyManager.getCurrency() >= item.cost;
         const equipped = !isUpgrade && (
@@ -4502,14 +4522,14 @@ export class Garage {
             ((item as TankPart).type === 'module' && this.trackParts.find(t => t.id === item.id) && item.id === this.currentTrackId) ||
             (this.currentCategory === 'skins' && item.id === this.currentSkinId)
         );
-        
+
         // Define new models
         const newChassisIds = new Set(["stealth", "hover", "siege", "racer", "amphibious", "shield", "drone", "artillery", "destroyer", "command"]);
         const newCannonIds = new Set(["plasma", "laser", "tesla", "railgun", "rocket", "mortar", "cluster", "explosive", "flamethrower", "acid", "freeze", "poison", "emp", "multishot", "homing", "piercing", "shockwave", "beam", "vortex", "support"]);
-        
+
         let btnText = '';
         let btnDisabled = false;
-        
+
         if (isUpgrade) {
             if ((item as TankUpgrade).level >= (item as TankUpgrade).maxLevel) { btnText = 'MAX LEVEL'; btnDisabled = true; }
             else if (!canAfford) { btnText = `NEED ${item.cost} CR`; btnDisabled = true; }
@@ -4526,15 +4546,15 @@ export class Garage {
             } else if (!canAfford) { btnText = `NEED ${item.cost} CR`; btnDisabled = true; }
             else btnText = `BUY (${item.cost} CR)`;
         }
-        
+
         const isNew = !isUpgrade && (
             ((item as TankPart).type === 'chassis' && newChassisIds.has(item.id)) ||
             ((item as TankPart).type === 'barrel' && newCannonIds.has(item.id))
         );
-        
+
         const isPreset = !isUpgrade && (item as TankPart).type === 'preset';
         const presetInfo = isPreset ? this.getPresetInfoHTML(item as TankPart) : '';
-        
+
         container.innerHTML = `
             <div class="garage-details-title">
                 ${isNew ? '<span class="new-badge">[NEW]</span> ' : ''}${isPreset ? '<span style="color: #0ff;">[ПРЕСЕТ]</span> ' : ''}[ ${item.name.toUpperCase()} ]
@@ -4552,7 +4572,7 @@ export class Garage {
             ` : ''}
             <button class="garage-action-btn" ${btnDisabled ? 'disabled' : ''} id="garage-action">${btnText}</button>
         `;
-        
+
         // Добавляем обработчики для кнопок действий пресетов в деталях
         if (isPreset) {
             container.querySelector('[data-action="rename-preset-details"]')?.addEventListener('click', () => {
@@ -4562,20 +4582,20 @@ export class Garage {
                 this.deletePreset(item.id);
             });
         }
-        
+
         container.querySelector('#garage-action')?.addEventListener('click', () => {
             if (!btnDisabled) this.handleAction(item);
         });
     }
-    
+
     private getFullStatsHTML(item: TankPart | TankUpgrade): string {
         if ('level' in item) {
             return '';
         }
-        
+
         const part = item as TankPart;
         let statsHTML = '<div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;"><div style="color: #0aa; font-size: 10px; margin-bottom: 8px; font-weight: bold;">STATISTICS</div>';
-        
+
         if (part.type === 'chassis') {
             const chassis = getChassisById(part.id);
             statsHTML += `
@@ -4606,11 +4626,11 @@ export class Garage {
                 `;
             }
         }
-        
+
         statsHTML += '</div>';
         return statsHTML;
     }
-    
+
     private getComparisonHTML(item: TankPart | TankUpgrade): string {
         if ('level' in item) {
             const upgrade = item as TankUpgrade;
@@ -4624,10 +4644,10 @@ export class Garage {
                 </div>
             `;
         }
-        
+
         const part = item as TankPart;
         let rows = '';
-        
+
         if (part.type === 'chassis') {
             const current = getChassisById(this.currentChassisId);
             const next = getChassisById(part.id);
@@ -4696,13 +4716,27 @@ export class Garage {
                             <span class="garage-stat-change ${projSpeedDiff >= 0 ? 'positive' : 'negative'}">(${projSpeedDiff >= 0 ? '+' : ''}${projSpeedDiff})</span>
                         </span>
                     </div>
+                    ${(() => {
+                    const currentDps = current.damage / (current.cooldown / 1000);
+                    const nextDps = next.damage / (next.cooldown / 1000);
+                    const dpsDiff = nextDps - currentDps;
+                    return `
+                        <div class="garage-stats-row">
+                            <span class="garage-stat-name">DPS</span>
+                            <span class="garage-stat-value">
+                                <span style="color: #080;">${currentDps.toFixed(1)}</span> → 
+                                <span style="color: #0f0;">${nextDps.toFixed(1)}</span>
+                                <span class="garage-stat-change ${dpsDiff >= 0 ? 'positive' : 'negative'}">(${dpsDiff >= 0 ? '+' : ''}${dpsDiff.toFixed(1)})</span>
+                            </span>
+                        </div>`;
+                })()}
                 </div>
             `;
         }
-        
+
         return rows;
     }
-    
+
     private handleAction(item: TankPart | TankUpgrade): void {
         if ('level' in item) {
             this.purchaseUpgrade(item);
@@ -4715,7 +4749,7 @@ export class Garage {
             }
         }
     }
-    
+
     private purchasePart(part: TankPart): void {
         if (part.unlocked || this.currencyManager.getCurrency() < part.cost) return;
         this.currencyManager.addCurrency(-part.cost);
@@ -4724,12 +4758,12 @@ export class Garage {
         this.refreshItemList();
         if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
     }
-    
+
     private equipPart(part: TankPart): void {
         if (!part.unlocked) {
             return;
         }
-        
+
         // Обработка пресетов
         if (part.type === 'preset') {
             // Проверяем, пустой ли слот
@@ -4742,14 +4776,14 @@ export class Garage {
             }
             return;
         }
-        
+
         // === НОВАЯ ЛОГИКА: Сохраняем как pending изменения ===
         // Изменения применяются только при закрытии гаража (если игрок в гараже на карте)
-        
+
         if (part.type === 'chassis') {
             // Проверяем, отличается ли от текущего
             const currentActive = localStorage.getItem("selectedChassis") || "medium";
-            
+
             if (part.id !== currentActive) {
                 this.pendingChassisId = part.id;
                 localStorage.setItem("pendingChassis", part.id);
@@ -4759,7 +4793,7 @@ export class Garage {
             this.currentChassisId = part.id;
         } else if (part.type === 'barrel') {
             const currentActive = localStorage.getItem("selectedCannon") || "standard";
-            
+
             if (part.id !== currentActive) {
                 this.pendingCannonId = part.id;
                 localStorage.setItem("pendingCannon", part.id);
@@ -4768,7 +4802,7 @@ export class Garage {
             this.currentCannonId = part.id;
         } else if (part.type === 'module' && this.trackParts.find(t => t.id === part.id)) {
             const currentActive = localStorage.getItem("selectedTrack") || "standard";
-            
+
             if (part.id !== currentActive) {
                 this.pendingTrackId = part.id;
                 localStorage.setItem("pendingTrack", part.id);
@@ -4779,10 +4813,10 @@ export class Garage {
             // Скины применяются НЕМЕДЛЕННО (это чисто визуальное изменение, не требует respawn)
             saveSelectedSkin(part.id);
             this.currentSkinId = part.id;
-            
+
             // Применяем скин через универсальную функцию
             const applied = this.applySkinToTankNow(part.id);
-            
+
             if (applied) {
                 const skin = getSkinById(part.id);
                 this.showNotification(`Скин "${skin?.name || part.id}" применён!`, "success");
@@ -4797,15 +4831,15 @@ export class Garage {
                     }
                 }, 100);
             }
-            
+
             // Очищаем pending для скина
             this.pendingSkinId = null;
             localStorage.removeItem("pendingSkin");
         }
-        
+
         this.saveProgress();
         this.refreshItemList();
-        
+
         // Update preview - показываем выбранное (pending) оборудование
         const previewInfo = this.overlay?.querySelector('.garage-preview-info');
         if (previewInfo) {
@@ -4814,16 +4848,16 @@ export class Garage {
             const hasPending = this.pendingChassisId || this.pendingCannonId || this.pendingTrackId || this.pendingSkinId;
             previewInfo.innerHTML = `CHASSIS: ${chassisName}<br>CANNON: ${cannonName}${hasPending ? '<br><span style="color: #ff0; font-size: 10px;">⚠ ОЖИДАЕТ ПРИМЕНЕНИЯ</span>' : ''}`;
         }
-        
+
         // Update 3D preview
         // Render preview only if scene is initialized
         if (this.previewSceneData && this.previewSceneData.scene) {
             this.renderTankPreview(this.currentChassisId, this.currentCannonId);
         }
-        
+
         if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
     }
-    
+
     private purchaseUpgrade(upgrade: TankUpgrade): void {
         if (upgrade.level >= upgrade.maxLevel || this.currencyManager.getCurrency() < upgrade.cost) return;
         this.currencyManager.addCurrency(-upgrade.cost);
@@ -4832,21 +4866,21 @@ export class Garage {
         this.refreshItemList();
         if (this.soundManager?.playGarageOpen) this.soundManager.playGarageOpen();
     }
-    
+
     // ============ KEYBOARD NAVIGATION ============
     private setupKeyboardNavigation(): void {
         window.addEventListener('keydown', (e) => {
             if (!this.isOpen) return;
-            
+
             // Закрытие гаража: Escape, G или B
-            if (e.code === 'Escape' || e.code === 'KeyG' || e.code === 'KeyB') { 
-                e.preventDefault(); 
+            if (e.code === 'Escape' || e.code === 'KeyG' || e.code === 'KeyB') {
+                e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
-                this.close(); 
-                return; 
+                this.close();
+                return;
             }
-            
+
             const cats: CategoryType[] = ['chassis', 'cannons', 'tracks', 'modules', 'supplies', 'shop', 'skins', 'presets'];
             for (let i = 1; i <= 8; i++) {
                 if (e.code === `Digit${i}` || e.code === `Numpad${i}`) {
@@ -4858,7 +4892,7 @@ export class Garage {
                     return;
                 }
             }
-            
+
             if (e.code === 'ArrowUp') {
                 e.preventDefault();
                 this.selectedItemIndex = Math.max(0, this.selectedItemIndex - 1);
@@ -4868,7 +4902,7 @@ export class Garage {
                 this.selectedItemIndex = Math.min(this.filteredItems.length - 1, this.selectedItemIndex + 1);
                 this.refreshItemList();
             }
-            
+
             if ((e.code === 'Enter' || e.code === 'Space')) {
                 const item = this.filteredItems[this.selectedItemIndex];
                 if (item) {
@@ -4876,21 +4910,21 @@ export class Garage {
                     this.handleAction(item);
                 }
             }
-            
+
             // Управление башней в предпросмотре: Z (влево), X (вправо), C (центрирование)
             if (e.code === 'KeyZ' || e.code === 'KeyX' || e.code === 'KeyC') {
                 // Проверяем, что пользователь не вводит текст в поле поиска
                 const activeElement = document.activeElement;
                 const isInputFocused = activeElement && (
-                    activeElement.tagName === 'INPUT' || 
+                    activeElement.tagName === 'INPUT' ||
                     activeElement.tagName === 'TEXTAREA' ||
-                    activeElement.isContentEditable
+                    (activeElement as HTMLElement).isContentEditable
                 );
-                
+
                 if (!isInputFocused && this.previewTank && this.previewTank.turret) {
                     e.preventDefault();
                     e.stopPropagation();
-                    
+
                     if (e.code === 'KeyZ') {
                         // Поворот башни влево
                         this.previewTurretKeysPressed.z = true;
@@ -4910,11 +4944,11 @@ export class Garage {
                 }
             }
         });
-        
+
         // Обработка отпускания клавиш
         window.addEventListener('keyup', (e) => {
             if (!this.isOpen) return;
-            
+
             if (e.code === 'KeyZ') {
                 this.previewTurretKeysPressed.z = false;
                 this.stopPreviewTurretAnimationIfNeeded();
@@ -4924,21 +4958,21 @@ export class Garage {
             }
         });
     }
-    
+
     /**
      * Обновляет поворот башни в предпросмотре
      */
     private updatePreviewTurretRotation(): void {
         if (this.previewTank && this.previewTank.turret && !this.previewTank.turret.isDisposed()) {
             this.previewTank.turret.rotation.y = this.previewTurretRotation;
-            
+
             // Принудительный рендер для обновления отображения
             if (this.previewSceneData?.triggerRender) {
                 this.previewSceneData.triggerRender();
             }
         }
     }
-    
+
     /**
      * Запускает анимацию вращения башни в предпросмотре
      */
@@ -4946,31 +4980,31 @@ export class Garage {
         if (this.previewTurretAnimationFrame !== null) {
             return; // Анимация уже запущена
         }
-        
+
         const animate = () => {
             if (!this.previewTank || !this.previewTank.turret || this.previewTank.turret.isDisposed()) {
                 this.previewTurretAnimationFrame = null;
                 return;
             }
-            
+
             let rotationChanged = false;
-            
+
             // Поворот влево (Z)
             if (this.previewTurretKeysPressed.z) {
                 this.previewTurretRotation -= 0.05; // Плавное вращение
                 rotationChanged = true;
             }
-            
+
             // Поворот вправо (X)
             if (this.previewTurretKeysPressed.x) {
                 this.previewTurretRotation += 0.05; // Плавное вращение
                 rotationChanged = true;
             }
-            
+
             if (rotationChanged) {
                 this.updatePreviewTurretRotation();
             }
-            
+
             // Продолжаем анимацию, если хотя бы одна клавиша нажата
             if (this.previewTurretKeysPressed.z || this.previewTurretKeysPressed.x) {
                 this.previewTurretAnimationFrame = requestAnimationFrame(animate);
@@ -4978,10 +5012,10 @@ export class Garage {
                 this.previewTurretAnimationFrame = null;
             }
         };
-        
+
         this.previewTurretAnimationFrame = requestAnimationFrame(animate);
     }
-    
+
     /**
      * Останавливает анимацию вращения башни, если клавиши отпущены
      */
@@ -4993,10 +5027,10 @@ export class Garage {
             }
         }
     }
-    
+
     // ============ PENDING CHANGES API ============
     // Эти методы используются GameGarage для применения изменений при въезде в гараж
-    
+
     /**
      * Проверить есть ли ожидающие изменения
      */
@@ -5005,14 +5039,14 @@ export class Garage {
         if (this.isApplyingFromUI) {
             return true;
         }
-        
+
         // Проверяем и переменные класса, и localStorage
         const hasInMemory = !!(this.pendingChassisId || this.pendingCannonId || this.pendingTrackId || this.pendingSkinId);
         const hasInStorage = !!(localStorage.getItem("pendingChassis") || localStorage.getItem("pendingCannon") || localStorage.getItem("pendingTrack") || localStorage.getItem("pendingSkin"));
-        
+
         return hasInMemory || hasInStorage;
     }
-    
+
     /**
      * Получить все pending изменения
      */
@@ -5029,7 +5063,7 @@ export class Garage {
             skinId: this.pendingSkinId
         };
     }
-    
+
     /**
      * Очистить pending изменения после применения
      */
@@ -5042,52 +5076,52 @@ export class Garage {
         this.pendingCannonId = null;
         this.pendingTrackId = null;
         this.pendingSkinId = null;
-        
+
         localStorage.removeItem("pendingChassis");
         localStorage.removeItem("pendingCannon");
         localStorage.removeItem("pendingTrack");
         localStorage.removeItem("pendingSkin");
-        
+
         // Обновляем UI
         this.refreshItemList();
     }
-    
+
     /**
      * Применить pending изменения к танку (вызывается из GameGarage)
      * Возвращает объект с типами изменённых частей для анимации
      */
     applyPendingChangesToTank(): { chassis: boolean; cannon: boolean; track: boolean; skin: boolean } {
         const applied = { chassis: false, cannon: false, track: false, skin: false };
-        
+
         if (this.pendingChassisId && this.tankController?.setChassisType) {
             this.tankController.setChassisType(this.pendingChassisId);
             localStorage.setItem("selectedChassis", this.pendingChassisId);
             applied.chassis = true;
         }
-        
+
         if (this.pendingCannonId && this.tankController?.setCannonType) {
             this.tankController.setCannonType(this.pendingCannonId);
             localStorage.setItem("selectedCannon", this.pendingCannonId);
             applied.cannon = true;
         }
-        
+
         if (this.pendingTrackId && this.tankController?.setTrackType) {
             this.tankController.setTrackType(this.pendingTrackId);
             localStorage.setItem("selectedTrack", this.pendingTrackId);
             applied.track = true;
         }
-        
+
         if (this.pendingSkinId && this.tankController) {
             saveSelectedSkin(this.pendingSkinId);
             const skin = getSkinById(this.pendingSkinId);
             if (skin) {
                 const skinColors = applySkinToTank(skin);
-                
+
                 // Применяем к chassis независимо от turret
                 if (this.tankController.chassis?.material) {
                     applySkinColorToMaterial(this.tankController.chassis.material as StandardMaterial, skinColors.chassisColor);
                 }
-                
+
                 // Применяем к turret независимо от chassis
                 if (this.tankController.turret?.material) {
                     applySkinColorToMaterial(this.tankController.turret.material as StandardMaterial, skinColors.turretColor);
@@ -5097,10 +5131,10 @@ export class Garage {
             }
             applied.skin = true;
         }
-        
+
         // Очищаем pending после применения
         this.clearPendingChanges();
-        
+
         return applied;
     }
 }

@@ -5,6 +5,7 @@
 
 import { AdvancedDynamicTexture, Rectangle, Ellipse, TextBlock, Control, Line } from "@babylonjs/gui";
 import { HUD_COLORS, HUD_SIZES } from "../HUDConstants";
+import { isMobileDevice } from "../../mobile/MobileDetection";
 
 /**
  * Конфигурация миникарты
@@ -70,17 +71,17 @@ export class Minimap {
     private markers: Map<string, MinimapMarker> = new Map();
     private markerElements: Map<string, Rectangle> = new Map();
     private config: MinimapConfig;
-    
+
     private playerX: number = 0;
     private playerZ: number = 0;
     private playerRotation: number = 0;
     private scanAngle: number = 0;
-    
+
     constructor(parent: AdvancedDynamicTexture, config: Partial<MinimapConfig> = {}) {
         this.config = { ...DEFAULT_MINIMAP_CONFIG, ...config };
-        
+
         const size = this.config.size;
-        
+
         // Контейнер
         this.container = new Rectangle("minimapContainer");
         this.container.width = `${size + 20}px`;
@@ -88,11 +89,19 @@ export class Minimap {
         this.container.thickness = 0;
         this.container.background = "transparent";
         this.container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-        this.container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.container.top = "10px";
+        this.container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        if (isMobileDevice()) {
+            // Mobile: Top Right (to avoid overlap with controls)
+            this.container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            this.container.top = "10px";
+        } else {
+            // PC: Bottom Right (per user request for non-joystick mode)
+            this.container.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+            this.container.top = "-10px";
+        }
         this.container.left = "-10px";
         parent.addControl(this.container);
-        
+
         // Фон радара (круглый)
         this.background = new Ellipse("minimapBg");
         this.background.width = `${size}px`;
@@ -101,17 +110,17 @@ export class Minimap {
         this.background.thickness = 2;
         this.background.color = HUD_COLORS.PRIMARY;
         this.container.addControl(this.background);
-        
+
         // Сетка
         if (this.config.showGrid) {
             this.createGrid(size);
         }
-        
+
         // Сканирующая линия
         if (this.config.showScanLine) {
             this.createScanLine(size);
         }
-        
+
         // Маркер игрока (в центре)
         this.playerMarker = new Ellipse("playerMarker");
         this.playerMarker.width = "8px";
@@ -121,20 +130,20 @@ export class Minimap {
         this.playerMarker.shadowColor = this.config.playerColor;
         this.playerMarker.shadowBlur = 10;
         this.background.addControl(this.playerMarker);
-        
+
         // Индикатор направления
         if (this.config.showDirection) {
             this.createDirectionIndicator();
         }
     }
-    
+
     /**
      * Создать сетку
      */
     private createGrid(size: number): void {
         const center = size / 2;
         const gridSpacing = size / 4;
-        
+
         // Концентрические круги
         for (let i = 1; i <= 3; i++) {
             const circle = new Ellipse(`gridCircle${i}`);
@@ -146,7 +155,7 @@ export class Minimap {
             circle.background = "transparent";
             this.background.addControl(circle);
         }
-        
+
         // Крестовина
         const crossV = new Rectangle("gridCrossV");
         crossV.width = "1px";
@@ -154,7 +163,7 @@ export class Minimap {
         crossV.background = "rgba(0, 255, 0, 0.2)";
         crossV.thickness = 0;
         this.background.addControl(crossV);
-        
+
         const crossH = new Rectangle("gridCrossH");
         crossH.width = `${size - 10}px`;
         crossH.height = "1px";
@@ -162,7 +171,7 @@ export class Minimap {
         crossH.thickness = 0;
         this.background.addControl(crossH);
     }
-    
+
     /**
      * Создать сканирующую линию
      */
@@ -176,7 +185,7 @@ export class Minimap {
         this.scanLine.top = `${-size / 4}px`;
         this.background.addControl(this.scanLine);
     }
-    
+
     /**
      * Создать индикатор направления
      */
@@ -189,7 +198,7 @@ export class Minimap {
         this.directionIndicator.top = "-15px";
         this.playerMarker.addControl(this.directionIndicator);
     }
-    
+
     /**
      * Обновить позицию игрока
      */
@@ -197,28 +206,28 @@ export class Minimap {
         this.playerX = x;
         this.playerZ = z;
         this.playerRotation = rotation;
-        
+
         // Обновить направление
         if (this.directionIndicator) {
             this.directionIndicator.rotation = rotation;
         }
-        
+
         // Обновить позиции маркеров относительно игрока
         this.updateMarkerPositions();
     }
-    
+
     /**
      * Добавить маркер
      */
     addMarker(marker: MinimapMarker): void {
         this.markers.set(marker.id, marker);
-        
+
         // ИСПРАВЛЕНО: Используем Rectangle вместо Ellipse для отображения танков
         const element = new Rectangle(`marker_${marker.id}`);
         element.width = "8px";
         element.height = "8px";
         element.thickness = 0;
-        
+
         switch (marker.type) {
             case "enemy":
                 element.background = this.config.enemyColor;
@@ -232,13 +241,13 @@ export class Minimap {
             default:
                 element.background = "#ffffff";
         }
-        
+
         this.background.addControl(element);
         this.markerElements.set(marker.id, element);
-        
+
         this.updateMarkerPosition(marker.id);
     }
-    
+
     /**
      * Удалить маркер
      */
@@ -250,7 +259,7 @@ export class Minimap {
         }
         this.markers.delete(id);
     }
-    
+
     /**
      * Обновить позицию маркера
      */
@@ -262,28 +271,28 @@ export class Minimap {
             this.updateMarkerPosition(id);
         }
     }
-    
+
     /**
      * Обновить позицию конкретного маркера
      */
     private updateMarkerPosition(id: string): void {
         const marker = this.markers.get(id);
         const element = this.markerElements.get(id);
-        
+
         if (!marker || !element) return;
-        
+
         // Вычислить позицию относительно игрока
         const dx = marker.x - this.playerX;
         const dz = marker.z - this.playerZ;
-        
+
         // Применить масштаб
         const screenX = dx / this.config.scale;
         const screenZ = dz / this.config.scale;
-        
+
         // Ограничить радиусом миникарты
         const maxRadius = this.config.size / 2 - 10;
         const dist = Math.sqrt(screenX * screenX + screenZ * screenZ);
-        
+
         if (dist > maxRadius) {
             const scale = maxRadius / dist;
             element.left = `${screenX * scale}px`;
@@ -295,7 +304,7 @@ export class Minimap {
             element.alpha = 1;
         }
     }
-    
+
     /**
      * Обновить все позиции маркеров
      */
@@ -304,7 +313,7 @@ export class Minimap {
             this.updateMarkerPosition(id);
         }
     }
-    
+
     /**
      * Обновить компонент
      */
@@ -318,7 +327,7 @@ export class Minimap {
             this.scanLine.rotation = this.scanAngle;
         }
     }
-    
+
     /**
      * Очистить все маркеры
      */
@@ -329,14 +338,14 @@ export class Minimap {
         this.markerElements.clear();
         this.markers.clear();
     }
-    
+
     /**
      * Показать/скрыть
      */
     setVisible(visible: boolean): void {
         this.container.isVisible = visible;
     }
-    
+
     /**
      * Освободить ресурсы
      */

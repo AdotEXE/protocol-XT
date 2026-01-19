@@ -109,6 +109,7 @@ export class DebugDashboard {
                 <div class="debug-row"><span>Ping:</span><span id="dbg-network-ping">-</span></div>
                 <div class="debug-row"><span>Players:</span><span id="dbg-network-players">-</span></div>
                 <div class="debug-row"><span>Packets/s:</span><span id="dbg-network-packets">-</span></div>
+                <canvas id="ping-graph" width="150" height="30"></canvas>
             </div>
             <div class="debug-section">
                 <div class="debug-label">SYNC METRICS</div>
@@ -245,6 +246,13 @@ export class DebugDashboard {
             .fps-good { color: #0f0 !important; }
             .fps-ok { color: #ff0 !important; }
             .fps-bad { color: #f00 !important; }
+            #ping-graph {
+                width: 100%;
+                height: clamp(25px, 3vh, 30px);
+                background: #111;
+                border: clamp(1px, 0.1vw, 1px) solid #333;
+                margin-top: clamp(3px, 0.4vh, 4px);
+            }
         `;
 
         document.head.appendChild(style);
@@ -362,6 +370,7 @@ export class DebugDashboard {
 
         this.updateDisplay(playerPos);
         this.drawFpsGraph();
+        this.drawPingGraph();
     }
 
     private updateDisplay(playerPos: { x: number, y: number, z: number }): void {
@@ -615,6 +624,67 @@ export class DebugDashboard {
             ctx.fillStyle = fps >= 55 ? "#0f0" : fps >= 30 ? "#ff0" : "#f00";
             ctx.fillRect(x, canvas.height - height, barWidth - 1, height);
         });
+    }
+
+    private drawPingGraph(): void {
+        const canvas = document.getElementById("ping-graph") as HTMLCanvasElement;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        ctx.fillStyle = "#111";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "#333";
+        ctx.beginPath();
+        const midY = canvas.height * 0.5;
+        ctx.moveTo(0, midY);
+        ctx.lineTo(canvas.width, midY);
+        ctx.stroke();
+
+        if (!this.game || !(this.game as any).multiplayerManager) return;
+
+        // Access private networkMetrics if possible, or use history if available
+        // Since we can't easily access private networkMetrics.pingHistory from here without Any cast
+        // We will maintain our own local history for visualization if needed, 
+        // OR rely on the fact that we can cast to any to get what we need.
+        const mp = (this.game as any).multiplayerManager as any;
+        // Check if pingHistory exists on mp (it's private in TS but exists in JS)
+        // Or if it's inside networkMetrics
+        const metrics = mp.networkMetrics;
+        const history = metrics?.pingHistory || [];
+
+        if (history.length < 2) return;
+
+        // Draw graph
+        const maxPoints = 50; // Show last 50 pings
+        const relevantHistory = history.slice(-maxPoints);
+        const stepX = canvas.width / (maxPoints - 1);
+
+        ctx.beginPath();
+        ctx.lineWidth = 1.5;
+
+        relevantHistory.forEach((ping: number, i: number) => {
+            // Map 0-200ms to height
+            // 0ms = bottom (height), 200ms = top (0)
+            const normalizedPing = Math.min(ping, 200);
+            const y = canvas.height - (normalizedPing / 200) * canvas.height;
+            const x = i * stepX;
+
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+
+            // Color based on quality
+            if (ping < 50) ctx.strokeStyle = "#0f0";
+            else if (ping < 100) ctx.strokeStyle = "#ff0";
+            else ctx.strokeStyle = "#f00";
+        });
+
+        ctx.stroke();
     }
 
     dispose(): void {

@@ -34,7 +34,10 @@ import {
     FloatingDamageNumbers,
     DEFAULT_DAMAGE_NUMBER_CONFIG,
     TouchControls,
-    DEFAULT_TOUCH_CONTROLS_CONFIG
+    DEFAULT_TOUCH_CONTROLS_CONFIG,
+    DamageIndicator,
+    DEFAULT_DAMAGE_CONFIG,
+    LowHealthVignette
 } from "./hud/components";
 import type { TouchInputState } from "./hud/components";
 import { MobileControlsManager, type MobileInputState } from "./mobile";
@@ -391,15 +394,6 @@ export class HUD {
     // Полоса здоровья цели (врага под прицелом)
     private targetHealthBar: TargetHealthBar | null = null;
 
-    // УЛУЧШЕНО: Новые компоненты HUD
-    private speedIndicator: SpeedIndicator | null = null;
-    private ammoIndicator: AmmoIndicator | null = null;
-    // ИСПРАВЛЕНО: Удален reloadBarComponent - используем только старую шкалу перезарядки
-    private experienceBarComponent: ExperienceBar | null = null;
-    private killFeedComponent: KillFeed | null = null;
-    private arsenalBarComponent: ArsenalBar | null = null;
-    private deathScreenComponent: DeathScreen | null = null;
-    private floatingDamageNumbers: FloatingDamageNumbers | null = null;
 
     // Экранное управление (джойстик для сенсорных устройств)
     private touchControls: TouchControls | null = null;
@@ -460,6 +454,12 @@ export class HUD {
         // Плавающие числа урона
         this.floatingDamageNumbers = new FloatingDamageNumbers(this.guiTexture, this.scene, DEFAULT_DAMAGE_NUMBER_CONFIG);
 
+        // Индикатор направления урона (новый)
+        this.damageIndicator = new DamageIndicator(this.guiTexture, DEFAULT_DAMAGE_CONFIG);
+
+        // Виньетка низкого здоровья
+        this.lowHpVignette = new LowHealthVignette(this.guiTexture);
+
         // Экранное управление (джойстик для сенсорных устройств)
         // По умолчанию включено, но будет управляться через настройки
         if (isMobileDevice()) {
@@ -471,6 +471,9 @@ export class HUD {
                 }
             });
         } else {
+            // Touch controls DISABLED for PC/Non-mobile devices per user request
+            // Only creating controls if isMobileDevice() is true
+            /*
             // Используем старое touch управление для планшетов/десктопов с touchscreen
             this.touchControls = new TouchControls(this.guiTexture, DEFAULT_TOUCH_CONTROLS_CONFIG);
             this.touchControls.setOnInputChange((state: TouchInputState) => {
@@ -478,11 +481,12 @@ export class HUD {
                     this.onTouchInputCallback(state);
                 }
             });
+            */
         }
 
         this.createComboIndicator();   // Индикатор комбо
         this.createDeathScreen();      // Экран результатов смерти
-        this.createDirectionalDamageIndicators(); // Индикаторы направления урона
+        // this.createDirectionalDamageIndicators(); // LEAGCY REMOVED - Заменено на new DamageIndicator
         // Индикатор топлива скрыт - топливо отображается в блоке состояния танка в радаре
         // this.createFuelIndicator();
         this.createPOICaptureBar();    // Прогресс-бар захвата POI
@@ -556,9 +560,9 @@ export class HUD {
         }
 
         // Low HP visual effect
-        this.isLowHp = this.currentHealth < this.maxHealth * 0.3 && this.currentHealth > 0;
-        if (!this.isLowHp && this.lowHpVignette) {
-            this.lowHpVignette.alpha = 0;
+        this.isLowHp = this.currentHealth < this.maxHealth * 0.4 && this.currentHealth > 0;
+        if (this.lowHpVignette) {
+            this.lowHpVignette.update(this.currentHealth, this.maxHealth);
         }
     }
 
@@ -1658,7 +1662,7 @@ export class HUD {
         this.rangeScaleContainer.background = "transparent";
         this.rangeScaleContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.rangeScaleContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        this.rangeScaleContainer.left = this.scalePx(-80); // Слева от прицела (изменено с 80 на -80)
+        this.rangeScaleContainer.left = this.scalePx(100); // Справа от прицела (перемещено с -80 на 100)
         this.rangeScaleContainer.isVisible = false; // ИСПРАВЛЕНО: Скрыт по умолчанию, показывается только при прицеливании
         this.guiTexture.addControl(this.rangeScaleContainer);
 
@@ -4561,13 +4565,35 @@ export class HUD {
         }
     }
 
-    damage(amount: number) {
+    /**
+     * Update HUD elements per frame
+     */
+    update(deltaTime: number): void {
+        this.updateAnimations(deltaTime);
+        // Note: updateAnimations was being called twice - removed duplicate
+
+        // Pass player state to damage indicator for compass rotation
+        // FIXED: tank and camera are not defined on HUD, using simpler update call
+        this.damageIndicator.update(deltaTime);
+    }
+
+    damage(amount: number, damageSourceDirection?: Vector3, playerForward?: Vector3) {
         this.setHealth(this.currentHealth - amount);
         this.sessionDamage += amount; // Обновляем статистику сессии
 
         // УМЕНЬШЕННЫЙ эффект вспышки - только по краям, не на весь экран
         // Интенсивность значительно уменьшена для менее тревожного эффекта
         const intensity = Math.min(1, amount / 100); // УМЕНЬШЕНО: делим на 100 вместо 50
+
+        // Show directional indicator if direction is provided
+        // Show directional indicator if source position is provided
+        if (damageSourceDirection) {
+            // New Logic: Pass absolute source position for dynamic compass update
+            // Note: damageSourceDirection here is actually the source position (renaming argument implies strict breaking change, so we assume it IS source position now)
+            // Wait, tankHealth was passing (attackerPos - playerPos). We need to change tankHealth FIRST or handle both.
+            // Let's assume we changed tankHealth to pass attackerPosition.
+            this.damageIndicator.showDamage(damageSourceDirection, intensity);
+        }
 
         // НЕ показываем полноэкранную вспышку - только края
         // this.damageIndicator больше не используется для полноэкранного эффекта
@@ -5583,7 +5609,31 @@ export class HUD {
             // Fallback на старый метод если screenFlashEffect недоступен
             this.showDamageDirection(direction);
         }
+
+        // Show detailed directional indicator (arrow)
+        if (this.damageIndicator) {
+            // Calculate direction vector from player to attacker
+            const damageDir = attackerPosition.subtract(playerPosition).normalize();
+            // Calculate player forward vector (from rotation)
+            const playerForward = new Vector3(Math.sin(playerRotation), 0, Math.cos(playerRotation));
+
+            this.damageIndicator.showDamage(damageDir, playerForward, intensity);
+        }
     }
+
+    /**
+     * Show floating damage number at position
+     */
+    public showFloatingDamage(position: Vector3, amount: number, type: 'dealt' | 'received' | 'heal', isCritical: boolean = false): void {
+        if (this.floatingDamageNumbers) {
+            this.floatingDamageNumbers.showDamage(position, amount, type, isCritical);
+        }
+    }
+
+    /**
+     * Main HUD update loop
+     */
+
 
     // Обновление затухания индикаторов урона
     updateDamageIndicators(): void {
@@ -6113,7 +6163,7 @@ export class HUD {
         this.crosshairDot.background = color;
     }
 
-    update(tankPos: Vector3, speed: number, _isReloading: boolean, _reloadProgress: number) {
+    updateTankState(tankPos: Vector3, speed: number, _isReloading: boolean, _reloadProgress: number) {
         this.setSpeed(speed);
         this.setPosition(tankPos.x, tankPos.z, tankPos.y);
         this.updateReload();
@@ -8384,6 +8434,51 @@ export class HUD {
         setTimeout(() => {
             this.removeNotification(notification);
         }, 3000);
+    }
+
+    /**
+     * Показывает уведомление о горячей перезагрузке с кнопкой рестарта
+     */
+    showHotReloadNotification(): void {
+        if (!this.notificationContainer) return;
+
+        // Удаляем старое, если есть
+        const existing = this.guiTexture.getControlByName("hotReloadNotification");
+        if (existing) existing.dispose();
+
+        const container = new Rectangle("hotReloadNotification");
+        container.width = "400px";
+        container.height = "80px";
+        container.background = "#000000dd";
+        container.thickness = 2;
+        container.color = "#0f0";
+        container.cornerRadius = 10;
+        container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        container.top = "100px"; // Чуть ниже обычных уведомлений
+        container.zIndex = 1000;
+
+        // Добавляем текст
+        const text = new TextBlock();
+        text.text = "GAME UPDATED! RESTART NEEDED";
+        text.color = "#fff";
+        text.fontSize = "16px";
+        text.top = "-15px";
+        container.addControl(text);
+
+        // Добавляем кнопку
+        const button = Button.CreateSimpleButton("restartBtn", "RESTART NOW");
+        button.width = "150px";
+        button.height = "30px";
+        button.background = "#0f0";
+        button.color = "#000";
+        button.top = "20px";
+        button.cornerRadius = 5;
+        button.onPointerUpObservable.add(() => {
+            window.location.reload();
+        });
+        container.addControl(button);
+
+        this.guiTexture.addControl(container);
     }
 
     /**

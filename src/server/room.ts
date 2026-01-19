@@ -457,7 +457,7 @@ export class GameRoom {
                 // OBB учитывает rotation танка в отличие от AABB
 
                 // Получаем размеры хитбокса
-                const dims = CHASSIS_DIMENSIONS[player.chassisType] || CHASSIS_DIMENSIONS.medium;
+                const dims = CHASSIS_DIMENSIONS[player.chassisType] || CHASSIS_DIMENSIONS.medium || { halfWidth: 1.1, halfDepth: 1.75, halfHeight: 0.4 };
                 const halfW = dims.halfWidth;
                 const halfD = dims.halfDepth;
                 const halfH = dims.halfHeight; // This is half height, center should be up by this amount if pivot is bottom

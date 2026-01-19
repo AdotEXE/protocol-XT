@@ -79,11 +79,11 @@ export class SessionSettings {
     private worldManager: WorldManager | null = null;
     private waveEditor: WaveEditor | null = null;
     private embedded: boolean = false;
-    
+
     constructor(embedded: boolean = false) {
         this.settings = this.getDefaultSettings();
         this.embedded = embedded;
-        
+
         // Не создаём overlay UI если панель будет встроена в другое меню
         if (!embedded) {
             this.createUI();
@@ -93,7 +93,7 @@ export class SessionSettings {
             this.container.style.display = "none";
         }
     }
-    
+
     setGame(game: Game | null): void {
         this.game = game;
         if (game && game.scene) {
@@ -105,11 +105,11 @@ export class SessionSettings {
         }
         this.waveEditor = new WaveEditor();
     }
-    
+
     getSettings(): SessionSettingsData {
         return { ...this.settings };
     }
-    
+
     private getDefaultSettings(): SessionSettingsData {
         return {
             gameMode: "normal",
@@ -155,27 +155,27 @@ export class SessionSettings {
             }
         };
     }
-    
+
     private createUI(): void {
         // Проверяем, что мы не в embedded режиме
         if (this.embedded) {
             console.warn("[SessionSettings] createUI called in embedded mode, skipping overlay creation");
             return;
         }
-        
+
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
-        
+
         // Проверяем, не существует ли уже контейнер
         const existingContainer = document.getElementById("session-settings");
         if (existingContainer) {
             existingContainer.remove();
         }
-        
+
         this.container = document.createElement("div");
         this.container.id = "session-settings";
         this.container.className = "panel-overlay";
-        
+
         const style = document.createElement("style");
         style.id = "session-settings-styles";
         style.textContent = `
@@ -275,7 +275,7 @@ export class SessionSettings {
             }
         `;
         document.head.appendChild(style);
-        
+
         this.container.innerHTML = `
             <div class="panel">
                 <div class="panel-header">
@@ -366,11 +366,11 @@ export class SessionSettings {
                 </div>
             </div>
         `;
-        
+
         document.body.appendChild(this.container);
         this.setupEventListeners();
     }
-    
+
     private setupEventListeners(): void {
         // Enemy count slider
         const enemyCountSlider = document.getElementById("enemy-count") as HTMLInputElement;
@@ -380,7 +380,7 @@ export class SessionSettings {
             this.settings.enemyCount = value;
             if (enemyCountValue) enemyCountValue.textContent = value.toString();
         });
-        
+
         // Spawn interval slider
         const spawnIntervalSlider = document.getElementById("spawn-interval") as HTMLInputElement;
         const spawnIntervalValue = document.getElementById("spawn-interval-value");
@@ -389,13 +389,13 @@ export class SessionSettings {
             this.settings.spawnInterval = value;
             if (spawnIntervalValue) spawnIntervalValue.textContent = value.toString();
         });
-        
+
         // AI difficulty
         const aiDifficultySelect = document.getElementById("ai-difficulty") as HTMLSelectElement;
         aiDifficultySelect?.addEventListener("change", (e) => {
             this.settings.aiDifficulty = (e.target as HTMLSelectElement).value as "easy" | "medium" | "hard" | "nightmare";
         });
-        
+
         // Wave system
         const waveEnabledCheckbox = document.getElementById("wave-enabled") as HTMLInputElement;
         const waveControls = document.getElementById("wave-controls");
@@ -405,7 +405,7 @@ export class SessionSettings {
             if (waveControls) waveControls.style.display = this.settings.waveSystem.enabled ? "block" : "none";
             if (waveIntervalControls) waveIntervalControls.style.display = this.settings.waveSystem.enabled ? "block" : "none";
         });
-        
+
         const waveSizeSlider = document.getElementById("wave-size") as HTMLInputElement;
         const waveSizeValue = document.getElementById("wave-size-value");
         waveSizeSlider?.addEventListener("input", (e) => {
@@ -413,7 +413,7 @@ export class SessionSettings {
             this.settings.waveSystem.waveSize = value;
             if (waveSizeValue) waveSizeValue.textContent = value.toString();
         });
-        
+
         const waveIntervalSlider = document.getElementById("wave-interval") as HTMLInputElement;
         const waveIntervalValue = document.getElementById("wave-interval-value");
         waveIntervalSlider?.addEventListener("input", (e) => {
@@ -421,35 +421,35 @@ export class SessionSettings {
             this.settings.waveSystem.waveInterval = value;
             if (waveIntervalValue) waveIntervalValue.textContent = value.toString();
         });
-        
+
         // World seed
         const worldSeedInput = document.getElementById("world-seed") as HTMLInputElement;
         worldSeedInput?.addEventListener("change", (e) => {
             const value = (e.target as HTMLInputElement).value;
             this.settings.worldSettings.seed = value ? parseInt(value) : undefined;
         });
-        
+
         // Редактор волн
         document.getElementById("wave-editor-open")?.addEventListener("click", () => {
             if (this.waveEditor) {
                 this.waveEditor.show();
             }
         });
-        
+
         // Buttons
         document.getElementById("session-reset")?.addEventListener("click", () => {
             this.settings = this.getDefaultSettings();
             this.updateUI();
         });
-        
+
         document.getElementById("session-apply")?.addEventListener("click", () => {
             this.applySettings();
         });
-        
+
         document.getElementById("session-close")?.addEventListener("click", () => {
             this.hide();
         });
-        
+
         // Close on background click
         this.container.addEventListener("click", (e) => {
             if (e.target === this.container) {
@@ -457,64 +457,67 @@ export class SessionSettings {
             }
         });
     }
-    
+
     private updateUI(): void {
         // Обновляем все значения в UI
         const enemyCountSlider = document.getElementById("enemy-count") as HTMLInputElement;
         const enemyCountValue = document.getElementById("enemy-count-value");
         if (enemyCountSlider) enemyCountSlider.value = this.settings.enemyCount.toString();
         if (enemyCountValue) enemyCountValue.textContent = this.settings.enemyCount.toString();
-        
+
         const spawnIntervalSlider = document.getElementById("spawn-interval") as HTMLInputElement;
         const spawnIntervalValue = document.getElementById("spawn-interval-value");
         if (spawnIntervalSlider) spawnIntervalSlider.value = this.settings.spawnInterval.toString();
         if (spawnIntervalValue) spawnIntervalValue.textContent = this.settings.spawnInterval.toString();
-        
+
         const aiDifficultySelect = document.getElementById("ai-difficulty") as HTMLSelectElement;
         if (aiDifficultySelect) aiDifficultySelect.value = this.settings.aiDifficulty;
-        
+
         const waveEnabledCheckbox = document.getElementById("wave-enabled") as HTMLInputElement;
         const waveControls = document.getElementById("wave-controls");
         const waveIntervalControls = document.getElementById("wave-interval-controls");
         if (waveEnabledCheckbox) waveEnabledCheckbox.checked = this.settings.waveSystem.enabled;
         if (waveControls) waveControls.style.display = this.settings.waveSystem.enabled ? "block" : "none";
         if (waveIntervalControls) waveIntervalControls.style.display = this.settings.waveSystem.enabled ? "block" : "none";
-        
+
         const waveSizeSlider = document.getElementById("wave-size") as HTMLInputElement;
         const waveSizeValue = document.getElementById("wave-size-value");
         if (waveSizeSlider) waveSizeSlider.value = this.settings.waveSystem.waveSize.toString();
         if (waveSizeValue) waveSizeValue.textContent = this.settings.waveSystem.waveSize.toString();
-        
+
         const waveIntervalSlider = document.getElementById("wave-interval") as HTMLInputElement;
         const waveIntervalValue = document.getElementById("wave-interval-value");
         if (waveIntervalSlider) waveIntervalSlider.value = this.settings.waveSystem.waveInterval.toString();
         if (waveIntervalValue) waveIntervalValue.textContent = this.settings.waveSystem.waveInterval.toString();
-        
+
         const worldSeedInput = document.getElementById("world-seed") as HTMLInputElement;
         if (worldSeedInput) worldSeedInput.value = this.settings.worldSettings.seed?.toString() || "";
     }
-    
+
     private applySettings(): void {
         if (this.game) {
             // Сохраняем настройки в game
             (this.game as any).sessionSettings = this.settings;
-            
+
             // Применяем настройки к спавну врагов
             logger.log("[SessionSettings] Applied settings:", this.settings);
-            
+
             if (this.game.hud) {
                 this.game.hud.showMessage("Настройки сессии применены!", "#0f0", 2000);
             }
         }
-        
-        this.hide();
+
+        // В embedded режиме (админ меню) мы НЕ скрываем панель
+        if (!this.embedded) {
+            this.hide();
+        }
     }
-    
+
     private setupToggle(): void {
         // F6 обработчик управляется в game.ts для консистентности
         // Этот метод оставлен для возможного будущего использования
     }
-    
+
     toggle(): void {
         this.visible = !this.visible;
         if (this.visible) {
@@ -523,35 +526,39 @@ export class SessionSettings {
             this.hide();
         }
     }
-    
+
     show(): void {
+        if (!this.container) return;
+
         this.visible = true;
         this.container.classList.remove("hidden");
         this.container.style.display = "flex";
-        
+
         // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {
             document.exitPointerLock();
         }
         document.body.style.cursor = 'default';
-        
+
         this.updateUI();
     }
-    
+
     hide(): void {
+        if (!this.container) return;
+
         this.visible = false;
         this.container.classList.add("hidden");
         this.container.style.display = "none";
     }
-    
+
     isVisible(): boolean {
         return this.visible;
     }
-    
+
     dispose(): void {
         this.container.remove();
     }
-    
+
     /**
      * Рендерит контент меню в переданный контейнер (для UnifiedMenu)
      */
@@ -560,7 +567,7 @@ export class SessionSettings {
         if (!this.embedded) {
             console.warn("[SessionSettings] renderToContainer called but not in embedded mode");
         }
-        
+
         // Удаляем любой существующий overlay контейнер, если он был создан
         if (this.container && this.container.parentNode) {
             // Проверяем, что это не тот же контейнер, куда мы рендерим
@@ -572,10 +579,10 @@ export class SessionSettings {
                 }
             }
         }
-        
+
         // Очищаем контейнер и добавляем embedded контент
         container.innerHTML = this.getEmbeddedContentHTML();
-        
+
         // Убеждаемся, что контейнер не имеет overlay стилей
         container.classList.remove("panel-overlay");
         container.style.position = "";
@@ -585,10 +592,10 @@ export class SessionSettings {
         container.style.bottom = "";
         container.style.zIndex = "";
         container.style.display = "";
-        
+
         this.setupEmbeddedEventListeners(container);
     }
-    
+
     /**
      * Возвращает HTML контента без overlay wrapper
      */
@@ -665,7 +672,7 @@ export class SessionSettings {
             </div>
         `;
     }
-    
+
     /**
      * Привязывает обработчики событий для embedded режима
      */
@@ -678,32 +685,32 @@ export class SessionSettings {
         const gamemodeSelect = container.querySelector(".ss-gamemode-emb") as HTMLSelectElement;
         const applyBtn = container.querySelector(".ss-apply-btn");
         const resetBtn = container.querySelector(".ss-reset-btn");
-        
+
         enemyCountSlider?.addEventListener("input", () => {
             if (enemyCountVal) enemyCountVal.textContent = enemyCountSlider.value;
             this.settings.enemyCount = parseInt(enemyCountSlider.value);
         });
-        
+
         spawnIntervalSlider?.addEventListener("input", () => {
             if (spawnIntervalVal) spawnIntervalVal.textContent = spawnIntervalSlider.value;
             this.settings.spawnInterval = parseInt(spawnIntervalSlider.value);
         });
-        
+
         difficultySelect?.addEventListener("change", () => {
             this.settings.aiDifficulty = difficultySelect.value as "easy" | "medium" | "hard" | "nightmare";
         });
-        
+
         gamemodeSelect?.addEventListener("change", () => {
             this.settings.gameMode = gamemodeSelect.value as GameMode;
         });
-        
+
         applyBtn?.addEventListener("click", () => {
             this.applySettings();
             if (this.game?.hud) {
                 this.game.hud.showMessage("Настройки сессии применены!", "#0f0", 2000);
             }
         });
-        
+
         resetBtn?.addEventListener("click", () => {
             this.settings = this.getDefaultSettings();
             // Обновляем UI
@@ -713,7 +720,7 @@ export class SessionSettings {
             if (spawnIntervalVal) spawnIntervalVal.textContent = String(this.settings.spawnInterval);
             if (difficultySelect) difficultySelect.value = this.settings.aiDifficulty;
             if (gamemodeSelect) gamemodeSelect.value = this.settings.gameMode;
-            
+
             if (this.game?.hud) {
                 this.game.hud.showMessage("Настройки сброшены!", "#ff0", 2000);
             }

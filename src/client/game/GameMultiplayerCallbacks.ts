@@ -6,7 +6,7 @@
 import { Vector3, MeshBuilder, StandardMaterial, Color3, PhysicsMotionType, LinesMesh, Mesh, Quaternion, Scene } from "@babylonjs/core";
 import { logger } from "../utils/logger";
 import { createClientMessage } from "../../shared/protocol";
-import { ClientMessageType, ServerMessageType } from "../../shared/messages";
+import { ClientMessageType, ServerMessageType, PlayerDamagedData, PlayerHitData } from "../../shared/messages";
 import { CONSUMABLE_TYPES } from "../consumables";
 import { RealtimeStatsTracker } from "../realtimeStats";
 import { NetworkPlayerTank } from "../networkPlayerTank";
@@ -147,8 +147,13 @@ export class GameMultiplayerCallbacks {
             // Это нужно чтобы die() использовал серверный респавн, а не garage respawn
             if (!this.deps.tank.onRespawnRequest) {
                 this.deps.tank.onRespawnRequest = () => {
-                    logger.log("[Game] Multiplayer respawn requested via updateDependencies callback...");
-                    this.deps.multiplayerManager?.requestRespawn();
+                    if (this.deps.getIsMultiplayer() && this.deps.multiplayerManager?.isConnected()) {
+                        logger.log("[Game] Multiplayer respawn requested via updateDependencies callback...");
+                        this.deps.multiplayerManager?.requestRespawn();
+                    } else {
+                        logger.log("[Game] Singleplayer respawn via callback fallback");
+                        this.deps.tank?.respawn();
+                    }
                 };
                 logger.log("[Game] ✅ Multiplayer onRespawnRequest callback set on tank via updateDependencies");
             }
@@ -290,8 +295,13 @@ export class GameMultiplayerCallbacks {
         // Это нужно сделать ДО того как игрок может умереть, иначе die() использует garage respawn
         if (this.deps.tank) {
             this.deps.tank.onRespawnRequest = () => {
-                logger.log("[Game] Multiplayer respawn requested, sending to server...");
-                this.deps.multiplayerManager?.requestRespawn();
+                if (this.deps.getIsMultiplayer() && this.deps.multiplayerManager?.isConnected()) {
+                    logger.log("[Game] Multiplayer respawn requested, sending to server...");
+                    this.deps.multiplayerManager?.requestRespawn();
+                } else {
+                    logger.log("[Game] Singleplayer respawn via callback fallback");
+                    this.deps.tank?.respawn();
+                }
             };
             logger.log("[Game] ✅ Multiplayer respawn callback set on tank");
         }
@@ -428,6 +438,34 @@ export class GameMultiplayerCallbacks {
                 // Update health bar if valid
                 if (data.health && data.maxHealth) {
                     tank.setHealth(data.health, data.maxHealth);
+                }
+            } else if (data.playerId === (this.deps.multiplayerManager as any).socket?.id) {
+                // [FIX] Локальный игрок!
+                // Если tank не найден в networkPlayerTanks, значит это мы (локальный игрок)
+                // У TankController методы называются иначе чем у NetworkPlayerTank
+                console.log(`[Game] ♻️ Respawning LOCAL PLAYER tank at ${JSON.stringify(data.position)}`);
+                const spawnPos = new Vector3(data.position.x, data.position.y, data.position.z);
+
+                if (this.deps.tank) {
+                    // Вызываем метод respawn() контроллера танка
+                    this.deps.tank.respawn(spawnPos);
+                    // Включаем движение (на всякий случай)
+                    this.deps.tank.isMovementEnabled = true;
+
+                    // Обновляем здоровье в HUD через метод контроллера (он потом обновит HUD)
+                    // Или напрямую в HUD если доступен
+                    // Но лучше через контроллер если есть метод setHealth...
+                    // В TankController нет setHealth, но есть currentHealth и maxHealth свойства
+                    // И есть hud.setHealth
+                    if (data.health && data.maxHealth) {
+                        this.deps.tank.currentHealth = data.health;
+                        this.deps.tank.maxHealth = data.maxHealth;
+                        if (this.deps.tank.hud) {
+                            this.deps.tank.hud.setHealth(data.health, data.maxHealth);
+                        }
+                    }
+                } else {
+                    console.error(`[Game] ❌ Local tank controller is missing during respawn!`);
                 }
             } else {
                 console.warn(`[Game] ⚠️ Respawned player ${data.playerId} tank NOT FOUND in networkPlayerTanks`);
@@ -1780,25 +1818,57 @@ export class GameMultiplayerCallbacks {
             }
         });
 
-        mm.onPlayerDamaged((data) => {
+        mm.onPlayerDamaged((data: PlayerDamagedData) => {
             const localPlayerId = mm.getPlayerId();
+            const damage = data.damage || 0;
+            const isCritical = data.isCritical || false;
 
-            // Обновляем здоровье локального игрока
+            // Определяем позицию для плавающего текста
+            let targetPos: Vector3 | null = null;
+
             if (data.playerId === localPlayerId) {
-                // КРИТИЧНО: Синхронизируем здоровье локального игрока с сервером
+                // Урон получен ЛОКАЛЬНЫМ игроком
                 if (this.deps.tank) {
                     this.deps.tank.setHealth(data.health, data.maxHealth);
+                    targetPos = this.deps.tank.chassis.position.clone();
+                    targetPos.y += 2; // Чуть выше танка
+                }
+
+                // Визуальный эффект получения урона (вспышка + индикатор направления)
+                if (data.attackerId && data.attackerId !== localPlayerId && this.deps.hud && this.deps.tank) {
+                    // Пытаемся найти атакующего среди сетевых игроков
+                    const attacker = this.deps.networkPlayerTanks.get(data.attackerId);
+                    if (attacker) {
+                        const attackerPos = attacker.chassis.position;
+                        const playerPos = this.deps.tank.chassis.position;
+                        const playerRotation = this.deps.tank.chassis.rotation.y;
+
+                        this.deps.hud.showDamageFromPosition(attackerPos, playerPos, playerRotation, damage);
+                    }
                 }
 
                 const healthPercent = (data.health / data.maxHealth) * 100;
                 if (healthPercent < 30) {
                     this.deps.hud?.showNotification?.(`⚠️ Критическое здоровье! ${Math.round(healthPercent)}%`, "warning");
                 }
+
+                // Show received damage number
+                if (targetPos && this.deps.hud) {
+                    this.deps.hud.showFloatingDamage(targetPos, damage, 'received', isCritical);
+                }
+
             } else {
-                // Обновляем здоровье сетевого танка (показываем полоску здоровья)
+                // Урон получен ДРУГИМ игроком
                 const networkTank = this.deps.networkPlayerTanks.get(data.playerId);
                 if (networkTank) {
                     networkTank.setHealth(data.health, data.maxHealth);
+                    targetPos = networkTank.chassis.position.clone();
+                    targetPos.y += 2;
+                }
+
+                // Если атакующий - МЫ, показываем урон
+                if (data.attackerId === localPlayerId && targetPos && this.deps.hud) {
+                    this.deps.hud.showFloatingDamage(targetPos, damage, 'dealt', isCritical);
                 }
             }
         });
@@ -1834,7 +1904,8 @@ export class GameMultiplayerCallbacks {
                 }
 
                 // КРИТИЧНО: Создаём ВИДИМЫЙ снаряд для сетевых игроков
-                this.createNetworkProjectile(pos.clone(), dir.clone(), data);
+                const delay = (this.deps.multiplayerManager?.getPing() || 0) / 1000 / 2;
+                this.createNetworkProjectile(pos.clone(), dir.clone(), data, delay);
             }
         });
 
@@ -1906,6 +1977,36 @@ export class GameMultiplayerCallbacks {
                     wall.dispose();
                 }
             }, data.duration);
+        });
+
+        mm.onRpc((data) => {
+            const localPlayerId = mm.getPlayerId();
+            // Ignore events from self (unless specific echo logic is needed)
+            if (data.sourceId === localPlayerId) return;
+
+            switch (data.event) {
+                case "SHOOT_EFFECT":
+                    // Specific shoot effect without projectile logic (e.g. hitscan or visual only)
+                    if (data.payload && data.payload.position && data.payload.direction && this.deps.effectsManager) {
+                        const pos = new Vector3(data.payload.position.x, data.payload.position.y, data.payload.position.z);
+                        const dir = new Vector3(data.payload.direction.x, data.payload.direction.y, data.payload.direction.z);
+                        this.deps.effectsManager.createMuzzleFlash(pos, dir, data.payload.cannonType || "standard");
+                    }
+                    break;
+
+                case "DRESS_UPDATE":
+                    // Update player visual appearance
+                    const tank = this.deps.networkPlayerTanks.get(data.sourceId);
+                    if (tank && (tank as any).updateParts) {
+                        (tank as any).updateParts({
+                            chassisType: data.payload.chassisType,
+                            cannonType: data.payload.cannonType,
+                            tankColor: data.payload.tankColor,
+                            turretColor: data.payload.turretColor
+                        });
+                    }
+                    break;
+            }
         });
     }
 
@@ -2437,7 +2538,7 @@ export class GameMultiplayerCallbacks {
      * Создать видимый снаряд для сетевого игрока
      * Снаряд летит по баллистической траектории и исчезает при ударе или через время
      */
-    private createNetworkProjectile(position: Vector3, direction: Vector3, data: any): void {
+    private createNetworkProjectile(position: Vector3, direction: Vector3, data: any, delay: number = 0): void {
         if (!this.deps.scene) return;
 
         const scene = this.deps.scene;
@@ -2514,7 +2615,8 @@ export class GameMultiplayerCallbacks {
             projectileMesh,
             velocity,
             scene,
-            this.deps.effectsManager || null
+            this.deps.effectsManager || null,
+            delay
         );
 
         // Add to map for updates
