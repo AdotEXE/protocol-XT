@@ -302,9 +302,14 @@ export const App = () => {
 
     useEffect(() => {
         if (!isAppLoaded) return;
+        // Skip auto-save for very large maps to prevent quota exceeded
+        const cubesToSave = cubes.length > 500 ? [] : cubes;
+        if (cubes.length > 500) {
+            console.log(`[AutoSave] Skipping - too many objects (${cubes.length})`);
+        }
         const state = {
             fileSystem, genHistory, logs, theme, currentFileId, viewportColor, showStats,
-            leftSidebarOpen, rightSidebarOpen, snapEnabled, cubes, // Added cubes!
+            leftSidebarOpen, rightSidebarOpen, snapEnabled, cubes: cubesToSave,
             genSettings: {
                 seed: genSeed, symmetry: genSymmetry, complexity: genComplexity,
                 organicness: genOrganicness, detailDensity: genDetailDensity,

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { fetchOSMData, OSMData, OSMNode } from '../services/osmService';
 import { fetchElevationGrid, getElevationAt, getBaseElevation } from '../services/elevationService';
 import { parseLocationSeed, GeoLocationData } from '../services/geminiService';
-import { loadMapFromCache, saveMapToCache } from '../services/cacheService';
+import { loadMapFromCache, saveMapToCache, clearMapCache } from '../services/cacheService';
 import { CubeElement } from '../types';
 // NEW: OSMBuildings tile streaming for fast building data
 import { fetchOSMBuildingsData, streamOSMBuildingsData, OSMBuildingFeature } from '../services/osmBuildingsService';
@@ -93,6 +93,11 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
             let elevationData: number[];
             let fromCache = false;
 
+            // Clear cache if force refresh is enabled
+            if (forceRefresh) {
+                await clearMapCache(cacheKey);
+            }
+
             if (!forceRefresh) {
                 const cached = await loadMapFromCache(cacheKey);
                 if (cached) {
@@ -149,13 +154,14 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                 const cubes: CubeElement[] = [];
 
                 // Project function: lat/lon -> local meters
+                // MUST MATCH PoltGenMap projection exactly!
                 const project = (nLat: number, nLon: number): { x: number; z: number } => {
-                    // IMPORTANT: Math.cos expects radians, so convert lat to radians
-                    const latRad = lat * Math.PI / 180;
-                    const metersPerLat = 111132.954 - 559.822 * Math.cos(2 * latRad) + 1.175 * Math.cos(4 * latRad);
-                    const metersPerLon = 111132.954 * Math.cos(latRad);
+                    // metersPerLat formula expects lat in DEGREES (not radians!)
+                    const metersPerLat = 111132.954 - 559.822 * Math.cos(2 * lat) + 1.175 * Math.cos(4 * lat);
+                    // metersPerLon uses lat in RADIANS
+                    const metersPerLon = 111132.954 * Math.cos(lat * (Math.PI / 180));
                     const x = (nLon - lng) * metersPerLon;
-                    const z = (nLat - lat) * metersPerLat;
+                    const z = (nLat - lat) * metersPerLat;  // No negation here - shape handles it
                     return { x, z };
                 };
 
@@ -331,11 +337,12 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                 const buildingColors = ['#e5e7eb', '#d1d5db', '#f3f4f6', '#fef3c7', '#fee2e2', '#e0f2fe'];
                 const roofColors = ['#4b5563', '#374151', '#7f1d1d', '#92400e', '#3f6212', '#1e3a8a'];
                 let buildingCount = 0;
-                const buildingLimit = 400;
+                let skippedSmall = 0, skippedLarge = 0;
+
+                console.log(`[RealWorld] OSM returned ${osmData.buildings?.length || 0} buildings`);
 
                 if (osmData.buildings) {
                     osmData.buildings.forEach(way => {
-                        if (buildingCount >= buildingLimit) return;
 
                         const points: { x: number; z: number }[] = [];
                         let centerX = 0, centerZ = 0;
@@ -365,7 +372,10 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
 
                             const width = Math.max(2, maxX - minX);
                             const depth = Math.max(2, maxZ - minZ);
-                            if (width > 120 || depth > 120) return;
+                            if (width > 200 || depth > 200) {
+                                skippedLarge++;
+                                return;  // Skip very large structures
+                            }
 
                             let height = 6 + Math.random() * 8;
                             const tHeight = way.tags['height'];
@@ -411,7 +421,7 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                 }
 
 
-                console.log(`[RealWorld] Generated ${buildingCount} buildings from Overpass`);
+                console.log(`[RealWorld] Generated ${buildingCount} buildings (skipped: ${skippedLarge} large, ${skippedSmall} small)`);
 
                 // Send ALL objects at once (no streaming)
                 const finalTerrainData: TerrainData = {

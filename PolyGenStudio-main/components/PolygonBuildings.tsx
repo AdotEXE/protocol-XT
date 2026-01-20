@@ -24,8 +24,8 @@ function createBuildingGeometry(polygon: Array<{ x: number; z: number }>, height
     try {
         // Create 2D shape from polygon vertices
         // THREE.Shape is in XY plane, ExtrudeGeometry extrudes along Z
-        // After rotateX(-90°): original Z becomes Y (up), original Y becomes -Z
-        // So we create shape with (x, -z) to get correct world orientation (x, z)
+        // After rotateX(-90°): Shape Y becomes World -Z
+        // So we use -z to get correct world Z orientation
         const shape = new THREE.Shape();
 
         // Move to first point (negate z for correct orientation after rotation)

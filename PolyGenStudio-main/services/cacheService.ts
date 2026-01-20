@@ -97,3 +97,21 @@ export const loadMapFromCache = async (seed: string): Promise<{ osm: OSMData, el
         return null;
     }
 };
+
+export const clearMapCache = async (seed?: string): Promise<void> => {
+    try {
+        const db = await initCacheDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+
+        if (seed) {
+            store.delete(seed);
+            console.log(`[Cache] Cleared map: ${seed}`);
+        } else {
+            store.clear();
+            console.log(`[Cache] Cleared all maps`);
+        }
+    } catch (e) {
+        console.warn("[Cache] Failed to clear cache", e);
+    }
+};
