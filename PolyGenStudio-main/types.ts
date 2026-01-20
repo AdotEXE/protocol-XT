@@ -16,7 +16,7 @@ export interface MaterialProperties {
 export interface CubeElement {
   id: string;
   name: string;
-  type: 'cube' | 'group';
+  type: 'cube' | 'group' | 'polygon' | 'water';  // 'polygon' for buildings, 'water' for lakes/rivers
   parentId?: string | null;
   position: Vector3;
   size: Vector3;
@@ -31,7 +31,20 @@ export interface CubeElement {
     friction: number;
   };
   properties?: Record<string, any>;
+
+  /** 
+   * Real polygon vertices from OSM data (2D footprint).
+   * Each vertex is {x, z} in local coordinates.
+   * Used for ExtrudeGeometry to create accurate building shapes.
+   */
+  polygon?: Array<{ x: number; z: number }>;
+
+  /**
+   * Building height (for polygon extrusion)
+   */
+  height?: number;
 }
+
 
 export enum ToolMode {
   SELECT = 'SELECT',
@@ -80,6 +93,7 @@ export interface GenerationHistoryEntry {
 export type Theme = 'dark' | 'light' | 'cyberpunk' | 'fui' | 'industrial' | 'mix' | 'tx';
 
 export interface GenerationOptions {
+  mapSize?: number; // Map/model size, e.g. 200 for 200x200
   prompt: string;
   useThinking: boolean;
   complexity: 'simple' | 'medium' | 'detailed';

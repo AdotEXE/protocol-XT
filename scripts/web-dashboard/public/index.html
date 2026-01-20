@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protocol TX - Monitor Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a24;
+            --border-color: #2a2a3a;
+            --text-primary: #e1e1e6;
+            --text-secondary: #8888a0;
+            --accent-green: #22c55e;
+            --accent-cyan: #06b6d4;
+            --accent-purple: #a855f7;
+            --accent-yellow: #eab308;
+            --accent-red: #ef4444;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-card));
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            font-size: 1.5rem;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .header .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto 1fr;
+            gap: 1rem;
+            padding: 1rem;
+            height: calc(100vh - 70px);
+        }
+        
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .card-header {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-secondary);
+        }
+        
+        .card-header h2 {
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .card-body {
+            padding: 1rem;
+            height: calc(100% - 50px);
+            overflow: auto;
+        }
+        
+        /* Services Grid */
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+        
+        .service-card {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1rem;
+            border-left: 3px solid var(--accent-green);
+        }
+        
+        .service-card.stopped { border-left-color: var(--accent-red); }
+        .service-card.restarting { border-left-color: var(--accent-yellow); }
+        
+        .service-name {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .service-status {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+        
+        .service-actions {
+            margin-top: 0.75rem;
+        }
+        
+        .btn {
+            padding: 0.4rem 0.8rem;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: all 0.2s;
+        }
+        
+        .btn-restart {
+            background: var(--accent-yellow);
+            color: #000;
+        }
+        
+        .btn-restart:hover {
+            background: #fbbf24;
+        }
+        
+        /* Charts */
+        .charts-row {
+            grid-column: span 2;
+        }
+        
+        @media (max-width: 1200px) {
+            .charts-row {
+                grid-column: span 1;
+            }
+        }
+        
+        .charts-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            height: 200px;
+        }
+        
+        .chart-wrapper {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 0.5rem;
+            position: relative;
+        }
+        
+        /* Logs */
+        .logs-card {
+            grid-column: span 2;
+        }
+        
+        @media (max-width: 1200px) {
+            .logs-card {
+                grid-column: span 1;
+            }
+        }
+        
+        .logs-toolbar {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        .logs-toolbar select,
+        .logs-toolbar input {
+            padding: 0.4rem 0.6rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.85rem;
+        }
+        
+        .logs-toolbar input {
+            flex: 1;
+            min-width: 150px;
+        }
+        
+        .btn-export {
+            background: var(--accent-purple);
+            color: white;
+        }
+        
+        .logs-container {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.8rem;
+            line-height: 1.6;
+            height: calc(100% - 60px);
+            overflow-y: auto;
+            margin-top: 0.75rem;
+        }
+        
+        .log-entry {
+            padding: 0.25rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.03);
+            display: flex;
+            gap: 0.75rem;
+        }
+        
+        .log-time {
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        
+        .log-service {
+            font-weight: 600;
+            min-width: 60px;
+        }
+        
+        .log-service.server { color: var(--accent-green); }
+        .log-service.client { color: var(--accent-cyan); }
+        .log-service.editor { color: var(--accent-purple); }
+        .log-service.system { color: var(--accent-yellow); }
+        
+        .log-level {
+            min-width: 40px;
+        }
+        
+        .log-level.info { color: var(--accent-cyan); }
+        .log-level.warn { color: var(--accent-yellow); }
+        .log-level.error { color: var(--accent-red); }
+        
+        .log-message {
+            flex: 1;
+            word-break: break-word;
+        }
+        
+        /* Metrics */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+        }
+        
+        .metric-card {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+        
+        .metric-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+        
+        .metric-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+        
+        .metric-value.cpu { color: var(--accent-cyan); }
+        .metric-value.memory { color: var(--accent-purple); }
+        .metric-value.fps { color: var(--accent-green); }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>⚡ Protocol TX Monitor</h1>
+        <div class="status">
+            <span class="status-dot" id="connectionStatus"></span>
+            <span id="connectionText">Connected</span>
+        </div>
+    </header>
+    
+    <div class="container">
+        <!-- Services -->
+        <div class="card">
+            <div class="card-header">
+                <h2>🖥️ Services</h2>
+            </div>
+            <div class="card-body">
+                <div class="services-grid" id="servicesGrid">
+                    <!-- Filled by JS -->
+                </div>
+            </div>
+        </div>
+        
+        <!-- Metrics -->
+        <div class="card">
+            <div class="card-header">
+                <h2>📊 Metrics</h2>
+            </div>
+            <div class="card-body">
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value cpu" id="cpuValue">0%</div>
+                        <div class="metric-label">CPU</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value memory" id="memoryValue">0%</div>
+                        <div class="metric-label">Memory</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value fps" id="serverFps">60</div>
+                        <div class="metric-label">Server FPS</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value fps" id="clientFps">60</div>
+                        <div class="metric-label">Client FPS</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Charts -->
+        <div class="card charts-row">
+            <div class="card-header">
+                <h2>📈 Performance</h2>
+            </div>
+            <div class="card-body">
+                <div class="charts-container">
+                    <div class="chart-wrapper">
+                        <canvas id="cpuChart"></canvas>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="memoryChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Logs -->
+        <div class="card logs-card">
+            <div class="card-header">
+                <h2>📜 Logs</h2>
+                <div class="logs-toolbar">
+                    <select id="filterService">
+                        <option value="all">All Services</option>
+                        <option value="server">Server</option>
+                        <option value="client">Client</option>
+                        <option value="editor">Editor</option>
+                        <option value="system">System</option>
+                    </select>
+                    <select id="filterLevel">
+                        <option value="all">All Levels</option>
+                        <option value="info">Info</option>
+                        <option value="warn">Warn</option>
+                        <option value="error">Error</option>
+                    </select>
+                    <input type="text" id="searchInput" placeholder="Search logs...">
+                    <button class="btn btn-export" onclick="exportLogs('json')">📥 JSON</button>
+                    <button class="btn btn-export" onclick="exportLogs('csv')">📥 CSV</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="logs-container" id="logsContainer">
+                    <!-- Filled by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>

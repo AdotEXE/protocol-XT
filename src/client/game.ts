@@ -7916,46 +7916,57 @@ export class Game {
                 // Handle AI World Generation config
                 if (config && config.worldGen) {
                     try {
-                        console.log("[Game] 🌍 Generating world from AI config:", config.worldGen);
-                        const { WorldBuilder } = await import("./services/WorldBuilder");
-                        const wb = new WorldBuilder(this.scene);
+                        console.log("[Game] 🌍 Generating world from RealWorldGeneratorV3:", config.worldGen);
+
+                        // Use new RealWorldGeneratorV3 for better building generation
+                        const { RealWorldGeneratorV3 } = await import("./services/RealWorldGeneratorV3");
+                        const rwg = new RealWorldGeneratorV3(this.scene);
 
                         if (this.hud) this.hud.showMessage(`Загрузка карты: ${config.worldGen.name}...`, "#0f0", 5000);
 
-                        const entities = await wb.downloadArea(config.worldGen.lat, config.worldGen.lon);
+                        const result = await rwg.generate({
+                            lat: config.worldGen.lat,
+                            lon: config.worldGen.lon,
+                            radius: 500,  // Default radius
+                            heightScale: 1.0,
+                            includeRoads: true,
+                            includeWater: true,
+                            includeParks: true
+                        });
 
-                        const mapData: any = {
-                            name: config.worldGen.name,
-                            mapType: "world",
-                            placedObjects: [],
-                            terrainEdits: [],
-                            triggers: [],
-                            worldEntities: entities,
-                            metadata: {
-                                createdAt: Date.now(),
-                                modifiedAt: Date.now(),
-                                author: "AI World Gen",
-                                description: `Generated from ${config.worldGen.name}`
+                        if (result.success) {
+                            const mapData: any = {
+                                name: config.worldGen.name,
+                                mapType: "world",
+                                placedObjects: [],
+                                terrainEdits: [],
+                                triggers: [],
+                                metadata: {
+                                    createdAt: Date.now(),
+                                    modifiedAt: Date.now(),
+                                    author: "RealWorld Gen V3",
+                                    description: `Generated ${result.buildingsGenerated} buildings, ${result.roadsGenerated} roads from ${config.worldGen.name}`
+                                }
+                            };
+
+                            if (typeof this.mapEditor.loadMapData === "function") {
+                                this.mapEditor.loadMapData(mapData);
+                            } else {
+                                (this.mapEditor as any).mapData = mapData;
+                                if (typeof (this.mapEditor as any).updateUI === "function") (this.mapEditor as any).updateUI();
                             }
-                        };
 
-                        if (typeof this.mapEditor.loadMapData === "function") {
-                            this.mapEditor.loadMapData(mapData);
+                            if (this.hud) this.hud.showMessage(`✅ Карта загружена! ${result.buildingsGenerated} зданий`, "#0f0", 3000);
                         } else {
-                            // Fallback if loadMapData is not yet available (e.g. if we didn't update mapEditor.ts correctly)
-                            // But we did update it.
-                            (this.mapEditor as any).mapData = mapData;
-                            if (typeof (this.mapEditor as any).updateUI === "function") (this.mapEditor as any).updateUI();
+                            throw new Error(result.errorMessage || "Generation failed");
                         }
-
-                        await wb.buildWorldFromEntities(entities);
-                        if (this.hud) this.hud.showMessage("Карта загружена!", "#0f0", 3000);
 
                     } catch (e) {
                         console.error("[Game] Failed to generate world:", e);
                         if (this.hud) this.hud.showMessage("Ошибка генерации мира", "#f00", 5000);
                     }
                 }
+
             }
         } catch (error) {
             logger.error("[Game] Failed to open map editor:", error);

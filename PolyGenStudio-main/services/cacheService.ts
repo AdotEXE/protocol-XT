@@ -79,7 +79,10 @@ export const loadMapFromCache = async (seed: string): Promise<{ osm: OSMData, el
                             nodes: nodesMap,
                             buildings: result.osm.buildings,
                             water: result.osm.water,
-                            highways: result.osm.highways
+                            highways: result.osm.highways,
+                            rivers: [],  // Not cached, will refetch if needed
+                            forests: [],
+                            trees: []
                         },
                         elevation: result.elevation
                     });

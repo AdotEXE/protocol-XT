@@ -12,7 +12,7 @@
 import { Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
-import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate";
+
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
@@ -132,13 +132,7 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            if (this.hasPhysics()) {
-                try {
-                    new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                } catch (error) {
-                    console.warn("[SandGenerator] Failed to create physics for central platform:", error);
-                }
-            }
+            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
     }
 

@@ -566,7 +566,7 @@ export class MainMenu {
                 }
             } catch (e) {
                 // Ignore cleanup errors
-                console.warn("[Menu] Error during garage cleanup:", e);
+                debugWarn("[Menu] Error during garage cleanup:", e);
             }
         }
         this.garage = garage;
@@ -4386,7 +4386,7 @@ export class MainMenu {
 
 
     private openTankEditor(): void {
-        console.log("[Menu] Opening PolyGenStudio Tank Workshop...");
+        debugLog("[Menu] Opening PolyGenStudio Tank Workshop...");
 
         // Hide menu
         this.container.classList.add("hidden");
@@ -4458,7 +4458,7 @@ export class MainMenu {
 
         // Close handler
         const closeEditor = () => {
-            console.log("[Menu] Closing PolyGenStudio Tank Workshop");
+            debugLog("[Menu] Closing PolyGenStudio Tank Workshop");
             editorContainer.remove();
             closeButton.remove();
 
@@ -4565,7 +4565,7 @@ export class MainMenu {
                 try {
                     const btn = document.getElementById(id) as HTMLButtonElement;
                     if (!btn) {
-                        console.warn(`[Menu] Button ${id} not found!`);
+                        debugWarn(`[Menu] Button ${id} not found!`);
                         return;
                     }
 
@@ -4576,7 +4576,7 @@ export class MainMenu {
                     // Удаляем все старые обработчики через клонирование
                     const parent = btn.parentNode;
                     if (!parent) {
-                        console.warn(`[Menu] Button ${id} has no parent node`);
+                        debugWarn(`[Menu] Button ${id} has no parent node`);
                         return;
                     }
 
@@ -4627,7 +4627,7 @@ export class MainMenu {
 
                         // Обработчик click - резервный, на случай если mousedown не сработал
                         newBtn.addEventListener("click", (e) => {
-                            console.log(`[Menu] Button ${id} click event!`);
+                            debugLog(`[Menu] Button ${id} click event!`);
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                 logger.verbose(`[Menu] Button ${id} click (backup)`);
                             }
@@ -4644,7 +4644,7 @@ export class MainMenu {
                                 e.stopImmediatePropagation();
 
                                 // Вызываем handler
-                                console.log(`[Menu] Calling handler for ${id} from click`);
+                                debugLog(`[Menu] Calling handler for ${id} from click`);
                                 handler();
                             } catch (error) {
                                 console.error(`[Menu] Error in click handler for ${id}:`, error);
@@ -7187,7 +7187,7 @@ transition: all 0.2s;
                                         try {
                                             // Проверяем инициализацию
                                             if (!gameInstance.gameInitialized) {
-                                                console.log("[Menu] Game not initialized, initializing...");
+                                                debugLog("[Menu] Game not initialized, initializing...");
                                                 await gameInstance.init();
                                                 gameInstance.gameInitialized = true;
                                             }
@@ -7212,9 +7212,9 @@ transition: all 0.2s;
                                 }
                             });
                             game.gameMultiplayerCallbacks.setup();
-                            console.log(`[Menu] ✅ MultiplayerManager создан и настроен`);
+                            debugLog(`[Menu] ✅ MultiplayerManager создан и настроен`);
                         } catch (callbackError) {
-                            console.warn(`[Menu] ⚠️ Не удалось настроить callbacks:`, callbackError);
+                            debugWarn(`[Menu] ⚠️ Не удалось настроить callbacks:`, callbackError);
                         }
                     }
 
@@ -7233,7 +7233,7 @@ transition: all 0.2s;
             this.setupRoomListUpdates(multiplayerManager);
         } else if (!game) {
             // Игра еще не инициализирована - это нормально, просто не показываем предупреждение
-            console.log(`[Menu] Игра еще не инициализирована, список комнат будет настроен позже`);
+            debugLog(`[Menu] Игра еще не инициализирована, список комнат будет настроен позже`);
         } else {
             // MultiplayerManager будет создан при открытии мультиплеера
         }
@@ -7512,7 +7512,7 @@ transition: all 0.2s;
         // Настраиваем callback для обновления кнопки при присоединении/выходе игроков
         if (multiplayerManager) {
             multiplayerManager.onPlayerJoined(() => {
-                console.log("[Menu] 🎮 Игрок присоединился, обновляем статус кнопки");
+                debugLog("[Menu] 🎮 Игрок присоединился, обновляем статус кнопки");
                 setTimeout(() => {
                     this._updateMultiplayerStatus();
                     // Обновляем счетчик игроков в панели комнаты
@@ -7521,7 +7521,7 @@ transition: all 0.2s;
             });
 
             multiplayerManager.onPlayerLeft(() => {
-                console.log("[Menu] 🚪 Игрок покинул комнату, обновляем статус кнопки");
+                debugLog("[Menu] 🚪 Игрок покинул комнату, обновляем статус кнопки");
                 setTimeout(() => {
                     this._updateMultiplayerStatus();
                     // Обновляем счетчик игроков в панели комнаты
@@ -7593,7 +7593,7 @@ transition: all 0.2s;
                 isFirebaseConnected = firebaseService.isInitialized?.() || false;
             }
         } catch (error) {
-            console.warn("[Menu] Error checking Firebase status:", error);
+            debugWarn("[Menu] Error checking Firebase status:", error);
         }
 
         if (isWebSocketConnected) {
@@ -7676,7 +7676,7 @@ transition: all 0.2s;
                     playersCount = networkPlayers ? networkPlayers.size + 1 : 1;
                 }
                 const networkPlayers = multiplayerManager.getNetworkPlayers();
-                console.log(`[Menu] 📊 Игроков в комнате: playersCount=${playersCount}, networkPlayers.size=${networkPlayers?.size || 0}, _roomPlayersCount=${(multiplayerManager as any)._roomPlayersCount || 'N/A'}`);
+                debugLog(`[Menu] 📊 Игроков в комнате: playersCount=${playersCount}, networkPlayers.size=${networkPlayers?.size || 0}, _roomPlayersCount=${(multiplayerManager as any)._roomPlayersCount || 'N/A'}`);
 
                 const playersCountEl = document.getElementById("mp-room-players-count");
                 if (playersCountEl) {
@@ -7694,10 +7694,10 @@ transition: all 0.2s;
                         isActive = multiplayerManager._roomIsActive === true;
                     }
                 } catch (e) {
-                    console.warn("[Menu] Ошибка проверки isRoomActive:", e);
+                    debugWarn("[Menu] Ошибка проверки isRoomActive:", e);
                 }
 
-                console.log(`[Menu] 🎮 Статус комнаты: isActive=${isActive}, roomId=${roomId}, playersCount=${playersCount}`);
+                debugLog(`[Menu] 🎮 Статус комнаты: isActive=${isActive}, roomId=${roomId}, playersCount=${playersCount}`);
 
                 if (roomStatusTextEl) {
                     if (isActive) {
@@ -7729,11 +7729,11 @@ transition: all 0.2s;
                             } else {
                                 // Если создатель комнаты не определен, проверяем через roomId
                                 // Если мы создали комнату, то мы создатель
-                                console.warn("[Menu] isRoomCreator не определен, проверяем через roomId");
+                                debugWarn("[Menu] isRoomCreator не определен, проверяем через roomId");
                                 isCreator = false; // Безопаснее предположить, что мы не создатель
                             }
                         } catch (e) {
-                            console.warn("[Menu] Ошибка проверки isRoomCreator:", e);
+                            debugWarn("[Menu] Ошибка проверки isRoomCreator:", e);
                             isCreator = false;
                         }
 
@@ -7741,11 +7741,11 @@ transition: all 0.2s;
                         // Дополнительно проверяем текст статуса на случай, если isActive не обновлен
                         let finalIsActive = isActive;
                         if (roomStatusTextEl && roomStatusTextEl.textContent && roomStatusTextEl.textContent.includes("Игра идет")) {
-                            console.log(`[Menu] ⚠️ Статус показывает "Игра идет", но isActive=${isActive}. Принудительно устанавливаем finalIsActive=true`);
+                            debugLog(`[Menu] ⚠️ Статус показывает "Игра идет", но isActive=${isActive}. Принудительно устанавливаем finalIsActive=true`);
                             finalIsActive = true;
                         }
 
-                        console.log(`[Menu] 🔍 Кнопка: isCreator=${isCreator}, isActive=${isActive}, finalIsActive=${finalIsActive}, playersCount=${playersCount}`);
+                        debugLog(`[Menu] 🔍 Кнопка: isCreator=${isCreator}, isActive=${isActive}, finalIsActive=${finalIsActive}, playersCount=${playersCount}`);
 
                         const debugInfo = `[Menu] Кнопка "В БОЙ!": isCreator=${isCreator}, isActive=${isActive}, finalIsActive=${finalIsActive}, playersCount=${playersCount}, roomId=${roomId}`;
                         console.log(debugInfo);
@@ -7765,14 +7765,14 @@ transition: all 0.2s;
 
                             // КРИТИЧНО: Если игра идет, кнопка должна быть видна и кликабельна для ВСЕХ!
                             if (finalIsActive) {
-                                console.log(`[Menu] 🎮 ИГРА ИДЕТ - кнопка доступна ВСЕМ игрокам для присоединения!`);
+                                debugLog(`[Menu] 🎮 ИГРА ИДЕТ - кнопка доступна ВСЕМ игрокам для присоединения!`);
                             }
 
                             // Дополнительная проверка через небольшую задержку
                             setTimeout(() => {
                                 const computedStyle = window.getComputedStyle(startGameBtn);
                                 if (computedStyle.display === "none" || computedStyle.visibility === "hidden") {
-                                    console.warn("[Menu] ⚠️ Кнопка скрыта CSS, принудительно показываем");
+                                    debugWarn("[Menu] ⚠️ Кнопка скрыта CSS, принудительно показываем");
                                     startGameBtn.style.setProperty("display", "block", "important");
                                     startGameBtn.style.setProperty("visibility", "visible", "important");
                                 }
@@ -7784,7 +7784,7 @@ transition: all 0.2s;
 
                             // КРИТИЧНО: Сначала проверяем isActive - если игра идет, ВСЕ игроки могут присоединиться!
                             if (finalIsActive) {
-                                console.log(`[Menu] ✅ Игра активна (${playersCount} игроков), показываем кнопку "ПРИСОЕДИНИТЬСЯ К БИТВЕ!" для ВСЕХ игроков`);
+                                debugLog(`[Menu] ✅ Игра активна (${playersCount} игроков), показываем кнопку "ПРИСОЕДИНИТЬСЯ К БИТВЕ!" для ВСЕХ игроков`);
                                 // Игра уже идет - можно присоединиться (для ВСЕХ игроков, БЕЗ ПРОВЕРОК!)
                                 buttonText = `⚔️ ПРИСОЕДИНИТЬСЯ К БИТВЕ! (${playersCount} игроков)`;
                                 startGameBtn.style.opacity = "1";
@@ -8060,7 +8060,7 @@ transition: all 0.2s;
         // Это гарантирует, что все игроки увидят одинаковую карту с сервера
         localStorage.removeItem("selectedCustomMapData");
         localStorage.removeItem("selectedCustomMapIndex");
-        console.log("[Menu] 🗺️ Очищены данные custom карты при создании мультиплеер комнаты");
+        debugLog("[Menu] 🗺️ Очищены данные custom карты при создании мультиплеер комнаты");
 
         const game = (window as any).gameInstance as any;
         if (!game) {
@@ -8242,13 +8242,13 @@ transition: all 0.2s;
 
         if (multiplayerManager.isConnected()) {
             // ВСЕГДА настраиваем callback при открытии меню (перезаписываем для надежности)
-            console.log(`[Menu] ✅ Настройка callback для списка комнат при открытии меню`);
+            debugLog(`[Menu] ✅ Настройка callback для списка комнат при открытии меню`);
             multiplayerManager.onRoomList((rooms: any[]) => {
                 // Throttling: логируем только при изменении количества комнат или раз в 2 секунды
                 const now = Date.now();
                 const shouldLog = (now - this._lastRoomListLogTime) > 30000 || rooms.length !== this._lastRoomListCount;
                 if (shouldLog) {
-                    console.log(`[Menu] 📋 Room list: ${rooms.length} rooms`);
+                    debugLog(`[Menu] 📋 Room list: ${rooms.length} rooms`);
                     this._lastRoomListLogTime = now;
                     this._lastRoomListCount = rooms.length;
                 }
@@ -8257,7 +8257,7 @@ transition: all 0.2s;
             });
 
             // Запрашиваем список комнат сразу
-            console.log(`[Menu] 📡 Запрос списка комнат при открытии меню`);
+            debugLog(`[Menu] 📡 Запрос списка комнат при открытии меню`);
             multiplayerManager.requestRoomList();
 
             // Обновляем список каждые 3 секунды (улучшено для более быстрого обновления)
@@ -8272,7 +8272,7 @@ transition: all 0.2s;
                 }
             }, 3000);
         } else {
-            console.warn(`[Menu] ⚠️ Не подключено к серверу, список комнат не будет обновляться`);
+            debugWarn(`[Menu] ⚠️ Не подключено к серверу, список комнат не будет обновляться`);
         }
     }
 
@@ -8299,12 +8299,12 @@ transition: all 0.2s;
 
         const roomsContainer = document.getElementById("mp-rooms-items");
         if (!roomsContainer) {
-            console.warn("[Menu] ⚠️ Контейнер mp-rooms-items не найден!");
+            debugWarn("[Menu] ⚠️ Контейнер mp-rooms-items не найден!");
             return;
         }
 
         // Убрано для уменьшения спама в логах
-        // console.log(`[Menu] 📋 Обновление списка комнат в меню мультиплеера: ${ rooms.length } комнат(показано: ${ filteredRooms.length })`);
+        // debugLog(`[Menu] 📋 Обновление списка комнат в меню мультиплеера: ${ rooms.length } комнат(показано: ${ filteredRooms.length })`);
 
         roomsContainer.innerHTML = "";
 
@@ -8393,7 +8393,7 @@ transition: all 0.2s;
      * Обновление панели текущей комнаты
      */
     updateRoomPanel(roomId: string, mode: string, mapType: string): void {
-        console.log("[Menu] Updating room panel:", roomId, mode, mapType);
+        debugLog("[Menu] Updating room panel:", roomId, mode, mapType);
 
         // Обновляем ID комнаты
         const idEl = document.getElementById("mp-room-panel-id");
@@ -8547,7 +8547,7 @@ transition: all 0.2s;
             startGameBtn.onclick = async () => {
                 const game = (window as any).gameInstance;
                 if (game?.multiplayerManager) {
-                    console.log("[Menu] Starting game in room:", roomId);
+                    debugLog("[Menu] Starting game in room:", roomId);
                     this.hideAllPlayWindows();
                     this.hidePlayMenu();
                     await this.startMultiplayerGame();
@@ -8562,7 +8562,7 @@ transition: all 0.2s;
             leaveBtn.onclick = () => {
                 const game = (window as any).gameInstance;
                 if (game?.multiplayerManager) {
-                    console.log("[Menu] Leaving room:", roomId);
+                    debugLog("[Menu] Leaving room:", roomId);
                     game.multiplayerManager.leaveRoom();
                     this.hideAllPlayWindows();
                     this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
@@ -8626,7 +8626,7 @@ transition: all 0.2s;
                             sniper: allowSniper
                         }
                     };
-                    console.log("[Menu] Saving room settings:", settings);
+                    debugLog("[Menu] Saving room settings:", settings);
                     // TODO: Отправить настройки на сервер
                     this.showMultiplayerNotification("Настройки сохранены!", "#4ade80");
                 }
@@ -8733,12 +8733,12 @@ transition: all 0.2s;
 
         const sendChatMessage = () => {
             if (!chatInput || !chatMessages) {
-                console.warn("[Menu] Chat input or messages container not found");
+                debugWarn("[Menu] Chat input or messages container not found");
                 return;
             }
             const message = chatInput.value.trim();
             if (!message) {
-                console.log("[Menu] Empty message, ignoring");
+                debugLog("[Menu] Empty message, ignoring");
                 return;
             }
 
@@ -8746,20 +8746,20 @@ transition: all 0.2s;
             const multiplayerManager = game?.multiplayerManager;
 
             if (!multiplayerManager) {
-                console.warn("[Menu] MultiplayerManager not available");
+                debugWarn("[Menu] MultiplayerManager not available");
                 return;
             }
 
             // Проверяем, что мы действительно в этой комнате
             const currentRoomId = multiplayerManager.getRoomId();
             if (currentRoomId !== roomId) {
-                console.warn("[Menu] Not in room", roomId, "current room:", currentRoomId);
+                debugWarn("[Menu] Not in room", roomId, "current room:", currentRoomId);
                 return;
             }
 
             const playerName = multiplayerManager.getPlayerName() || "Вы";
 
-            console.log("[Menu] Sending room chat message:", { roomId, playerName, message });
+            debugLog("[Menu] Sending room chat message:", { roomId, playerName, message });
 
             // Добавляем сообщение в чат локально для мгновенного отклика
             // В callback будет проверка на isOwnMessage, чтобы не дублировать
@@ -8768,7 +8768,7 @@ transition: all 0.2s;
             // Отправляем сообщение на сервер (sendChatMessage автоматически отправляет в комнату, если игрок в комнате)
             try {
                 multiplayerManager.sendChatMessage(message);
-                console.log("[Menu] Room chat message sent successfully");
+                debugLog("[Menu] Room chat message sent successfully");
             } catch (error) {
                 console.error("[Menu] Error sending room chat message:", error);
             }
@@ -8786,9 +8786,9 @@ transition: all 0.2s;
                     sendChatMessage();
                 }
             });
-            console.log("[Menu] Room chat input handler attached");
+            debugLog("[Menu] Room chat input handler attached");
         } else {
-            console.warn("[Menu] Room chat input element not found");
+            debugWarn("[Menu] Room chat input element not found");
         }
 
         if (chatSendBtn) {
@@ -8796,9 +8796,9 @@ transition: all 0.2s;
             chatSendBtn.onclick = null;
             // Добавляем новый обработчик
             chatSendBtn.addEventListener("click", sendChatMessage);
-            console.log("[Menu] Room chat send button handler attached");
+            debugLog("[Menu] Room chat send button handler attached");
         } else {
-            console.warn("[Menu] Room chat send button element not found");
+            debugWarn("[Menu] Room chat send button element not found");
         }
 
         // Обработчик входящих сообщений чата для комнаты
@@ -8810,7 +8810,7 @@ transition: all 0.2s;
 
             // Устанавливаем новый callback для комнаты
             multiplayerManager.onChatMessage((data: any) => {
-                console.log("[Menu] Room chat callback received:", { roomId, data, currentRoomId: multiplayerManager.getRoomId() });
+                debugLog("[Menu] Room chat callback received:", { roomId, data, currentRoomId: multiplayerManager.getRoomId() });
 
                 // Проверяем, находимся ли мы в комнате и что это та же комната
                 const currentRoomId = multiplayerManager.getRoomId();
@@ -8821,14 +8821,14 @@ transition: all 0.2s;
                 if (isInThisRoom && data && data.playerName && data.message) {
                     // Если это наше собственное сообщение, не добавляем его снова (оно уже добавлено локально при отправке)
                     if (!isOwnMessage) {
-                        console.log("[Menu] Adding message to room chat:", data.playerName, data.message);
+                        debugLog("[Menu] Adding message to room chat:", data.playerName, data.message);
                         // Добавляем сообщение в чат комнаты
                         this.addRoomChatMessage(data.playerName, data.message, "player");
                     } else {
-                        console.log("[Menu] Skipping own message (already added locally):", data.message);
+                        debugLog("[Menu] Skipping own message (already added locally):", data.message);
                     }
                 } else {
-                    console.log("[Menu] Message not for this room:", { isInThisRoom, currentRoomId, roomId });
+                    debugLog("[Menu] Message not for this room:", { isInThisRoom, currentRoomId, roomId });
                 }
 
                 // Вызываем старый callback если он был (для лобби)
@@ -8840,9 +8840,9 @@ transition: all 0.2s;
                     }
                 }
             });
-            console.log("[Menu] Room chat callback set up for room:", roomId);
+            debugLog("[Menu] Room chat callback set up for room:", roomId);
         } else {
-            console.warn("[Menu] MultiplayerManager not available for room chat");
+            debugWarn("[Menu] MultiplayerManager not available for room chat");
         }
 
         // Обработчики кнопок управления комнатой
@@ -8923,7 +8923,7 @@ transition: all 0.2s;
             sendInviteBtn.onclick = () => {
                 const playerId = inviteIdInput.value.trim();
                 if (playerId) {
-                    console.log("[Menu] Sending invite to player:", playerId);
+                    debugLog("[Menu] Sending invite to player:", playerId);
                     // TODO: Отправить приглашение на сервер
                     this.addRoomSystemMessage(`Приглашение отправлено игроку ${playerId} `);
                     inviteIdInput.value = "";
@@ -8935,7 +8935,7 @@ transition: all 0.2s;
         const autoBalanceBtn = document.getElementById("mp-room-panel-auto-balance");
         if (autoBalanceBtn) {
             autoBalanceBtn.onclick = () => {
-                console.log("[Menu] Auto-balancing teams");
+                debugLog("[Menu] Auto-balancing teams");
                 this.autoBalanceTeams();
             };
         }
@@ -9023,11 +9023,11 @@ transition: all 0.2s;
     addRoomChatMessage(playerName: string, message: string, type: "player" | "system" = "player"): void {
         const chatMessages = document.getElementById("mp-room-panel-chat-messages");
         if (!chatMessages) {
-            console.warn("[Menu] Room chat messages container not found");
+            debugWarn("[Menu] Room chat messages container not found");
             return;
         }
 
-        console.log("[Menu] Adding room chat message:", { playerName, message, type });
+        debugLog("[Menu] Adding room chat message:", { playerName, message, type });
 
         // Удаляем placeholder если есть
         const placeholder = chatMessages.querySelector('div[style*="text-align: center"]');
@@ -9112,7 +9112,7 @@ transition: all 0.2s;
                     inviteBtn.onclick = () => {
                         const friendId = inviteBtn.getAttribute("data-friend-id");
                         if (friendId) {
-                            console.log("[Menu] Inviting friend:", friendId);
+                            debugLog("[Menu] Inviting friend:", friendId);
                             // TODO: Отправить приглашение на сервер
                             this.addRoomSystemMessage(`Приглашение отправлено ${friendName}`);
                         }
@@ -9283,7 +9283,7 @@ transition: all 0.2s;
                 setTimeout(async () => {
                     const game = (window as any).gameInstance;
                     if (game?.multiplayerManager) {
-                        console.log("[Menu] Auto-starting game - all players ready");
+                        debugLog("[Menu] Auto-starting game - all players ready");
                         this.hideAllPlayWindows();
                         this.hidePlayMenu();
                         await this.startMultiplayerGame();
@@ -9322,7 +9322,7 @@ transition: all 0.2s;
         const currentPlayers = multiplayerManager.getRoomPlayersCount?.() || 1;
         const maxPlayers = 32; // TODO: получить из настроек комнаты
 
-        console.log(`[Menu] 🔄 Обновляем панель комнаты: ${currentPlayers}/${maxPlayers} игроков`);
+        debugLog(`[Menu] 🔄 Обновляем панель комнаты: ${currentPlayers}/${maxPlayers} игроков`);
 
         this.updateRoomPanelPlayers(currentPlayers, maxPlayers);
 
@@ -9464,7 +9464,7 @@ transition: all 0.2s;
         const now = Date.now();
         const shouldLog = (now - this._lastLobbyPlayersLogTime) > 30000 || players.length !== this._lastLobbyPlayersCount;
         if (shouldLog) {
-            console.log("[Menu] Lobby players:", players.length);
+            // debugLog("[Menu] Lobby players:", players.length);
             this._lastLobbyPlayersLogTime = now;
             this._lastLobbyPlayersCount = players.length;
         }
@@ -9473,7 +9473,7 @@ transition: all 0.2s;
         const lobbyCount = document.getElementById("lobby-count");
 
         if (!playersList) {
-            console.warn("[Menu] Элемент lobby-players-list не найден!");
+            debugWarn("[Menu] Элемент lobby-players-list не найден!");
             return;
         }
 
@@ -9900,7 +9900,7 @@ transition: all 0.2s;
             playerItem.addEventListener("contextmenu", (e) => {
                 e.preventDefault();
                 // TODO: Implement context menu for player
-                console.log("[Menu] Context menu requested for player:", player.id, player.name);
+                debugLog("[Menu] Context menu requested for player:", player.id, player.name);
             });
 
             container.appendChild(playerItem);
@@ -10053,7 +10053,7 @@ transition: all 0.2s;
         }
 
         // Убрано для уменьшения спама в логах
-        // console.log("[Menu] Отображаем", filtered.length, "из", this.allRooms.length, "комнат");
+        // debugLog("[Menu] Отображаем", filtered.length, "из", this.allRooms.length, "комнат");
 
         // Рендерим отфильтрованные комнаты
         filtered.forEach(room => {
@@ -10128,7 +10128,7 @@ transition: all 0.2s;
      */
     joinPlayerRoom(playerId: string, roomId: string | null): void {
         if (!roomId) {
-            console.warn(`[Menu] Игрок ${playerId} не в комнате`);
+            debugWarn(`[Menu] Игрок ${playerId} не в комнате`);
             return;
         }
 
@@ -10250,7 +10250,7 @@ transition: all 0.2s;
 
                 try {
                     multiplayerManager.sendChatMessage(chatMessage);
-                    console.log(`[Menu] Сообщение отправлено игроку ${playerName}: ${message}`);
+                    debugLog(`[Menu] Сообщение отправлено игроку ${playerName}: ${message}`);
 
                     // Показываем уведомление
                     if (game?.chatSystem) {
@@ -10314,7 +10314,7 @@ transition: all 0.2s;
         try {
             // Если мы не в комнате, автоматически создаем комнату
             if (!currentRoomId) {
-                console.log(`[Menu] 🏠 Автоматическое создание комнаты для приглашения ${playerName}...`);
+                debugLog(`[Menu] 🏠 Автоматическое создание комнаты для приглашения ${playerName}...`);
 
                 // Показываем уведомление о создании комнаты
                 this.showMultiplayerNotification(`Создание комнаты для игры с ${playerName}...`, "#4ade80");
@@ -10337,12 +10337,12 @@ transition: all 0.2s;
                     return;
                 }
 
-                console.log(`[Menu] ✅ Комната создана: ${currentRoomId}`);
+                debugLog(`[Menu] ✅ Комната создана: ${currentRoomId}`);
                 this.showMultiplayerNotification(`Комната создана! Отправка приглашения...`, "#4ade80");
             }
 
             // Отправляем приглашение с ID комнаты
-            console.log(`[Menu] 👥 Приглашение игрока ${playerName} в комнату ${currentRoomId}`);
+            debugLog(`[Menu] 👥 Приглашение игрока ${playerName} в комнату ${currentRoomId}`);
             multiplayerManager.sendGameInvite(playerId, gameMode);
 
             // Показываем уведомление
@@ -10369,7 +10369,7 @@ transition: all 0.2s;
             if (saved) {
                 const friends = JSON.parse(saved);
                 this.friendsList = new Set(friends);
-                console.log(`[Menu] Загружено ${this.friendsList.size} друзей из localStorage`);
+                debugLog(`[Menu] Загружено ${this.friendsList.size} друзей из localStorage`);
             }
         } catch (error) {
             console.error("[Menu] Ошибка загрузки списка друзей:", error);
@@ -10409,7 +10409,7 @@ transition: all 0.2s;
         }
 
         try {
-            console.log(`[Menu] Отправка запроса на добавление в друзья игроку ${playerName} (${playerId})`);
+            debugLog(`[Menu] Отправка запроса на добавление в друзья игроку ${playerName} (${playerId})`);
             const success = await socialSystem.sendFriendRequest(playerId, playerName);
 
             if (success) {
@@ -10450,29 +10450,29 @@ transition: all 0.2s;
         // Это гарантирует, что все игроки увидят одинаковую карту с сервера
         localStorage.removeItem("selectedCustomMapData");
         localStorage.removeItem("selectedCustomMapIndex");
-        console.log("[Menu] 🗺️ Очищены данные custom карты при входе в мультиплеер (joinRoom)");
+        debugLog("[Menu] 🗺️ Очищены данные custom карты при входе в мультиплеер (joinRoom)");
 
         const game = (window as any).gameInstance as any;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager) {
-            console.log("[Menu] MultiplayerManager не готов, ожидаем...");
+            debugLog("[Menu] MultiplayerManager не готов, ожидаем...");
             return;
         }
 
         if (!multiplayerManager.isConnected()) {
-            console.log("[Menu] Ожидаем подключения к серверу...");
+            debugLog("[Menu] Ожидаем подключения к серверу...");
             return;
         }
 
-        console.log(`[Menu] Присоединение к комнате ${roomId}`);
+        debugLog(`[Menu] Присоединение к комнате ${roomId}`);
 
         // Находим информацию о комнате из списка
         const room = this.allRooms.find(r => r.id === roomId);
 
         // Устанавливаем callback для показа панели комнаты после присоединения
         multiplayerManager.onRoomJoined((data: any) => {
-            console.log("[Menu] Room joined:", data);
+            debugLog("[Menu] Room joined:", data);
 
             // Обновляем панель комнаты с данными из комнаты
             this.updateRoomPanel(
@@ -10516,7 +10516,7 @@ transition: all 0.2s;
                 (startBtnEl as HTMLElement).style.display = "block";
             }
 
-            console.log("[Menu] Room panel shown for joined room:", data.roomId || roomId, "isHost:", isHost);
+            debugLog("[Menu] Room panel shown for joined room:", data.roomId || roomId, "isHost:", isHost);
         });
 
         // Присоединяемся к комнате
@@ -10641,7 +10641,7 @@ transition: all 0.2s;
         const lobbyPanel = document.getElementById("lobby-panel");
 
         if (!toggleBtn || !lobbyPanel) {
-            console.warn("[Menu] Не найдены элементы для сворачивания лобби");
+            debugWarn("[Menu] Не найдены элементы для сворачивания лобби");
             return;
         }
 
@@ -10708,13 +10708,13 @@ transition: all 0.2s;
             if (toggleBtn) toggleBtn.textContent = "◀";
             if (menuContent) menuContent.classList.add("lobby-open");
             localStorage.setItem("lobbyCollapsed", "false");
-            console.log("[Menu] Лобби развернуто");
+            debugLog("[Menu] Лобби развернуто");
         } else {
             panel.classList.add("collapsed");
             if (toggleBtn) toggleBtn.textContent = "▶";
             if (menuContent) menuContent.classList.remove("lobby-open");
             localStorage.setItem("lobbyCollapsed", "true");
-            console.log("[Menu] Лобби свернуто");
+            debugLog("[Menu] Лобби свернуто");
         }
     }
 
@@ -10953,7 +10953,7 @@ transition: all 0.2s;
             this._lobbyCallbackRetries++;
             // Логируем только первую попытку, остальные молча
             if (this._lobbyCallbackRetries === 1) {
-                console.log("[Menu] 🔧 MultiplayerManager ещё не создан, ожидаем...");
+                // debugLog("[Menu] 🔧 MultiplayerManager ещё не создан, ожидаем...");
             }
             // Попробуем позже (максимум 10 попыток)
             if (this._lobbyCallbackRetries < 10) {
@@ -10966,7 +10966,7 @@ transition: all 0.2s;
         this._lobbyCallbackRetries = 0;
 
         const isConnected = multiplayerManager.isConnected();
-        console.log("[Menu] ✅ MultiplayerManager найден, подключен:", isConnected);
+        // debugLog("[Menu] ✅ MultiplayerManager найден, подключен:", isConnected);
 
         // Настраиваем callback для списка игроков (логирование отключено для уменьшения спама)
         multiplayerManager.onOnlinePlayersList((data: { players?: any[] }) => {
@@ -10976,7 +10976,7 @@ transition: all 0.2s;
         // Настраиваем callback для списка комнат (обновляет оба UI одновременно)
         multiplayerManager.onRoomList((rooms: any[]) => {
             // Убрано для уменьшения спама в логах
-            // console.log("[Menu] ✅ Получен список комнат для лобби:", rooms.length, "комнат");
+            // debugLog("[Menu] ✅ Получен список комнат для лобби:", rooms.length, "комнат");
             // Обновляем оба UI одновременно
             this.updateAllRoomLists(rooms);
         });
@@ -10995,40 +10995,40 @@ transition: all 0.2s;
         // Функция для запроса списка игроков
         const requestPlayers = () => {
             if (multiplayerManager.isConnected()) {
-                console.log("[Menu] 📡 Запрос списка игроков для лобби...");
+                // debugLog("[Menu] 📡 Запрос списка игроков для лобби...");
                 try {
                     multiplayerManager.getOnlinePlayers();
-                    console.log("[Menu] ✅ Запрос отправлен успешно");
+                    // debugLog("[Menu] ✅ Запрос отправлен успешно");
                 } catch (error) {
                     console.error("[Menu] ❌ Ошибка при отправке запроса:", error);
                 }
             } else {
-                console.warn("[Menu] ⚠️ MultiplayerManager не подключен, ожидание подключения...");
+                // debugWarn("[Menu] ⚠️ MultiplayerManager не подключен, ожидание подключения...");
             }
         };
 
         // Запрашиваем список игроков сразу, если подключен
         if (isConnected) {
-            console.log("[Menu] 🚀 Подключен, запрашиваем список игроков сразу");
+            // debugLog("[Menu] 🚀 Подключен, запрашиваем список игроков сразу");
             requestPlayers();
         } else {
-            console.log("[Menu] ⏳ Не подключен, ждем подключения...");
+            // debugLog("[Menu] ⏳ Не подключен, ждем подключения...");
             // Если не подключен, ждем подключения
             let attempts = 0;
             const maxAttempts = 20; // 10 секунд (20 * 500ms)
             const checkConnection = setInterval(() => {
                 attempts++;
                 if (multiplayerManager.isConnected()) {
-                    console.log("[Menu] ✅ MultiplayerManager подключен, запрашиваем список игроков");
+                    // debugLog("[Menu] ✅ MultiplayerManager подключен, запрашиваем список игроков");
                     requestPlayers();
                     clearInterval(checkConnection);
                 } else if (attempts >= maxAttempts) {
-                    console.warn("[Menu] ⚠️ Превышено время ожидания подключения");
+                    // debugWarn("[Menu] ⚠️ Превышено время ожидания подключения");
                     clearInterval(checkConnection);
                 } else {
                     // Only log every 5 attempts to reduce spam
                     if (attempts % 5 === 0) {
-                        console.log(`[Menu] ⏳ Ожидание подключения... (попытка ${attempts}/${maxAttempts})`);
+                        // debugLog(`[Menu] ⏳ Ожидание подключения... (попытка ${attempts}/${maxAttempts})`);
                     }
                 }
             }, 500);
@@ -11095,19 +11095,19 @@ transition: all 0.2s;
                 lobbyPanel.style.display !== "none";
 
             if (!isMenuVisible || !isLobbyVisible) {
-                console.log("[Menu] ⏸️ Пропуск автообновления - меню или лобби не видно");
+                // debugLog("[Menu] ⏸️ Пропуск автообновления - меню или лобби не видно");
                 return;
             }
 
             if (multiplayerManager.isConnected()) {
-                console.log("[Menu] 🔄 Автоматическое обновление лобби");
+                // debugLog("[Menu] 🔄 Автоматическое обновление лобби");
                 this.refreshLobbyData(multiplayerManager);
             } else {
-                console.warn("[Menu] ⚠️ Пропуск автообновления - не подключен");
+                // debugWarn("[Menu] ⚠️ Пропуск автообновления - не подключен");
             }
         }, this.lobbyAutoRefreshIntervalMs);
 
-        console.log(`[Menu] ✅ Автообновление лобби запущено (интервал: ${this.lobbyAutoRefreshIntervalMs}ms)`);
+        // debugLog(`[Menu] ✅ Автообновление лобби запущено (интервал: ${this.lobbyAutoRefreshIntervalMs}ms)`);
     }
 
     /**
@@ -11117,7 +11117,7 @@ transition: all 0.2s;
         if (this.lobbyAutoRefreshInterval !== null) {
             clearInterval(this.lobbyAutoRefreshInterval);
             this.lobbyAutoRefreshInterval = null;
-            console.log("[Menu] ⏸️ Автообновление лобби остановлено");
+            // debugLog("[Menu] ⏸️ Автообновление лобби остановлено");
         }
     }
 
@@ -11168,7 +11168,7 @@ transition: all 0.2s;
             this.lobbyVisibilityObserver = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
                     if (!entry.isIntersecting && this.lobbyAutoRefreshInterval !== null) {
-                        console.log("[Menu] 👁️ Панель лобби скрыта, автообновление приостановлено");
+                        // debugLog("[Menu] 👁️ Панель лобби скрыта, автообновление приостановлено");
                     }
                 });
             }, {
@@ -11187,12 +11187,12 @@ transition: all 0.2s;
         const mm = multiplayerManager || game?.multiplayerManager;
 
         if (!mm || !mm.isConnected()) {
-            console.warn("[Menu] ⚠️ Не могу обновить - MultiplayerManager не подключен");
+            debugWarn("[Menu] ⚠️ Не могу обновить - MultiplayerManager не подключен");
             this.updateLastUpdateTime(false);
             return;
         }
 
-        console.log("[Menu] 🔄 Ручное обновление данных лобби");
+        // debugLog("[Menu] 🔄 Ручное обновление данных лобби");
         mm.getOnlinePlayers();
         mm.requestRoomList();
         this.updateLastUpdateTime(true);
@@ -11254,7 +11254,7 @@ transition: all 0.2s;
     showRoomDetails(room: any): void {
         const modal = document.getElementById("mp-room-details-modal");
         if (!modal) {
-            console.warn("[Menu] ⚠️ Модальное окно деталей комнаты не найдено");
+            debugWarn("[Menu] ⚠️ Модальное окно деталей комнаты не найдено");
             return;
         }
 
@@ -11312,7 +11312,7 @@ transition: all 0.2s;
             joinBtn.onclick = null;
             joinBtn.onclick = () => {
                 // Используем единый метод joinRoom(), который уже содержит всю логику показа панели
-                console.log(`[Menu] Присоединение к комнате ${room.id} из модального окна`);
+                debugLog(`[Menu] Присоединение к комнате ${room.id} из модального окна`);
                 this.joinRoom(room.id);
             };
         }
@@ -11322,7 +11322,7 @@ transition: all 0.2s;
             copyBtn.onclick = null;
             copyBtn.onclick = () => {
                 navigator.clipboard.writeText(room.id).then(() => {
-                    console.log(`[Menu] ✅ ID комнаты ${room.id} скопирован в буфер обмена`);
+                    debugLog(`[Menu] ✅ ID комнаты ${room.id} скопирован в буфер обмена`);
                     // Визуальная обратная связь
                     if (copyBtn) {
                         const originalText = copyBtn.innerHTML;
@@ -11597,7 +11597,7 @@ transition: all 0.2s;
         }
 
         // TODO: Добавить метод в MultiplayerManager для изменения настроек комнаты
-        console.log(`[Menu] Изменение настроек комнаты ${roomId}:`, settings);
+        debugLog(`[Menu] Изменение настроек комнаты ${roomId}:`, settings);
         alert("Функция изменения настроек комнаты будет реализована на сервере");
     }
 
@@ -11614,7 +11614,7 @@ transition: all 0.2s;
         }
 
         // TODO: Добавить метод в MultiplayerManager для передачи прав
-        console.log(`[Menu] Передача прав владельца комнаты ${roomId} игроку ${newOwnerId}`);
+        debugLog(`[Menu] Передача прав владельца комнаты ${roomId} игроку ${newOwnerId}`);
         alert("Функция передачи прав будет реализована на сервере");
     }
 
@@ -11631,7 +11631,7 @@ transition: all 0.2s;
         }
 
         // TODO: Добавить метод в MultiplayerManager для кика игрока
-        console.log(`[Menu] Кик игрока ${playerId} из комнаты ${roomId}, причина: ${reason || "не указана"}`);
+        debugLog(`[Menu] Кик игрока ${playerId} из комнаты ${roomId}, причина: ${reason || "не указана"}`);
         alert("Функция кика игрока будет реализована на сервере");
     }
 
@@ -11703,7 +11703,7 @@ transition: all 0.2s;
 
         // КРИТИЧНО: Если игра уже идет, ЛЮБОЙ игрок может присоединиться!
         if (gameIsActive) {
-            console.log("[Menu] 🎮 Игра уже идет, присоединяемся (любой игрок может присоединиться)!");
+            debugLog("[Menu] 🎮 Игра уже идет, присоединяемся (любой игрок может присоединиться)!");
 
             // Проверяем подключение
             if (!multiplayerManager.isConnected()) {
@@ -11716,15 +11716,15 @@ transition: all 0.2s;
 
             if (game && typeof game.startGame === 'function') {
                 try {
-                    console.log("[Menu] ✅ Запускаем игру для присоединения к идущей битве");
+                    debugLog("[Menu] ✅ Запускаем игру для присоединения к идущей битве");
 
                     // КРИТИЧНО: Проверяем инициализацию игры перед запуском
                     if (!game.gameInitialized) {
-                        console.log("[Menu] ⚠️ Игра не инициализирована, инициализируем...");
+                        debugLog("[Menu] ⚠️ Игра не инициализирована, инициализируем...");
                         try {
                             // Проверяем, что init не вызывается уже
                             if ((game as any)._isInitializing) {
-                                console.log("[Menu] ⏳ Инициализация уже идет, ждем...");
+                                debugLog("[Menu] ⏳ Инициализация уже идет, ждем...");
                                 // Ждем завершения инициализации
                                 let waitCount = 0;
                                 while ((game as any)._isInitializing && waitCount < 50) {
@@ -11739,21 +11739,21 @@ transition: all 0.2s;
                                 try {
                                     await game.init();
                                     game.gameInitialized = true;
-                                    console.log("[Menu] ✅ Игра успешно инициализирована");
+                                    debugLog("[Menu] ✅ Игра успешно инициализирована");
 
                                     // КРИТИЧНО: Проверяем и исправляем mapType после init()
                                     // Это гарантирует синхронизацию карты с сервером
                                     const serverMapType = multiplayerManager.getMapType();
                                     if (serverMapType && game.currentMapType !== serverMapType) {
-                                        console.log(`%c[Menu] 🗺️ КРИТИЧНО: mapType не совпадает после init()! Текущий: ${game.currentMapType}, Сервер: ${serverMapType}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
+                                        debugLog(`%c[Menu] 🗺️ КРИТИЧНО: mapType не совпадает после init()! Текущий: ${game.currentMapType}, Сервер: ${serverMapType}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
                                         game.currentMapType = serverMapType;
                                         if (game.chunkSystem) {
-                                            console.log("[Menu] 🗺️ Перезагружаем карту для синхронизации...");
+                                            debugLog("[Menu] 🗺️ Перезагружаем карту для синхронизации...");
                                             await game.reloadMap(serverMapType);
-                                            console.log("[Menu] ✅ Карта синхронизирована с сервером");
+                                            debugLog("[Menu] ✅ Карта синхронизирована с сервером");
                                         }
                                     } else {
-                                        console.log(`[Menu] ✅ mapType совпадает: ${game.currentMapType} (сервер: ${serverMapType || 'N/A'})`);
+                                        debugLog(`[Menu] ✅ mapType совпадает: ${game.currentMapType} (сервер: ${serverMapType || 'N/A'})`);
                                     }
                                 } finally {
                                     (game as any)._isInitializing = false;
@@ -11799,7 +11799,7 @@ transition: all 0.2s;
 
                     // Проверяем, что камера установлена
                     if (!game.camera) {
-                        console.warn("[Menu] ⚠️ Камера еще не создана, но продолжаем...");
+                        debugWarn("[Menu] ⚠️ Камера еще не создана, но продолжаем...");
                     } else {
                         // Убеждаемся, что камера активна
                         if (game.scene) {
@@ -11813,7 +11813,7 @@ transition: all 0.2s;
 
                     // Запускаем игру
                     game.startGame();
-                    console.log("[Menu] ✅ Игра запущена для присоединения к идущей битве");
+                    debugLog("[Menu] ✅ Игра запущена для присоединения к идущей битве");
                 } catch (error) {
                     console.error("[Menu] ❌ Ошибка при запуске игры:", error);
                     this.showMultiplayerError("Не удалось запустить игру. Попробуйте еще раз.");
@@ -11834,7 +11834,7 @@ transition: all 0.2s;
                 isCreator = multiplayerManager._isRoomCreator;
             }
         } catch (e) {
-            console.warn("[Menu] Ошибка проверки isRoomCreator:", e);
+            debugWarn("[Menu] Ошибка проверки isRoomCreator:", e);
         }
 
         if (!isCreator) {
@@ -11856,11 +11856,11 @@ transition: all 0.2s;
         }
 
         // Отправляем запрос на начало игры
-        console.log("[Menu] 🎮 Отправка запроса на начало игры...");
+        debugLog("[Menu] 🎮 Отправка запроса на начало игры...");
         const success = multiplayerManager.startGame();
         if (success) {
             debugLog("[Menu] Start game request sent");
-            console.log("[Menu] ✅ Запрос на начало игры отправлен успешно");
+            debugLog("[Menu] ✅ Запрос на начало игры отправлен успешно");
 
             // Обновляем текст кнопки
             const startGameBtn = document.getElementById("mp-btn-start-game");
@@ -12001,13 +12001,13 @@ transition: all 0.2s;
                 try {
                     if (data.roomId) {
                         // Присоединяемся к существующей комнате
-                        console.log(`[Menu] 🎮 Принятие приглашения: присоединение к комнате ${data.roomId}`);
+                        debugLog(`[Menu] 🎮 Принятие приглашения: присоединение к комнате ${data.roomId}`);
                         this.showMultiplayerNotification(`Присоединение к комнате ${data.fromPlayerName}...`, "#4ade80");
                         // Используем единый метод joinRoom() для показа панели комнаты
                         this.joinRoom(data.roomId);
                     } else {
                         // Если комнаты нет, создаем новую и приглашаем отправителя
-                        console.log(`[Menu] 🏠 Принятие приглашения: создание новой комнаты`);
+                        debugLog(`[Menu] 🏠 Принятие приглашения: создание новой комнаты`);
                         const mode = data.gameMode || "ffa";
                         this.showMultiplayerNotification(`Создание комнаты для игры с ${data.fromPlayerName}...`, "#4ade80");
 
@@ -12027,7 +12027,7 @@ transition: all 0.2s;
 
                         if (roomId) {
                             // Отправляем приглашение обратно отправителю
-                            console.log(`[Menu] 👥 Отправка приглашения обратно ${data.fromPlayerId} в комнату ${roomId}`);
+                            debugLog(`[Menu] 👥 Отправка приглашения обратно ${data.fromPlayerId} в комнату ${roomId}`);
                             multiplayerManager.sendGameInvite(data.fromPlayerId, mode);
                             this.showMultiplayerNotification(`Комната создана! Приглашение отправлено ${data.fromPlayerName}...`, "#4ade80");
                         } else {
@@ -12040,7 +12040,7 @@ transition: all 0.2s;
                     }
 
                     // После присоединения/создания комнаты открываем меню выбора карты и режима
-                    console.log(`[Menu] 🗺️ Открытие меню выбора карты и режима после принятия приглашения`);
+                    debugLog(`[Menu] 🗺️ Открытие меню выбора карты и режима после принятия приглашения`);
 
                     // Закрываем модальное окно приглашения
                     modal.remove();
@@ -12623,8 +12623,8 @@ transition: all 0.2s;
         // Если выбран мультиплеер, запускаем игру и подключаемся к матчмейкингу
         if (this.selectedGameMode === "multiplayer") {
             // Запускаем игру в одиночном режиме (карта нужна для генерации мира)
-            console.log("[Menu] startSelectedGame (multiplayer): calling onStartGame with map:", this.selectedMapType, "mapData:", mapData ? mapData.name : "none");
-            console.log("[Menu] startSelectedGame: onStartGame callback:", typeof this.onStartGame);
+            debugLog("[Menu] startSelectedGame (multiplayer): calling onStartGame with map:", this.selectedMapType, "mapData:", mapData ? mapData.name : "none");
+            debugLog("[Menu] startSelectedGame: onStartGame callback:", typeof this.onStartGame);
             if (this.onStartGame && typeof this.onStartGame === 'function') {
                 // Передаем mapType и mapData (если есть)
                 this.onStartGame(this.selectedMapType, mapData);
@@ -12654,8 +12654,8 @@ transition: all 0.2s;
             }, 3000);
         } else {
             // Обычный старт для одиночной игры
-            console.log("[Menu] Starting game with mapType:", this.selectedMapType, "mapData:", mapData ? mapData.name : "none");
-            console.log("[Menu] onStartGame callback:", typeof this.onStartGame);
+            debugLog("[Menu] Starting game with mapType:", this.selectedMapType, "mapData:", mapData ? mapData.name : "none");
+            debugLog("[Menu] onStartGame callback:", typeof this.onStartGame);
 
             // Сбрасываем флаг мультиплеера чтобы боты спавнились
             const game = (window as any).gameInstance as any;
@@ -12688,8 +12688,8 @@ transition: all 0.2s;
 
         this.hide();
         this.hidePlayMenu();
-        console.log("[Menu] quickStart: calling onStartGame with map:", savedMap);
-        console.log("[Menu] quickStart: onStartGame callback:", typeof this.onStartGame);
+        debugLog("[Menu] quickStart: calling onStartGame with map:", savedMap);
+        debugLog("[Menu] quickStart: onStartGame callback:", typeof this.onStartGame);
         if (this.onStartGame && typeof this.onStartGame === 'function') {
             this.onStartGame(savedMap);
         } else {
@@ -13084,7 +13084,7 @@ transition: all 0.2s;
      * Открыть редактор карт
      */
     private async openMapEditor(): Promise<void> {
-        console.log("[Menu] Opening PolyGenStudio Map Editor...");
+        debugLog("[Menu] Opening PolyGenStudio Map Editor...");
 
         // Hide menu
         this.container.classList.add("hidden");
@@ -13127,7 +13127,7 @@ transition: all 0.2s;
 
         // Close handler
         const closeEditor = () => {
-            console.log("[Menu] Closing PolyGenStudio Map Editor");
+            debugLog("[Menu] Closing PolyGenStudio Map Editor");
             // Show menu again
             this.container.classList.remove("hidden");
 
@@ -13176,7 +13176,7 @@ transition: all 0.2s;
      * Collapse editor to allow game to run (Test Mode)
      */
     private collapseMapEditor(): void {
-        console.log("[Menu] Collapsing map editor for test mode...");
+        debugLog("[Menu] Collapsing map editor for test mode...");
 
         if (this.editorContainer) {
             // Hide editor container but keep it in DOM
@@ -13197,7 +13197,7 @@ transition: all 0.2s;
      * Expand editor back to full screen
      */
     private expandMapEditor(): void {
-        console.log("[Menu] Expanding map editor...");
+        debugLog("[Menu] Expanding map editor...");
 
         if (this.editorContainer) {
             this.editorContainer.style.display = 'block';
@@ -13325,7 +13325,7 @@ transition: all 0.2s;
     // === AUTH METHODS ===
 
     private showLogin(): void {
-        console.log("[Menu] showLogin() called - START");
+        debugLog("[Menu] showLogin() called - START");
 
         // Проверяем, что мы в главном меню, а не на паузе
         const pauseButtons = document.getElementById("pause-buttons");
@@ -13334,37 +13334,37 @@ transition: all 0.2s;
         const isMainMenu = mainButtons && mainButtons.style.display !== "none";
 
         if (isPaused || !isMainMenu) {
-            console.warn("[Menu] Login form can only be opened from main menu, not during pause");
+            debugWarn("[Menu] Login form can only be opened from main menu, not during pause");
             return;
         }
 
         // СРАЗУ открываем окно, без задержек!
-        console.log("[Menu] Opening login form IMMEDIATELY");
+        debugLog("[Menu] Opening login form IMMEDIATELY");
         authUI.showLoginForm({
             onAuthSuccess: () => {
-                console.log("[Menu] Auth success callback called");
+                debugLog("[Menu] Auth success callback called");
                 this.updateAuthUI();
             },
             onClose: () => {
-                console.log("[Menu] Auth close callback called");
+                debugLog("[Menu] Auth close callback called");
                 this.enforceCanvasPointerEvents();
             }
         });
 
         // Инициализируем Firebase в фоне (не блокируем открытие окна)
         if (!firebaseService.isInitialized()) {
-            console.log("[Menu] Firebase not initialized, initializing in background...");
+            debugLog("[Menu] Firebase not initialized, initializing in background...");
             firebaseService.initialize().catch(err => {
                 console.error("[Menu] Failed to initialize Firebase:", err);
             });
         }
 
         this.enforceCanvasPointerEvents();
-        console.log("[Menu] showLogin() called - END");
+        debugLog("[Menu] showLogin() called - END");
     }
 
     private showRegister(): void {
-        console.log("[Menu] showRegister() called - START");
+        debugLog("[Menu] showRegister() called - START");
 
         // Проверяем, что мы в главном меню, а не на паузе
         const pauseButtons = document.getElementById("pause-buttons");
@@ -13373,33 +13373,33 @@ transition: all 0.2s;
         const isMainMenu = mainButtons && mainButtons.style.display !== "none";
 
         if (isPaused || !isMainMenu) {
-            console.warn("[Menu] Register form can only be opened from main menu, not during pause");
+            debugWarn("[Menu] Register form can only be opened from main menu, not during pause");
             return;
         }
 
         // СРАЗУ открываем окно, без задержек!
-        console.log("[Menu] Opening register form IMMEDIATELY");
+        debugLog("[Menu] Opening register form IMMEDIATELY");
         authUI.showRegisterForm({
             onAuthSuccess: () => {
-                console.log("[Menu] Auth success callback called");
+                debugLog("[Menu] Auth success callback called");
                 this.updateAuthUI();
             },
             onClose: () => {
-                console.log("[Menu] Auth close callback called");
+                debugLog("[Menu] Auth close callback called");
                 this.enforceCanvasPointerEvents();
             }
         });
 
         // Инициализируем Firebase в фоне (не блокируем открытие окна)
         if (!firebaseService.isInitialized()) {
-            console.log("[Menu] Firebase not initialized, initializing in background...");
+            debugLog("[Menu] Firebase not initialized, initializing in background...");
             firebaseService.initialize().catch(err => {
                 console.error("[Menu] Failed to initialize Firebase:", err);
             });
         }
 
         this.enforceCanvasPointerEvents();
-        console.log("[Menu] showRegister() called - END");
+        debugLog("[Menu] showRegister() called - END");
     }
 
     /**
@@ -13786,15 +13786,15 @@ transition: all 0.2s;
     }
 
     private resumeGame(): void {
-        console.log("[Menu] resumeGame() called");
+        debugLog("[Menu] resumeGame() called");
         // Если игра запущена и на паузе, возобновляем игру
         const game = (window as any).gameInstance;
         if (game && game.gameStarted && game.gamePaused) {
-            console.log("[Menu] Resuming game via togglePause()");
+            debugLog("[Menu] Resuming game via togglePause()");
             game.togglePause();
         } else {
             // Fallback: отправляем событие
-            console.log("[Menu] Dispatching resumeGame event");
+            debugLog("[Menu] Dispatching resumeGame event");
             window.dispatchEvent(new CustomEvent("resumeGame"));
         }
         this.hide();
@@ -13931,7 +13931,7 @@ transition: all 0.2s;
                 const game = (window as any).gameInstance;
                 // Если игра запущена, закрываем меню и возобновляем игру
                 if (game && game.gameStarted) {
-                    console.log("[Menu] ESC pressed - closing menu and resuming game");
+                    debugLog("[Menu] ESC pressed - closing menu and resuming game");
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
@@ -13952,7 +13952,7 @@ transition: all 0.2s;
                     }
                 } else {
                     // Если игра не запущена, просто закрываем меню
-                    console.log("[Menu] ESC pressed - closing menu");
+                    debugLog("[Menu] ESC pressed - closing menu");
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
@@ -14067,7 +14067,7 @@ transition: all 0.2s;
 
 // Глобальная функция для выбора режима при создании комнаты
 (window as any).selectMpCreateRoomMode = function (mode: string) {
-    console.log("[Menu] selectMpCreateRoomMode called with:", mode);
+    debugLog("[Menu] selectMpCreateRoomMode called with:", mode);
     const game = (window as any).gameInstance;
     if (game && game.mainMenu) {
         const menu = game.mainMenu as MainMenu;
@@ -14086,18 +14086,18 @@ transition: all 0.2s;
 
 // Глобальная функция для выбора карты при создании комнаты
 (window as any).selectMpCreateRoomMap = function (mapType: string, element: HTMLElement) {
-    console.log("[Menu] selectMpCreateRoomMap called with:", mapType);
+    debugLog("[Menu] selectMpCreateRoomMap called with:", mapType);
     const game = (window as any).gameInstance;
     if (game && game.mainMenu) {
         const menu = game.mainMenu as MainMenu;
 
         // ДИАГНОСТИКА: Явно логируем и показываем подтверждение выбора карты
-        console.log(`[Menu] 🗺️ SELECTED MAP: ${mapType}`);
+        debugLog(`[Menu] 🗺️ SELECTED MAP: ${mapType}`);
         // alert(`Выбрана карта: ${mapType}`); // Uncomment for extreme debugging
 
         // Сохраняем выбранную карту
         (menu as any).selectedCreateRoomMap = mapType;
-        console.log(`[Menu] Saved map type to menu instance: ${(menu as any).selectedCreateRoomMap}`);
+        debugLog(`[Menu] Saved map type to menu instance: ${(menu as any).selectedCreateRoomMap}`);
 
         // Убираем выделение со всех карточек
         const allCards = document.querySelectorAll("#mp-create-room-map .map-card");
@@ -14145,13 +14145,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Глобальная функция для запуска создания комнаты
 (window as any).startMpCreateRoom = async function () {
-    console.log("[Menu] startMpCreateRoom called");
+    debugLog("[Menu] startMpCreateRoom called");
 
     // КРИТИЧНО: Очищаем custom map данные при создании мультиплеер комнаты
     // Это гарантирует, что все игроки увидят одинаковую карту с сервера
     localStorage.removeItem("selectedCustomMapData");
     localStorage.removeItem("selectedCustomMapIndex");
-    console.log("[Menu] 🗺️ Очищены данные custom карты при создании комнаты (startMpCreateRoom)");
+    debugLog("[Menu] 🗺️ Очищены данные custom карты при создании комнаты (startMpCreateRoom)");
 
     const game = (window as any).gameInstance;
     if (game && game.mainMenu) {
@@ -14159,15 +14159,15 @@ document.addEventListener("DOMContentLoaded", () => {
         const mode = (menu as any).selectedCreateRoomMode || "ffa";
         const mapType = (menu as any).selectedCreateRoomMap || "normal";
 
-        console.log(`[Menu] 🚀 STARTING CREATE ROOM. Mode: ${mode}, Map: ${mapType}`);
-        console.log(`[Menu] Value in menu.selectedCreateRoomMap: ${(menu as any).selectedCreateRoomMap}`);
+        debugLog(`[Menu] 🚀 STARTING CREATE ROOM. Mode: ${mode}, Map: ${mapType}`);
+        debugLog(`[Menu] Value in menu.selectedCreateRoomMap: ${(menu as any).selectedCreateRoomMap}`);
 
         if (mapType === "normal" && (menu as any).selectedCreateRoomMap === undefined) {
-            console.warn("[Menu] ⚠️ Warning: Map defaulted to 'normal' because selectedCreateRoomMap was undefined!");
+            debugWarn("[Menu] ⚠️ Warning: Map defaulted to 'normal' because selectedCreateRoomMap was undefined!");
         }
 
-        console.log(`[Menu] 🔍 startMpCreateRoom: Selected Map '${mapType}' (Var type: ${typeof mapType})`);
-        console.log("[Menu] Creating room with mode:", mode, "and map:", mapType);
+        debugLog(`[Menu] 🔍 startMpCreateRoom: Selected Map '${mapType}' (Var type: ${typeof mapType})`);
+        debugLog("[Menu] Creating room with mode:", mode, "and map:", mapType);
 
         // Получаем или создаем MultiplayerManager
         let multiplayerManager = game.multiplayerManager;
@@ -14197,7 +14197,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const originalCallback = (multiplayerManager as any).onRoomCreatedCallback;
 
         multiplayerManager.onRoomCreated((data: any) => {
-            console.log("[Menu] Room created via startMpCreateRoom:", data);
+            debugLog("[Menu] Room created via startMpCreateRoom:", data);
             const roomId = data.roomId || multiplayerManager.getRoomId();
 
             if (roomId) {
@@ -14218,7 +14218,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 menu.show();
 
                 (menu as any).showPlayWindow("mp-room-panel", 3, 3);
-                console.log("[Menu] Room panel shown for room:", roomId);
+                debugLog("[Menu] Room panel shown for room:", roomId);
             } else {
                 console.error("[Menu] Room created but no roomId in data");
             }
@@ -14235,7 +14235,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const enableBots = enableBotsCheckbox?.checked || false;
         const botCount = enableBots ? parseInt(botCountSlider?.value || "4", 10) : 0;
 
-        console.log(`[Menu] 🤖 Bot settings: enableBots=${enableBots}, botCount=${botCount}`);
+        debugLog(`[Menu] 🤖 Bot settings: enableBots=${enableBots}, botCount=${botCount}`);
 
         // Создаем комнату через multiplayerManager напрямую с mapType и настройками ботов
         try {
@@ -14244,7 +14244,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 console.error("[Menu] Failed to create room");
                 alert("Не удалось создать комнату. Проверьте подключение.");
             } else {
-                console.log("[Menu] Room creation request sent:", mode, mapType, "bots:", enableBots, botCount);
+                debugLog("[Menu] Room creation request sent:", mode, mapType, "bots:", enableBots, botCount);
             }
         } catch (error) {
             console.error("[Menu] Error creating room:", error);

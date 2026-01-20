@@ -31,7 +31,8 @@ const Activity_Icon = ({ className }: { className?: string }) => (
 
 export const LoadingOverlay = () => {
     const { isLoading, progress, status } = useLoader();
-    const [visible, setVisible] = useState(false);
+    // Initialize visible to match isLoading immediately to prevent flash
+    const [visible, setVisible] = useState(isLoading);
     const [displayProgress, setDisplayProgress] = useState(0);
 
     useEffect(() => {

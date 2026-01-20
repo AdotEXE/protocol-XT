@@ -351,16 +351,72 @@ export class CustomMapGenerator extends BaseMapGenerator {
         // Disable static physics for NPCs (they are dynamic entities)
         const addPhysics = obj.type === 'npc' ? false : (obj.properties.hasCollision !== false);
         const objectName = obj.properties.name || `${obj.type}_${obj.id.substring(0, 6)}`;
+        const shape = obj.properties.shape || 'box';
 
-        this.createBox(
-            objectName,
-            size,
-            pos,
-            material,
-            parent,
-            addPhysics,
-            true // defer merge for performance
-        );
+        let mesh: TransformNode;
+
+        if (shape === 'cylinder') {
+            mesh = this.createCylinder(
+                objectName,
+                { height: size.height, diameterTop: size.width, diameterBottom: size.width },
+                pos,
+                material,
+                parent,
+                addPhysics
+            );
+        } else if (shape === 'pyramid') {
+            mesh = this.createCylinder(
+                objectName,
+                { height: size.height, diameterTop: 0, diameterBottom: size.width, tessellation: 4 },
+                pos,
+                material,
+                parent,
+                addPhysics
+            );
+        } else if (shape === 'cone') {
+            mesh = this.createCylinder(
+                objectName,
+                { height: size.height, diameterTop: 0, diameterBottom: size.width },
+                pos,
+                material,
+                parent,
+                addPhysics
+            );
+        } else if (shape === 'prism') {
+            mesh = this.createPrism(
+                objectName,
+                { height: size.height, width: size.width, depth: size.depth },
+                pos,
+                material,
+                parent,
+                addPhysics
+            );
+        } else {
+            mesh = this.createBox(
+                objectName,
+                size,
+                pos,
+                material,
+                parent,
+                addPhysics,
+                true // defer merge for performance (only for boxes for now)
+            );
+        }
+
+        // Apply rotation (convert degrees to radians if needed, usually map data is in degrees or radians?)
+        // Babylon uses Radians. PolyGen Studio stores Degrees usually?
+        // Let's assume Degrees for consistency with editor inputs, or Radians if raw.
+        // Standard TXMapData convention: rotation is in Radians or Degrees?
+        // BaseMapGenerator methods usually don't rotate.
+        // Check SandGenerator? It uses rotation {x, y, z}.
+        if (obj.rotation) {
+            // If values are large (> 2PI), likely degrees. If small, radians.
+            // But consistency is key.
+            // Let's use obj.rotation directly (assuming Radians).
+            if (mesh instanceof TransformNode) {
+                mesh.rotation = new Vector3(obj.rotation.x, obj.rotation.y, obj.rotation.z);
+            }
+        }
     }
 
     /**

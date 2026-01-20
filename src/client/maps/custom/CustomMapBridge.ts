@@ -47,7 +47,7 @@ let onMapLoadCallback: ((mapData: TXMapData, autoPlay?: boolean) => void) | null
  */
 export function initCustomMapBridge(onMapLoad?: (mapData: TXMapData, autoPlay?: boolean) => void): void {
     if (bridgeInitialized) {
-        console.log("[CustomMapBridge] Already initialized");
+        // console.log("[CustomMapBridge] Already initialized");
         return;
     }
 
@@ -55,7 +55,7 @@ export function initCustomMapBridge(onMapLoad?: (mapData: TXMapData, autoPlay?: 
 
     window.addEventListener('message', handleMapMessage);
     bridgeInitialized = true;
-    console.log("[CustomMapBridge] Initialized and listening for map data");
+    // console.log("[CustomMapBridge] Initialized and listening for map data");
 }
 
 /**
@@ -65,7 +65,7 @@ export function destroyCustomMapBridge(): void {
     window.removeEventListener('message', handleMapMessage);
     bridgeInitialized = false;
     onMapLoadCallback = null;
-    console.log("[CustomMapBridge] Destroyed");
+    // console.log("[CustomMapBridge] Destroyed");
 }
 
 /**
@@ -93,7 +93,7 @@ function handleMapMessage(event: MessageEvent): void {
  * Загрузить карту из сообщения
  */
 function handleLoadMap(message: MapLoadMessage, source: Window | null): void {
-    console.log("[CustomMapBridge] Received map:", message.mapData.name);
+    // console.log("[CustomMapBridge] Received map:", message.mapData.name);
 
     const generator = getCustomMapGenerator();
 
@@ -115,7 +115,7 @@ function handleLoadMap(message: MapLoadMessage, source: Window | null): void {
             mapName: message.mapData.name
         });
 
-        console.log(`[CustomMapBridge] Map '${message.mapData.name}' loaded successfully`);
+        // console.log(`[CustomMapBridge] Map '${message.mapData.name}' loaded successfully`);
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -174,7 +174,7 @@ function saveMapToLocal(mapData: TXMapData): void {
     const mapsList = Object.keys(maps);
     localStorage.setItem('tx_custom_maps_list', JSON.stringify(mapsList));
 
-    console.log(`[CustomMapBridge] Saved map '${mapData.name}' to localStorage`);
+    // console.log(`[CustomMapBridge] Saved map '${mapData.name}' to localStorage`);
 }
 
 /**
@@ -228,7 +228,7 @@ export function deleteCustomMap(mapName: string): boolean {
             delete maps[mapName];
             localStorage.setItem('tx_custom_maps', JSON.stringify(maps));
             localStorage.setItem('tx_custom_maps_list', JSON.stringify(Object.keys(maps)));
-            console.log(`[CustomMapBridge] Deleted map '${mapName}'`);
+            // console.log(`[CustomMapBridge] Deleted map '${mapName}'`);
             return true;
         }
         return false;
@@ -241,7 +241,7 @@ export function deleteCustomMap(mapName: string): boolean {
  * Обработать запрос на импорт карты игры
  */
 async function handleGetGameMap(message: GetGameMapMessage, source: Window | null): Promise<void> {
-    console.log(`[CustomMapBridge] Export request for map: ${message.mapId}`);
+    // console.log(`[CustomMapBridge] Export request for map: ${message.mapId}`);
 
     // Получаем текущую сцену (или последнюю созданную)
     const scene = Engine.LastCreatedScene;
@@ -256,7 +256,7 @@ async function handleGetGameMap(message: GetGameMapMessage, source: Window | nul
 
         const mapData = await exportGameMap(message.mapId, scene);
         if (mapData) {
-            console.log(`[CustomMapBridge] Sending map data to editor (${mapData.placedObjects.length} objects)`);
+            // console.log(`[CustomMapBridge] Sending map data to editor (${mapData.placedObjects.length} objects)`);
             if (source) {
                 source.postMessage({
                     type: 'IMPORT_GAME_MAP',

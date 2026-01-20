@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { useLoader } from './contexts/LoaderContext';
 import { Scene } from './components/Scene';
 import { FileBrowser } from './components/FileBrowser';
+import { ContextMenu } from './components/ContextMenu';
 import { TXObjectPalette } from './components/TXObjectPalette';
 import { TX_CATEGORY_NAMES, TXObjectCategory } from './services/txObjects';
 import { generateProceduralBuilding, BuildingConfig } from './services/procedural';
@@ -18,7 +19,7 @@ import { MAP_PRESETS, MapPreset } from './constants/presets';
 import { generateId, getUniqueFileName } from './utils/helpers';
 import * as Icons from './components/Icons';
 import { ObjectCreator } from './components/ObjectCreator';
-import RealWorldGenerator from './components/RealWorldGenerator';
+import RealWorldGenerator, { TerrainData } from './components/RealWorldGenerator';
 import SettingsModal, { loadSettings, isFirstLaunch, EditorSettings, DEFAULT_SETTINGS } from './components/SettingsModal';
 
 
@@ -50,17 +51,6 @@ const DraggableNumberInput = ({ label, value, onChange, step = 0.1, className = 
                 {label}
             </div>
             <input type="number" step={step} className="w-full bg-transparent px-2 py-1 text-[10px] text-white outline-none" value={value || 0} onChange={(e) => onChange(parseFloat(e.target.value))} />
-
-            {/* Settings Modal */}
-            <SettingsModal
-                isOpen={showSettingsModal}
-                onClose={() => setShowSettingsModal(false)}
-                onSave={(newSettings) => {
-                    setEditorSettings(newSettings);
-                    // Apply global effects if needed
-                }}
-                initialSettings={editorSettings}
-            />
         </div>
     );
 };
@@ -160,6 +150,9 @@ export const App = () => {
 
     const [showExportMenu, setShowExportMenu] = useState(false);
 
+    // Camera State
+    const [cameraMode, setCameraMode] = useState<'perspective' | 'orthographic'>('perspective');
+
     // Settings State
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [editorSettings, setEditorSettings] = useState<EditorSettings>(DEFAULT_SETTINGS);
@@ -187,6 +180,8 @@ export const App = () => {
     const [viewportContextMenu, setViewportContextMenu] = useState<{ x: number, y: number, id: string | null } | null>(null);
     // Terrain State
     const [terrainConfig, setTerrainConfig] = useState<{ mode: TerrainToolMode, radius: number, strength: number }>({ mode: 'raise', radius: 3, strength: 1 });
+    // Terrain Mesh Data for Real World Generator
+    const [terrainMeshData, setTerrainMeshData] = useState<TerrainData | null>(null);
     // Advanced Tools State
     const [roadStart, setRoadStart] = useState<Vector3 | null>(null);
     const [roadConfig, setRoadConfig] = useState({ width: 4, color: '#2a2a2a' });
@@ -215,10 +210,12 @@ export const App = () => {
     const cancelBatchRef = useRef(false);
     const [genSeed, setGenSeed] = useState(0);
     const [genSymmetry, setGenSymmetry] = useState<'none' | 'x' | 'y' | 'z'>('none');
-    const [genOrganicness, setGenOrganicness] = useState(0.5);
-    const [genDetailDensity, setGenDetailDensity] = useState(5);
-    const [genComplexity, setGenComplexity] = useState<'simple' | 'medium' | 'detailed'>('medium');
+    const [genOrganicness, setGenOrganicness] = useState(1); // Updated: was 0.5
+    const [genDetailDensity, setGenDetailDensity] = useState(10); // Updated: was 5
+    const [genComplexity, setGenComplexity] = useState<'simple' | 'medium' | 'detailed'>('detailed'); // Updated: was 'medium'
     const [genVoxelSize, setGenVoxelSize] = useState(0.25);
+    const [genMapSize, setGenMapSize] = useState(200); // NEW: Map size selector (100-1000)
+    const [genCreativity, setGenCreativity] = useState(0.7); // NEW: Creativity/randomness level (0-1)
     const [avoidGlitch, setAvoidGlitch] = useState(true);
     const [genInternal, setGenInternal] = useState(false);
     const [genForceGround, setGenForceGround] = useState(true);
@@ -287,11 +284,15 @@ export const App = () => {
                 if (data.leftSidebarOpen !== undefined) setLeftSidebarOpen(data.leftSidebarOpen);
                 if (data.rightSidebarOpen !== undefined) setRightSidebarOpen(data.rightSidebarOpen);
                 if (data.showStats !== undefined) setShowStats(data.showStats);
+                if (data.cubes && data.cubes.length > 0) setCubes(data.cubes); // Restore cubes!
                 if (data.genSettings) {
                     setGenSeed(data.genSettings.seed || 0);
                     setGenSymmetry(data.genSettings.symmetry || 'none');
-                    setGenComplexity(data.genSettings.complexity || 'medium');
-                    setGenOrganicness(data.genSettings.organicness ?? 0.5);
+                    setGenComplexity(data.genSettings.complexity || 'detailed');
+                    setGenOrganicness(data.genSettings.organicness ?? 1);
+                    setGenDetailDensity(data.genSettings.detailDensity ?? 10);
+                    setGenMapSize(data.genSettings.mapSize ?? 200);
+                    setGenVoxelSize(data.genSettings.voxelSize ?? 0.25);
                 }
                 if (data.snapEnabled !== undefined) setSnapEnabled(data.snapEnabled);
             } catch (e) { console.error("Persistence Restore Error", e); }
@@ -303,11 +304,21 @@ export const App = () => {
         if (!isAppLoaded) return;
         const state = {
             fileSystem, genHistory, logs, theme, currentFileId, viewportColor, showStats,
-            leftSidebarOpen, rightSidebarOpen, snapEnabled,
-            genSettings: { seed: genSeed, symmetry: genSymmetry, complexity: genComplexity, organicness: genOrganicness }
+            leftSidebarOpen, rightSidebarOpen, snapEnabled, cubes, // Added cubes!
+            genSettings: {
+                seed: genSeed, symmetry: genSymmetry, complexity: genComplexity,
+                organicness: genOrganicness, detailDensity: genDetailDensity,
+                mapSize: genMapSize, voxelSize: genVoxelSize
+            }
         };
-        localStorage.setItem('polygen_ultimate_v5_pro_final', JSON.stringify(state));
-    }, [fileSystem, genHistory, logs, theme, currentFileId, viewportColor, leftSidebarOpen, rightSidebarOpen, genSymmetry, genComplexity, genOrganicness, genSeed, showStats, isAppLoaded, snapEnabled]);
+        try {
+            localStorage.setItem('polygen_ultimate_v5_pro_final', JSON.stringify(state));
+        } catch (e) {
+            console.error("Storage Quota Exceeded", e);
+        }
+    }, [fileSystem, genHistory, logs, theme, currentFileId, viewportColor, leftSidebarOpen, rightSidebarOpen,
+        genSymmetry, genComplexity, genOrganicness, genDetailDensity, genMapSize, genVoxelSize, genSeed,
+        showStats, isAppLoaded, snapEnabled, cubes]);
 
     // Update body class and potentially viewport color when theme changes
     useEffect(() => {
@@ -340,16 +351,23 @@ export const App = () => {
         setHistoryStack(nextStack);
         setHistoryIndex(nextStack.length - 1);
         if (currentFileId) {
-            setFileSystem(prev => ({
-                ...prev,
-                nodes: {
-                    ...prev.nodes,
-                    [currentFileId]: {
-                        ...prev.nodes[currentFileId],
-                        content: { ...prev.nodes[currentFileId].content!, cubes: newCubes }
+            setFileSystem(prev => {
+                const node = prev.nodes[currentFileId];
+                if (!node) return prev;
+
+                const existingContent = node.content || { cubes: [], prompt: '', timestamp: Date.now() };
+
+                return {
+                    ...prev,
+                    nodes: {
+                        ...prev.nodes,
+                        [currentFileId]: {
+                            ...node,
+                            content: { ...existingContent, cubes: newCubes }
+                        }
                     }
-                }
-            }));
+                };
+            });
         }
     };
 
@@ -431,10 +449,11 @@ export const App = () => {
 
     const getGenOptions = (): GenerationOptions => ({
         prompt, useThinking: false, complexity: genComplexity, style: 'voxel',
-        palette: 'standard', materialType: 'plastic', theme: 'none', creativity: 0.8,
+        palette: 'standard', materialType: 'plastic', theme: 'none', creativity: genCreativity,
         scale: 'medium', avoidZFighting: avoidGlitch, symmetry: genSymmetry, organicness: genOrganicness,
         detailDensity: genDetailDensity, optimizationLevel: 'basic', internalStructure: genInternal,
-        forceGround: genForceGround, voxelSize: genVoxelSize, hollow: false, lightingMode: 'soft', seed: genSeed
+        forceGround: genForceGround, voxelSize: genVoxelSize, hollow: false, lightingMode: 'soft',
+        seed: genSeed, mapSize: genMapSize
     });
 
     const handleGenerate = async () => {
@@ -631,6 +650,22 @@ export const App = () => {
                     const nextCubes = [...cubes, ...pasted];
                     setCubes(nextCubes); setSelectedIds(newIds); pushHistory(nextCubes);
                     addLog(`Pasted ${pasted.length} objects.`, 'success');
+                }
+                return;
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+                e.preventDefault();
+                if (selectedIds.length > 0) {
+                    const toClone = cubes.filter(c => selectedIds.includes(c.id));
+                    const cloned = toClone.map(c => ({
+                        ...c,
+                        id: generateId(),
+                        position: { x: c.position.x + 1, y: c.position.y, z: c.position.z + 1 },
+                        name: c.name + ' (Clone)'
+                    }));
+                    const nextCubes = [...cubes, ...cloned];
+                    setCubes(nextCubes); setSelectedIds(cloned.map(c => c.id)); pushHistory(nextCubes);
+                    addLog(`Cloned ${cloned.length} objects.`, 'success');
                 }
                 return;
             }
@@ -895,18 +930,56 @@ export const App = () => {
         setCubes(next); pushHistory(next); setSelectedIds([]); addLog('Deleted selection.', 'warning');
     };
 
+    const handleCloneSelected = () => {
+        if (selectedIds.length === 0) return;
+        const toClone = cubes.filter(c => selectedIds.includes(c.id));
+        const cloned = toClone.map(c => ({
+            ...c,
+            id: generateId(),
+            position: { x: c.position.x + 1, y: c.position.y, z: c.position.z + 1 },
+            name: c.name + ' (Clone)'
+        }));
+        const next = [...cubes, ...cloned];
+        setCubes(next);
+        pushHistory(next);
+        setSelectedIds(cloned.map(c => c.id));
+        addLog(`Cloned ${cloned.length} objects.`, 'success');
+    };
+
     // --- Explorer & Outliner ---
     const handleRenameNode = (id: string, name: string) => setFileSystem(prev => ({ ...prev, nodes: { ...prev.nodes, [id]: { ...prev.nodes[id], name } } }));
     const handleDeleteNode = (id: string) => {
-        if (id === 'root' || id === 'default') return;
-        const pid = fileSystem.nodes[id].parentId;
+        if (id === 'root') return;
+        const pid = fileSystem.nodes[id]?.parentId;
         if (pid) {
             setFileSystem(prev => {
-                const next = { ...prev.nodes }; delete next[id];
-                next[pid] = { ...next[pid], children: next[pid].children.filter(c => c !== id) };
+                const next = { ...prev.nodes };
+
+                // Recursive delete helper
+                const deleteRecursive = (nodeId: string) => {
+                    const node = next[nodeId];
+                    if (node && node.children) {
+                        [...node.children].forEach(deleteRecursive);
+                    }
+                    delete next[nodeId];
+                };
+
+                deleteRecursive(id);
+
+                // Update parent
+                if (next[pid]) {
+                    next[pid] = { ...next[pid], children: next[pid].children.filter(c => c !== id) };
+                }
+
                 return { ...prev, nodes: next };
             });
-            if (currentFileId === id) setCurrentFileId('default');
+
+            // If we deleted the current file, switch to something else
+            if (currentFileId === id) {
+                // Try parent's first child that isn't us, or parent itself (if it was a file? no, parent is folder)
+                // Just switch to null or root's default if available
+                setCurrentFileId(null);
+            }
         }
     };
     const handleCreateFile = (pid: string) => {
@@ -939,7 +1012,7 @@ export const App = () => {
         }));
     };
 
-    const usedColors = useMemo(() => Array.from(new Set(cubes.map(c => c.color.toLowerCase()))), [cubes]);
+    const usedColors = useMemo(() => Array.from(new Set(cubes.filter(c => c.color).map(c => c.color!.toLowerCase()))), [cubes]);
     const filteredOutliner = useMemo(() => {
         return cubes.filter(c => c.name.toLowerCase().includes(outlinerSearch.toLowerCase()));
     }, [cubes, outlinerSearch]);
@@ -1058,12 +1131,61 @@ export const App = () => {
                         if (file) {
                             const reader = new FileReader();
                             reader.onload = (event) => {
-                                const imported = importFromBlockbench(event.target?.result as string);
-                                if (imported.length > 0) { setCubes(imported); pushHistory(imported); addLog(`Imported ${file.name}`, 'success'); }
+                                const content = event.target?.result as string;
+                                const ext = file.name.split('.').pop()?.toLowerCase();
+                                let imported: CubeElement[] = [];
+
+                                try {
+                                    if (ext === 'bbmodel') {
+                                        // Blockbench format
+                                        imported = importFromBlockbench(content);
+                                    } else if (ext === 'txmap') {
+                                        // TX Map format
+                                        imported = importFromTXMap(content);
+                                    } else if (ext === 'json' || ext === 'poly') {
+                                        // Try raw JSON array first (PolyGen native format)
+                                        const parsed = JSON.parse(content);
+                                        if (Array.isArray(parsed)) {
+                                            // Direct cube array
+                                            imported = parsed.map((c: any) => ({
+                                                id: c.id || generateId(),
+                                                name: c.name || 'Imported',
+                                                type: c.type || 'cube',
+                                                parentId: c.parentId || null,
+                                                position: c.position || { x: 0, y: 0, z: 0 },
+                                                size: c.size || { x: 1, y: 1, z: 1 },
+                                                rotation: c.rotation || { x: 0, y: 0, z: 0 },
+                                                color: c.color || '#808080',
+                                                visible: c.visible !== false,
+                                                isLocked: c.isLocked || false,
+                                                material: c.material
+                                            }));
+                                        } else if (parsed.placedObjects) {
+                                            // TX Map format hidden in .json
+                                            imported = importFromTXMap(content);
+                                        } else if (parsed.elements) {
+                                            // Blockbench hidden in .json
+                                            imported = importFromBlockbench(content);
+                                        }
+                                    }
+
+                                    if (imported.length > 0) {
+                                        setCubes(prev => [...prev, ...imported]);
+                                        pushHistory([...cubes, ...imported]);
+                                        addLog(`Imported ${imported.length} objects from ${file.name}`, 'success');
+                                    } else {
+                                        addLog(`No objects found in ${file.name}`, 'warning');
+                                    }
+                                } catch (err) {
+                                    console.error('Import error:', err);
+                                    addLog(`Failed to import ${file.name}: ${err}`, 'error');
+                                }
                             };
                             reader.readAsText(file);
                         }
-                    }} className="hidden" accept=".json,.bbmodel" />
+                        // Reset input value to allow re-importing same file
+                        e.target.value = '';
+                    }} className="hidden" accept=".json,.bbmodel,.txmap,.poly" />
                     {/* Export Menu */}
                     <div className="relative">
                         <button onClick={() => setShowExportMenu(!showExportMenu)} className="h-8 px-2 rounded text-gray-400 hover:text-white text-[10px] uppercase font-bold hover:bg-gray-800 flex gap-1 items-center">Export <Icons.ChevronDown /></button>
@@ -1124,40 +1246,24 @@ export const App = () => {
             )}
 
             {/* Context Menu */}
-            {contextMenu.visible && (
-                <div className="absolute z-[70] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl py-1 text-xs w-48" style={{ top: contextMenu.y, left: contextMenu.x }} onMouseLeave={() => setContextMenu({ ...contextMenu, visible: false })}>
-                    <div className="px-3 py-1.5 text-gray-500 font-bold uppercase text-[9px] border-b border-gray-800 mb-1">Actions</div>
-                    <button className="w-full text-left px-3 py-1.5 hover:bg-gray-800 text-gray-300 flex justify-between" onClick={() => { handleUndo(); setContextMenu({ ...contextMenu, visible: false }); }}>Undo <span className="text-gray-600">Ctrl+Z</span></button>
-                    <button className="w-full text-left px-3 py-1.5 hover:bg-gray-800 text-gray-300 flex justify-between" onClick={() => { handleRedo(); setContextMenu({ ...contextMenu, visible: false }); }}>Redo <span className="text-gray-600">Ctrl+Y</span></button>
-                    <div className="border-t border-gray-800 my-1"></div>
-                    <button className="w-full text-left px-3 py-1.5 hover:bg-gray-800 text-gray-300 flex justify-between" onClick={() => {
-                        if (selectedIds.length > 0) {
-                            const toCopy = cubes.filter(c => selectedIds.includes(c.id));
-                            setClipboard(toCopy); addLog(`Copied ${toCopy.length} objects.`, 'info');
-                        }
-                        setContextMenu({ ...contextMenu, visible: false });
-                    }}>Copy <span className="text-gray-600">Ctrl+C</span></button>
-                    <button className="w-full text-left px-3 py-1.5 hover:bg-gray-800 text-gray-300 flex justify-between" onClick={() => {
-                        // Trigger Paste logic (simulated by keydown or extracted function? easier to extract or simulate)
-                        // Implementing paste here briefly:
-                        if (clipboard.length > 0) {
-                            const newIds: string[] = [];
-                            const pasted = clipboard.map(c => { const newId = generateId(); newIds.push(newId); return { ...c, id: newId, position: { x: c.position.x + 1, y: c.position.y, z: c.position.z + 1 }, name: c.name + ' (Copy)' }; });
-                            setCubes(prev => [...prev, ...pasted]); setSelectedIds(newIds); pushHistory([...cubes, ...pasted]);
-                        }
-                        setContextMenu({ ...contextMenu, visible: false });
-                    }}>Paste <span className="text-gray-600">Ctrl+V</span></button>
-                    <div className="border-t border-gray-800 my-1"></div>
-                    <button className="w-full text-left px-3 py-1.5 hover:bg-gray-800 text-gray-300 flex justify-between" onClick={() => { handleGroup(); setContextMenu({ ...contextMenu, visible: false }); }}>Group <span className="text-gray-600">Ctrl+G</span></button>
-                    <button className="w-full text-left px-3 py-1.5 hover:bg-gray-800 text-gray-300 flex justify-between" onClick={() => { handleUngroup(); setContextMenu({ ...contextMenu, visible: false }); }}>Ungroup <span className="text-gray-600">⇧+G</span></button>
-                    <div className="border-t border-gray-800 my-1"></div>
-                    <button className="w-full text-left px-3 py-1.5 hover:bg-red-900/30 text-red-400 flex justify-between" onClick={() => {
-                        const nextCubes = cubes.filter(c => !selectedIds.includes(c.id));
-                        setCubes(nextCubes); setSelectedIds([]); pushHistory(nextCubes);
-                        setContextMenu({ ...contextMenu, visible: false });
-                    }}>Delete <span className="text-gray-600">Del</span></button>
-                </div>
-            )}
+            {/* Context Menu */}
+            <ContextMenu
+                x={contextMenu.x}
+                y={contextMenu.y}
+                visible={contextMenu.visible}
+                onClose={() => setContextMenu({ ...contextMenu, visible: false })}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                onCopy={handleCopy}
+                onPaste={handlePaste}
+                onDelete={handleDeleteCubes}
+                onGroup={handleGroup}
+                onUngroup={handleUngroup}
+                onClone={handleCloneSelected}
+                canUndo={historyIndex > 0}
+                canRedo={historyIndex < historyStack.length - 1}
+                hasSelection={selectedIds.length > 0}
+            />
 
             <div className="flex-1 flex overflow-hidden relative">
                 {/* Fixed: Side Panel Collapse Handles (Chevron bars) */}
@@ -1258,10 +1364,23 @@ export const App = () => {
                                 <div className="mt-4 px-2">
                                     <RealWorldGenerator
                                         generateId={generateId}
-                                        onGenerate={(newCubes, mapName) => {
+                                        onGenerate={(newCubes, mapName, terrainData) => {
                                             setCubes(prev => [...prev, ...newCubes]);
                                             pushHistory([...cubes, ...newCubes]);
-                                            addLog('info', `🌍 Imported ${newCubes.length} objects from ${mapName}`);
+                                            // Store terrain data for mesh visualization
+                                            if (terrainData) {
+                                                setTerrainMeshData(terrainData);
+                                            }
+                                            addLog(`🌍 Imported ${newCubes.length} objects from ${mapName}`, 'info');
+                                        }}
+                                        onAddCubes={(newCubes, animate) => {
+                                            // Streaming mode: add cubes incrementally
+                                            setCubes(prev => [...prev, ...newCubes]);
+                                            // Note: We don't push to history for each batch to avoid spam
+                                            // History will be pushed after streaming completes
+                                            if (animate) {
+                                                addLog(`🏢 Streamed ${newCubes.length} buildings`, 'info');
+                                            }
                                         }}
                                     />
                                 </div>
@@ -1290,8 +1409,10 @@ export const App = () => {
                         onBatchTransform={(ups) => setCubes(prev => prev.map(c => { const u = ups.find(x => x.id === c.id); return u ? { ...c, ...u } : c }))}
                         onTransformEnd={() => pushHistory(cubes)} toolMode={toolMode} snapGrid={snapEnabled ? 0.25 : null} snapAngle={snapEnabled ? 15 : null}
                         backgroundColor={viewportColor} gridColor="#1a1a20" sectionColor="#2a2a35" showGrid={showGrid} showWireframe={showWireframe} showAxes={showAxes}
+                        cameraMode={cameraMode}
 
                         performanceMode={!showStats}
+                        terrainData={terrainMeshData || undefined}
                         draggedItem={draggedItem}
                         onDropItem={(itemId, position) => {
                             const paletteItem = paletteItems.find(p => p.id === itemId);
@@ -1434,6 +1555,10 @@ export const App = () => {
                                         <div className="flex items-center justify-between p-2.5 bg-gray-950 rounded-xl border border-gray-800"><span className="text-[10px] text-gray-300 font-bold uppercase tracking-widest">Symmetry Axis</span><select value={genSymmetry} onChange={e => setGenSymmetry(e.target.value as any)} className="bg-transparent text-[10px] text-accent-400 outline-none uppercase font-bold"><option value="none">None</option><option value="x">X-Axis</option><option value="y">Y-Axis</option><option value="z">Z-Axis</option></select></div>
                                         <div className="grid grid-cols-2 gap-2">
                                             <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-500 uppercase block tracking-widest">Complexity</label><select value={genComplexity} onChange={e => setGenComplexity(e.target.value as any)} className="w-full bg-gray-950 border border-gray-800 rounded-lg p-2.5 text-[10px] text-white outline-none"><option value="simple">Simple</option><option value="medium">Standard</option><option value="detailed">Ultra</option></select></div>
+                                            <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-500 uppercase block tracking-widest">Map Size</label><select value={genMapSize} onChange={e => setGenMapSize(Number(e.target.value))} className="w-full bg-gray-950 border border-gray-800 rounded-lg p-2.5 text-[10px] text-white outline-none"><option value={100}>100×100</option><option value={200}>200×200</option><option value={300}>300×300</option><option value={500}>500×500</option><option value={1000}>1000×1000</option></select></div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 mt-2">
+                                            <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-500 uppercase block tracking-widest">Detail Density</label><DraggableNumberInput label="D" value={genDetailDensity} onChange={setGenDetailDensity} step={1} /></div>
                                             <div className="space-y-1.5"><label className="text-[10px] font-black text-gray-500 uppercase block tracking-widest">Voxel Scale</label><DraggableNumberInput label="V" value={genVoxelSize} onChange={setGenVoxelSize} step={0.05} /></div>
                                         </div>
                                     </div>
@@ -1615,19 +1740,45 @@ export const App = () => {
                             </div>
                         ) : rightTab === 'refine' ? (
                             <div className="space-y-6 animate-in fade-in duration-300">
-                                <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-gray-800 pb-2 flex justify-between items-center">AI Refinement Hub <Icons.Sparkles /></div>
+                                <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-gray-800 pb-2 flex justify-between items-center">
+                                    <span className="flex items-center gap-2"><Icons.Sparkles /> AI Refinement Hub</span>
+                                </div>
                                 <div className="p-4 bg-gray-950 rounded-2xl border border-gray-800 shadow-inner flex flex-col gap-4 border-accent-500/10">
                                     <p className="text-[10px] text-gray-500 font-bold uppercase leading-relaxed tracking-tight">Modify only the selected {selectedIds.length} objects using specific instructions.</p>
                                     <textarea
-                                        placeholder="Instruction (e.g., Transform into robotic arm with visible joints)..."
+                                        placeholder="Enter transformation instruction..."
                                         value={refinePrompt} onChange={e => setRefinePrompt(e.target.value)}
+                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-[11px] text-white outline-none placeholder-gray-600 min-h-[80px] resize-none focus:border-accent-500 transition-colors"
                                     />
-                                    <div className="flex justify-end">
+                                    <div className="flex justify-between items-center">
                                         <button onClick={() => uploadRefineRef.current?.click()} className="text-[9px] text-accent-400 hover:text-white flex items-center gap-1 font-bold uppercase transition-colors">
                                             <Icons.Import /> Import Text
                                         </button>
                                         <input type="file" ref={uploadRefineRef} className="hidden" accept=".txt,.md,.json" onChange={(e) => handleFileUpload(e, setRefinePrompt)} />
+                                        <button
+                                            onClick={() => setShowGenSettings(!showGenSettings)}
+                                            className={`text-[9px] flex items-center gap-1 font-bold uppercase transition-colors ${showGenSettings ? 'text-accent-400' : 'text-gray-500 hover:text-white'}`}
+                                        >
+                                            <Icons.Sliders /> {showGenSettings ? 'Hide Settings' : 'Expand Map/Model'}
+                                        </button>
                                     </div>
+                                    {/* Generation Settings for Refine - Collapsible */}
+                                    {showGenSettings && (
+                                        <>
+                                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-800">
+                                                <div className="space-y-1"><label className="text-[9px] font-bold text-gray-500 uppercase">Complexity</label><select value={genComplexity} onChange={e => setGenComplexity(e.target.value as any)} className="w-full bg-gray-900 border border-gray-700 rounded p-1.5 text-[9px] text-white outline-none"><option value="simple">Simple</option><option value="medium">Standard</option><option value="detailed">Ultra</option></select></div>
+                                                <div className="space-y-1"><label className="text-[9px] font-bold text-gray-500 uppercase">Map Size</label><select value={genMapSize} onChange={e => setGenMapSize(Number(e.target.value))} className="w-full bg-gray-900 border border-gray-700 rounded p-1.5 text-[9px] text-white outline-none"><option value={100}>100×100</option><option value={200}>200×200</option><option value={300}>300×300</option><option value={500}>500×500</option><option value={1000}>1000×1000</option></select></div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <div className="space-y-1"><label className="text-[9px] font-bold text-gray-500 uppercase">Detail</label><DraggableNumberInput label="D" value={genDetailDensity} onChange={setGenDetailDensity} step={1} /></div>
+                                                <div className="space-y-1"><label className="text-[9px] font-bold text-gray-500 uppercase">Organic</label><DraggableNumberInput label="O" value={genOrganicness} onChange={setGenOrganicness} step={0.1} /></div>
+                                                <div className="space-y-1"><label className="text-[9px] font-bold text-accent-500 uppercase">Creativity</label><DraggableNumberInput label="C" value={genCreativity} onChange={setGenCreativity} step={0.1} /></div>
+                                            </div>
+                                            <button className="w-full py-1.5 mt-1 bg-gray-800 hover:bg-gray-700 text-[9px] font-bold text-gray-300 uppercase rounded border border-gray-700 flex justify-center items-center gap-2" onClick={() => { setGenMapSize(prev => Math.min(1000, prev + 100)); }}>
+                                                <Icons.Expand /> Extend Map via AI (+100)
+                                            </button>
+                                        </>
+                                    )}
                                     <button
                                         onClick={handleRefineSelection}
                                         disabled={selectedIds.length === 0 || !refinePrompt || isGenerating}
@@ -1677,6 +1828,16 @@ export const App = () => {
                     </div>
                 )
             }
+
+            {/* Settings Modal */}
+            <SettingsModal
+                isOpen={showSettingsModal}
+                onClose={() => setShowSettingsModal(false)}
+                onSave={(newSettings) => {
+                    setEditorSettings(newSettings);
+                }}
+                initialSettings={editorSettings}
+            />
         </div >
     );
 };

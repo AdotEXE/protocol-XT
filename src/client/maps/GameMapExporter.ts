@@ -146,77 +146,93 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
     // --- PROCESS RESULTS ---
 
     const placedObjects: TXMapData['placedObjects'] = [];
+    const capturedRefIds = new Set<number>();
 
-    capturedObjects.forEach(obj => {
-        // Read final transforms from mesh ref
-        const mesh = obj.ref as Mesh;
-        const position = { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z };
+    // Helper to process a mesh (captured or discovered)
+    const processObject = (mesh: Mesh, capturedData?: any) => {
+        // Position & Rotation
+        // Use absolute values if not direct child of root, or relative if shallow.
+        // For robustness, we'll store world position/rotation relative to the map origin (which is 0,0,0 usually).
+        // Since root is at 0,0,0 (identity), world matrix is fine.
 
-        // Handle hierarchy (parent position addition if needed? Babylon computes world matrix)
-        // Ideally we use AbsolutePosition, but PolyGen expects local/flat?
-        // PolyGen objects are flat content usually.
-        // We should use world position.
-        // mesh.computeWorldMatrix(true);
-        // But we are in a dummy scene setup, hierarchy works.
-        // Let's rely on local position if parent is root.
+        mesh.computeWorldMatrix(true);
+        const matrix = mesh.getWorldMatrix();
+        const position = { x: mesh.absolutePosition.x, y: mesh.absolutePosition.y, z: mesh.absolutePosition.z };
 
-        // Actually, ArenaGenerator uses parent logic.
-        // If I use absolute position, I flatten the hierarchy.
-        let finalPos = { x: 0, y: 0, z: 0 };
-        let finalRot = { x: 0, y: 0, z: 0 };
-
-        if (mesh.parent === root) {
-            finalPos = { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z };
-            finalRot = { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z };
-        } else {
-            // Deep hierarchy?
-            // mesh.computeWorldMatrix(true);
-            // finalPos = mesh.absolutePosition ...
-            // For now assume shallow hierarchy or relative to root.
-            // ArenaGenerator uses single parent "contentRoot".
-            // But contentRoot might be attached to chunkParent.
-            // generator.generateContent uses 'chunkParent'.
-
-            // If mesh.parent is 'contentRoot' (created inside generateContent)
-            // and contentRoot.parent is 'root'.
-            // Then we need to accumulate.
-            // Simpler: use world matrix.
-            mesh.computeWorldMatrix(true);
-            const matrix = mesh.getWorldMatrix();
-            const pos = Vector3.Zero();
-            const rot = new Vector3(0, 0, 0); // Quaternion better?
-            const scale = new Vector3(0, 0, 0);
-
-            // Babylon extract
-            // But wait, the mesh is bare bones.
-            // If I didn't set rotation on parents, simple sum is enough.
-            // ArenaGenerator creates 'contentRoot' at 0,0,0 relative to chunkParent.
-            // So essentially it's flat.
-            finalPos = { x: mesh.absolutePosition.x, y: mesh.absolutePosition.y, z: mesh.absolutePosition.z };
-            finalRot = { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z }; // Absolute rotation simplified
+        // Rotation is tricky from matrix, but usually Euler from mesh is enough if not complex parenting.
+        let rotation = { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z };
+        if (mesh.rotationQuaternion) {
+            const euler = mesh.rotationQuaternion.toEulerAngles();
+            rotation = { x: euler.x, y: euler.y, z: euler.z };
+        } else if (mesh.parent !== root) {
+            // If nested, absolute rotation might be needed. For now using local as fallback or decomposition if strict.
+            // But for PolyGen map export, simple rotation is typical.
         }
 
-        // Determine type
+        // Determine Type
         let txType: "building" | "tree" | "rock" | "custom" = "custom";
-        if (obj.name.includes('tree')) txType = 'tree';
-        if (obj.name.includes('rock')) txType = 'rock';
-        if (obj.name.includes('wall') || obj.name.includes('house')) txType = 'building';
+        const name = capturedData?.name || mesh.name;
+        if (name.includes('tree')) txType = 'tree';
+        if (name.includes('rock')) txType = 'rock';
+        if (name.includes('wall') || name.includes('house')) txType = 'building';
 
-        // Size
-        const scale = { x: obj.size.width || obj.size.x, y: obj.size.height || obj.size.y, z: obj.size.depth || obj.size.z };
+        // Determine Scale/Size
+        // If capturedData has size (creation params), use it.
+        // Otherwise calculate from bounding box.
+        let scale = { x: 1, y: 1, z: 1 };
+        if (capturedData && capturedData.size) {
+            scale = {
+                x: capturedData.size.width || capturedData.size.x || 1,
+                y: capturedData.size.height || capturedData.size.y || 1,
+                z: capturedData.size.depth || capturedData.size.z || 1
+            };
+        } else {
+            // Calculate from bounding box (Local bounds * scaling)
+            const bounds = mesh.getBoundingInfo().boundingBox;
+            const sizeX = (bounds.maximum.x - bounds.minimum.x) * mesh.scaling.x;
+            const sizeY = (bounds.maximum.y - bounds.minimum.y) * mesh.scaling.y;
+            const sizeZ = (bounds.maximum.z - bounds.minimum.z) * mesh.scaling.z;
+            scale = { x: sizeX, y: sizeY, z: sizeZ };
+        }
+
+        // Material Color
+        let color = '#888888';
+        if (capturedData && capturedData.mat && capturedMaterials[capturedData.mat]) {
+            color = capturedMaterials[capturedData.mat];
+        } else if (mesh.material instanceof StandardMaterial) {
+            color = mesh.material.diffuseColor.toHexString();
+        }
 
         placedObjects.push({
             id: Math.random().toString(36).substr(2, 9),
             type: txType,
-            position: finalPos,
-            rotation: finalRot, // varying rotation
+            position: position,
+            rotation: rotation,
             scale: scale,
             properties: {
-                color: capturedMaterials[obj.mat] || '#888888',
-                material: obj.mat,
-                originalName: obj.name
+                color: color,
+                material: capturedData?.mat || mesh.material?.name || 'default',
+                originalName: name
             }
         });
+    };
+
+    // 1. Process explicitly captured objects
+    capturedObjects.forEach(obj => {
+        if (obj.ref && obj.ref instanceof Mesh) {
+            capturedRefIds.add(obj.ref.uniqueId);
+            processObject(obj.ref, obj);
+        }
+    });
+
+    // 2. Scan scene for uncaptured objects (created directly via MeshBuilder/etc)
+    const allMeshes = root.getChildMeshes(false);
+    allMeshes.forEach(node => {
+        if (node instanceof Mesh) {
+            if (!capturedRefIds.has(node.uniqueId)) {
+                processObject(node);
+            }
+        }
     });
 
     // Cleanup

@@ -33,10 +33,14 @@ export const Paste = () => <i className="fas fa-paste" />;
 export const Lock = () => <i className="fas fa-lock" />;
 export const Unlock = () => <i className="fas fa-lock-open" />;
 export const Search = () => <i className="fas fa-search" />;
-export const Sparkles = () => <i className="fas fa-sparkles" />;
+export const Sparkles = () => <i className="fas fa-wand-magic-sparkles" />; // Fixed: fa-sparkles doesn't exist
+export const Expand = () => <i className="fas fa-expand" />;
 export const ChevronRight = () => <i className="fas fa-chevron-right" />;
 export const ChevronLeft = () => <i className="fas fa-chevron-left" />;
 export const Globe = () => <i className="fas fa-globe" />;
 export const Layout = () => <i className="fas fa-th-large" />;
 export const Mountain = () => <i className="fas fa-mountain" />;
 export const Plus = () => <i className="fas fa-plus" />;
+export const Clipboard = () => <i className="fas fa-clipboard" />;
+export const ObjectGroup = () => <i className="fas fa-object-group" />;
+export const ObjectUngroup = () => <i className="fas fa-object-ungroup" />;

@@ -51,11 +51,33 @@ export const parseLocationSeed = async (locationName: string): Promise<GeoLocati
             }
         });
 
-        const text = response.text;
-        if (!text) throw new Error("No data returned");
+        let text = response.text || "{}";
 
-        const cleanJson = text.replace(/```json|```/g, '').trim();
-        const data = JSON.parse(cleanJson);
+        // Cleanup markdown
+        text = text.replace(/```json|```/g, '').trim();
+
+        // Locate JSON object if surrounded by text
+        const firstBrace = text.indexOf('{');
+        const lastBrace = text.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1) {
+            text = text.substring(firstBrace, lastBrace + 1);
+        }
+
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            console.warn("[Gemini] JSON parse failed, attempting loose repair...", e);
+            // Fallback: try to extract fields via regex if JSON is broken
+            const latMatch = text.match(/"latitude"\s*:\s*([\d.-]+)/);
+            const lngMatch = text.match(/"longitude"\s*:\s*([\d.-]+)/);
+            data = {
+                latitude: latMatch ? parseFloat(latMatch[1]) : 0,
+                longitude: lngMatch ? parseFloat(lngMatch[1]) : 0,
+                terrainType: 'plain',
+                estimatedBuildingCount: 1000
+            };
+        }
 
         console.log(`[Gemini] Parsed location: ${locationName} -> ${data.latitude}, ${data.longitude}`);
 

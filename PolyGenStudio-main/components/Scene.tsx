@@ -1,10 +1,16 @@
 
 import React, { useRef, useEffect, useState, useMemo, useLayoutEffect } from 'react';
 import { Canvas, useThree, useFrame, invalidate } from '@react-three/fiber';
-import { OrbitControls, TransformControls, Grid, Environment, ContactShadows, GizmoHelper, GizmoViewcube } from '@react-three/drei';
+import { OrbitControls, TransformControls, Grid, Environment, ContactShadows, GizmoHelper, GizmoViewcube, PerspectiveCamera, OrthographicCamera } from '@react-three/drei';
 import * as THREE from 'three';
 import { SelectionBox } from 'three-stdlib';
 import { CubeElement, ToolMode } from '../types';
+import TerrainMesh from './TerrainMesh';
+import { InstancedBuildings } from './InstancedBuildings';
+import { PolygonBuildings } from './PolygonBuildings';
+import { SmoothRoads } from './SmoothRoads';
+import { SmoothRivers } from './SmoothRivers';
+
 
 interface SceneProps {
     cubes: CubeElement[];
@@ -41,6 +47,15 @@ interface SceneProps {
     draggedItem?: string | null;
     onDropItem?: (itemType: string, position: { x: number, y: number, z: number }) => void;
     dragPointerRef?: React.MutableRefObject<THREE.Vector2>;
+    cameraMode: 'perspective' | 'orthographic';
+
+    // Terrain mesh data (optional)
+    terrainData?: {
+        elevationGrid: number[];
+        gridSize: number;
+        width: number;
+        baseElevation: number;
+    };
 }
 
 // Drag Preview Component (Moved to top to avoid hoisting issues)
@@ -630,7 +645,13 @@ const MultiTransformControls: React.FC<{
 
     const pivot = useRef<THREE.Group>(null);
     const transformRef = useRef<any>(null);
-    const initialTransforms = useRef<Map<string, { pos: THREE.Vector3, rot: THREE.Euler, scale: THREE.Vector3 }>>(new Map());
+    // Added originalSize to track cube.size for proper scaling
+    const initialTransforms = useRef<Map<string, {
+        pos: THREE.Vector3,
+        rot: THREE.Euler,
+        scale: THREE.Vector3,
+        originalSize: { x: number, y: number, z: number }  // Store original cube size
+    }>>(new Map());
     const initialPivotInverse = useRef<THREE.Matrix4>(new THREE.Matrix4());
 
     const centroid = useMemo(() => {
@@ -740,7 +761,14 @@ const MultiTransformControls: React.FC<{
                     initialTransforms.current.clear();
                     selectedCubes.forEach(cube => {
                         const obj = nodesRef.current[cube.id];
-                        if (obj) { initialTransforms.current.set(cube.id, { pos: obj.position.clone(), rot: obj.rotation.clone(), scale: obj.scale.clone() }); }
+                        if (obj) {
+                            initialTransforms.current.set(cube.id, {
+                                pos: obj.position.clone(),
+                                rot: obj.rotation.clone(),
+                                scale: obj.scale.clone(),
+                                originalSize: { x: cube.size.x, y: cube.size.y, z: cube.size.z }  // Save original cube size!
+                            });
+                        }
                     });
                     if (pivot.current) { pivot.current.updateMatrixWorld(); initialPivotInverse.current.copy(pivot.current.matrixWorld).invert(); }
                 }}
@@ -762,12 +790,27 @@ const MultiTransformControls: React.FC<{
                     isDraggingRef.current = false;
                     const updates = selectedCubes.map(cube => {
                         const obj = nodesRef.current[cube.id];
-                        if (obj) {
+                        const init = initialTransforms.current.get(cube.id);
+                        if (obj && init) {
+                            // Calculate scale ratio (how much the scale changed from initial)
+                            const scaleRatioX = init.scale.x !== 0 ? obj.scale.x / init.scale.x : 1;
+                            const scaleRatioY = init.scale.y !== 0 ? obj.scale.y / init.scale.y : 1;
+                            const scaleRatioZ = init.scale.z !== 0 ? obj.scale.z / init.scale.z : 1;
+
                             return {
                                 id: cube.id,
                                 position: { x: obj.position.x, y: obj.position.y, z: obj.position.z },
-                                rotation: { x: THREE.MathUtils.radToDeg(obj.rotation.x), y: THREE.MathUtils.radToDeg(obj.rotation.y), z: THREE.MathUtils.radToDeg(obj.rotation.z) },
-                                size: { x: obj.scale.x, y: obj.scale.y, z: obj.scale.z }
+                                rotation: {
+                                    x: THREE.MathUtils.radToDeg(obj.rotation.x),
+                                    y: THREE.MathUtils.radToDeg(obj.rotation.y),
+                                    z: THREE.MathUtils.radToDeg(obj.rotation.z)
+                                },
+                                // Multiply original size by scale ratio to preserve proportions
+                                size: {
+                                    x: init.originalSize.x * scaleRatioX,
+                                    y: init.originalSize.y * scaleRatioY,
+                                    z: init.originalSize.z * scaleRatioZ
+                                }
                             };
                         }
                         return { id: cube.id };
@@ -817,11 +860,97 @@ const CanvasCapture = ({ onReady }: { onReady: (gl: THREE.WebGLRenderer, scene: 
     return null;
 };
 
+// Quick Zoom Controls - preset camera positions for different work scales
+const QuickZoomControls: React.FC = () => {
+    const { camera, controls } = useThree();
+
+    const setZoomLevel = (level: 'close' | 'medium' | 'far') => {
+        const orb = controls as any;
+        if (!orb) return;
+
+        let position: [number, number, number];
+        let target: [number, number, number] = [0, 0, 0];
+
+        switch (level) {
+            case 'close':  // For models - close view
+                position = [5, 4, 5];
+                break;
+            case 'medium':  // For small maps
+                position = [50, 40, 50];
+                break;
+            case 'far':  // For large maps (300m+)
+                position = [300, 250, 300];
+                break;
+        }
+
+        camera.position.set(...position);
+        orb.target.set(...target);
+        orb.update();
+        invalidate();
+    };
+
+    // Listen for custom events from UI buttons AND keyboard shortcuts
+    useEffect(() => {
+        const handleCustomEvent = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            setZoomLevel(detail as 'close' | 'medium' | 'far');
+        };
+
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            if (e.altKey) {
+                if (e.key === '1') { e.preventDefault(); setZoomLevel('close'); }
+                if (e.key === '2') { e.preventDefault(); setZoomLevel('medium'); }
+                if (e.key === '3') { e.preventDefault(); setZoomLevel('far'); }
+            }
+        };
+
+        window.addEventListener('quickzoom', handleCustomEvent);
+        window.addEventListener('keydown', handleKey);
+        return () => {
+            window.removeEventListener('quickzoom', handleCustomEvent);
+            window.removeEventListener('keydown', handleKey);
+        };
+    }, [camera, controls]);
+
+    return null;  // This component only handles logic, UI is in HTML overlay
+};
+
+// Quick Zoom UI Buttons (HTML overlay)
+const QuickZoomUI: React.FC<{ onZoom: (level: 'close' | 'medium' | 'far') => void }> = ({ onZoom }) => {
+    return (
+        <div className="absolute bottom-4 right-4 flex flex-col gap-1 z-10">
+            <button
+                onClick={() => onZoom('close')}
+                className="px-2 py-1 text-xs bg-gray-800/80 hover:bg-gray-700 text-white rounded border border-gray-600 font-mono"
+                title="Близко - для моделей (Alt+1)"
+            >
+                🔍 БЛИЗКО
+            </button>
+            <button
+                onClick={() => onZoom('medium')}
+                className="px-2 py-1 text-xs bg-gray-800/80 hover:bg-gray-700 text-white rounded border border-gray-600 font-mono"
+                title="Средне - для маленьких карт (Alt+2)"
+            >
+                📐 СРЕДНЕ
+            </button>
+            <button
+                onClick={() => onZoom('far')}
+                className="px-2 py-1 text-xs bg-gray-800/80 hover:bg-gray-700 text-white rounded border border-gray-600 font-mono"
+                title="Далеко - для больших карт 300м+ (Alt+3)"
+            >
+                🗺️ ДАЛЕКО
+            </button>
+        </div>
+    );
+};
+
+
 export const Scene: React.FC<SceneProps> = ({
     cubes, selectedIds, onSelect, onTransform, onBatchTransform, onTransformEnd, toolMode, snapGrid, snapAngle,
     backgroundColor, gridColor, sectionColor, showGrid, showWireframe, showAxes, performanceMode = false,
     onAddCube, onContextMenu, transformSpace = 'world', onPaintCube, onCanvasReady,
-    draggedItem, onDropItem, dragPointerRef,
+    draggedItem, onDropItem, dragPointerRef, cameraMode, terrainData,
     gridCellSize = 1, gridSectionSize = 5, gridCellThickness = 0.7, gridSectionThickness = 1.2
 }) => {
 
@@ -865,6 +994,9 @@ export const Scene: React.FC<SceneProps> = ({
         return { x: center.x, y: center.y, z: center.z };
     }, [cubes, selectedIds]);
 
+    // Memoize AxesHelper to prevent recreation on every render (was causing 1 FPS!)
+    const axesHelper = useMemo(() => new THREE.AxesHelper(5), []);
+
     useEffect(() => { invalidate(); }, [cubes, selectedIds, toolMode, showGrid, showWireframe, showAxes]);
 
     return (
@@ -876,7 +1008,7 @@ export const Scene: React.FC<SceneProps> = ({
                 shadows={!performanceMode}
                 gl={{ antialias: !performanceMode, powerPreference: 'high-performance', preserveDrawingBuffer: true }}
                 dpr={performanceMode ? 1 : [1, 2]}
-                camera={{ position: [8, 6, 8], fov: 45 }}
+                // camera={{ position: [8, 6, 8], fov: 45 }}  <-- Moved to Drei cameras
                 onPointerMissed={(e) => {
                     if (!e.shiftKey && toolMode === ToolMode.SELECT) onSelect(null);
                 }}
@@ -892,6 +1024,12 @@ export const Scene: React.FC<SceneProps> = ({
                 <pointLight position={[10, 20, 10]} intensity={1} castShadow={!performanceMode} shadow-mapSize={[1024, 1024]} />
                 {!performanceMode && <pointLight position={[-10, -10, -5]} intensity={0.5} color="#aaaaff" />}
                 <Environment preset="city" />
+
+
+
+                {/* Camera Switching */}
+                <PerspectiveCamera makeDefault={cameraMode === 'perspective'} position={[10, 8, 10]} fov={45} />
+                <OrthographicCamera makeDefault={cameraMode === 'orthographic'} position={[10, 8, 10]} zoom={20} near={-100} far={1000} />
 
                 <CameraRig selectedPos={selectedCentroid} />
 
@@ -916,12 +1054,46 @@ export const Scene: React.FC<SceneProps> = ({
                         />
                     </group>
                 )}
-                {showAxes && <primitive object={new THREE.AxesHelper(5)} position={[0, 0.01, 0]} />}
+                {showAxes && <primitive object={axesHelper} position={[0, 0.01, 0]} />}
+
+                {/* Terrain Mesh */}
+                {terrainData && terrainData.elevationGrid.length > 0 && (
+                    <TerrainMesh
+                        elevationGrid={terrainData.elevationGrid}
+                        gridSize={terrainData.gridSize}
+                        width={terrainData.width}
+                        baseElevation={terrainData.baseElevation}
+                        verticalScale={0.5}
+                        color="#3a5a40"
+                    />
+                )}
 
                 {!performanceMode && <ContactShadows resolution={512} scale={30} blur={2} opacity={0.35} far={4} color="#000000" frames={1} />}
 
+                {/* GPU INSTANCED RENDERING for non-selected cubes (simple boxes, excluding roads) */}
+                <InstancedBuildings
+                    cubes={cubes.filter(c => !c.parentId && c.type === 'cube' && !c.name?.startsWith('Road_') && !c.name?.startsWith('River_'))}
+                    excludeIds={new Set(selectedIds)}
+                    onClick={(id, e) => onSelect(id, e.shiftKey || e.ctrlKey || e.metaKey)}
+                />
+
+                {/* REAL POLYGON BUILDINGS AND WATER from OSM data */}
+                <PolygonBuildings
+                    cubes={cubes.filter(c => !c.parentId && (c.type === 'polygon' || c.type === 'water'))}
+                    excludeIds={new Set(selectedIds)}
+                    onClick={(id, e) => onSelect(id, e.shiftKey || e.ctrlKey || e.metaKey)}
+                />
+
+                {/* SMOOTH ROADS - ribbon geometry with CatmullRom interpolation */}
+                <SmoothRoads cubes={cubes} roadWidth={8} smoothness={3} />
+
+                {/* SMOOTH RIVERS - ribbon geometry with water material */}
+                <SmoothRivers cubes={cubes} riverWidth={18} smoothness={4} />
+
+
+                {/* Individual mesh ONLY for selected/editable objects and groups */}
                 <group>
-                    {cubes.filter(c => !c.parentId).map((cube) => (
+                    {cubes.filter(c => !c.parentId && (selectedIds.includes(c.id) || c.type === 'group')).map((cube) => (
                         <SceneNode
                             key={cube.id}
                             id={cube.id}
@@ -963,15 +1135,55 @@ export const Scene: React.FC<SceneProps> = ({
                     dampingFactor={0.1}
                     enabled={!(toolMode === ToolMode.SELECT && isShiftDown)}
                     onChange={() => invalidate()}
+
                 />
+
+                {/* Performance Stats Overlay - Fixed missing usage */}
+                {/* (Already rendered via StatsTracker prop if we want, but let's leave as is for now as StatsTracker handles valid HTML overlay via setPerfStats) */}
+
+                {/* Quick Zoom keyboard shortcuts handler */}
+                <QuickZoomControls />
 
                 <GizmoHelper alignment="top-right" margin={[80, 80]} onUpdate={() => invalidate()}>
                     <GizmoViewcube color="gray" strokeColor="white" textColor="black" hoverColor="#3b82f6" opacity={0.9} />
                 </GizmoHelper>
             </Canvas>
+
+            {/* Quick Zoom Buttons UI */}
+            <div className="absolute bottom-4 right-4 flex flex-col gap-1 z-10 pointer-events-auto">
+                <button
+                    onClick={() => {
+                        // Dispatch custom event to set zoom level
+                        window.dispatchEvent(new CustomEvent('quickzoom', { detail: 'close' }));
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-900/90 hover:bg-gray-700 text-green-400 rounded border border-green-500/50 font-mono shadow-lg backdrop-blur-sm"
+                    title="Близко - для моделей (Alt+1)"
+                >
+                    🔍 БЛИЗКО
+                </button>
+                <button
+                    onClick={() => {
+                        window.dispatchEvent(new CustomEvent('quickzoom', { detail: 'medium' }));
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-900/90 hover:bg-gray-700 text-yellow-400 rounded border border-yellow-500/50 font-mono shadow-lg backdrop-blur-sm"
+                    title="Средне - для маленьких карт (Alt+2)"
+                >
+                    📐 СРЕДНЕ
+                </button>
+                <button
+                    onClick={() => {
+                        window.dispatchEvent(new CustomEvent('quickzoom', { detail: 'far' }));
+                    }}
+                    className="px-3 py-1.5 text-xs bg-gray-900/90 hover:bg-gray-700 text-blue-400 rounded border border-blue-500/50 font-mono shadow-lg backdrop-blur-sm"
+                    title="Далеко - для больших карт 300м+ (Alt+3)"
+                >
+                    🗺️ ДАЛЕКО
+                </button>
+            </div>
         </div>
     );
 };
+
 
 
 

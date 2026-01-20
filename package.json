@@ -1,5 +1,6 @@
 {
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^24.10.1",
     "@types/three": "^0.181.0",
     "@types/ws": "^8.5.13",
@@ -11,7 +12,7 @@
     "vite-plugin-compression": "^0.5.1"
   },
   "name": "tx",
-  "version": "0.4.20328",
+  "version": "0.4.20337",
   "description": "Protocol TX - Advanced tank combat simulator with procedural world generation, multiplayer support, and extensive customization",
   "main": "index.js",
   "directories": {
@@ -35,6 +36,7 @@
     "chart.js": "^4.5.1",
     "dotenv": "^17.2.3",
     "esbuild": "^0.25.12",
+    "express": "^5.2.1",
     "fdir": "^6.5.0",
     "fflate": "^0.8.2",
     "firebase": "^12.7.0",
@@ -58,6 +60,9 @@
     "prebuild": "npx tsx scripts/update-version.ts increment",
     "preserve": "npx tsx scripts/update-version.ts increment",
     "dev": "vite",
+    "dev:unified": "tsx scripts/unified-dashboard.ts",
+    "dev:simple": "tsx scripts/simple-dashboard.ts",
+    "dev:web": "tsx scripts/web-dashboard/server.ts",
     "build": "vite build",
     "build:analyze": "ANALYZE=true vite build",
     "analyze": "npm run build && node scripts/analyze-bundle.js",
