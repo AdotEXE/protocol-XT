@@ -396,7 +396,7 @@ const extractMapData = (cubes: CubeElement[]) => {
             });
         } else {
             // Standard Object
-            placedObjects.push({
+            const objData: any = {
                 id: cube.id,
                 type: determineTXObjectType(cube),
                 position: scaledPosition,
@@ -409,7 +409,21 @@ const extractMapData = (cubes: CubeElement[]) => {
                     hasCollision: true,
                     isDestructible: false
                 }
-            });
+            };
+
+            // КРИТИЧНО: Передаём polygon vertices для правильного рендеринга
+            if (cube.polygon && cube.polygon.length >= 3) {
+                // Scale polygon vertices for game
+                objData.polygon = cube.polygon.map(v => ({
+                    x: v.x * EDITOR_TO_GAME_SCALE,
+                    y: v.y * EDITOR_TO_GAME_SCALE,
+                    z: v.z * EDITOR_TO_GAME_SCALE
+                }));
+                objData.height = (cube.height || cube.size.y) * EDITOR_TO_GAME_SCALE;
+                objData.isPolygon = true;
+            }
+
+            placedObjects.push(objData);
         }
     });
 

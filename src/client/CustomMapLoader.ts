@@ -10,8 +10,9 @@
  * Никакого процедурного контента - только объекты из редактора.
  */
 
-import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, TransformNode, GroundMesh } from "@babylonjs/core";
+import { Scene, Vector3, Vector2, Mesh, MeshBuilder, StandardMaterial, Color3, TransformNode, GroundMesh, PolygonMeshBuilder } from "@babylonjs/core";
 import { PhysicsAggregate, PhysicsShapeType } from "@babylonjs/core/Physics";
+import earcut from "earcut";
 
 /** Интерфейс для объекта из карты */
 interface PlacedObject {
@@ -25,6 +26,10 @@ interface PlacedObject {
         name?: string;
         hasCollision?: boolean;
     };
+    // Polygon support for Real World Generator buildings/roads
+    polygon?: { x: number; y: number; z: number }[];
+    height?: number;
+    isPolygon?: boolean;
 }
 
 /** Интерфейс данных карты */
@@ -111,33 +116,54 @@ export class CustomMapLoader {
      * Создать один объект
      */
     private createObject(obj: PlacedObject): Mesh | null {
-        // Позиция (уже масштабирована в exporter.ts x20)
+        // Позиция
         const pos = obj.position || { x: 0, y: 0, z: 0 };
-
-        // Размер (scale = размер объекта)
-        const scale = obj.scale || { x: 1, y: 1, z: 1 };
-
-        // Поворот
         const rot = obj.rotation || { x: 0, y: 0, z: 0 };
-
-        // Цвет
         const colorHex = obj.properties?.color || '#808080';
         const color = this.parseColor(colorHex);
-
-        // Создаём бокс
         const meshName = `customObj_${obj.id}`;
-        const mesh = MeshBuilder.CreateBox(meshName, {
-            width: Math.max(0.1, scale.x),
-            height: Math.max(0.1, scale.y),
-            depth: Math.max(0.1, scale.z)
-        }, this.scene);
 
-        // Позиция - используем как есть из данных редактора
-        mesh.position = new Vector3(
-            pos.x,
-            pos.y,
-            pos.z
-        );
+        let mesh: Mesh;
+
+        // Проверяем если это polygon-объект (здание/дорога из Real World Generator)
+        if (obj.isPolygon && obj.polygon && obj.polygon.length >= 3) {
+            try {
+                // Конвертируем polygon в Vector2[] для XZ плоскости
+                const shape: Vector2[] = obj.polygon.map(v => new Vector2(v.x, v.z));
+
+                // Создаём extruded polygon
+                const height = obj.height || 1;
+                mesh = MeshBuilder.ExtrudePolygon(meshName, {
+                    shape: shape,
+                    depth: height,
+                    sideOrientation: Mesh.DOUBLESIDE
+                }, this.scene, earcut);
+
+                // Позиционируем по Y (extrude идёт вниз, так что сдвигаем)
+                mesh.position = new Vector3(0, pos.y + height, 0);
+
+                console.log(`[CustomMapLoader] Created polygon mesh: ${meshName} with ${shape.length} vertices, height: ${height}`);
+            } catch (e) {
+                console.warn(`[CustomMapLoader] Polygon creation failed for ${obj.id}, falling back to box:`, e);
+                // Fallback to box
+                const scale = obj.scale || { x: 1, y: 1, z: 1 };
+                mesh = MeshBuilder.CreateBox(meshName, {
+                    width: Math.max(0.1, scale.x),
+                    height: Math.max(0.1, scale.y),
+                    depth: Math.max(0.1, scale.z)
+                }, this.scene);
+                mesh.position = new Vector3(pos.x, pos.y, pos.z);
+            }
+        } else {
+            // Стандартный бокс
+            const scale = obj.scale || { x: 1, y: 1, z: 1 };
+            mesh = MeshBuilder.CreateBox(meshName, {
+                width: Math.max(0.1, scale.x),
+                height: Math.max(0.1, scale.y),
+                depth: Math.max(0.1, scale.z)
+            }, this.scene);
+            mesh.position = new Vector3(pos.x, pos.y, pos.z);
+        }
 
         // Поворот (в радианах)
         mesh.rotation = new Vector3(
@@ -155,10 +181,11 @@ export class CustomMapLoader {
         // Привязываем к родительскому узлу
         mesh.parent = this.parentNode;
 
-        // Физика (статический объект)
+        // Физика (статический объект) - используем MESH для polygon
         if (obj.properties?.hasCollision !== false) {
             try {
-                new PhysicsAggregate(mesh, PhysicsShapeType.BOX, {
+                const physicsType = obj.isPolygon ? PhysicsShapeType.MESH : PhysicsShapeType.BOX;
+                new PhysicsAggregate(mesh, physicsType, {
                     mass: 0,
                     friction: 0.5,
                     restitution: 0.1
@@ -173,7 +200,8 @@ export class CustomMapLoader {
             customMapObject: true,
             objectId: obj.id,
             objectType: obj.type,
-            objectName: obj.properties?.name || obj.id
+            objectName: obj.properties?.name || obj.id,
+            isPolygon: obj.isPolygon || false
         };
 
         return mesh;
