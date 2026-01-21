@@ -436,7 +436,8 @@ export const exportToTXMap = (cubes: CubeElement[], name: string, description?: 
             author: "PolyGenStudio",
             description: description || `Map generated with PolyGenStudio AI`,
             isPreset: false,
-            mapSize: 200
+            mapSize: 200,
+            requireGarage: false // Custom maps: tank customization applies without entering garage
         }
     };
 
@@ -468,7 +469,8 @@ export const exportForTest = (cubes: CubeElement[], name: string = 'test_map'): 
             author: "PolyGenStudio",
             description: `Test map from PolyGenStudio`,
             isPreset: false,
-            mapSize: 200
+            mapSize: 200,
+            requireGarage: false // No garage needed for tank customization
         }
     };
 
