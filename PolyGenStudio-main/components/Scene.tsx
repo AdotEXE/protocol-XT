@@ -581,14 +581,15 @@ const SelectionManager: React.FC<{
         let wasShiftHeld = false;
 
         const handlePointerDown = (event: PointerEvent) => {
-            // Task 6: Allow box selection without modifier keys in SELECT mode
+            // Box selection ONLY when SHIFT is held in SELECT mode
             if (toolMode !== ToolMode.SELECT || event.button !== 0) return;
+            if (!event.shiftKey) return; // REQUIRE SHIFT for box selection
 
             // Skip if clicking on an object (let single-click selection handle it)
             const target = event.target as Element;
             if (target.tagName === 'CANVAS') {
                 isDragging.current = true;
-                wasShiftHeld = event.shiftKey || event.ctrlKey || event.metaKey;
+                wasShiftHeld = event.ctrlKey || event.metaKey; // CTRL = additive selection
                 startPoint.current = { x: event.clientX, y: event.clientY };
                 if (helperDiv.current) {
                     Object.assign(helperDiv.current.style, {

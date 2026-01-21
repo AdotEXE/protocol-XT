@@ -1131,19 +1131,65 @@ export const App = () => {
             }}
             onKeyDown={e => {
                 if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-                if (e.ctrlKey && e.key === 'c') handleCopy();
-                if (e.ctrlKey && e.key === 'v') handlePaste();
-                if (e.key === 'Delete') handleDeleteCubes();
-                if (e.ctrlKey && e.key === 'z') handleUndo();
-                if (e.ctrlKey && e.key === 'y') handleRedo();
-                if (e.key === 'v') setToolMode(ToolMode.SELECT);
-                if (e.key === 'g') setToolMode(ToolMode.MOVE);
-                if (e.key === 'r') setToolMode(ToolMode.ROTATE);
-                if (e.key === 's') setToolMode(ToolMode.SCALE);
-                if (e.key === 'p') setToolMode(ToolMode.PAINT);
-                if (e.key === 'b') setToolMode(ToolMode.BUILD);
-                if (e.key === 't') setToolMode(ToolMode.TERRAIN);
-                if (e.key === 'l') setToolMode(ToolMode.ROAD); // Line
+
+                // === ESSENTIAL SHORTCUTS ===
+
+                // Clipboard & History
+                if (e.ctrlKey && e.key === 'c') { handleCopy(); e.preventDefault(); }
+                if (e.ctrlKey && e.key === 'v') { handlePaste(); e.preventDefault(); }
+                if (e.ctrlKey && e.key === 'x') { handleCopy(); handleDeleteCubes(); e.preventDefault(); } // Cut
+                if (e.ctrlKey && e.key === 'z') { handleUndo(); e.preventDefault(); }
+                if (e.ctrlKey && e.key === 'y') { handleRedo(); e.preventDefault(); }
+                if (e.ctrlKey && e.shiftKey && e.key === 'Z') { handleRedo(); e.preventDefault(); } // Ctrl+Shift+Z = Redo
+
+                // Selection
+                if (e.ctrlKey && e.key === 'a') {
+                    setSelectedIds(cubes.filter(c => c.visible && !c.isLocked).map(c => c.id));
+                    e.preventDefault();
+                } // Select All
+                if (e.key === 'Escape') { setSelectedIds([]); } // Deselect all
+                if (e.ctrlKey && e.key === 'd') { handleCopy(); handlePaste(); e.preventDefault(); } // Duplicate
+
+                // Delete
+                if (e.key === 'Delete' || e.key === 'Backspace') { handleDeleteCubes(); e.preventDefault(); }
+
+                // Tool modes (single keys - no modifier)
+                if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+                    if (e.key === 'v' || e.key === 'q') setToolMode(ToolMode.SELECT);
+                    if (e.key === 'g' || e.key === 'w') setToolMode(ToolMode.MOVE);
+                    if (e.key === 'r' || e.key === 'e') setToolMode(ToolMode.ROTATE);
+                    if (e.key === 's') setToolMode(ToolMode.SCALE);
+                    if (e.key === 'p') setToolMode(ToolMode.PAINT);
+                    if (e.key === 'b') setToolMode(ToolMode.BUILD);
+                    if (e.key === 't') setToolMode(ToolMode.TERRAIN);
+                    if (e.key === 'l') setToolMode(ToolMode.ROAD);
+                }
+
+                // View controls
+                if (e.key === 'h') {
+                    // Hide selected objects
+                    if (selectedIds.length > 0) {
+                        setCubes(prev => prev.map(c => selectedIds.includes(c.id) ? { ...c, visible: false } : c));
+                        setSelectedIds([]);
+                    }
+                }
+                if (e.altKey && e.key === 'h') {
+                    // Unhide all
+                    setCubes(prev => prev.map(c => ({ ...c, visible: true })));
+                }
+                if (e.key === 'f') {
+                    // Focus on selected (placeholder - camera focus)
+                    if (selectedIds.length > 0) {
+                        addLog('📍 Focus on selection', 'info');
+                    }
+                }
+
+                // Grid & Snap toggle
+                if (e.key === 'x') { setSnapEnabled(prev => !prev); }
+                if (e.key === '1') { setShowGrid(prev => !prev); }
+                if (e.key === '2') { setShowAxes(prev => !prev); }
+                if (e.key === '3') { setShowWireframe(prev => !prev); }
+
             }} tabIndex={0}>
 
             {/* Unified Loading Screen */}
