@@ -4694,6 +4694,103 @@ export class Game {
         return true;
     }
 
+    /**
+     * ANTI-STUCK: Выталкивает танк из геометрии если он заспавнился внутри объекта
+     * Проверяет коллизии по 6 направлениям и выталкивает в свободную сторону
+     */
+    ejectTankFromCollision(): void {
+        if (!this.tank?.chassis || !this.scene) return;
+
+        const tankPos = this.tank.chassis.position.clone();
+        const checkRadius = 3; // Радиус проверки коллизий (размер танка ~3 метра)
+
+        // Raycast во всех направлениях чтобы понять где мы застряли
+        const directions = [
+            new Vector3(1, 0, 0),   // Right
+            new Vector3(-1, 0, 0),  // Left
+            new Vector3(0, 0, 1),   // Forward
+            new Vector3(0, 0, -1),  // Back
+            new Vector3(0, 1, 0),   // Up
+            new Vector3(0, -1, 0),  // Down
+        ];
+
+        let isInsideGeometry = false;
+        let escapeDirection: Vector3 | null = null;
+        let maxFreeDistance = 0;
+
+        for (const dir of directions) {
+            const ray = new Ray(tankPos, dir, 50);
+            const hit = this.scene.pickWithRay(ray, (mesh) => {
+                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                const name = mesh.name.toLowerCase();
+                // Проверяем только customObj (объекты карты) и здания
+                return name.includes('customobj') ||
+                    name.includes('building') ||
+                    name.includes('wall');
+            });
+
+            if (hit?.hit && hit.distance < checkRadius) {
+                // Мы внутри геометрии!
+                isInsideGeometry = true;
+            } else if (!hit?.hit || hit.distance > maxFreeDistance) {
+                // Это направление свободнее
+                maxFreeDistance = hit?.distance || 50;
+                escapeDirection = dir.clone();
+            }
+        }
+
+        if (isInsideGeometry && escapeDirection) {
+            // Выталкиваем танк в свободном направлении
+            const ejectDistance = checkRadius + 5; // Выталкиваем на 5 метров дальше размера танка
+            const newPos = tankPos.add(escapeDirection.scale(ejectDistance));
+
+            // Корректируем высоту относительно поверхности
+            const surfaceY = this.getTopSurfaceHeight(newPos.x, newPos.z);
+            newPos.y = surfaceY + 2;
+
+            logger.log(`[Game] ⚡ ANTI-STUCK: Tank stuck inside geometry! Ejecting from (${tankPos.x.toFixed(1)}, ${tankPos.y.toFixed(1)}, ${tankPos.z.toFixed(1)}) to (${newPos.x.toFixed(1)}, ${newPos.y.toFixed(1)}, ${newPos.z.toFixed(1)})`);
+
+            // Перемещаем танк
+            if (this.tank.physicsBody) {
+                this.tank.physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+                this.tank.chassis.position.copyFrom(newPos);
+                this.tank.chassis.computeWorldMatrix(true);
+                this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+
+                setTimeout(() => {
+                    if (this.tank?.physicsBody) {
+                        this.tank.physicsBody.disablePreStep = false;
+                        this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                        setTimeout(() => {
+                            if (this.tank?.physicsBody) {
+                                this.tank.physicsBody.disablePreStep = true;
+                            }
+                        }, 100);
+                    }
+                }, 50);
+            } else {
+                this.tank.chassis.position.copyFrom(newPos);
+            }
+        }
+    }
+
+    /**
+     * Запускает периодическую проверку anti-stuck для танка
+     * Вызывается после спавна игрока на custom картах
+     */
+    startAntiStuckCheck(): void {
+        // Проверяем несколько раз после спавна
+        const checkTimes = [100, 500, 1000, 2000]; // ms после спавна
+        for (const delay of checkTimes) {
+            setTimeout(() => {
+                this.ejectTankFromCollision();
+            }, delay);
+        }
+    }
+
     // Создаёт защитную плоскость под картой для предотвращения падения
     // Серая плоскость с зелёными метрическими линиями по метрам на Z=-10
     private createSafetyPlane(): void {
@@ -4905,6 +5002,9 @@ export class Game {
                 }
             }, 0);
         }
+
+        // ANTI-STUCK: Проверяем и выталкиваем если заспавнились внутри геометрии
+        this.startAntiStuckCheck();
     }
 
     // Спавн игрока в случайном гараже
@@ -5145,6 +5245,9 @@ export class Game {
 
 
         logger.log(`[Game] Player spawned in garage at ${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)}`);
+
+        // ANTI-STUCK: Проверяем и выталкиваем если заспавнились внутри геометрии
+        this.startAntiStuckCheck();
     }
 
     // Получить позицию БЛИЖАЙШЕГО гаража для респавна игрока
