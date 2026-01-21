@@ -389,7 +389,9 @@ const SceneNode = React.memo(({
     const isSelected = selectedIds.includes(cube.id);
 
     const handleNodeClick = (e: any) => {
+        // Task 7: Stop propagation first to ensure only topmost clicked object receives event
         e.stopPropagation();
+
         if (cube.isLocked) return;
 
         if (toolMode === ToolMode.PAINT) {
@@ -397,6 +399,7 @@ const SceneNode = React.memo(({
             return;
         }
 
+        // Select this object (R3F raycast already returns nearest hit first)
         onSelect(cube.id, e.shiftKey || e.ctrlKey || e.metaKey);
     };
 
