@@ -239,6 +239,9 @@ export const App = () => {
     const [sidebarTab, setSidebarTab] = useState<'files' | 'palette' | 'props'>('files');
     const [draggedItem, setDraggedItem] = useState<string | null>(null);
 
+    // Toast Notifications (Task 5)
+    const [toasts, setToasts] = useState<{ id: string, message: string, type: 'info' | 'success' | 'warning' | 'error' }[]>([]);
+
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, visible: boolean, targetId: string | null }>({ x: 0, y: 0, visible: false, targetId: null });
 
@@ -279,12 +282,15 @@ export const App = () => {
                 if (data.genHistory) setGenHistory(data.genHistory);
                 if (data.logs) setLogs(data.logs);
                 if (data.theme) setTheme(data.theme);
-                if (data.currentFileId) setCurrentFileId(data.currentFileId);
+                // Task 4: Don't auto-load cubes - start with empty canvas
+                // Keep currentFileId as 'default' (empty file)
+                // if (data.currentFileId) setCurrentFileId(data.currentFileId);
                 if (data.viewportColor) setViewportColor(data.viewportColor);
                 if (data.leftSidebarOpen !== undefined) setLeftSidebarOpen(data.leftSidebarOpen);
                 if (data.rightSidebarOpen !== undefined) setRightSidebarOpen(data.rightSidebarOpen);
                 if (data.showStats !== undefined) setShowStats(data.showStats);
-                if (data.cubes && data.cubes.length > 0) setCubes(data.cubes); // Restore cubes!
+                // Task 4: Don't auto-load cubes - start with empty canvas (old files still in fileSystem)
+                // if (data.cubes && data.cubes.length > 0) setCubes(data.cubes);
                 if (data.genSettings) {
                     setGenSeed(data.genSettings.seed || 0);
                     setGenSymmetry(data.genSettings.symmetry || 'none');
@@ -347,6 +353,15 @@ export const App = () => {
 
     const addLog = (message: string, type: 'info' | 'warning' | 'error' | 'success') => {
         setLogs(prev => [...prev, { id: generateId(), message, type, timestamp: Date.now() }].slice(-100));
+    };
+
+    // Task 5: Visual toast notification (auto-dismisses after 3s)
+    const showToast = (message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+        const id = generateId();
+        setToasts(prev => [...prev, { id, message, type }]);
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== id));
+        }, 3000);
     };
 
     const pushHistory = (newCubes: CubeElement[]) => {
@@ -2077,6 +2092,22 @@ export const App = () => {
                 }}
                 initialSettings={editorSettings}
             />
+
+            {/* Toast Notifications (Task 5) */}
+            <div className="fixed bottom-4 right-4 z-[9999] space-y-2 pointer-events-none">
+                {toasts.map(toast => (
+                    <div
+                        key={toast.id}
+                        className={`px-4 py-3 rounded-lg shadow-xl text-sm font-medium animate-in slide-in-from-right duration-300 ${toast.type === 'success' ? 'bg-green-600 text-white' :
+                                toast.type === 'error' ? 'bg-red-600 text-white' :
+                                    toast.type === 'warning' ? 'bg-yellow-600 text-white' :
+                                        'bg-gray-800 text-white border border-gray-700'
+                            }`}
+                    >
+                        {toast.message}
+                    </div>
+                ))}
+            </div>
         </div >
     );
 };

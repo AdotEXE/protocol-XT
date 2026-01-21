@@ -556,22 +556,31 @@ const SelectionManager: React.FC<{
     }, []);
 
     useEffect(() => {
+        let wasShiftHeld = false;
+
         const handlePointerDown = (event: PointerEvent) => {
-            if (toolMode !== ToolMode.SELECT || event.button !== 0 || (!event.shiftKey && !event.ctrlKey && !event.metaKey)) return;
-            isDragging.current = true;
-            startPoint.current = { x: event.clientX, y: event.clientY };
-            if (helperDiv.current) {
-                Object.assign(helperDiv.current.style, {
-                    left: event.clientX + 'px', top: event.clientY + 'px', width: '0px', height: '0px', display: 'block'
-                });
-            }
-            const rect = gl.domElement.getBoundingClientRect();
-            if (selectionBox.current) {
-                selectionBox.current.startPoint.set(
-                    ((event.clientX - rect.left) / rect.width) * 2 - 1,
-                    -((event.clientY - rect.top) / rect.height) * 2 + 1,
-                    0.5
-                );
+            // Task 6: Allow box selection without modifier keys in SELECT mode
+            if (toolMode !== ToolMode.SELECT || event.button !== 0) return;
+
+            // Skip if clicking on an object (let single-click selection handle it)
+            const target = event.target as Element;
+            if (target.tagName === 'CANVAS') {
+                isDragging.current = true;
+                wasShiftHeld = event.shiftKey || event.ctrlKey || event.metaKey;
+                startPoint.current = { x: event.clientX, y: event.clientY };
+                if (helperDiv.current) {
+                    Object.assign(helperDiv.current.style, {
+                        left: event.clientX + 'px', top: event.clientY + 'px', width: '0px', height: '0px', display: 'block'
+                    });
+                }
+                const rect = gl.domElement.getBoundingClientRect();
+                if (selectionBox.current) {
+                    selectionBox.current.startPoint.set(
+                        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+                        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+                        0.5
+                    );
+                }
             }
         };
 
@@ -613,7 +622,8 @@ const SelectionManager: React.FC<{
                 const allSelected = selectionBox.current.select();
                 const rawIds = allSelected.filter((mesh: any) => mesh.userData?.id && !mesh.userData.isLocked).map((mesh: any) => mesh.userData.id);
                 const rootIds = Array.from(new Set(rawIds.map((id: string) => findRootId(id))));
-                if (rootIds.length > 0) onSelect(rootIds as string[], true);
+                // Task 6: Use wasShiftHeld for additive, otherwise replace selection
+                if (rootIds.length > 0) onSelect(rootIds as string[], wasShiftHeld);
             }
         };
         gl.domElement.addEventListener('pointerdown', handlePointerDown);
