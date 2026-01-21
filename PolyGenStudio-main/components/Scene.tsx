@@ -403,11 +403,29 @@ const SceneNode = React.memo(({
         onSelect(cube.id, e.shiftKey || e.ctrlKey || e.metaKey);
     };
 
+    // Track right-click start position to detect if user is dragging camera
+    const rightClickStart = useRef<{ x: number, y: number } | null>(null);
+    const DRAG_THRESHOLD = 5; // pixels - if mouse moves more than this, it's a camera drag
+
+    const handlePointerDown = (e: any) => {
+        if (e.button === 2) { // Right mouse button
+            rightClickStart.current = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
+        }
+    };
+
     const handleContextMenu = (e: any) => {
         e.stopPropagation();
-        if (onContextMenu) {
-            onContextMenu(e.nativeEvent.clientX, e.nativeEvent.clientY, cube.id);
+
+        // Only show context menu if cursor hasn't moved (wasn't dragging camera)
+        if (rightClickStart.current && onContextMenu) {
+            const dx = Math.abs(e.nativeEvent.clientX - rightClickStart.current.x);
+            const dy = Math.abs(e.nativeEvent.clientY - rightClickStart.current.y);
+
+            if (dx < DRAG_THRESHOLD && dy < DRAG_THRESHOLD) {
+                onContextMenu(e.nativeEvent.clientX, e.nativeEvent.clientY, cube.id);
+            }
         }
+        rightClickStart.current = null;
     };
 
     const scale: [number, number, number] = cube.type === 'group'
@@ -429,6 +447,7 @@ const SceneNode = React.memo(({
                     name={`mesh_${cube.id}`}
                     userData={{ id: cube.id, isLocked: cube.isLocked, type: 'cube' }}
                     onClick={handleNodeClick}
+                    onPointerDown={handlePointerDown}
                     onContextMenu={handleContextMenu}
                     onPointerOver={(e) => { e.stopPropagation(); setHovered(true); }}
                     onPointerOut={(e) => { e.stopPropagation(); setHovered(false); }}
