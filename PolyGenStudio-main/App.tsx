@@ -142,6 +142,12 @@ export const App = () => {
 
     // UI Panel Visibility
     const [isAppLoaded, setIsAppLoaded] = useState(false);
+
+    // Unified Loading Screen State
+    const [loadingPhase, setLoadingPhase] = useState<'init' | 'react' | 'threejs' | 'resources' | 'done'>('init');
+    const [loadingProgress, setLoadingProgress] = useState(0);
+    const [loadingMessage, setLoadingMessage] = useState('Инициализация...');
+
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
     const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
     const [rightTab, setRightTab] = useState<'props' | 'palette' | 'refine' | 'history' | 'console' | 'gen' | 'terrain' | 'tools' | 'layers' | 'objects'>('props');
@@ -239,8 +245,14 @@ export const App = () => {
     const [sidebarTab, setSidebarTab] = useState<'files' | 'palette' | 'props'>('files');
     const [draggedItem, setDraggedItem] = useState<string | null>(null);
 
-    // Toast Notifications (Task 5)
-    const [toasts, setToasts] = useState<{ id: string, message: string, type: 'info' | 'success' | 'warning' | 'error' }[]>([]);
+    // Toast Notifications with Progress Support
+    const [toasts, setToasts] = useState<{
+        id: string,
+        message: string,
+        type: 'info' | 'success' | 'warning' | 'error',
+        progress?: number,  // 0-100 for progress bar
+        isLoading?: boolean // Show spinner
+    }[]>([]);
 
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, visible: boolean, targetId: string | null }>({ x: 0, y: 0, visible: false, targetId: null });
@@ -272,25 +284,28 @@ export const App = () => {
         e.target.value = '';
     };
 
-    // --- Persistence ---
+    // --- Persistence with Loading Progress ---
     useEffect(() => {
+        // Phase 1: React initialization (0-20%)
+        setLoadingPhase('react');
+        setLoadingProgress(10);
+        setLoadingMessage('Загрузка React...');
+
         const saved = localStorage.getItem('polygen_ultimate_v5_pro_final');
         if (saved) {
             try {
+                setLoadingProgress(20);
+                setLoadingMessage('Восстановление настроек...');
+
                 const data = JSON.parse(saved);
                 if (data.fileSystem) setFileSystem(data.fileSystem);
                 if (data.genHistory) setGenHistory(data.genHistory);
                 if (data.logs) setLogs(data.logs);
                 if (data.theme) setTheme(data.theme);
-                // Task 4: Don't auto-load cubes - start with empty canvas
-                // Keep currentFileId as 'default' (empty file)
-                // if (data.currentFileId) setCurrentFileId(data.currentFileId);
                 if (data.viewportColor) setViewportColor(data.viewportColor);
                 if (data.leftSidebarOpen !== undefined) setLeftSidebarOpen(data.leftSidebarOpen);
                 if (data.rightSidebarOpen !== undefined) setRightSidebarOpen(data.rightSidebarOpen);
                 if (data.showStats !== undefined) setShowStats(data.showStats);
-                // Task 4: Don't auto-load cubes - start with empty canvas (old files still in fileSystem)
-                // if (data.cubes && data.cubes.length > 0) setCubes(data.cubes);
                 if (data.genSettings) {
                     setGenSeed(data.genSettings.seed || 0);
                     setGenSymmetry(data.genSettings.symmetry || 'none');
@@ -303,7 +318,32 @@ export const App = () => {
                 if (data.snapEnabled !== undefined) setSnapEnabled(data.snapEnabled);
             } catch (e) { console.error("Persistence Restore Error", e); }
         }
-        setIsAppLoaded(true);
+
+        // Phase 2: Three.js loading (20-60%)
+        setLoadingPhase('threejs');
+        setLoadingProgress(40);
+        setLoadingMessage('Загрузка 3D движка...');
+
+        // Simulate async loading - Three.js loads with Canvas
+        setTimeout(() => {
+            setLoadingProgress(60);
+            setLoadingMessage('Инициализация WebGL...');
+        }, 100);
+
+        setTimeout(() => {
+            // Phase 3: Resources (60-90%)
+            setLoadingPhase('resources');
+            setLoadingProgress(80);
+            setLoadingMessage('Загрузка ресурсов редактора...');
+        }, 200);
+
+        setTimeout(() => {
+            // Phase 4: Done (100%)
+            setLoadingPhase('done');
+            setLoadingProgress(100);
+            setLoadingMessage('Готово!');
+            setIsAppLoaded(true);
+        }, 400);
     }, []);
 
     useEffect(() => {
@@ -362,6 +402,24 @@ export const App = () => {
         setTimeout(() => {
             setToasts(prev => prev.filter(t => t.id !== id));
         }, 3000);
+        return id;
+    };
+
+    // Update existing toast (for live progress)
+    const updateToast = (id: string, updates: { message?: string, progress?: number, type?: 'info' | 'success' | 'warning' | 'error', isLoading?: boolean }) => {
+        setToasts(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+    };
+
+    // Remove toast manually
+    const removeToast = (id: string) => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+    };
+
+    // Show progress toast (doesn't auto-dismiss until complete)
+    const showProgressToast = (message: string): string => {
+        const id = generateId();
+        setToasts(prev => [...prev, { id, message, type: 'info', progress: 0, isLoading: true }]);
+        return id;
     };
 
     const pushHistory = (newCubes: CubeElement[]) => {
@@ -1088,7 +1146,30 @@ export const App = () => {
                 if (e.key === 'l') setToolMode(ToolMode.ROAD); // Line
             }} tabIndex={0}>
 
-            {/* Header */}
+            {/* Unified Loading Screen */}
+            {!isAppLoaded && (
+                <div className="fixed inset-0 z-[9999] bg-gray-950 flex flex-col items-center justify-center">
+                    <div className="text-3xl font-black text-white mb-2 tracking-tight">
+                        <span className="text-accent-500">PolyGen</span> Studio
+                    </div>
+                    <div className="text-xs text-gray-500 mb-8 uppercase tracking-widest">
+                        {loadingPhase === 'react' && '🔧 Инициализация'}
+                        {loadingPhase === 'threejs' && '🎮 3D Движок'}
+                        {loadingPhase === 'resources' && '📦 Ресурсы'}
+                        {loadingPhase === 'done' && '✅ Готово'}
+                    </div>
+                    <div className="w-80 h-2 bg-gray-800 rounded-full overflow-hidden shadow-inner">
+                        <div
+                            className="h-full bg-gradient-to-r from-accent-600 to-accent-400 transition-all duration-300 ease-out"
+                            style={{ width: `${loadingProgress}%` }}
+                        />
+                    </div>
+                    <div className="flex justify-between w-80 mt-2 text-[10px] text-gray-500">
+                        <span>{loadingMessage}</span>
+                        <span className="font-mono">{loadingProgress}%</span>
+                    </div>
+                </div>
+            )}
             <div className="h-12 bg-gray-950 border-b border-gray-800 flex items-center justify-between px-3 z-50 shrink-0 shadow-2xl gap-2 relative pointer-events-auto">
                 {/* Left: Title + History */}
                 <div className="flex items-center gap-3 shrink-0">
@@ -2093,18 +2174,34 @@ export const App = () => {
                 initialSettings={editorSettings}
             />
 
-            {/* Toast Notifications (Task 5) */}
+            {/* Toast Notifications with Progress */}
             <div className="fixed bottom-4 right-4 z-[9999] space-y-2 pointer-events-none">
                 {toasts.map(toast => (
                     <div
                         key={toast.id}
-                        className={`px-4 py-3 rounded-lg shadow-xl text-sm font-medium animate-in slide-in-from-right duration-300 ${toast.type === 'success' ? 'bg-green-600 text-white' :
+                        className={`px-4 py-3 rounded-lg shadow-xl text-sm font-medium animate-in slide-in-from-right duration-300 min-w-[200px] ${toast.type === 'success' ? 'bg-green-600 text-white' :
                                 toast.type === 'error' ? 'bg-red-600 text-white' :
                                     toast.type === 'warning' ? 'bg-yellow-600 text-white' :
                                         'bg-gray-800 text-white border border-gray-700'
                             }`}
                     >
-                        {toast.message}
+                        <div className="flex items-center gap-2">
+                            {toast.isLoading && (
+                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            )}
+                            <span>{toast.message}</span>
+                            {toast.progress !== undefined && (
+                                <span className="ml-auto text-xs opacity-70">{toast.progress}%</span>
+                            )}
+                        </div>
+                        {toast.progress !== undefined && (
+                            <div className="w-full h-1 bg-white/20 rounded-full mt-2 overflow-hidden">
+                                <div
+                                    className="h-full bg-white/80 transition-all duration-200"
+                                    style={{ width: `${toast.progress}%` }}
+                                />
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>
