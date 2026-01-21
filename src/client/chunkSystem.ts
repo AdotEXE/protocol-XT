@@ -30,6 +30,7 @@ import { TerrainGenerator, NoiseGenerator } from "./noiseGenerator";
 import { CoverGenerator } from "./coverGenerator";
 import { POISystem, POI } from "./poiSystem";
 import { logger } from "./utils/logger";
+import { CustomMapRunner, RunResult } from "./CustomMapRunner";
 import { getMapBoundsFromConfig, getMapSize, getWallHeight, getPlayerGaragePosition, MAP_SIZES } from "./maps/MapConstants";
 // Импорт генераторов карт и фабрики
 import {
@@ -322,20 +323,26 @@ export class ChunkSystem {
         this.createMaterials();
 
         // ОПТИМИЗАЦИЯ: Инициализируем ThinInstanceManager для уменьшения draw calls
-        this.thinInstanceManager = new ThinInstanceManager(this.scene);
-        this.thinInstanceManager.initialize();
+        // КРИТИЧНО: Пропускаем для custom карт - не нужны thin instances
+        if (this.config.mapType !== "custom") {
+            this.thinInstanceManager = new ThinInstanceManager(this.scene);
+            this.thinInstanceManager.initialize();
+        }
 
-        // КРИТИЧНО: Создаём terrain generator для ВСЕХ типов карт, не только для "normal"!
-        // Это необходимо для генерации террейна (ground mesh) во всех типах карт
-        this.terrainGenerator = new TerrainGenerator(
-            this.config.worldSeed,
-            (x: number, z: number, margin: number) => this.isPositionInGarageArea(x, z, margin),
-            this.config.mapType // Передаем mapType для специальной обработки (например, tartaria)
-        );
+        // КРИТИЧНО: Terrain generator ТОЛЬКО для НЕ-custom карт!
+        // Custom карты используют только объекты из редактора
+        if (this.config.mapType !== "custom") {
+            this.terrainGenerator = new TerrainGenerator(
+                this.config.worldSeed,
+                (x: number, z: number, margin: number) => this.isPositionInGarageArea(x, z, margin),
+                this.config.mapType
+            );
 
-        // Create separate noise generator for biome transitions (different seed offset)
-        // Инициализируем для всех типов карт (нужно для горного барьера)
-        this.biomeNoise = new NoiseGenerator(this.config.worldSeed + 12345);
+            // Create separate noise generator for biome transitions
+            this.biomeNoise = new NoiseGenerator(this.config.worldSeed + 12345);
+        } else {
+            logger.log("[ChunkSystem] Custom map - skipping terrain/noise generators");
+        }
 
         // Initialize road network and terrain generator for normal map
         if (this.config.mapType === "normal") {
@@ -371,14 +378,40 @@ export class ChunkSystem {
             // All generators initialized
         }
 
-        // СРАЗУ создаём гаражи для спавна!
-        this.createAllGarages();
+        // CUSTOM MAPS: Пропускаем генерацию гаражей и объектов для пользовательских карт
+        // Custom карты должны содержать только объекты из редактора, без процедурной генерации
+        if (this.config.mapType !== "custom") {
+            // СРАЗУ создаём гаражи для спавна!
+            this.createAllGarages();
 
-        // Инициализируем генераторы карт
-        this.initializeMapGenerators();
+            // Инициализируем генераторы карт
+            this.initializeMapGenerators();
+        } else {
+            // КРИТИЧНО: НЕ вызываем loadCustomMapObjects здесь!
+            // CustomMapRunner уже вызван в game.ts ПЕРЕД созданием ChunkSystem
+            logger.log("[ChunkSystem] Custom map - ChunkSystem created in MINIMAL mode (no generation)");
+        }
 
         // ChunkSystem initialized
     }
+    /**
+     * Запустить custom карту через CustomMapRunner
+     */
+    private loadCustomMapObjects(): void {
+        logger.log("[ChunkSystem] ===== CUSTOM MAP MODE =====");
+        logger.log("[ChunkSystem] Using CustomMapRunner for isolated custom map");
+
+        // Используем CustomMapRunner для пустой сцены с объектами из редактора
+        const runner = new CustomMapRunner(this.scene);
+        const result: RunResult = runner.run();
+
+        if (result.success) {
+            logger.log(`[ChunkSystem] ✅ Custom map "${result.mapName}" loaded: ${result.objectsCreated} objects`);
+        } else {
+            logger.error(`[ChunkSystem] ❌ Custom map failed: ${result.error}`);
+        }
+    }
+
 
     /**
      * Создать контекст генерации для генераторов карт
@@ -1079,6 +1112,12 @@ export class ChunkSystem {
     private _guaranteedGarageCreated = false;
 
     update(playerPos: Vector3): void {
+        // CUSTOM MAPS: Полностью пропускаем генерацию чанков!
+        // Все объекты загружаются через CustomMapLoader в конструкторе
+        if (this.config.mapType === "custom") {
+            return; // Никакой процедурной генерации для custom карт
+        }
+
         const startTime = performance.now();
         const { cx, cz } = this.worldToChunk(playerPos.x, playerPos.z);
 
@@ -2771,9 +2810,13 @@ export class ChunkSystem {
         const size = this.config.chunkSize;
         const random = new SeededRandom(seed);
 
-        // Sandbox, Sand, Madness, Expo и Custom - просто плоская земля БЕЗ террейна
-        // Custom карты будут отредактированы через mapEditor после загрузки
-        if (this.config.mapType === "sandbox" || this.config.mapType === "sand" || this.config.mapType === "madness" || this.config.mapType === "expo" || this.config.mapType === "brest" || this.config.mapType === "arena" || this.config.mapType === "custom") {
+        // CUSTOM MAPS: НЕ создаём НИКАКОЙ земли - всё приходит из редактора
+        if (this.config.mapType === "custom") {
+            return; // Полностью пустой чанк
+        }
+
+        // Sandbox, Sand, Madness, Expo, Brest, Arena - просто плоская земля БЕЗ террейна
+        if (this.config.mapType === "sandbox" || this.config.mapType === "sand" || this.config.mapType === "madness" || this.config.mapType === "expo" || this.config.mapType === "brest" || this.config.mapType === "arena") {
             this.createGround(cx, cz, worldX, worldZ, size, "wasteland", random, chunkParent);
             return;
         }
@@ -3249,6 +3292,14 @@ export class ChunkSystem {
             // Гаражи уже созданы в createAllGarages(), пропускаем generateGarages
             return;
         }
+
+        // CUSTOM MAPS: НЕ генерируем ВООБЩЕ НИЧЕГО - все объекты приходят из редактора
+        if (this.config.mapType === "custom") {
+            // Пустой чанк - никакой земли, никаких объектов
+            // ВСЁ содержимое карты приходит из MapEditor (включая землю если нужна)
+            return;
+        }
+
 
         // Используем новую систему генераторов через MapGeneratorFactory
         // Проверяем, есть ли зарегистрированный генератор для этого типа карты

@@ -168,7 +168,7 @@ export const SmoothRoads: React.FC<SmoothRoadsProps> = React.memo(({
             }
         });
 
-        console.log(`[SmoothRoads] Rendering ${roads.length} road ribbons`);
+        // console.log removed - was spamming console
         return roads;
     }, [roadElements, roadWidth, smoothness]);
 
@@ -195,7 +195,7 @@ export const SmoothRoads: React.FC<SmoothRoadsProps> = React.memo(({
             }
         });
 
-        console.log(`[SmoothRoads] Merged ${roadGeometries.length} roads into ${merged.length} batches`);
+        // console.log removed - was spamming console
         return merged;
     }, [roadGeometries]);
 

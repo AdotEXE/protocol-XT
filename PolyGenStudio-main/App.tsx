@@ -12,7 +12,7 @@ import { multiplayer, RemoteCursor } from './services/multiplayer';
 import { applyTerrainBrush, TerrainToolMode } from './services/terrain';
 import { createRoadPath, scatterObjects } from './services/tools';
 import { generateModel, repairModelWithAI, refineSelectionWithAI } from './services/gemini';
-import { exportToJSON, exportToOBJ, exportToBlockbench, exportToPLY, exportToPoly, importFromBlockbench, exportToTXMap, importFromTXMap, sendMapToTX, isInTXIframe, requestGameMap } from './services/exporter';
+import { exportToJSON, exportToOBJ, exportToBlockbench, exportToPLY, exportToPoly, importFromBlockbench, exportToTXMap, exportForTest, importFromTXMap, sendMapToTX, isInTXIframe, requestGameMap } from './services/exporter';
 import { CubeElement, ToolMode, FileSystem, FileNode, GenerationOptions, Theme, LogEntry, Vector3, MaterialProperties, GenerationHistoryEntry, PaletteItem } from './types';
 import { MAP_PRESETS, MapPreset } from './constants/presets';
 
@@ -236,7 +236,7 @@ export const App = () => {
     const [clipboard, setClipboard] = useState<CubeElement[]>([]);
 
     // UI State
-    const [sidebarTab, setSidebarTab] = useState<'files' | 'palette'>('files');
+    const [sidebarTab, setSidebarTab] = useState<'files' | 'palette' | 'props'>('files');
     const [draggedItem, setDraggedItem] = useState<string | null>(null);
 
     // Context Menu State
@@ -1067,7 +1067,7 @@ export const App = () => {
             }} tabIndex={0}>
 
             {/* Header */}
-            <div className="h-12 bg-gray-950 border-b border-gray-800 flex items-center justify-between px-3 z-40 shrink-0 shadow-2xl gap-2">
+            <div className="h-12 bg-gray-950 border-b border-gray-800 flex items-center justify-between px-3 z-50 shrink-0 shadow-2xl gap-2 relative pointer-events-auto">
                 {/* Left: Title + History */}
                 <div className="flex items-center gap-3 shrink-0">
                     <span className={`font-black tracking-tighter text-sm ${editorMode === 'tank' ? 'text-orange-500' : editorMode === 'map' ? 'text-green-500' : 'text-accent-500'}`}>{modeConfig.title}</span>
@@ -1085,7 +1085,7 @@ export const App = () => {
                         { m: ToolMode.ROTATE, i: <Icons.Rotate />, t: 'Rotate (R)' },
                         { m: ToolMode.SCALE, i: <Icons.Scale />, t: 'Scale (S)' },
                     ].map(t => (
-                        <button key={t.m} onClick={() => setToolMode(t.m)} className={`w-8 h-8 flex items-center justify-center rounded transition-all ${toolMode === t.m ? 'bg-accent-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-gray-800'}`} title={t.t}>{t.i}</button>
+                        <button key={t.m} onClick={() => { console.log('[Toolbar] Clicked:', t.t); setToolMode(t.m); }} className={`w-8 h-8 flex items-center justify-center rounded transition-all ${toolMode === t.m ? 'bg-accent-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-gray-800'}`} title={t.t}>{t.i}</button>
                     ))}
                     <div className="w-px h-6 bg-gray-700 mx-0.5" />
                     {[
@@ -1240,11 +1240,11 @@ export const App = () => {
                             ))}
                         </div>
                         <div className="space-y-2 border-t border-gray-800 pt-4">
-                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><span>Grid</span><input type="checkbox" checked={showGrid} onChange={e => setShowGrid(e.target.checked)} className="accent-accent-500" /></div>
-                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><span>Snap</span><input type="checkbox" checked={snapEnabled} onChange={e => setSnapEnabled(e.target.checked)} className="accent-accent-500" /></div>
-                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><span>Axes</span><input type="checkbox" checked={showAxes} onChange={e => setShowAxes(e.target.checked)} className="accent-accent-500" /></div>
-                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><span>Wireframe</span><input type="checkbox" checked={showWireframe} onChange={e => setShowWireframe(e.target.checked)} className="accent-accent-500" /></div>
-                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><span>Stats Overlay</span><input type="checkbox" checked={showStats} onChange={e => setShowStats(e.target.checked)} className="accent-accent-500" /></div>
+                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><label htmlFor="setting-grid">Grid</label><input id="setting-grid" name="setting-grid" type="checkbox" checked={showGrid} onChange={e => setShowGrid(e.target.checked)} className="accent-accent-500" /></div>
+                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><label htmlFor="setting-snap">Snap</label><input id="setting-snap" name="setting-snap" type="checkbox" checked={snapEnabled} onChange={e => setSnapEnabled(e.target.checked)} className="accent-accent-500" /></div>
+                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><label htmlFor="setting-axes">Axes</label><input id="setting-axes" name="setting-axes" type="checkbox" checked={showAxes} onChange={e => setShowAxes(e.target.checked)} className="accent-accent-500" /></div>
+                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><label htmlFor="setting-wireframe">Wireframe</label><input id="setting-wireframe" name="setting-wireframe" type="checkbox" checked={showWireframe} onChange={e => setShowWireframe(e.target.checked)} className="accent-accent-500" /></div>
+                            <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><label htmlFor="setting-stats">Stats Overlay</label><input id="setting-stats" name="setting-stats" type="checkbox" checked={showStats} onChange={e => setShowStats(e.target.checked)} className="accent-accent-500" /></div>
                         </div>
                     </div>
                 </div>
@@ -1284,6 +1284,7 @@ export const App = () => {
                     <div className="flex border-b border-gray-800 shrink-0">
                         <button onClick={() => setSidebarTab('files')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-wider transition-colors ${sidebarTab === 'files' ? 'text-accent-400 bg-gray-800/50' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/30'}`}>Explorer</button>
                         <button onClick={() => setSidebarTab('palette')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-wider transition-colors ${sidebarTab === 'palette' ? 'text-accent-400 bg-gray-800/50' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/30'}`}>Palette</button>
+                        <button onClick={() => setSidebarTab('props')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-wider transition-colors ${sidebarTab === 'props' ? 'text-accent-400 bg-gray-800/50' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/30'}`}>Props</button>
                     </div>
 
                     <div className="flex-1 flex flex-col overflow-hidden">
@@ -1317,7 +1318,7 @@ export const App = () => {
                                     </div>
                                 </div>
                             </div>
-                        ) : (
+                        ) : sidebarTab === 'palette' ? (
                             <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-4">
                                 <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-2 mt-2">Building Blocks</div>
                                 <div className="grid grid-cols-3 gap-2 px-1">
@@ -1365,32 +1366,192 @@ export const App = () => {
                                 </div>
                                 <div className="px-2 text-[10px] text-gray-600 text-center italic mt-4 opacity-50">Drag objects to scene</div>
 
-                                {/* Real World Generator */}
-                                <div className="mt-4 px-2">
-                                    <RealWorldGenerator
-                                        generateId={generateId}
-                                        onGenerate={(newCubes, mapName, terrainData) => {
-                                            setCubes(prev => [...prev, ...newCubes]);
-                                            pushHistory([...cubes, ...newCubes]);
-                                            // Store terrain data for mesh visualization
-                                            if (terrainData) {
-                                                setTerrainMeshData(terrainData);
-                                            }
-                                            addLog(`🌍 Imported ${newCubes.length} objects from ${mapName}`, 'info');
-                                        }}
-                                        onAddCubes={(newCubes, animate) => {
-                                            // Streaming mode: add cubes incrementally
-                                            setCubes(prev => [...prev, ...newCubes]);
-                                            // Note: We don't push to history for each batch to avoid spam
-                                            // History will be pushed after streaming completes
-                                            if (animate) {
-                                                addLog(`🏢 Streamed ${newCubes.length} buildings`, 'info');
-                                            }
-                                        }}
-                                    />
-                                </div>
+                                {/* Real World Generator - MAP MODE ONLY */}
+                                {(editorMode === 'map' || editorMode === 'default') && (
+                                    <div className="mt-4 px-2">
+                                        <RealWorldGenerator
+                                            generateId={generateId}
+                                            onGenerate={(newCubes, mapName, terrainData) => {
+                                                setCubes(prev => [...prev, ...newCubes]);
+                                                pushHistory([...cubes, ...newCubes]);
+                                                // Store terrain data for mesh visualization
+                                                if (terrainData) {
+                                                    setTerrainMeshData(terrainData);
+                                                }
+                                                addLog(`🌍 Imported ${newCubes.length} objects from ${mapName}`, 'info');
+                                            }}
+                                            onAddCubes={(newCubes, animate) => {
+                                                // Streaming mode: add cubes incrementally
+                                                setCubes(prev => [...prev, ...newCubes]);
+                                                // Note: We don't push to history for each batch to avoid spam
+                                                // History will be pushed after streaming completes
+                                                if (animate) {
+                                                    addLog(`🏢 Streamed ${newCubes.length} buildings`, 'info');
+                                                }
+                                            }}
+                                        />
+
+                                        {/* TEST BUTTON - Live Testing in Game */}
+                                        <button
+                                            onClick={() => {
+                                                console.log('[PolyGen] ===== TEST BUTTON CLICKED =====');
+                                                console.log('[PolyGen] Current cubes count:', cubes.length);
+
+                                                // ПРОВЕРКА ТОЧКИ СПАВНА
+                                                const hasSpawn = cubes.some(c =>
+                                                    c.name.toLowerCase().includes('spawn') ||
+                                                    c.type === 'spawn' ||
+                                                    c.name.toLowerCase().includes('respawn')
+                                                );
+
+                                                if (!hasSpawn) {
+                                                    addLog('⚠️ ВНИМАНИЕ: На карте нет точки спавна! Добавьте объект "spawn" для тестирования.', 'warning');
+                                                    alert('⚠️ ТОЧКА СПАВНА НЕ НАЙДЕНА!\n\nДобавьте на карту объект с именем "spawn" или типом "spawn" для указания места появления танка.');
+                                                    return;
+                                                }
+
+                                                // Clear ALL old map data first
+                                                localStorage.removeItem('tx_test_map');
+                                                localStorage.removeItem('selectedCustomMapData');
+                                                console.log('[PolyGen] Cleared old localStorage data');
+
+                                                // Use exportForTest (no file download!)
+                                                const mapData = exportForTest(cubes, 'test_map');
+                                                console.log('[PolyGen] Map data created:', mapData.placedObjects?.length || 0, 'objects');
+                                                console.log('[PolyGen] Map data sample:', mapData.placedObjects?.[0]);
+
+                                                try {
+                                                    const jsonData = JSON.stringify(mapData);
+                                                    const dataSizeMB = (jsonData.length / 1024 / 1024).toFixed(2);
+                                                    console.log(`[PolyGen] Data size: ${dataSizeMB} MB (${jsonData.length} bytes)`);
+
+                                                    // Предупреждение для больших карт
+                                                    if (jsonData.length > 4 * 1024 * 1024) {
+                                                        console.warn(`[PolyGen] ⚠️ Map data is ${dataSizeMB}MB - may exceed localStorage limit!`);
+                                                        addLog(`⚠️ Карта очень большая (${dataSizeMB}MB) - возможны проблемы с сохранением`, 'warning');
+                                                    }
+
+                                                    try {
+                                                        localStorage.setItem('tx_test_map', jsonData);
+                                                        localStorage.setItem('selectedCustomMapData', jsonData);
+                                                        console.log('[PolyGen] ✅ Map saved to BOTH localStorage keys');
+                                                    } catch (storageError: any) {
+                                                        // Ошибка квоты localStorage
+                                                        console.error('[PolyGen] ❌ localStorage QUOTA EXCEEDED:', storageError);
+                                                        addLog(`❌ Карта слишком большая для localStorage! (${dataSizeMB}MB). Попробуйте уменьшить количество объектов.`, 'error');
+                                                        alert(`❌ КАРТА СЛИШКОМ БОЛЬШАЯ!\n\nРазмер: ${dataSizeMB}MB\nОбъектов: ${mapData.placedObjects?.length}\n\nlocalStorage не может сохранить такой объём данных.\nПопробуйте удалить часть объектов или использовать Export to File.`);
+                                                        return;
+                                                    }
+
+                                                    // Check if we're in an iframe (embedded in TX game)
+                                                    const isInIframe = window.parent !== window;
+                                                    console.log('[PolyGen] isInIframe:', isInIframe);
+
+                                                    if (isInIframe) {
+                                                        // Send message to parent window to start test mode
+                                                        console.log('[PolyGen] Sending postMessage to parent...');
+                                                        window.parent.postMessage({
+                                                            type: 'POLYGEN_TEST_MAP',
+                                                            mapData: mapData
+                                                        }, '*');
+                                                        console.log('[PolyGen] postMessage sent!');
+                                                        addLog(`🎮 Sent ${mapData.placedObjects?.length} objects to game!`, 'info');
+                                                    } else {
+                                                        // Standalone mode - open game in new window
+                                                        console.log('[PolyGen] Standalone mode - opening new window');
+                                                        const gameUrl = `http://localhost:5000?testMap=current`;
+                                                        window.open(gameUrl, 'tx_game_test', 'width=1280,height=720');
+                                                        addLog('🎮 Opened game for live testing', 'info');
+                                                    }
+                                                } catch (e) {
+                                                    console.error('[PolyGen] TEST error:', e);
+                                                    addLog('❌ Failed to save map for testing: ' + (e as Error).message, 'error');
+                                                }
+                                            }}
+                                            className="w-full mt-3 py-2 px-4 rounded font-bold text-sm uppercase bg-blue-600 text-white hover:bg-blue-500 transition-colors flex items-center justify-center gap-2"
+                                        >
+                                            🎮 TEST IN GAME
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                        )}
+                        ) : sidebarTab === 'props' ? (
+                            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4">
+                                <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-gray-800 pb-2">Object Properties</div>
+                                {sel ? (
+                                    <div className="space-y-4">
+                                        {/* Name */}
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] text-gray-500 uppercase font-bold">Name</label>
+                                            <input className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-xs text-white focus:border-accent-500 outline-none" value={sel.name} onChange={e => handleUpdateSelected({ name: e.target.value })} />
+                                        </div>
+
+                                        {/* Object Type */}
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] text-gray-500 uppercase font-bold">Type</label>
+                                            <select className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2 text-xs text-white focus:border-accent-500 outline-none" value={sel.objectType || 'building'} onChange={e => handleUpdateSelected({ objectType: e.target.value })}>
+                                                <option value="building">🏢 Building</option>
+                                                <option value="road">🛣️ Road</option>
+                                                <option value="water">🌊 Water</option>
+                                                <option value="vegetation">🌲 Vegetation</option>
+                                                <option value="prop">📦 Prop</option>
+                                                <option value="spawn">🎯 Spawn</option>
+                                                <option value="trigger">⚡ Trigger</option>
+                                            </select>
+                                        </div>
+
+                                        {/* Position */}
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] text-gray-500 uppercase font-bold">Position</label>
+                                            <div className="grid grid-cols-3 gap-1">
+                                                {['x', 'y', 'z'].map(a => <DraggableNumberInput key={a} label={a.toUpperCase()} value={sel.position[a as keyof Vector3]} onChange={(v: any) => handleUpdateSelected({ position: { ...sel.position, [a]: v } })} />)}
+                                            </div>
+                                        </div>
+
+                                        {/* Rotation */}
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] text-gray-500 uppercase font-bold">Rotation</label>
+                                            <div className="grid grid-cols-3 gap-1">
+                                                {['x', 'y', 'z'].map(a => <DraggableNumberInput key={a} label={a.toUpperCase()} value={sel.rotation[a as keyof Vector3]} onChange={(v: any) => handleUpdateSelected({ rotation: { ...sel.rotation, [a]: v } })} />)}
+                                            </div>
+                                        </div>
+
+                                        {/* Scale */}
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] text-gray-500 uppercase font-bold">Scale</label>
+                                            <div className="grid grid-cols-3 gap-1">
+                                                {['x', 'y', 'z'].map(a => <DraggableNumberInput key={a} label={a.toUpperCase()} value={sel.size[a as keyof Vector3]} onChange={(v: any) => handleUpdateSelected({ size: { ...sel.size, [a]: v } })} />)}
+                                            </div>
+                                        </div>
+
+                                        {/* Color */}
+                                        <div className="space-y-1">
+                                            <label className="text-[9px] text-gray-500 uppercase font-bold">Color</label>
+                                            <div className="flex gap-2 items-center bg-gray-950 p-2 rounded-lg border border-gray-800">
+                                                <input id="prop-color" name="prop-color" type="color" className="w-8 h-8 rounded bg-transparent border-none cursor-pointer" value={sel.color} onChange={e => { setPaintColor(e.target.value); handleUpdateSelected({ color: e.target.value }) }} />
+                                                <label htmlFor="prop-color" className="text-xs font-mono uppercase">{sel.color}</label>
+                                            </div>
+                                        </div>
+
+                                        {/* Flags */}
+                                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-800">
+                                            <label htmlFor="prop-collidable" className="flex items-center gap-2 text-[10px] text-gray-400 cursor-pointer">
+                                                <input id="prop-collidable" name="prop-collidable" type="checkbox" checked={sel.collidable !== false} onChange={e => handleUpdateSelected({ collidable: e.target.checked })} className="accent-green-500 w-3 h-3" />
+                                                Collidable
+                                            </label>
+                                            <label htmlFor="prop-visible" className="flex items-center gap-2 text-[10px] text-gray-400 cursor-pointer">
+                                                <input id="prop-visible" name="prop-visible" type="checkbox" checked={sel.visible !== false} onChange={e => handleUpdateSelected({ visible: e.target.checked })} className="accent-green-500 w-3 h-3" />
+                                                Visible
+                                            </label>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-center p-6 border border-dashed border-gray-800 rounded-xl text-[10px] text-gray-600 uppercase font-bold">
+                                        Select an object to edit
+                                    </div>
+                                )}
+                            </div>
+                        ) : null}
                     </div>
                 </div>
 
@@ -1596,10 +1757,18 @@ export const App = () => {
                             </div>
                         )
                     }
-                </div >
+                </div>
 
                 {/* Right Panel (Merged duplicate console/logs) */}
-                < div className={`bg-gray-900 border-l border-gray-800 flex flex-col transition-all duration-300 relative ${rightSidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>
+                {
+                    !rightSidebarOpen && (
+                        <div onClick={() => setRightSidebarOpen(true)} className="absolute right-0 top-0 bottom-0 w-8 bg-gray-950 border-l border-gray-800 z-50 flex flex-col items-center py-6 cursor-pointer hover:bg-gray-900 transition-colors shadow-2xl">
+                            <div className="text-accent-500 rotate-90 whitespace-nowrap text-[10px] font-black uppercase tracking-widest mt-12 mb-auto">Properties</div>
+                            <Icons.ChevronLeft />
+                        </div>
+                    )
+                }
+                <div className={`bg-gray-900 border-l border-gray-800 flex flex-col transition-all duration-300 relative ${rightSidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>
                     <div className="flex border-b border-gray-800 bg-gray-950 h-11 shrink-0 items-center px-2 gap-1 overflow-x-auto no-scrollbar">
                         {[
                             ...(editorMode === 'map' ? [{ id: 'objects', i: <Icons.Cube />, t: 'TX Objects' }] : []),
@@ -1717,10 +1886,53 @@ export const App = () => {
                                 <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest border-b border-gray-800 pb-2">Spatial Configuration</div>
                                 <div className="space-y-5">
                                     <div className="space-y-1.5"><label className="text-[9px] text-gray-500 uppercase font-bold">Designation</label><input className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2.5 text-xs text-white focus:border-accent-500 outline-none shadow-inner" value={sel.name} onChange={e => handleUpdateSelected({ name: e.target.value })} /></div>
+
+                                    {/* Object Type Selector */}
+                                    <div className="space-y-1.5">
+                                        <label className="text-[9px] text-gray-500 uppercase font-bold">Object Type</label>
+                                        <select
+                                            className="w-full bg-gray-950 border border-gray-700 rounded-lg p-2.5 text-xs text-white focus:border-accent-500 outline-none"
+                                            value={sel.objectType || 'building'}
+                                            onChange={e => handleUpdateSelected({ objectType: e.target.value })}
+                                        >
+                                            <option value="building">🏢 Building</option>
+                                            <option value="road">🛣️ Road</option>
+                                            <option value="water">🌊 Water</option>
+                                            <option value="vegetation">🌲 Vegetation</option>
+                                            <option value="prop">📦 Prop</option>
+                                            <option value="spawn">🎯 Spawn Point</option>
+                                            <option value="trigger">⚡ Trigger Zone</option>
+                                            <option value="light">💡 Light Source</option>
+                                            <option value="custom">🔧 Custom</option>
+                                        </select>
+                                    </div>
+
                                     <div className="space-y-1.5"><label className="text-[9px] text-gray-500 uppercase font-bold">Position</label><div className="grid grid-cols-3 gap-1.5">{['x', 'y', 'z'].map(a => <DraggableNumberInput key={a} label={a.toUpperCase()} value={sel.position[a as keyof Vector3]} onChange={(v: any) => handleUpdateSelected({ position: { ...sel.position, [a]: v } })} />)}</div></div>
                                     <div className="space-y-1.5"><label className="text-[9px] text-gray-500 uppercase font-bold">Rotation</label><div className="grid grid-cols-3 gap-1.5">{['x', 'y', 'z'].map(a => <DraggableNumberInput key={a} label={a.toUpperCase()} value={sel.rotation[a as keyof Vector3]} onChange={(v: any) => handleUpdateSelected({ rotation: { ...sel.rotation, [a]: v } })} />)}</div></div>
                                     <div className="space-y-1.5"><label className="text-[9px] text-gray-500 uppercase font-bold">Scale</label><div className="grid grid-cols-3 gap-1.5">{['x', 'y', 'z'].map(a => <DraggableNumberInput key={a} label={a.toUpperCase()} value={sel.size[a as keyof Vector3]} onChange={(v: any) => handleUpdateSelected({ size: { ...sel.size, [a]: v } })} />)}</div></div>
                                     <div className="space-y-1.5"><label className="text-[9px] text-gray-500 uppercase font-bold">Pigment</label><div className="flex gap-3 items-center bg-gray-950 p-2 rounded-lg border border-gray-800"><input type="color" className="w-8 h-8 rounded-lg bg-transparent border-none cursor-pointer" value={sel.color} onChange={e => { setPaintColor(e.target.value); handleUpdateSelected({ color: e.target.value }) }} /><span className="text-xs font-mono uppercase tracking-tighter">{sel.color}</span></div></div>
+
+                                    {/* Collision & Visibility */}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <label className="flex items-center gap-2 text-[10px] text-gray-400 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={sel.collidable !== false}
+                                                onChange={e => handleUpdateSelected({ collidable: e.target.checked })}
+                                                className="accent-green-500 w-3 h-3"
+                                            />
+                                            Collidable
+                                        </label>
+                                        <label className="flex items-center gap-2 text-[10px] text-gray-400 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={sel.visible !== false}
+                                                onChange={e => handleUpdateSelected({ visible: e.target.checked })}
+                                                className="accent-green-500 w-3 h-3"
+                                            />
+                                            Visible
+                                        </label>
+                                    </div>
                                 </div>
                                 <div className="pt-6 border-t border-gray-800 space-y-4">
                                     <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest">PBR Material Properties</div>
@@ -1815,8 +2027,8 @@ export const App = () => {
                             </div>
                         )
                         }
-                    </div >
-                </div >
+                    </div>
+                </div>
             </div >
 
             {/* Context Menu */}

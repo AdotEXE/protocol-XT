@@ -167,6 +167,44 @@ export class TankMovementModule {
         if (Math.abs(touchAimPitch) > 0.1) {
             this.tank.barrelPitchTarget = -touchAimPitch; // Инвертируем: вверх джойстика = ствол вверх
         }
+
+        // =========================================================================
+        // ЧИТЫ: Режим полёта (flyMode)
+        // Q - вверх, E - вниз
+        // =========================================================================
+        const flyMode = (this.tank as any).flyMode;
+        if (flyMode && this.tank.physicsBody) {
+            const flySpeed = 15; // Скорость вертикального движения
+            let verticalVelocity = 0;
+
+            if (inputMap["KeyQ"]) {
+                verticalVelocity = flySpeed; // Вверх
+            }
+            if (inputMap["KeyE"]) {
+                verticalVelocity = -flySpeed; // Вниз
+            }
+
+            // Получаем текущую скорость
+            const currentVel = this.tank.physicsBody.getLinearVelocity();
+
+            // Устанавливаем вертикальную скорость (сохраняя горизонтальную)
+            if (verticalVelocity !== 0) {
+                this.tank.physicsBody.setLinearVelocity(new Vector3(
+                    currentVel.x,
+                    verticalVelocity,
+                    currentVel.z
+                ));
+            } else {
+                // Если не нажаты Q/E - плавное зависание (гасим вертикальную скорость)
+                if (Math.abs(currentVel.y) > 0.1) {
+                    this.tank.physicsBody.setLinearVelocity(new Vector3(
+                        currentVel.x,
+                        currentVel.y * 0.9, // Плавное торможение
+                        currentVel.z
+                    ));
+                }
+            }
+        }
     }
 
     /**

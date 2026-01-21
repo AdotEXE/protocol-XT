@@ -23,11 +23,11 @@ window.addEventListener('error', (event): boolean | void => {
 
 // Подавляем ошибки от fetch/XMLHttpRequest для внешних скриптов
 const originalFetch = window.fetch;
-window.fetch = function(...args: Parameters<typeof fetch>) {
-    const url = typeof args[0] === 'string' 
-        ? args[0] 
-        : args[0] instanceof Request 
-            ? args[0].url 
+window.fetch = function (...args: Parameters<typeof fetch>) {
+    const url = typeof args[0] === 'string'
+        ? args[0]
+        : args[0] instanceof Request
+            ? args[0].url
             : String(args[0]);
     // Игнорируем запросы к Sentry и другим внешним сервисам от расширений
     if (url && (
@@ -57,6 +57,9 @@ registerServiceWorker();
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _game = new Game();
 
+// Expose game instance globally for CustomMapBridge map reload
+(window as any).gameInstance = _game;
+
 // Lazy load analytics after game initialization to reduce initial bundle size
 (async () => {
     try {
@@ -64,7 +67,7 @@ const _game = new Game();
             import('@vercel/analytics'),
             import('@vercel/speed-insights')
         ]);
-        
+
         // Suppress Vercel analytics console logs in development
         const originalConsoleLog = console.log;
         const originalConsoleWarn = console.warn;
@@ -78,12 +81,12 @@ const _game = new Game();
                 originalConsoleWarn.apply(console, args);
             }
         };
-        
+
         // Initialize Vercel Web Analytics
         inject();
         // Initialize Vercel Speed Insights (client-side only)
         injectSpeedInsights();
-        
+
         // Restore console after a delay
         setTimeout(() => {
             console.log = originalConsoleLog;

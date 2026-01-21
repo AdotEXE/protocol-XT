@@ -1133,6 +1133,7 @@ export const Scene: React.FC<SceneProps> = ({
                 <OrbitControls
                     makeDefault
                     dampingFactor={0.1}
+                    maxDistance={10000}
                     enabled={!(toolMode === ToolMode.SELECT && isShiftDown)}
                     onChange={() => invalidate()}
 

@@ -93,7 +93,9 @@ function handleMapMessage(event: MessageEvent): void {
  * Загрузить карту из сообщения
  */
 function handleLoadMap(message: MapLoadMessage, source: Window | null): void {
-    // console.log("[CustomMapBridge] Received map:", message.mapData.name);
+    console.log("[CustomMapBridge] ===== LOADING CUSTOM MAP =====");
+    console.log("[CustomMapBridge] Map name:", message.mapData.name);
+    console.log("[CustomMapBridge] Objects:", message.mapData.placedObjects?.length || 0);
 
     const generator = getCustomMapGenerator();
 
@@ -102,6 +104,25 @@ function handleLoadMap(message: MapLoadMessage, source: Window | null): void {
 
         // Save to localStorage for persistence
         saveMapToLocal(message.mapData);
+
+        // КРИТИЧНО: Также сохраняем в selectedCustomMapData для CustomMapRunner!
+        localStorage.setItem('selectedCustomMapData', JSON.stringify(message.mapData));
+        console.log("[CustomMapBridge] ✅ Saved to selectedCustomMapData localStorage");
+
+        // КРИТИЧНО: Перезагрузить карту если игра уже запущена!
+        // Используем глобальный gameInstance
+        const gameInstance = (window as any).gameInstance;
+        if (gameInstance && typeof gameInstance.reloadMap === 'function') {
+            console.log("[CustomMapBridge] 🔄 Triggering map reload to 'custom'...");
+            gameInstance.currentMapType = 'custom';
+            gameInstance.reloadMap('custom').then(() => {
+                console.log("[CustomMapBridge] ✅ Map reloaded successfully!");
+            }).catch((e: any) => {
+                console.error("[CustomMapBridge] ❌ Failed to reload map:", e);
+            });
+        } else {
+            console.warn("[CustomMapBridge] ⚠️ gameInstance not available for reload");
+        }
 
         // Call callback if set
         if (onMapLoadCallback) {
@@ -115,7 +136,7 @@ function handleLoadMap(message: MapLoadMessage, source: Window | null): void {
             mapName: message.mapData.name
         });
 
-        // console.log(`[CustomMapBridge] Map '${message.mapData.name}' loaded successfully`);
+        console.log(`[CustomMapBridge] ✅ Map '${message.mapData.name}' loaded successfully`);
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
@@ -126,7 +147,7 @@ function handleLoadMap(message: MapLoadMessage, source: Window | null): void {
             error: errorMessage
         });
 
-        console.error("[CustomMapBridge] Failed to load map:", errorMessage);
+        console.error("[CustomMapBridge] ❌ Failed to load map:", errorMessage);
     }
 }
 

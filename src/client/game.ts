@@ -563,12 +563,59 @@ export class Game {
                     }, 500); // Увеличена задержка для полной инициализации
                 } else {
                     // Обычный запуск - показываем меню
-                    this.mainMenu.show();
+
+                    // CHECK FOR EDITOR TEST MODE: ?testMap=current
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const testMapParam = urlParams.get('testMap');
+
+                    if (testMapParam === 'current') {
+                        logger.log("[Game] 🎮 TEST MODE: Loading map from editor...");
+
+                        try {
+                            const testMapData = localStorage.getItem('tx_test_map');
+                            if (testMapData) {
+                                const mapData = JSON.parse(testMapData);
+                                logger.log(`[Game] Test map loaded: ${mapData.name || 'Unnamed'}, ${mapData.objects?.length || 0} objects`);
+
+                                // Store as custom map data
+                                localStorage.setItem("selectedCustomMapData", testMapData);
+
+                                // CRITICAL: Set mapType BEFORE any init
+                                this.currentMapType = "custom";
+                                logger.log(`[Game] 🎮 TEST MODE: Set currentMapType to custom BEFORE init`);
+
+                                // Auto-start game with test map
+                                setTimeout(async () => {
+                                    // Double-check mapType is still custom
+                                    this.currentMapType = "custom";
+
+                                    if (!this.gameInitialized) {
+                                        logger.log(`[Game] 🎮 TEST MODE: Calling init() with currentMapType=${this.currentMapType}`);
+                                        await this.init();
+                                        this.gameInitialized = true;
+                                    } else {
+                                        // If already initialized, force reload map
+                                        logger.log(`[Game] 🎮 TEST MODE: Already initialized, reloading map...`);
+                                        await this.reloadMap("custom");
+                                    }
+                                    await this.startGame();
+                                    logger.log("[Game] 🎮 Test mode started successfully!");
+                                }, 500);
+                            } else {
+                                logger.warn("[Game] Test map not found in localStorage, showing menu");
+                                this.mainMenu.show();
+                            }
+                        } catch (e) {
+                            logger.error("[Game] Failed to load test map:", e);
+                            this.mainMenu.show();
+                        }
+                    } else {
+                        this.mainMenu.show();
+                    }
                     logger.log("[Game] Menu show() called");
                 }
 
             } else {
-
                 logger.error("[Game] Menu loaded but mainMenu is null!");
             }
         }).catch((error) => {
@@ -2287,6 +2334,38 @@ export class Game {
             // ВАЖНО: Dispose старой карты перед созданием новой!
             this.chunkSystem.dispose();
 
+            // КРИТИЧНО ДЛЯ CUSTOM КАРТ: Полная очистка ВСЕХ мешей в сцене!
+            // ChunkSystem.dispose() не удаляет все меши - некоторые остаются
+            if (mapType === "custom") {
+                logger.log(`[Game] 🧹 CUSTOM MAP: Clearing ALL scene meshes...`);
+                const protectedKeywords = [
+                    'tank', 'hull', 'turret', 'barrel', 'gun', 'track', 'wheel',
+                    'camera', 'light', 'skybox', '__root__'
+                ];
+
+                const meshesToRemove: any[] = [];
+                for (const mesh of this.scene.meshes) {
+                    const name = mesh.name.toLowerCase();
+                    let isProtected = false;
+                    for (const keyword of protectedKeywords) {
+                        if (name.includes(keyword)) {
+                            isProtected = true;
+                            break;
+                        }
+                    }
+                    if (!isProtected) {
+                        meshesToRemove.push(mesh);
+                    }
+                }
+
+                logger.log(`[Game] 🧹 Removing ${meshesToRemove.length} leftover meshes...`);
+                for (const mesh of meshesToRemove) {
+                    try { mesh.dispose(); } catch (e) { /* ignore */ }
+                }
+                logger.log(`[Game] 🧹 Scene cleaned! Remaining: ${this.scene.meshes.length} meshes`);
+            }
+
+
             // Пересоздаем ChunkSystem с новым типом карты
             const menuSettings = this.mainMenu?.getSettings();
             let newWorldSeed = menuSettings?.worldSeed || 12345;
@@ -2314,39 +2393,69 @@ export class Game {
                     logger.log(`[Game] 🗺️ Мультиплеер: custom карты не поддерживаются в reloadMap(), используем sandbox (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
                     mapTypeForChunkSystem = "sand";
                 } else {
-                    // В одиночной игре можно использовать сохраненные custom карты
+                    // КРИТИЧНО: В одиночной игре СОХРАНЯЕМ custom как тип карты
+                    // PolyGenStudio карты ВСЕГДА должны использовать "custom" тип
+                    // Это отключает генерацию террейна и объектов - все приходит из редактора
                     try {
                         const customMapDataStr = localStorage.getItem("selectedCustomMapData");
                         if (customMapDataStr) {
-                            // Нормализуем данные к единому формату
-                            const rawData = JSON.parse(customMapDataStr);
-                            const customMapData = this.normalizeMapDataForGame(rawData);
-                            if (customMapData && customMapData.mapType && customMapData.mapType !== "custom") {
-                                mapTypeForChunkSystem = customMapData.mapType;
-                                logger.log(`[Game] Using base map type from normalized custom map: ${customMapData.mapType}`);
-                            } else {
-                                mapTypeForChunkSystem = "sand";
-                                logger.warn("[Game] Custom map missing valid mapType, using sand");
-                            }
+                            // Custom карта есть - ОБЯЗАТЕЛЬНО оставляем custom!
+                            logger.log(`[Game] Custom map from PolyGenStudio - keeping mapTypeForChunkSystem as "custom"`);
+                            // НЕ меняем mapTypeForChunkSystem - он уже "custom"
                         } else {
+                            // КРИТИЧНО: Нет данных custom карты - синхронизируем ОБА типа
+                            logger.warn(`[Game] No custom map data in localStorage, using sand for reload`);
                             mapTypeForChunkSystem = "sand";
+                            this.currentMapType = "sand"; // КРИТИЧНО: Синхронизируем чтобы избежать mismatch!
                         }
                     } catch (error) {
                         logger.error("[Game] Failed to read custom map data, using sand:", error);
                         mapTypeForChunkSystem = "sand";
+                        this.currentMapType = "sand"; // КРИТИЧНО: Синхронизируем при ошибке
                     }
                 }
             }
 
             logger.log(`[Game] Recreating ChunkSystem with mapType: ${mapTypeForChunkSystem} (passed mapType: ${mapType}, currentMapType: ${this.currentMapType})`);
 
-            this.chunkSystem = new ChunkSystem(this.scene, {
-                chunkSize: 80,
-                renderDistance: 1.5,
-                unloadDistance: 3,  // ОПТИМИЗАЦИЯ: Уменьшено с 4 до 3
-                worldSeed: newWorldSeed,
-                mapType: mapTypeForChunkSystem as any
-            });
+            // ========================================================================
+            // КРИТИЧНО: ПОЛНЫЙ BYPASS ДЛЯ CUSTOM КАРТ (как в init())
+            // Custom карты НЕ используют ChunkSystem - только CustomMapRunner!
+            // ========================================================================
+            if (mapTypeForChunkSystem === "custom") {
+                logger.log(`[Game] 🎨 RELOAD: CUSTOM MAP MODE - Running CustomMapRunner!`);
+
+                // Импортируем и запускаем CustomMapRunner
+                const { CustomMapRunner } = await import("./CustomMapRunner");
+                const runner = new CustomMapRunner(this.scene);
+                const result = runner.run();
+
+                if (result.success) {
+                    logger.log(`[Game] ✅ RELOAD: Custom map "${result.mapName}" loaded: ${result.objectsCreated} objects`);
+                } else {
+                    logger.error(`[Game] ❌ RELOAD: Custom map failed: ${result.error}`);
+                }
+
+                // Создаём МИНИМАЛЬНЫЙ ChunkSystem без генерации
+                this.chunkSystem = new ChunkSystem(this.scene, {
+                    chunkSize: 80,
+                    renderDistance: 0,  // НЕ рендерим чанки!
+                    unloadDistance: 0,
+                    worldSeed: newWorldSeed,
+                    mapType: "custom"
+                });
+
+                logger.log(`[Game] 🎨 RELOAD: Custom map mode initialized!`);
+            } else {
+                // Обычный режим
+                this.chunkSystem = new ChunkSystem(this.scene, {
+                    chunkSize: 80,
+                    renderDistance: 1.5,
+                    unloadDistance: 3,
+                    worldSeed: newWorldSeed,
+                    mapType: mapTypeForChunkSystem as any
+                });
+            }
 
             // Обновляем ссылки
             if (this.debugDashboard) {
@@ -3244,7 +3353,10 @@ export class Game {
             }
 
             // Connect additional systems to Garage (already created in init())
-            if (this.garage) {
+            // КРИТИЧНО: Пропускаем гаражи для custom карт - они не нужны
+            if (this.currentMapType === 'custom') {
+                logger.log("[Game] Custom map - skipping garage systems");
+            } else if (this.garage) {
                 if (this.chatSystem) {
                     this.garage.setChatSystem(this.chatSystem);
                 }
@@ -3426,15 +3538,28 @@ export class Game {
             // ЗАЩИТНАЯ ПРОВЕРКА: убеждаемся, что mapType всегда установлен
             let mapType = this.currentMapType || "normal";
 
+            // КРИТИЧНО: Если есть данные custom карты в localStorage - это CUSTOM карта!
+            // Это нужно потому что currentMapType может быть не установлен при первом запуске
+            const hasCustomMapData = localStorage.getItem("selectedCustomMapData");
+            if (hasCustomMapData && hasCustomMapData.length > 100) {
+                console.log(`[Game] 🎯 Found custom map data in localStorage (${hasCustomMapData.length} bytes) - forcing mapType to 'custom'`);
+                mapType = "custom";
+                this.currentMapType = "custom";
+            }
+
             // КРИТИЧНО: ПРИОРИТЕТ - мультиплеер mapType > текущий
+            // НО! Custom карты из PolyGen имеют ВЫСШИЙ приоритет!
             // Это гарантирует синхронизацию между устройствами
-            if (this.multiplayerManager) {
+            if (this.multiplayerManager && mapType !== "custom") {
+                // Только если НЕ custom карта - проверяем мультиплеер
                 const mpMapType = this.multiplayerManager.getMapType();
                 if (mpMapType) {
                     mapType = mpMapType as MapType;
                     this.currentMapType = mapType as any;
                     logger.log(`[Game] 🗺️ Using multiplayer mapType: ${mapType} (from ROOM_CREATED/ROOM_JOINED)`);
                 }
+            } else if (mapType === "custom") {
+                console.log(`[Game] 🎨 PRESERVING custom mapType - PolyGen map has priority over multiplayer!`);
             }
 
             // Если это custom карта, проверяем базовый тип из сохраненных данных
@@ -3450,9 +3575,12 @@ export class Game {
                     logger.log(`[Game] 🗺️ Мультиплеер: custom карты не поддерживаются, используем sandbox (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
                     mapType = "sandbox";
                 } else {
-                    // В одиночной игре можно использовать сохраненные custom карты
+                    // В одиночной игре СОХРАНЯЕМ custom как тип карты
+                    // ChunkSystem должен обрабатывать "custom" тип напрямую
                     try {
                         const customMapDataStr = localStorage.getItem("selectedCustomMapData");
+                        console.log(`[Game] 🔍 DEBUG: selectedCustomMapData exists: ${!!customMapDataStr}, length: ${customMapDataStr?.length || 0}`);
+
                         if (customMapDataStr) {
                             // Нормализуем данные к единому формату
                             const rawData = JSON.parse(customMapDataStr);
@@ -3460,17 +3588,22 @@ export class Game {
                             if (customMapData && customMapData.mapType && customMapData.mapType !== "custom") {
                                 logger.log(`[Game] Custom map has base type: ${customMapData.mapType}, using it for terrain generation (normalized from version ${rawData.version || 'legacy'})`);
                                 mapType = customMapData.mapType;
+                                this.currentMapType = customMapData.mapType as any; // Sync currentMapType
                             } else {
-                                // По умолчанию для custom карт используем sandbox (плоская земля)
-                                mapType = "sandbox";
-                                logger.log(`[Game] Custom map has no valid base type, using sandbox for terrain generation`);
+                                // Custom карта есть - оставляем custom
+                                logger.log(`[Game] Custom map - keeping mapType as "custom" (was: ${mapType})`);
+                                // НЕ меняем mapType - он уже "custom"
                             }
                         } else {
+                            // КРИТИЧНО: Нет данных custom карты - синхронизируем ОБА типа
+                            logger.warn(`[Game] No custom map data found in localStorage, using sandbox terrain`);
                             mapType = "sandbox";
+                            this.currentMapType = "sandbox"; // КРИТИЧНО: Синхронизируем чтобы избежать mismatch!
                         }
                     } catch (error) {
                         logger.error("[Game] Failed to read custom map data, using sandbox:", error);
                         mapType = "sandbox";
+                        this.currentMapType = "sandbox"; // КРИТИЧНО: Синхронизируем при ошибке
                     }
                 }
             }
@@ -3492,15 +3625,68 @@ export class Game {
 
             logger.log(`[Game] 🗺️ Creating ChunkSystem: mapType=${mapType}, worldSeed=${worldSeed}, roomId=${roomId} (currentMapType was: ${this.currentMapType}, pendingMapType=${pendingMapType})`);
 
-            this.chunkSystem = new ChunkSystem(this.scene, {
-                chunkSize: 80,          // HUGE chunks = fewer chunks
-                renderDistance: this.settings?.renderDistance || 3,
-                unloadDistance: 3,
-                worldSeed: worldSeed,
-                mapType: mapType
-            });
-            logger.log(`[Game] ChunkSystem created with renderDistance: ${this.settings?.renderDistance || 3}`);
-            logger.log(`Chunk system created with ${this.chunkSystem.garagePositions.length} garages`);
+            // ========================================================================
+            // КРИТИЧНО: ПОЛНЫЙ BYPASS ДЛЯ CUSTOM КАРТ
+            // Custom карты НЕ используют ChunkSystem - только CustomMapRunner!
+            // ========================================================================
+            console.log(`[Game] 🔥 BYPASS CHECK: mapType === "${mapType}", checking if equals "custom": ${mapType === "custom"}`);
+
+            if (mapType === "custom") {
+                console.log(`[Game] 🎨 CUSTOM MAP MODE - ENTERING BYPASS BLOCK!`);
+
+                try {
+                    console.log(`[Game] 🎨 Step 1: Importing CustomMapRunner...`);
+                    // Импортируем и запускаем CustomMapRunner
+                    const { CustomMapRunner } = await import("./CustomMapRunner");
+                    console.log(`[Game] 🎨 Step 2: CustomMapRunner imported, creating instance...`);
+
+                    const runner = new CustomMapRunner(this.scene);
+                    console.log(`[Game] 🎨 Step 3: Running CustomMapRunner...`);
+
+                    const result = runner.run();
+                    console.log(`[Game] 🎨 Step 4: CustomMapRunner finished`, result);
+
+                    if (result.success) {
+                        console.log(`[Game] ✅ Custom map "${result.mapName}" loaded: ${result.objectsCreated} objects`);
+                    } else {
+                        console.error(`[Game] ❌ Custom map failed: ${result.error}`);
+                    }
+
+                    // Создаём МИНИМАЛЬНЫЙ ChunkSystem без генерации (нужен для некоторых систем)
+                    console.log(`[Game] 🎨 Step 5: Creating minimal ChunkSystem...`);
+                    this.chunkSystem = new ChunkSystem(this.scene, {
+                        chunkSize: 80,
+                        renderDistance: 0,  // НЕ рендерим чанки!
+                        unloadDistance: 0,
+                        worldSeed: worldSeed,
+                        mapType: "custom"  // Это отключит ВСЮ генерацию
+                    });
+
+                    console.log(`[Game] 🎨 CUSTOM MAP MODE COMPLETE - NO procedural content!`);
+                } catch (customMapError) {
+                    console.error(`[Game] ❌❌❌ CUSTOM MAP ERROR:`, customMapError);
+                    // Fallback to sandbox if custom map fails
+                    console.log(`[Game] Falling back to sandbox...`);
+                    this.chunkSystem = new ChunkSystem(this.scene, {
+                        chunkSize: 80,
+                        renderDistance: 3,
+                        unloadDistance: 3,
+                        worldSeed: worldSeed,
+                        mapType: "sandbox"
+                    });
+                }
+            } else {
+                // Обычный режим - создаём ChunkSystem с генерацией
+                this.chunkSystem = new ChunkSystem(this.scene, {
+                    chunkSize: 80,
+                    renderDistance: this.settings?.renderDistance || 3,
+                    unloadDistance: 3,
+                    worldSeed: worldSeed,
+                    mapType: mapType
+                });
+                logger.log(`[Game] ChunkSystem created with renderDistance: ${this.settings?.renderDistance || 3}`);
+                logger.log(`Chunk system created with ${this.chunkSystem.garagePositions.length} garages`);
+            }
 
             // КРИТИЧНО: Создаём защитную плоскость под картой для предотвращения падения
             this.createSafetyPlane();
@@ -3510,12 +3696,17 @@ export class Game {
             this.gameConsumables.updateReferences({ chunkSystem: this.chunkSystem });
 
             // Initialize game modules after systems are created
-            // GameGarage уже инициализирован в конструкторе, но обновляем ссылки
-            this.gameGarage.initialize(this.scene, this.chunkSystem, this.tank, this.hud, this.enemyTanks, this.garage);
+            // КРИТИЧНО: Пропускаем GameGarage для custom карт
+            if (this.currentMapType !== 'custom') {
+                // GameGarage уже инициализирован в конструкторе, но обновляем ссылки
+                this.gameGarage.initialize(this.scene, this.chunkSystem, this.tank, this.hud, this.enemyTanks, this.garage);
 
-            // Если гараж загружен позже, обновляем ссылку
-            if (this.garage) {
-                this.gameGarage.setGarageUI(this.garage);
+                // Если гараж загружен позже, обновляем ссылку
+                if (this.garage) {
+                    this.gameGarage.setGarageUI(this.garage);
+                }
+            } else {
+                logger.log("[Game] Custom map - skipping GameGarage initialization");
             }
             this.gameConsumables.initialize(
                 this.tank,
@@ -8070,26 +8261,29 @@ export class Game {
                 return;
             }
 
-            logger.log(`[Game] ChunkSystem is ready, creating MapEditor...`);
+            logger.log(`[Game] ChunkSystem is ready`);
 
+            // ОТКЛЮЧЕНО: MapEditor больше не нужен - CustomMapLoader загружает объекты в ChunkSystem
             // Создаем MapEditor если его нет
-            if (!this.mapEditor) {
-                const { MapEditor } = await import("./mapEditor");
-                this.mapEditor = new MapEditor(this.scene);
-                this.mapEditor.chunkSystem = this.chunkSystem;
-                logger.log(`[Game] MapEditor created and assigned to ChunkSystem`);
-            } else {
-                logger.log(`[Game] MapEditor already exists, updating ChunkSystem reference`);
-                this.mapEditor.chunkSystem = this.chunkSystem;
-            }
+            // if (!this.mapEditor) {
+            //     const { MapEditor } = await import("./mapEditor");
+            //     this.mapEditor = new MapEditor(this.scene);
+            //     this.mapEditor.chunkSystem = this.chunkSystem;
+            //     logger.log(`[Game] MapEditor created and assigned to ChunkSystem`);
+            // } else {
+            //     logger.log(`[Game] MapEditor already exists, updating ChunkSystem reference`);
+            //     this.mapEditor.chunkSystem = this.chunkSystem;
+            // }
 
             // Устанавливаем нормализованные данные карты
-            logger.log(`[Game] Setting map data to MapEditor...`);
-            this.mapEditor.setMapData(customMapData);
-            logger.log(`[Game] Map data set, applying without UI...`);
+            // logger.log(`[Game] Setting map data to MapEditor...`);
+            // this.mapEditor.setMapData(customMapData);
+            // logger.log(`[Game] Map data set, applying without UI...`);
 
             // Применяем данные без открытия UI редактора
-            await this.mapEditor.applyMapDataWithoutUI();
+            // await this.mapEditor.applyMapDataWithoutUI();
+
+            logger.log(`[Game] Objects loaded via CustomMapLoader in ChunkSystem`);
 
             // CRITICAL: Inject spawn positions from custom map into chunkSystem.garagePositions
             // This ensures players can spawn on custom maps

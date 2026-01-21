@@ -13155,6 +13155,84 @@ transition: all 0.2s;
                 window.removeEventListener('message', messageHandler);
                 closeEditor();
             }
+
+            // Handle TEST mode from PolyGen editor
+            if (event.data && event.data.type === 'POLYGEN_TEST_MAP') {
+                console.log('[Menu] 🎮 Received POLYGEN_TEST_MAP from editor!', event.data);
+                debugLog("[Menu] Received POLYGEN_TEST_MAP from editor - starting inline test");
+
+                // Save map data for game
+                if (event.data.mapData) {
+                    localStorage.setItem('tx_test_map', JSON.stringify(event.data.mapData));
+                    localStorage.setItem('selectedCustomMapData', JSON.stringify(event.data.mapData));
+                }
+
+                // Collapse/minimize editor instead of closing
+                editorContainer.style.display = 'none';
+                editorContainer.classList.add('polygen-minimized');
+
+                // Create "Open Editor" button in game
+                let restoreButton = document.getElementById('polygen-restore-btn');
+                if (!restoreButton) {
+                    restoreButton = document.createElement('button');
+                    restoreButton.id = 'polygen-restore-btn';
+                    restoreButton.innerHTML = '🔧 РЕДАКТОР';
+                    restoreButton.style.cssText = `
+                        position: fixed;
+                        top: 10px;
+                        right: 10px;
+                        z-index: 9999;
+                        padding: 8px 16px;
+                        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+                        color: white;
+                        border: none;
+                        border-radius: 8px;
+                        font-weight: bold;
+                        cursor: pointer;
+                        font-size: 14px;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                        transition: all 0.2s;
+                    `;
+                    restoreButton.onmouseenter = () => {
+                        restoreButton!.style.transform = 'scale(1.05)';
+                        restoreButton!.style.boxShadow = '0 6px 12px rgba(0,0,0,0.4)';
+                    };
+                    restoreButton.onmouseleave = () => {
+                        restoreButton!.style.transform = 'scale(1)';
+                        restoreButton!.style.boxShadow = '0 4px 6px rgba(0,0,0,0.3)';
+                    };
+                    restoreButton.onclick = () => {
+                        // Restore editor
+                        editorContainer.style.display = 'block';
+                        editorContainer.classList.remove('polygen-minimized');
+                        restoreButton!.remove();
+                    };
+                    document.body.appendChild(restoreButton);
+                    console.log('[Menu] 🔧 Restore button created and appended');
+                }
+
+                // Start game with test map
+                console.log('[Menu] 🎮 Checking this.game:', this.game ? 'exists' : 'NULL');
+                if (this.game) {
+                    console.log('[Menu] 🎮 Setting currentMapType to custom...');
+                    this.game.currentMapType = 'custom';
+                    // Hide menu
+                    console.log('[Menu] 🎮 Hiding menu...');
+                    this.container.classList.add('hidden');
+                    // Start game
+                    console.log('[Menu] 🎮 Calling game.init()...');
+                    this.game.init().then(() => {
+                        console.log('[Menu] 🎮 init() completed, calling startGame()...');
+                        this.game!.startGame();
+                        console.log('[Menu] 🎮 startGame() called!');
+                        debugLog("[Menu] Game started in test mode with editor map");
+                    }).catch((e: any) => {
+                        console.error("[Menu] ❌ Failed to start test game:", e);
+                    });
+                } else {
+                    console.error('[Menu] ❌ this.game is NULL! Cannot start test mode.');
+                }
+            }
         };
         window.addEventListener('message', messageHandler);
 

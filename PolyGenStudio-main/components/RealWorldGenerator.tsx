@@ -36,6 +36,25 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
     const [forceRefresh, setForceRefresh] = useState(true);  // DEV: force refresh on
     const [progress, setProgress] = useState(0);
 
+    // Advanced settings panel
+    const [showAdvanced, setShowAdvanced] = useState(false);
+
+    // Road type toggles
+    const [enableMotorways, setEnableMotorways] = useState(true);
+    const [enablePrimary, setEnablePrimary] = useState(true);
+    const [enableSecondary, setEnableSecondary] = useState(true);
+    const [enableResidential, setEnableResidential] = useState(true);
+    const [enableService, setEnableService] = useState(true);
+
+    // Feature toggles
+    const [enableBuildings, setEnableBuildings] = useState(true);
+    const [enableWater, setEnableWater] = useState(true);
+    const [enableRoads, setEnableRoads] = useState(true);
+
+    // Quality settings
+    const [buildingHeightMultiplier, setBuildingHeightMultiplier] = useState(1.0);
+    const [roadWidthMultiplier, setRoadWidthMultiplier] = useState(1.0);
+
     const handleGenerate = useCallback(async () => {
         if (!locationInput.trim()) return;
 
@@ -171,11 +190,11 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                 // NOTE: Ground plane removed - TerrainMesh component handles terrain rendering
 
 
-                // Generate roads from OSM - DARK colors for contrast
+                // Generate roads from OSM - BLACK for all roads
                 const roadColors: Record<string, string> = {
-                    'motorway': '#1a1a1a', 'trunk': '#222222', 'primary': '#2a2a2a',
-                    'secondary': '#333333', 'tertiary': '#3a3a3a', 'residential': '#444444',
-                    'service': '#4a4a4a', 'footway': '#555555', 'path': '#5a5a5a'
+                    'motorway': '#111111', 'trunk': '#111111', 'primary': '#111111',
+                    'secondary': '#111111', 'tertiary': '#111111', 'residential': '#111111',
+                    'service': '#222222', 'footway': '#444444', 'path': '#555555'
                 };
                 let roadCount = 0;
                 let debuggedRoad = false;
@@ -206,12 +225,26 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
 
                         if (points.length >= 2) {
                             const roadType = way.tags['highway'] || 'residential';
-                            const roadColor = roadColors[roadType] || '#888888';
+
+                            // Skip pedestrian paths - they clutter intersections
+                            if (roadType === 'footway' || roadType === 'path' || roadType === 'pedestrian' || roadType === 'cycleway') {
+                                return;  // Don't generate pedestrian/bike paths
+                            }
+
+                            // Filter by road type toggles
+                            if (!enableRoads) return;
+                            if ((roadType === 'motorway' || roadType === 'trunk') && !enableMotorways) return;
+                            if (roadType === 'primary' && !enablePrimary) return;
+                            if ((roadType === 'secondary' || roadType === 'tertiary') && !enableSecondary) return;
+                            if (roadType === 'residential' && !enableResidential) return;
+                            if (roadType === 'service' && !enableService) return;
+
+                            const roadColor = roadColors[roadType] || '#111111';
                             const widthMap: Record<string, number> = {
                                 'motorway': 8, 'trunk': 7, 'primary': 6, 'secondary': 5,
                                 'tertiary': 4, 'residential': 3, 'service': 2, 'footway': 1.5, 'path': 1
                             };
-                            const roadWidth = widthMap[roadType] || 3;
+                            const roadWidth = (widthMap[roadType] || 3) * roadWidthMultiplier;
 
                             // Store road as a PATH with all polygon points (like rivers)
                             // Much more efficient than creating many cube segments!
@@ -240,7 +273,7 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
 
                 // ========== WATER: Process water bodies ==========
                 let waterCount = 0;
-                if (osmData.water) {
+                if (enableWater && osmData.water) {
                     osmData.water.forEach(way => {
                         if (waterCount >= 50) return;
                         const points: { x: number; z: number }[] = [];
@@ -289,7 +322,7 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
 
                 // ========== RIVERS: Process rivers (linear waterways) ==========
                 let riverCount = 0;
-                if (osmData.rivers) {
+                if (enableWater && osmData.rivers) {
                     osmData.rivers.forEach(way => {
                         const points: { x: number; z: number }[] = [];
                         way.nodes.forEach(nid => {
@@ -485,7 +518,7 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
             // Check for cached OSMBuildings data or use fresh fetch
             const buildingFeatures = (osmData as any)._osmBuildingsFeatures || [];
 
-            if (buildingFeatures.length > 0) {
+            if (enableBuildings && buildingFeatures.length > 0) {
                 console.log(`[RealWorld] Using OSMBuildings data: ${buildingFeatures.length} buildings`);
 
                 // Convert OSMBuildings GeoJSON to CubeElements
@@ -500,7 +533,7 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
 
                 cubes.push(...buildingCubes);
                 buildingCount = buildingFeatures.length;
-            } else {
+            } else if (enableBuildings) {
                 console.warn('[RealWorld] No OSMBuildings data, falling back to Overpass');
                 // Fallback to old Overpass-based building generation
                 // This code path is used if OSMBuildings API fails
@@ -818,12 +851,21 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
             setState('error');
             setStatusMessage(error instanceof Error ? error.message : 'Ошибка генерации');
         }
-    }, [locationInput, radius, onGenerate, generateId, forceRefresh]);
+    }, [locationInput, radius, onGenerate, generateId, forceRefresh,
+        enableRoads, enableMotorways, enablePrimary, enableSecondary, enableResidential, enableService,
+        enableBuildings, enableWater, roadWidthMultiplier, buildingHeightMultiplier]);
 
     return (
         <div className="p-4 space-y-4 bg-gray-900 rounded-lg border border-gray-700">
-            <h3 className="text-sm font-bold text-green-400 uppercase tracking-wider flex items-center gap-2">
-                🌍 Real World Generator
+            <h3 className="text-sm font-bold text-green-400 uppercase tracking-wider flex items-center justify-between">
+                <span className="flex items-center gap-2">🌍 Real World Generator</span>
+                <button
+                    onClick={() => setShowAdvanced(!showAdvanced)}
+                    className={`p-1 rounded transition-colors ${showAdvanced ? 'text-green-400 bg-gray-700' : 'text-gray-500 hover:text-gray-300'}`}
+                    title="Расширенные настройки"
+                >
+                    ⚙️
+                </button>
             </h3>
 
             <div className="space-y-3">
@@ -847,7 +889,7 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                     <input
                         type="range"
                         min={100}
-                        max={1000}
+                        max={5000}
                         step={50}
                         value={radius}
                         onChange={(e) => setRadius(Number(e.target.value))}
@@ -868,6 +910,89 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                         Принудительно обновить (без кэша)
                     </label>
                 </div>
+
+                {/* Advanced Settings Panel */}
+                {showAdvanced && (
+                    <div className="mt-2 p-3 bg-gray-800 rounded border border-gray-600 space-y-3">
+                        <div className="text-xs font-semibold text-gray-300 border-b border-gray-600 pb-1">
+                            🛣️ Типы дорог
+                        </div>
+                        <div className="flex flex-col gap-1 text-[10px]">
+                            <label className="flex items-center gap-2 text-gray-400 cursor-pointer">
+                                <input type="checkbox" checked={enableMotorways} onChange={e => setEnableMotorways(e.target.checked)} className="accent-green-500 w-3 h-3" />
+                                Автомагистрали
+                            </label>
+                            <label className="flex items-center gap-2 text-gray-400 cursor-pointer">
+                                <input type="checkbox" checked={enablePrimary} onChange={e => setEnablePrimary(e.target.checked)} className="accent-green-500 w-3 h-3" />
+                                Главные дороги
+                            </label>
+                            <label className="flex items-center gap-2 text-gray-400 cursor-pointer">
+                                <input type="checkbox" checked={enableSecondary} onChange={e => setEnableSecondary(e.target.checked)} className="accent-green-500 w-3 h-3" />
+                                Второстепенные
+                            </label>
+                            <label className="flex items-center gap-2 text-gray-400 cursor-pointer">
+                                <input type="checkbox" checked={enableResidential} onChange={e => setEnableResidential(e.target.checked)} className="accent-green-500 w-3 h-3" />
+                                Жилые улицы
+                            </label>
+                            <label className="flex items-center gap-2 text-gray-400 cursor-pointer">
+                                <input type="checkbox" checked={enableService} onChange={e => setEnableService(e.target.checked)} className="accent-green-500 w-3 h-3" />
+                                Служебные
+                            </label>
+                        </div>
+
+                        <div className="text-xs font-semibold text-gray-300 border-b border-gray-600 pb-1 pt-2">
+                            🏗️ Объекты
+                        </div>
+                        <div className="flex flex-col gap-1 text-[10px]">
+                            <label className="flex items-center gap-2 text-gray-400 cursor-pointer">
+                                <input type="checkbox" checked={enableBuildings} onChange={e => setEnableBuildings(e.target.checked)} className="accent-green-500 w-3 h-3" />
+                                🏠 Здания
+                            </label>
+                            <label className="flex items-center gap-2 text-gray-400 cursor-pointer">
+                                <input type="checkbox" checked={enableRoads} onChange={e => setEnableRoads(e.target.checked)} className="accent-green-500 w-3 h-3" />
+                                🛣️ Дороги
+                            </label>
+                            <label className="flex items-center gap-2 text-gray-400 cursor-pointer">
+                                <input type="checkbox" checked={enableWater} onChange={e => setEnableWater(e.target.checked)} className="accent-green-500 w-3 h-3" />
+                                🌊 Водоёмы
+                            </label>
+                        </div>
+
+                        <div className="text-xs font-semibold text-gray-300 border-b border-gray-600 pb-1 pt-2">
+                            📏 Масштаб
+                        </div>
+                        <div className="space-y-2">
+                            <div>
+                                <label className="text-[10px] text-gray-400 block mb-1">
+                                    Высота зданий: ×{buildingHeightMultiplier.toFixed(1)}
+                                </label>
+                                <input
+                                    type="range"
+                                    min={0.5}
+                                    max={3}
+                                    step={0.1}
+                                    value={buildingHeightMultiplier}
+                                    onChange={e => setBuildingHeightMultiplier(Number(e.target.value))}
+                                    className="w-full accent-green-500 h-1"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-gray-400 block mb-1">
+                                    Ширина дорог: ×{roadWidthMultiplier.toFixed(1)}
+                                </label>
+                                <input
+                                    type="range"
+                                    min={0.5}
+                                    max={3}
+                                    step={0.1}
+                                    value={roadWidthMultiplier}
+                                    onChange={e => setRoadWidthMultiplier(Number(e.target.value))}
+                                    className="w-full accent-green-500 h-1"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Generate Button */}
                 <button

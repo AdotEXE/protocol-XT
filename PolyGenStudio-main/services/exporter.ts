@@ -327,22 +327,68 @@ const determineTXTriggerType = (name: string): TXMapData['triggers'][0]['type'] 
 };
 
 /**
+ * Scale factor for converting editor coordinates to game world coordinates
+ * Set to 1 for 1:1 mapping (editor units = game units)
+ */
+const EDITOR_TO_GAME_SCALE = 1;
+
+/**
  * Extract map data from cubes (Separates Objects and Triggers)
+ * Applies EDITOR_TO_GAME_SCALE to convert editor units to game world units
  */
 const extractMapData = (cubes: CubeElement[]) => {
     const placedObjects: TXMapData['placedObjects'] = [];
     const triggers: TXMapData['triggers'] = [];
 
     cubes.forEach(cube => {
-        if (!cube.visible || cube.type !== 'cube') return;
+        // Экспортируем ВСЕ видимые объекты (убрана проверка на type === 'cube')
+        if (!cube.visible) return;
+
+        // КРИТИЧНО: Для polygon-объектов (Real World Generator) позиция хранится в вершинах полигона,
+        // а cube.position всегда (0, Y, 0). Нужно вычислить центр полигона!
+        let actualPosition = cube.position;
+
+        if (cube.polygon && cube.polygon.length >= 3) {
+            // Вычисляем центроид (центр) полигона
+            let sumX = 0, sumZ = 0;
+            for (const vertex of cube.polygon) {
+                sumX += vertex.x;
+                sumZ += vertex.z;
+            }
+            const centerX = sumX / cube.polygon.length;
+            const centerZ = sumZ / cube.polygon.length;
+
+            // Позиция = центр полигона + высота Y
+            actualPosition = {
+                x: centerX,
+                y: cube.position.y,
+                z: centerZ
+            };
+        }
+
+        // Scale position and size from editor to game coordinates
+        const scaledPosition = {
+            x: actualPosition.x * EDITOR_TO_GAME_SCALE,
+            y: actualPosition.y * EDITOR_TO_GAME_SCALE,
+            z: actualPosition.z * EDITOR_TO_GAME_SCALE
+        };
+
+        // КРИТИЧНО: Для polygon-зданий высота хранится в cube.height, а не cube.size.y!
+        const actualHeight = cube.height || cube.size.y || 10;
+
+        const scaledSize = {
+            x: cube.size.x * EDITOR_TO_GAME_SCALE,
+            y: actualHeight * EDITOR_TO_GAME_SCALE,
+            z: cube.size.z * EDITOR_TO_GAME_SCALE
+        };
 
         // Check if Trigger
         if (cube.name.startsWith('trigger_') || cube.name.includes('Zone')) {
             triggers.push({
                 id: cube.id,
                 type: determineTXTriggerType(cube.name),
-                position: cube.position,
-                size: { width: cube.size.x, height: cube.size.y, depth: cube.size.z },
+                position: scaledPosition,
+                size: { width: scaledSize.x, height: scaledSize.y, depth: scaledSize.z },
                 properties: {
                     name: cube.name,
                     ...cube.material // Pass material if needed
@@ -353,9 +399,9 @@ const extractMapData = (cubes: CubeElement[]) => {
             placedObjects.push({
                 id: cube.id,
                 type: determineTXObjectType(cube),
-                position: cube.position,
+                position: scaledPosition,
                 rotation: cube.rotation,
-                scale: cube.size,
+                scale: scaledSize,
                 properties: {
                     color: cube.color,
                     material: cube.material,
@@ -396,6 +442,41 @@ export const exportToTXMap = (cubes: CubeElement[], name: string, description?: 
 
     const json = JSON.stringify(mapData, null, 2);
     downloadFile(json, `${name}.txmap`, 'application/json');
+
+    return mapData;
+};
+
+/**
+ * Export cubes for TEST mode - NO file download, just returns data
+ */
+export const exportForTest = (cubes: CubeElement[], name: string = 'test_map'): TXMapData => {
+    const now = Date.now();
+    const { placedObjects, triggers } = extractMapData(cubes);
+
+    console.log(`[Exporter] exportForTest: ${cubes.length} cubes -> ${placedObjects.length} objects`);
+
+    const mapData: TXMapData = {
+        version: 1,
+        name: name,
+        mapType: "custom",
+        terrainEdits: [],
+        placedObjects: placedObjects,
+        triggers: triggers,
+        metadata: {
+            createdAt: now,
+            modifiedAt: now,
+            author: "PolyGenStudio",
+            description: `Test map from PolyGenStudio`,
+            isPreset: false,
+            mapSize: 200
+        }
+    };
+
+    console.log(`[Exporter] Map data created:`, {
+        name: mapData.name,
+        objects: mapData.placedObjects.length,
+        mapType: mapData.mapType
+    });
 
     return mapData;
 };
