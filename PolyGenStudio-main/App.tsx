@@ -834,6 +834,13 @@ export const App = () => {
         finally { setIsGenerating(false); setLoading(false); }
     };
 
+    // Select all visible objects
+    const handleSelectAll = () => {
+        const visibleIds = cubes.filter(c => c.visible !== false).map(c => c.id);
+        setSelectedIds(visibleIds);
+        addLog(`Selected ${visibleIds.length} objects`, 'info');
+    };
+
     const handleExport = (format: string) => {
         const name = currentFileId ? fileSystem.nodes[currentFileId].name : 'PolyGen_Export';
         addLog(`Initiating ${format.toUpperCase()} export...`, 'info');
@@ -1455,6 +1462,13 @@ export const App = () => {
                                                             mapData: mapData
                                                         }, '*');
                                                         console.log('[PolyGen] postMessage sent!');
+
+                                                        // Collapse editor after sending test
+                                                        window.parent.postMessage({
+                                                            type: 'POLYGEN_COLLAPSE_EDITOR'
+                                                        }, '*');
+                                                        console.log('[PolyGen] Editor collapse requested');
+
                                                         addLog(`🎮 Sent ${mapData.placedObjects?.length} objects to game!`, 'info');
                                                     } else {
                                                         // Standalone mode - open game in new window
@@ -1996,13 +2010,21 @@ export const App = () => {
                                             </button>
                                         </>
                                     )}
-                                    <button
-                                        onClick={handleRefineSelection}
-                                        disabled={selectedIds.length === 0 || !refinePrompt || isGenerating}
-                                        className="w-full py-4 bg-accent-600 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.3em] hover:bg-accent-500 disabled:opacity-30 transition-all shadow-xl flex justify-center items-center gap-3 border border-accent-400/30"
-                                    >
-                                        {isGenerating ? <Icons.Spinner /> : <><Icons.Sparkles /> Update Selection</>}
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={handleSelectAll}
+                                            className="flex-1 py-3 bg-gray-800 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-gray-700 transition-all shadow-lg flex justify-center items-center gap-2 border border-gray-700"
+                                        >
+                                            <Icons.Cube /> Выбрать все
+                                        </button>
+                                        <button
+                                            onClick={handleRefineSelection}
+                                            disabled={selectedIds.length === 0 || !refinePrompt || isGenerating}
+                                            className="flex-1 py-3 bg-accent-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent-500 disabled:opacity-30 transition-all shadow-xl flex justify-center items-center gap-2 border border-accent-400/30"
+                                        >
+                                            {isGenerating ? <Icons.Spinner /> : <><Icons.Sparkles /> Обновить</>}
+                                        </button>
+                                    </div>
                                 </div>
                                 {selectedIds.length === 0 && <div className="text-center p-10 border border-dashed border-gray-800 rounded-2xl text-[10px] text-gray-600 uppercase font-black tracking-widest">Select target objects to edit via AI</div>}
                             </div>
