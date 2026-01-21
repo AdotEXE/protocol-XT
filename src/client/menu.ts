@@ -13167,8 +13167,13 @@ transition: all 0.2s;
                     localStorage.setItem('selectedCustomMapData', JSON.stringify(event.data.mapData));
                 }
 
-                // Collapse/minimize editor instead of closing
+                // Mark test mode active - editor should stay hidden
+                localStorage.setItem('polygen_test_mode_active', 'true');
+
+                // Collapse/minimize editor instead of closing - FORCE HIDE
                 editorContainer.style.display = 'none';
+                editorContainer.style.visibility = 'hidden';
+                editorContainer.style.pointerEvents = 'none';
                 editorContainer.classList.add('polygen-minimized');
 
                 // Create "Open Editor" button in game
@@ -13202,8 +13207,12 @@ transition: all 0.2s;
                         restoreButton!.style.boxShadow = '0 4px 6px rgba(0,0,0,0.3)';
                     };
                     restoreButton.onclick = () => {
-                        // Restore editor
+                        // Clear test mode flag
+                        localStorage.removeItem('polygen_test_mode_active');
+                        // Restore editor visibility
                         editorContainer.style.display = 'block';
+                        editorContainer.style.visibility = 'visible';
+                        editorContainer.style.pointerEvents = 'auto';
                         editorContainer.classList.remove('polygen-minimized');
                         restoreButton!.remove();
                     };
