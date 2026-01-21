@@ -25,15 +25,14 @@ function createBuildingGeometry(polygon: Array<{ x: number; z: number }>, height
         // Create 2D shape from polygon vertices
         // THREE.Shape is in XY plane, ExtrudeGeometry extrudes along Z
         // After rotateX(-90°): Shape Y becomes World -Z
-        // So we use -z to get correct world Z orientation
         const shape = new THREE.Shape();
 
-        // Move to first point (negate z for correct orientation after rotation)
-        shape.moveTo(polygon[0].x, -polygon[0].z);
+        // Move to first point
+        shape.moveTo(polygon[0].x, polygon[0].z);
 
         // Draw lines to all subsequent points
         for (let i = 1; i < polygon.length; i++) {
-            shape.lineTo(polygon[i].x, -polygon[i].z);
+            shape.lineTo(polygon[i].x, polygon[i].z);
         }
 
         // Close the shape

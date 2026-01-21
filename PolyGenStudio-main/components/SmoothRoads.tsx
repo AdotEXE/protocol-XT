@@ -7,6 +7,7 @@
 
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
+import { mergeBufferGeometries } from 'three-stdlib';
 import { CubeElement } from '../types';
 
 interface SmoothRoadsProps {
@@ -124,47 +125,31 @@ export const SmoothRoads: React.FC<SmoothRoadsProps> = React.memo(({
     roadWidth = 6,
     smoothness = 3
 }) => {
-    // Group road segments by road ID
-    const roadData = useMemo(() => {
-        const roadCubes = cubes.filter(c =>
+    // Filter roads with polygon paths
+    const roadElements = useMemo(() => {
+        return cubes.filter(c =>
             c.visible !== false &&
-            c.name?.startsWith('Road_')
+            c.type === 'road' &&
+            c.polygon &&
+            c.polygon.length >= 2
         );
-
-        // Group segments by road ID (Road_123456_0, Road_123456_1, etc -> Road_123456)
-        const roadGroups = new Map<string, CubeElement[]>();
-
-        roadCubes.forEach(cube => {
-            const parts = cube.name!.split('_');
-            if (parts.length >= 2) {
-                const roadId = `${parts[0]}_${parts[1]}`;
-                if (!roadGroups.has(roadId)) {
-                    roadGroups.set(roadId, []);
-                }
-                roadGroups.get(roadId)!.push(cube);
-            }
-        });
-
-        return roadGroups;
     }, [cubes]);
 
     // Create smooth ribbon geometries for each road
     const roadGeometries = useMemo(() => {
-        const roads: { geometry: THREE.BufferGeometry; color: string; key: string }[] = [];
+        const roads: { geometry: THREE.BufferGeometry; color: string; key: string; width: number }[] = [];
 
-        roadData.forEach((segments, roadId) => {
-            // Sort segments by index
-            segments.sort((a, b) => {
-                const aIdx = parseInt(a.name!.split('_')[2] || '0');
-                const bIdx = parseInt(b.name!.split('_')[2] || '0');
-                return aIdx - bIdx;
-            });
+        roadElements.forEach((road, index) => {
+            // Get road width from size.x or properties, but enforce minimum for visibility
+            const rawWidth = road.properties?.width || road.size.x || roadWidth;
+            const width = Math.max(rawWidth, 4);  // Minimum 4m width for visibility
 
-            // Extract raw points from segment positions
-            const rawPoints = segments.map(s => ({
-                x: s.position.x,
-                y: s.position.y + 0.4, // Elevated ABOVE terrain to prevent z-fighting
-                z: s.position.z
+            // Convert polygon points to 3D with Y from position
+            const baseY = road.position.y;
+            const rawPoints = road.polygon!.map(p => ({
+                x: p.x,
+                y: baseY,
+                z: -p.z  // Negate Z for correct orientation (like rivers)
             }));
 
             if (rawPoints.length >= 2) {
@@ -172,31 +157,59 @@ export const SmoothRoads: React.FC<SmoothRoadsProps> = React.memo(({
                 const smoothedPoints = smoothPoints(rawPoints, smoothness);
 
                 // Create ribbon geometry
-                const geometry = createRibbonGeometry(smoothedPoints, roadWidth);
-                const color = segments[0]?.properties?.color || '#555555';
+                const geometry = createRibbonGeometry(smoothedPoints, width);
 
                 roads.push({
                     geometry,
-                    color,
-                    key: roadId
+                    color: road.color || '#555555',
+                    key: `${road.id}_${index}`,
+                    width
                 });
             }
         });
 
+        console.log(`[SmoothRoads] Rendering ${roads.length} road ribbons`);
         return roads;
-    }, [roadData, roadWidth, smoothness]);
+    }, [roadElements, roadWidth, smoothness]);
+
+    // OPTIMIZATION: Merge all road geometries by color for fewer draw calls
+    const mergedRoads = useMemo(() => {
+        const colorGroups = new Map<string, THREE.BufferGeometry[]>();
+
+        roadGeometries.forEach(({ geometry, color }) => {
+            if (!colorGroups.has(color)) {
+                colorGroups.set(color, []);
+            }
+            colorGroups.get(color)!.push(geometry);
+        });
+
+        const merged: { geometry: THREE.BufferGeometry; color: string }[] = [];
+
+        colorGroups.forEach((geometries, color) => {
+            if (geometries.length === 0) return;
+
+            // Merge all geometries of this color
+            const mergedGeometry = mergeBufferGeometries(geometries);
+            if (mergedGeometry) {
+                merged.push({ geometry: mergedGeometry, color });
+            }
+        });
+
+        console.log(`[SmoothRoads] Merged ${roadGeometries.length} roads into ${merged.length} batches`);
+        return merged;
+    }, [roadGeometries]);
 
     // Clean up geometries on unmount
     React.useEffect(() => {
         return () => {
-            roadGeometries.forEach(r => r.geometry.dispose());
+            mergedRoads.forEach(r => r.geometry.dispose());
         };
-    }, [roadGeometries]);
+    }, [mergedRoads]);
 
     return (
         <group name="smooth-roads">
-            {roadGeometries.map(({ geometry, color, key }, index) => (
-                <mesh key={`${key}_${index}`} geometry={geometry} receiveShadow>
+            {mergedRoads.map(({ geometry, color }, index) => (
+                <mesh key={`roads_batch_${index}`} geometry={geometry} receiveShadow>
                     <meshStandardMaterial
                         color={color}
                         roughness={0.9}

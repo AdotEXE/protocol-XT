@@ -7,6 +7,7 @@
 
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
+import { mergeBufferGeometries } from 'three-stdlib';
 import { CubeElement } from '../types';
 
 interface SmoothRiversProps {
@@ -126,10 +127,11 @@ export const SmoothRivers: React.FC<SmoothRiversProps> = React.memo(({
             const baseY = river.position.y;  // Elevation from generator
 
             // Convert polygon points to 3D with Y from position
+            // NEGATE Z to match correct world orientation
             const rawPoints = river.polygon!.map(p => ({
                 x: p.x,
                 y: baseY,  // Use the elevation stored in position.y
-                z: p.z
+                z: -p.z    // Negate Z for correct world orientation
             }));
 
             // Smooth the points
@@ -147,31 +149,36 @@ export const SmoothRivers: React.FC<SmoothRiversProps> = React.memo(({
         return rivers;
     }, [cubes, riverWidth, smoothness]);
 
+    // OPTIMIZATION: Merge all river geometries into one for single draw call
+    const mergedRiver = useMemo(() => {
+        if (riverGeometries.length === 0) return null;
+        const geometries = riverGeometries.map(r => r.geometry);
+        const merged = mergeBufferGeometries(geometries);
+        console.log(`[SmoothRivers] Merged ${riverGeometries.length} rivers into 1 mesh`);
+        return merged;
+    }, [riverGeometries]);
+
     // Clean up geometries on unmount
     React.useEffect(() => {
         return () => {
-            riverGeometries.forEach(r => r.geometry.dispose());
+            mergedRiver?.dispose();
         };
-    }, [riverGeometries]);
+    }, [mergedRiver]);
+
+    if (!mergedRiver) return null;
 
     return (
         <group name="smooth-rivers">
-            {riverGeometries.map(({ geometry, key }, index) => (
-                <mesh
-                    key={`${key}_${index}`}
-                    geometry={geometry}
-                    receiveShadow
-                >
-                    <meshStandardMaterial
-                        color="#1e90ff"
-                        roughness={0.2}
-                        metalness={0.1}
-                        transparent
-                        opacity={0.8}
-                        side={THREE.DoubleSide}
-                    />
-                </mesh>
-            ))}
+            <mesh geometry={mergedRiver} receiveShadow>
+                <meshStandardMaterial
+                    color="#1e90ff"
+                    roughness={0.2}
+                    metalness={0.1}
+                    transparent
+                    opacity={0.8}
+                    side={THREE.DoubleSide}
+                />
+            </mesh>
         </group>
     );
 });

@@ -171,17 +171,17 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                 // NOTE: Ground plane removed - TerrainMesh component handles terrain rendering
 
 
-                // Generate roads from OSM
+                // Generate roads from OSM - DARK colors for contrast
                 const roadColors: Record<string, string> = {
-                    'motorway': '#3d3d3d', 'trunk': '#4a4a4a', 'primary': '#555555',
-                    'secondary': '#666666', 'tertiary': '#777777', 'residential': '#888888',
-                    'service': '#999999', 'footway': '#a0a0a0', 'path': '#b0b0b0'
+                    'motorway': '#1a1a1a', 'trunk': '#222222', 'primary': '#2a2a2a',
+                    'secondary': '#333333', 'tertiary': '#3a3a3a', 'residential': '#444444',
+                    'service': '#4a4a4a', 'footway': '#555555', 'path': '#5a5a5a'
                 };
                 let roadCount = 0;
                 let debuggedRoad = false;
                 if (osmData.highways) {
                     osmData.highways.forEach(way => {
-                        if (roadCount >= 200) return;
+                        // No road limit - generate all roads from OSM
                         const points: { x: number; z: number }[] = [];
                         const rawCoords: { lat: number; lon: number }[] = [];
                         way.nodes.forEach(nid => {
@@ -213,25 +213,27 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                             };
                             const roadWidth = widthMap[roadType] || 3;
 
-                            for (let i = 0; i < points.length - 1; i++) {
-                                const p1 = points[i], p2 = points[i + 1];
-                                const dx = p2.x - p1.x, dz = p2.z - p1.z;
-                                const length = Math.sqrt(dx * dx + dz * dz);
-                                if (length < 1) continue;
-                                const angle = Math.atan2(dx, dz);
-                                cubes.push({
-                                    id: generateId(),
-                                    name: `Road_${way.id}_${i}`,
-                                    type: 'cube',
-                                    color: roadColor,  // Required field!
-                                    position: { x: (p1.x + p2.x) / 2, y: 0.15, z: (p1.z + p2.z) / 2 },
-                                    rotation: { x: 0, y: angle, z: 0 },
-                                    size: { x: roadWidth, y: 0.1, z: length },
-                                    properties: { color: roadColor, material: 'asphalt' },
-                                    visible: true, isLocked: false, isFavorite: false
-                                });
-                                roadCount++;
-                            }
+                            // Store road as a PATH with all polygon points (like rivers)
+                            // Much more efficient than creating many cube segments!
+                            cubes.push({
+                                id: generateId(),
+                                name: `Road_${way.id}`,
+                                type: 'road',  // Dedicated road type
+                                position: { x: 0, y: 0.6, z: 0 },  // Raised higher for visibility
+                                rotation: { x: 0, y: 0, z: 0 },
+                                size: { x: roadWidth, y: 0.1, z: 1 },  // Width stored in size.x
+                                color: roadColor,
+                                polygon: points,  // Store path as polygon array!
+                                properties: {
+                                    roadType: roadType,
+                                    color: roadColor,
+                                    width: roadWidth
+                                },
+                                visible: true,
+                                isLocked: false,
+                                isFavorite: false
+                            });
+                            roadCount++;
                         }
                     });
                 }
@@ -270,9 +272,9 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                             id: generateId(),
                             name: `Water_${way.id}`,
                             type: 'water',  // Special type for water
-                            position: { x: 0, y: waterElevation - 0.2, z: 0 },  // Slightly below ground
+                            position: { x: 0, y: waterElevation + 0.5, z: 0 },  // Well ABOVE ground to prevent z-fighting
                             rotation: { x: 0, y: 0, z: 0 },
-                            size: { x: 1, y: 0.3, z: 1 },  // Thin for water
+                            size: { x: 1, y: 0.1, z: 1 },  // Very thin for water
                             color: '#1e5f8a', // Water blue
                             polygon: points,  // ABSOLUTE polygon coordinates
                             height: 0.3,  // Thin water surface
@@ -309,7 +311,7 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
                             id: generateId(),
                             name: `River_${way.id}`,
                             type: 'water',  // Same type as lakes, rendered by SmoothRivers
-                            position: { x: 0, y: avgElevation + 0.25, z: 0 },
+                            position: { x: 0, y: avgElevation + 0.5, z: 0 },  // Raised to prevent z-fighting
                             rotation: { x: 0, y: 0, z: 0 },
                             size: { x: 1, y: 0.1, z: 1 },
                             color: '#1e90ff',

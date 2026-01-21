@@ -16,7 +16,7 @@ export interface MaterialProperties {
 export interface CubeElement {
   id: string;
   name: string;
-  type: 'cube' | 'group' | 'polygon' | 'water';  // 'polygon' for buildings, 'water' for lakes/rivers
+  type: 'cube' | 'group' | 'polygon' | 'water' | 'road';  // 'road' for streets with polygon paths
   parentId?: string | null;
   position: Vector3;
   size: Vector3;
