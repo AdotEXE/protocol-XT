@@ -884,17 +884,30 @@ const RealWorldGenerator: React.FC<RealWorldGeneratorProps> = ({ onGenerate, onA
 
                 <div>
                     <label className="text-xs text-gray-400 block mb-1">
-                        Радиус: {radius}м ({(radius * 2 / 1000).toFixed(1)} км)
+                        Размер карты: {radius * 2}×{radius * 2}м ({(radius * 2 / 1000).toFixed(1)}×{(radius * 2 / 1000).toFixed(1)} км)
                     </label>
-                    <input
-                        type="range"
-                        min={100}
-                        max={5000}
-                        step={50}
-                        value={radius}
-                        onChange={(e) => setRadius(Number(e.target.value))}
-                        className="w-full accent-green-500"
-                    />
+                    <div className="flex gap-2 items-center">
+                        <input
+                            type="range"
+                            min={100}
+                            max={5000}
+                            step={50}
+                            value={radius}
+                            onChange={(e) => setRadius(Number(e.target.value))}
+                            className="flex-1 accent-green-500"
+                        />
+                        <input
+                            type="number"
+                            min={100}
+                            max={10000}
+                            step={100}
+                            value={radius * 2}
+                            onChange={(e) => setRadius(Math.max(100, Math.min(10000, Number(e.target.value))) / 2)}
+                            className="w-20 bg-gray-800 text-white text-xs px-2 py-1 rounded border border-gray-600 focus:border-green-500 outline-none text-center"
+                            title="Размер карты в метрах"
+                        />
+                        <span className="text-[10px] text-gray-500">м</span>
+                    </div>
                 </div>
 
                 {/* Options */}
