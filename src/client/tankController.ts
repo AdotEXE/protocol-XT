@@ -326,8 +326,8 @@ export class TankController {
     private _barrelRotationXSmoothing = 0.15; // Коэффициент сглаживания для rotation.x ствола
     private barrelPitchAcceleration = 0; // Прогрессивный разгон наклона ствола (0-1, за 1 секунду)
     private barrelPitchAccelStartTime = 0; // Время начала ускорения наклона ствола
-    baseBarrelPitchSpeed = 0.15; // УВЕЛИЧЕНО с 0.08: Базовая скорость наклона ствола (рад/кадр)
-    barrelPitchLerpSpeed = 0.5; // УВЕЛИЧЕНО с 0.25: Скорость интерполяции наклона ствола
+    baseBarrelPitchSpeed = 0.05; // УМЕНЬШЕНО с 0.15: Более плавный наклон ствола с клавиатуры
+    barrelPitchLerpSpeed = 0.2; // УМЕНЬШЕНО с 0.5: Более плавная интерполяция наклона ствола
 
     // Aiming pitch (vertical angle for aiming) - set from game.ts
     aimPitch = 0;
