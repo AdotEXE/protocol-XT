@@ -257,6 +257,9 @@ export const App = () => {
     // Context Menu State
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, visible: boolean, targetId: string | null }>({ x: 0, y: 0, visible: false, targetId: null });
 
+    // Help Modal State
+    const [showHelpModal, setShowHelpModal] = useState(false);
+
     // Custom Object Creator State
     const [showObjCreator, setShowObjCreator] = useState(false);
     const [paletteItems, setPaletteItems] = useState<PaletteItem[]>([
@@ -1190,6 +1193,9 @@ export const App = () => {
                 if (e.key === '2') { setShowAxes(prev => !prev); }
                 if (e.key === '3') { setShowWireframe(prev => !prev); }
 
+                // Help
+                if (e.key === 'F1') { setShowHelpModal(true); e.preventDefault(); }
+
             }} tabIndex={0}>
 
             {/* Unified Loading Screen */}
@@ -1359,6 +1365,15 @@ export const App = () => {
                     </div>
                     <div className="w-px h-6 bg-gray-800 mx-1" />
                     <button onClick={() => setShowSettingsMenu(!showSettingsMenu)} className={`w-8 h-8 flex items-center justify-center rounded transition-colors ${showSettingsMenu ? 'text-white bg-gray-800' : 'text-gray-500 hover:bg-gray-800'}`}><Icons.Settings /></button>
+                    {/* Help Button */}
+                    <button
+                        onClick={() => setShowHelpModal(true)}
+                        className="h-8 px-2 rounded text-gray-400 hover:text-white text-[10px] uppercase font-bold hover:bg-gray-800 flex gap-1 items-center"
+                        title="Справка (F1)"
+                    >
+                        ❓ Help
+                    </button>
+
                     {isInTXIframe() && (
                         <button onClick={() => window.parent.postMessage({ type: 'CLOSE_EDITOR' }, '*')} className="h-8 px-2 rounded text-red-500 hover:text-white text-[10px] uppercase font-bold hover:bg-red-900/50 flex gap-1 items-center border border-red-900/30">
                             <Icons.Close /> Exit
@@ -2251,6 +2266,84 @@ export const App = () => {
                 }}
                 initialSettings={editorSettings}
             />
+
+            {/* Help Modal */}
+            {showHelpModal && (
+                <div className="fixed inset-0 z-[10000] bg-black/80 flex items-center justify-center p-4" onClick={() => setShowHelpModal(false)}>
+                    <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                        <div className="sticky top-0 bg-gray-900 border-b border-gray-800 p-4 flex justify-between items-center">
+                            <h2 className="text-lg font-bold text-white">📖 Справка по управлению</h2>
+                            <button onClick={() => setShowHelpModal(false)} className="text-gray-400 hover:text-white text-xl">✕</button>
+                        </div>
+                        <div className="p-4 space-y-6">
+                            {/* Camera Controls */}
+                            <div>
+                                <h3 className="text-sm font-bold text-accent-400 mb-2">🎥 Камера</h3>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-gray-400">ЛКМ + drag</span> — Вращение</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-gray-400">ПКМ + drag</span> — Панорама</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-gray-400">Колёсико</span> — Zoom</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-gray-400">СКМ + drag</span> — Панорама</div>
+                                </div>
+                            </div>
+
+                            {/* Selection */}
+                            <div>
+                                <h3 className="text-sm font-bold text-accent-400 mb-2">🎯 Выделение</h3>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-gray-400">Клик</span> — Выбрать объект</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-gray-400">Ctrl + клик</span> — Добавить к выделению</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-gray-400">Shift + drag</span> — Выделение областью</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-gray-400">Escape</span> — Снять выделение</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-gray-400">Ctrl + A</span> — Выбрать всё</div>
+                                </div>
+                            </div>
+
+                            {/* Tools */}
+                            <div>
+                                <h3 className="text-sm font-bold text-accent-400 mb-2">🔧 Инструменты</h3>
+                                <div className="grid grid-cols-3 gap-2 text-xs">
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">V / Q</span> — Select</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">G / W</span> — Move</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">R / E</span> — Rotate</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">S</span> — Scale</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">P</span> — Paint</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">B</span> — Build</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">T</span> — Terrain</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">L</span> — Road</div>
+                                </div>
+                            </div>
+
+                            {/* Edit */}
+                            <div>
+                                <h3 className="text-sm font-bold text-accent-400 mb-2">✏️ Редактирование</h3>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">Ctrl + C</span> — Копировать</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">Ctrl + V</span> — Вставить</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">Ctrl + X</span> — Вырезать</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">Ctrl + D</span> — Дублировать</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">Ctrl + Z</span> — Отменить</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">Ctrl + Y</span> — Повторить</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">Delete</span> — Удалить</div>
+                                </div>
+                            </div>
+
+                            {/* View */}
+                            <div>
+                                <h3 className="text-sm font-bold text-accent-400 mb-2">👁️ Отображение</h3>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">H</span> — Скрыть выделенное</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">Alt + H</span> — Показать всё</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">X</span> — Toggle snap</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">1</span> — Toggle grid</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">2</span> — Toggle axes</div>
+                                    <div className="bg-gray-800 rounded p-2"><span className="text-yellow-400 font-mono">3</span> — Toggle wireframe</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Toast Notifications with Progress */}
             <div className="fixed bottom-4 right-4 z-[9999] space-y-2 pointer-events-none">
