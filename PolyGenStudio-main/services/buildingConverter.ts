@@ -246,9 +246,15 @@ function convertBuildingToCubes(
 
         // Create main building body with ROTATION
         const buildingId = generateId();
+
+        // Generate descriptive name based on properties
+        const heightCategory = effectiveHeight > 30 ? 'Highrise' : effectiveHeight > 15 ? 'MidRise' : 'LowRise';
+        const levelInfo = props.levels ? `_L${props.levels}` : '';
+        const buildingName = `${heightCategory}_${props.id || buildingId.slice(-6)}${levelInfo}`;
+
         cubes.push({
             id: buildingId,
-            name: `Building_${props.id || buildingId}`,
+            name: buildingName,
             type: 'cube',
             position: {
                 x: offset.x,
@@ -274,7 +280,7 @@ function convertBuildingToCubes(
 
             cubes.push({
                 id: generateId(),
-                name: `Roof_${props.id || buildingId}`,
+                name: `Roof_${buildingName}`,
                 type: 'cube',
                 position: {
                     x: offset.x,

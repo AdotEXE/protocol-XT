@@ -67,6 +67,7 @@ export class CustomMapRunner {
     private parentNode: TransformNode;
     private createdMeshes: Mesh[] = [];
     private floor: GroundMesh | null = null;
+    private spawnPosition: Vector3 | null = null;
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -243,6 +244,18 @@ export class CustomMapRunner {
             };
         }
 
+        // Find spawn point from map objects
+        const spawnObj = mapData.placedObjects.find(obj =>
+            obj.type === 'spawn' ||
+            obj.properties?.txType === 'spawn' ||
+            (obj.properties?.name || '').toLowerCase().includes('spawn')
+        );
+        if (spawnObj) {
+            const pos = spawnObj.position || { x: 0, y: 0, z: 0 };
+            this.spawnPosition = new Vector3(pos.x, pos.y + 2, pos.z); // +2m above ground
+            logger.log(`[CustomMapRunner] 🎯 Found spawn point at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+        }
+
         // Создаём объекты
         let created = 0;
         for (const obj of mapData.placedObjects) {
@@ -354,7 +367,12 @@ export class CustomMapRunner {
      * Получить spawn позицию для танка
      */
     public getSpawnPosition(): Vector3 {
-        // По умолчанию спавнимся в центре чуть выше пола
+        // Use spawn point from map if found, otherwise center
+        if (this.spawnPosition) {
+            logger.log(`[CustomMapRunner] Using custom spawn: (${this.spawnPosition.x.toFixed(1)}, ${this.spawnPosition.y.toFixed(1)}, ${this.spawnPosition.z.toFixed(1)})`);
+            return this.spawnPosition.clone();
+        }
+        // Default: center, above floor
         return new Vector3(0, 2, 0);
     }
 
