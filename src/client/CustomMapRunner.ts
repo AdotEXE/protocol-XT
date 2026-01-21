@@ -311,6 +311,17 @@ export class CustomMapRunner {
                 // Конвертируем polygon в Vector2[] для XZ плоскости
                 const shape: Vector2[] = obj.polygon.map(v => new Vector2(v.x, v.z));
 
+                // DEBUG: Вычисляем bounding box полигона
+                let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+                for (const v of shape) {
+                    if (v.x < minX) minX = v.x;
+                    if (v.x > maxX) maxX = v.x;
+                    if (v.y < minZ) minZ = v.y;
+                    if (v.y > maxZ) maxZ = v.y;
+                }
+                const shapeWidth = maxX - minX;
+                const shapeDepth = maxZ - minZ;
+
                 // Создаём extruded polygon
                 const height = obj.height || 1;
                 mesh = MeshBuilder.ExtrudePolygon(meshName, {
@@ -322,7 +333,7 @@ export class CustomMapRunner {
                 // Позиционируем по Y (extrude идёт вниз, так что сдвигаем)
                 mesh.position = new Vector3(0, pos.y + height, 0);
 
-                console.log(`[CustomMapRunner] ✅ Created POLYGON mesh: ${meshName} with ${shape.length} vertices, height: ${height}`);
+                console.log(`[CustomMapRunner] ✅ POLYGON: ${meshName} | ${shape.length} verts | size: ${shapeWidth.toFixed(1)}x${shapeDepth.toFixed(1)} | height: ${height} | center: (${((minX + maxX) / 2).toFixed(1)}, ${((minZ + maxZ) / 2).toFixed(1)})`);
             } catch (e) {
                 console.warn(`[CustomMapRunner] Polygon creation failed for ${obj.id}, falling back to box:`, e);
                 // Fallback to box
