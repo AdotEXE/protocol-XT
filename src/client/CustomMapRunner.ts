@@ -14,6 +14,7 @@
 import {
     Scene,
     Vector3,
+    Vector2,
     Mesh,
     MeshBuilder,
     StandardMaterial,
@@ -26,6 +27,7 @@ import {
 } from "@babylonjs/core";
 import { PhysicsAggregate, PhysicsShapeType } from "@babylonjs/core/Physics";
 import { logger } from "./utils/logger";
+import earcut from "earcut";
 
 /** Интерфейс для объекта из карты */
 interface PlacedObject {
@@ -39,6 +41,10 @@ interface PlacedObject {
         name?: string;
         hasCollision?: boolean;
     };
+    // Polygon support for Real World Generator buildings/roads
+    polygon?: { x: number; y: number; z: number }[];
+    height?: number;
+    isPolygon?: boolean;
 }
 
 /** Интерфейс данных карты */
@@ -293,19 +299,49 @@ export class CustomMapRunner {
             console.log(`[CustomMapRunner] Object #${this.createdMeshes.length + 1}: ` +
                 `pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) ` +
                 `scale=(${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)}) ` +
-                `color=${colorHex} type=${obj.type}`);
+                `color=${colorHex} type=${obj.type} isPolygon=${obj.isPolygon || false}`);
         }
 
-        // Создаём бокс с размерами из scale
         const meshName = `customObj_${obj.id}`;
-        const mesh = MeshBuilder.CreateBox(meshName, {
-            width: Math.max(0.1, scale.x),
-            height: Math.max(0.1, scale.y),
-            depth: Math.max(0.1, scale.z)
-        }, this.scene);
+        let mesh: Mesh;
 
-        // Позиция
-        mesh.position = new Vector3(pos.x, pos.y, pos.z);
+        // Проверяем если это polygon-объект (здание/дорога из Real World Generator)
+        if (obj.isPolygon && obj.polygon && obj.polygon.length >= 3) {
+            try {
+                // Конвертируем polygon в Vector2[] для XZ плоскости
+                const shape: Vector2[] = obj.polygon.map(v => new Vector2(v.x, v.z));
+
+                // Создаём extruded polygon
+                const height = obj.height || 1;
+                mesh = MeshBuilder.ExtrudePolygon(meshName, {
+                    shape: shape,
+                    depth: height,
+                    sideOrientation: Mesh.DOUBLESIDE
+                }, this.scene, earcut);
+
+                // Позиционируем по Y (extrude идёт вниз, так что сдвигаем)
+                mesh.position = new Vector3(0, pos.y + height, 0);
+
+                console.log(`[CustomMapRunner] ✅ Created POLYGON mesh: ${meshName} with ${shape.length} vertices, height: ${height}`);
+            } catch (e) {
+                console.warn(`[CustomMapRunner] Polygon creation failed for ${obj.id}, falling back to box:`, e);
+                // Fallback to box
+                mesh = MeshBuilder.CreateBox(meshName, {
+                    width: Math.max(0.1, scale.x),
+                    height: Math.max(0.1, scale.y),
+                    depth: Math.max(0.1, scale.z)
+                }, this.scene);
+                mesh.position = new Vector3(pos.x, pos.y, pos.z);
+            }
+        } else {
+            // Стандартный бокс
+            mesh = MeshBuilder.CreateBox(meshName, {
+                width: Math.max(0.1, scale.x),
+                height: Math.max(0.1, scale.y),
+                depth: Math.max(0.1, scale.z)
+            }, this.scene);
+            mesh.position = new Vector3(pos.x, pos.y, pos.z);
+        }
 
         // Поворот (конвертируем градусы в радианы)
         mesh.rotation = new Vector3(
@@ -323,10 +359,11 @@ export class CustomMapRunner {
         // Родительский узел
         mesh.parent = this.parentNode;
 
-        // Физика (статический объект)
+        // Физика (статический объект) - используем MESH для polygon
         if (obj.properties?.hasCollision !== false) {
             try {
-                new PhysicsAggregate(mesh, PhysicsShapeType.BOX, {
+                const physicsType = obj.isPolygon ? PhysicsShapeType.MESH : PhysicsShapeType.BOX;
+                new PhysicsAggregate(mesh, physicsType, {
                     mass: 0,
                     friction: 0.5,
                     restitution: 0.1
@@ -341,7 +378,8 @@ export class CustomMapRunner {
             customMapObject: true,
             objectId: obj.id,
             objectType: obj.type,
-            objectName: obj.properties?.name || obj.id
+            objectName: obj.properties?.name || obj.id,
+            isPolygon: obj.isPolygon || false
         };
 
         return mesh;
