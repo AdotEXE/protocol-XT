@@ -13207,18 +13207,22 @@ transition: all 0.2s;
                         restoreButton!.style.boxShadow = '0 4px 6px rgba(0,0,0,0.3)';
                     };
                     restoreButton.onclick = () => {
-                        // Clear test mode flag
-                        localStorage.removeItem('polygen_test_mode_active');
-                        // Restore editor visibility
+                        // DON'T clear test mode flag - just show editor overlay
+                        // Game continues running in background!
                         editorContainer.style.display = 'block';
                         editorContainer.style.visibility = 'visible';
                         editorContainer.style.pointerEvents = 'auto';
                         editorContainer.classList.remove('polygen-minimized');
-                        restoreButton!.remove();
+                        // Hide restore button while editing
+                        restoreButton!.style.display = 'none';
                     };
                     document.body.appendChild(restoreButton);
                     console.log('[Menu] 🔧 Restore button created and appended');
                 }
+
+                // Store reference for hot-reload
+                (window as any).__polygenEditorContainer = editorContainer;
+                (window as any).__polygenRestoreButton = restoreButton;
 
                 // Start game with test map
                 console.log('[Menu] 🎮 Checking this.game:', this.game ? 'exists' : 'NULL');
@@ -13240,6 +13244,48 @@ transition: all 0.2s;
                     });
                 } else {
                     console.error('[Menu] ❌ this.game is NULL! Cannot start test mode.');
+                }
+            }
+
+            // Handle HOT RELOAD from editor - apply changes without restarting game
+            if (event.data && event.data.type === 'POLYGEN_HOT_RELOAD') {
+                console.log('[Menu] 🔥 Received POLYGEN_HOT_RELOAD - applying changes without restart!');
+
+                // Update map data
+                if (event.data.mapData) {
+                    localStorage.setItem('tx_test_map', JSON.stringify(event.data.mapData));
+                    localStorage.setItem('selectedCustomMapData', JSON.stringify(event.data.mapData));
+                    console.log('[Menu] 🔥 Map data updated in localStorage');
+                }
+
+                // Hide editor, show restore button
+                const editorContainer = (window as any).__polygenEditorContainer;
+                const restoreButton = (window as any).__polygenRestoreButton;
+
+                if (editorContainer) {
+                    editorContainer.style.display = 'none';
+                    editorContainer.style.visibility = 'hidden';
+                    editorContainer.style.pointerEvents = 'none';
+                }
+
+                if (restoreButton) {
+                    restoreButton.style.display = 'block';
+                }
+
+                // HOT RELOAD: Update game's current map without full restart
+                if (this.game && event.data.mapData) {
+                    console.log('[Menu] 🔥 Applying hot-reload to running game...');
+                    try {
+                        // Call game's hot-reload method if available
+                        if (typeof (this.game as any).hotReloadMap === 'function') {
+                            (this.game as any).hotReloadMap(event.data.mapData);
+                            console.log('[Menu] 🔥 Hot-reload successful!');
+                        } else {
+                            console.log('[Menu] 🔥 No hotReloadMap method - map will update on respawn');
+                        }
+                    } catch (e) {
+                        console.error('[Menu] ❌ Hot-reload error:', e);
+                    }
                 }
             }
         };

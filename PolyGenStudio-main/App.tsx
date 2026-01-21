@@ -1582,6 +1582,38 @@ export const App = () => {
                                         >
                                             🎮 TEST IN GAME
                                         </button>
+
+                                        {/* HOT RELOAD BUTTON - Apply changes and return to game */}
+                                        {window.parent !== window && localStorage.getItem('polygen_test_mode_active') === 'true' && (
+                                            <button
+                                                onClick={() => {
+                                                    console.log('[PolyGen] ===== HOT RELOAD BUTTON CLICKED =====');
+
+                                                    const mapData = exportForTest(cubes);
+                                                    const jsonData = JSON.stringify(mapData);
+
+                                                    try {
+                                                        localStorage.setItem('tx_test_map', jsonData);
+                                                        localStorage.setItem('selectedCustomMapData', jsonData);
+
+                                                        // Send HOT RELOAD message to parent
+                                                        window.parent.postMessage({
+                                                            type: 'POLYGEN_HOT_RELOAD',
+                                                            mapData: mapData
+                                                        }, '*');
+
+                                                        showToast('🔥 Изменения применены!', 'success');
+                                                        addLog(`🔥 Hot-reload: ${mapData.placedObjects?.length} objects sent`, 'success');
+                                                    } catch (e) {
+                                                        console.error('[PolyGen] Hot-reload error:', e);
+                                                        showToast('❌ Ошибка hot-reload', 'error');
+                                                    }
+                                                }}
+                                                className="w-full mt-2 py-2 px-4 rounded font-bold text-sm uppercase bg-orange-600 text-white hover:bg-orange-500 transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                🔥 ПРИМЕНИТЬ И ВЕРНУТЬСЯ
+                                            </button>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -2180,9 +2212,9 @@ export const App = () => {
                     <div
                         key={toast.id}
                         className={`px-4 py-3 rounded-lg shadow-xl text-sm font-medium animate-in slide-in-from-right duration-300 min-w-[200px] ${toast.type === 'success' ? 'bg-green-600 text-white' :
-                                toast.type === 'error' ? 'bg-red-600 text-white' :
-                                    toast.type === 'warning' ? 'bg-yellow-600 text-white' :
-                                        'bg-gray-800 text-white border border-gray-700'
+                            toast.type === 'error' ? 'bg-red-600 text-white' :
+                                toast.type === 'warning' ? 'bg-yellow-600 text-white' :
+                                    'bg-gray-800 text-white border border-gray-700'
                             }`}
                     >
                         <div className="flex items-center gap-2">
