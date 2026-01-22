@@ -343,6 +343,14 @@ export class CustomMapRunner {
                 // Extrude идёт вниз по Y, поэтому сдвигаем на height
                 mesh.position = new Vector3(centerX, pos.y + height, centerZ);
 
+                // DEBUG: Показываем вершины первых 3 полигонов
+                if (this.createdMeshes.length < 3) {
+                    console.log(`[CustomMapRunner] 🔍 DEBUG POLYGON ${meshName}:`);
+                    console.log(`  - Vertices (local): ${shape.slice(0, 4).map(v => `(${v.x.toFixed(1)}, ${v.y.toFixed(1)})`).join(', ')}${shape.length > 4 ? '...' : ''}`);
+                    console.log(`  - BBox: minX=${minX.toFixed(1)}, maxX=${maxX.toFixed(1)}, minZ=${minZ.toFixed(1)}, maxZ=${maxZ.toFixed(1)}`);
+                    console.log(`  - Size: ${shapeWidth.toFixed(1)} x ${shapeDepth.toFixed(1)} | Height: ${height}`);
+                }
+
                 console.log(`[CustomMapRunner] ✅ POLYGON: ${meshName} | ${shape.length} verts | size: ${shapeWidth.toFixed(1)}x${shapeDepth.toFixed(1)} | height: ${height} | worldPos: (${centerX.toFixed(1)}, ${centerZ.toFixed(1)})`);
             } catch (e) {
                 console.warn(`[CustomMapRunner] Polygon creation failed for ${obj.id}, falling back to box:`, e);
