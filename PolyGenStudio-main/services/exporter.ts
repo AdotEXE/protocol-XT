@@ -413,14 +413,41 @@ const extractMapData = (cubes: CubeElement[]) => {
 
             // КРИТИЧНО: Передаём polygon vertices для правильного рендеринга
             if (cube.polygon && cube.polygon.length >= 3) {
-                // Scale polygon vertices for game
-                objData.polygon = cube.polygon.map(v => ({
-                    x: v.x * EDITOR_TO_GAME_SCALE,
-                    y: v.y * EDITOR_TO_GAME_SCALE,
-                    z: v.z * EDITOR_TO_GAME_SCALE
-                }));
-                objData.height = (cube.height || cube.size.y) * EDITOR_TO_GAME_SCALE;
-                objData.isPolygon = true;
+                // Вычисляем bounding box для фильтрации гигантских полигонов
+                let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+                for (const v of cube.polygon) {
+                    if (v.x < minX) minX = v.x;
+                    if (v.x > maxX) maxX = v.x;
+                    if (v.z < minZ) minZ = v.z;
+                    if (v.z > maxZ) maxZ = v.z;
+                }
+                const polyWidth = (maxX - minX) * EDITOR_TO_GAME_SCALE;
+                const polyDepth = (maxZ - minZ) * EDITOR_TO_GAME_SCALE;
+
+                // Фильтруем гигантские полигоны (>1000м) - это артефакты данных
+                if (polyWidth < 1000 && polyDepth < 1000) {
+                    // Scale polygon vertices for game
+                    objData.polygon = cube.polygon.map(v => ({
+                        x: v.x * EDITOR_TO_GAME_SCALE,
+                        y: v.y * EDITOR_TO_GAME_SCALE,
+                        z: v.z * EDITOR_TO_GAME_SCALE
+                    }));
+
+                    // КРИТИЧНО: Правильно определяем высоту
+                    // cube.height = реальная высота здания из OSM
+                    // cube.size.y = высота бокса в редакторе (для дорог это 0.1)
+                    const realHeight = cube.height || 0;
+
+                    // Если высота < 1, это дорога/плоская поверхность - не экструдируем
+                    if (realHeight >= 1) {
+                        objData.height = realHeight * EDITOR_TO_GAME_SCALE;
+                        objData.isPolygon = true;
+                    } else {
+                        // Дорога - делаем тонкую плиту (0.2м)
+                        objData.height = 0.2;
+                        objData.isPolygon = true;
+                    }
+                }
             }
 
             placedObjects.push(objData);
