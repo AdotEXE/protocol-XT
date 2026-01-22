@@ -252,6 +252,17 @@ function convertBuildingToCubes(
         const levelInfo = props.levels ? `_L${props.levels}` : '';
         const buildingName = `${heightCategory}_${props.id || buildingId.slice(-6)}${levelInfo}`;
 
+        // КРИТИЧНО: Конвертируем polygon во vertices для game engine
+        const polygonVertices: { x: number; y: number; z: number }[] = [];
+        for (const [lng, lat] of ring) {
+            const vertOffset = degreesToMeters(lng - centerLng, lat - centerLat, centerLat);
+            polygonVertices.push({
+                x: vertOffset.x,
+                y: 0,  // Polygon is on ground plane
+                z: vertOffset.z
+            });
+        }
+
         cubes.push({
             id: buildingId,
             name: buildingName,
@@ -270,8 +281,11 @@ function convertBuildingToCubes(
             },
             visible: true,
             isLocked: false,
-            isFavorite: false
-        });
+            isFavorite: false,
+            // КРИТИЧНО: Polygon data for proper extrusion in game
+            polygon: polygonVertices,
+            height: effectiveHeight  // Real building height
+        } as CubeElement);
 
         // Add roof for smaller buildings (with same rotation as building)
         const roofHeight = getRoofHeight(props, height);
