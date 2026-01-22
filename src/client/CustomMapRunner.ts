@@ -308,19 +308,28 @@ export class CustomMapRunner {
         // Проверяем если это polygon-объект (здание/дорога из Real World Generator)
         if (obj.isPolygon && obj.polygon && obj.polygon.length >= 3) {
             try {
-                // Конвертируем polygon в Vector2[] для XZ плоскости
-                const shape: Vector2[] = obj.polygon.map(v => new Vector2(v.x, v.z));
-
-                // DEBUG: Вычисляем bounding box полигона
+                // КРИТИЧНО: Сначала вычисляем ЦЕНТР полигона
+                let sumX = 0, sumZ = 0;
                 let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-                for (const v of shape) {
+
+                for (const v of obj.polygon) {
+                    sumX += v.x;
+                    sumZ += v.z;
                     if (v.x < minX) minX = v.x;
                     if (v.x > maxX) maxX = v.x;
-                    if (v.y < minZ) minZ = v.y;
-                    if (v.y > maxZ) maxZ = v.y;
+                    if (v.z < minZ) minZ = v.z;
+                    if (v.z > maxZ) maxZ = v.z;
                 }
+
+                const centerX = sumX / obj.polygon.length;
+                const centerZ = sumZ / obj.polygon.length;
                 const shapeWidth = maxX - minX;
                 const shapeDepth = maxZ - minZ;
+
+                // КРИТИЧНО: Конвертируем в ЛОКАЛЬНЫЕ координаты (относительно центра)
+                const shape: Vector2[] = obj.polygon.map(v =>
+                    new Vector2(v.x - centerX, v.z - centerZ)
+                );
 
                 // Создаём extruded polygon
                 const height = obj.height || 1;
@@ -330,10 +339,11 @@ export class CustomMapRunner {
                     sideOrientation: Mesh.DOUBLESIDE
                 }, this.scene, earcut);
 
-                // Позиционируем по Y (extrude идёт вниз, так что сдвигаем)
-                mesh.position = new Vector3(0, pos.y + height, 0);
+                // КРИТИЧНО: Позиционируем меш В ЦЕНТРЕ полигона
+                // Extrude идёт вниз по Y, поэтому сдвигаем на height
+                mesh.position = new Vector3(centerX, pos.y + height, centerZ);
 
-                console.log(`[CustomMapRunner] ✅ POLYGON: ${meshName} | ${shape.length} verts | size: ${shapeWidth.toFixed(1)}x${shapeDepth.toFixed(1)} | height: ${height} | center: (${((minX + maxX) / 2).toFixed(1)}, ${((minZ + maxZ) / 2).toFixed(1)})`);
+                console.log(`[CustomMapRunner] ✅ POLYGON: ${meshName} | ${shape.length} verts | size: ${shapeWidth.toFixed(1)}x${shapeDepth.toFixed(1)} | height: ${height} | worldPos: (${centerX.toFixed(1)}, ${centerZ.toFixed(1)})`);
             } catch (e) {
                 console.warn(`[CustomMapRunner] Polygon creation failed for ${obj.id}, falling back to box:`, e);
                 // Fallback to box
