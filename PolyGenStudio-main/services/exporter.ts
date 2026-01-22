@@ -411,8 +411,11 @@ const extractMapData = (cubes: CubeElement[]) => {
                 }
             };
 
-            // КРИТИЧНО: Передаём polygon vertices для правильного рендеринга
-            if (cube.polygon && cube.polygon.length >= 3) {
+            // КРИТИЧНО: Передаём polygon vertices ТОЛЬКО для ЗДАНИЙ (не дорог!)
+            // Дороги с height < 3 экспортируются как обычные боксы
+            const realHeight = cube.height || 0;
+
+            if (cube.polygon && cube.polygon.length >= 3 && realHeight >= 3) {
                 // Вычисляем bounding box для фильтрации гигантских полигонов
                 let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
                 for (const v of cube.polygon) {
@@ -424,29 +427,23 @@ const extractMapData = (cubes: CubeElement[]) => {
                 const polyWidth = (maxX - minX) * EDITOR_TO_GAME_SCALE;
                 const polyDepth = (maxZ - minZ) * EDITOR_TO_GAME_SCALE;
 
-                // Фильтруем гигантские полигоны (>1000м) - это артефакты данных
-                if (polyWidth < 1000 && polyDepth < 1000) {
+                // СТРОГАЯ фильтрация:
+                // - Минимум 3м (слишком маленькие - артефакты)
+                // - Максимум 200м (слишком большие - артефакты или ошибки)
+                const isValidBuilding = polyWidth >= 3 && polyWidth <= 200 &&
+                    polyDepth >= 3 && polyDepth <= 200;
+
+                if (isValidBuilding) {
                     // Scale polygon vertices for game
                     objData.polygon = cube.polygon.map(v => ({
                         x: v.x * EDITOR_TO_GAME_SCALE,
                         y: v.y * EDITOR_TO_GAME_SCALE,
                         z: v.z * EDITOR_TO_GAME_SCALE
                     }));
+                    objData.height = realHeight * EDITOR_TO_GAME_SCALE;
+                    objData.isPolygon = true;
 
-                    // КРИТИЧНО: Правильно определяем высоту
-                    // cube.height = реальная высота здания из OSM
-                    // cube.size.y = высота бокса в редакторе (для дорог это 0.1)
-                    const realHeight = cube.height || 0;
-
-                    // Если высота < 1, это дорога/плоская поверхность - не экструдируем
-                    if (realHeight >= 1) {
-                        objData.height = realHeight * EDITOR_TO_GAME_SCALE;
-                        objData.isPolygon = true;
-                    } else {
-                        // Дорога - делаем тонкую плиту (0.2м)
-                        objData.height = 0.2;
-                        objData.isPolygon = true;
-                    }
+                    console.log(`[Exporter] ✅ Building polygon: ${cube.polygon.length} verts, ${polyWidth.toFixed(0)}x${polyDepth.toFixed(0)}m, height: ${realHeight}m`);
                 }
             }
 
