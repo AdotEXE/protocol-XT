@@ -263,6 +263,11 @@ function convertBuildingToCubes(
             });
         }
 
+        // DEBUG: Log first building polygon data
+        if (cubes.length < 3) {
+            console.log(`[BuildingConverter] 🏢 Building polygon: ${polygonVertices.length} vertices, height: ${effectiveHeight}m, first vertex: (${polygonVertices[0]?.x.toFixed(1)}, ${polygonVertices[0]?.z.toFixed(1)})`);
+        }
+
         cubes.push({
             id: buildingId,
             name: buildingName,
