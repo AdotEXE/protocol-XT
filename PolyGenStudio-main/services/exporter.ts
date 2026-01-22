@@ -415,6 +415,11 @@ const extractMapData = (cubes: CubeElement[]) => {
             // Дороги с height < 3 экспортируются как обычные боксы
             const realHeight = cube.height || 0;
 
+            // DEBUG: Логируем каждый объект с polygon данными
+            if (cube.polygon) {
+                console.log(`[Exporter] 🔍 Object "${cube.name}" has polygon: ${cube.polygon.length} verts, height: ${realHeight}`);
+            }
+
             if (cube.polygon && cube.polygon.length >= 3 && realHeight >= 3) {
                 // Вычисляем bounding box для фильтрации гигантских полигонов
                 let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
