@@ -88,9 +88,9 @@ export const themes: Record<string, Theme> = {
 
 export class UIManager {
     private screen: blessed.Widgets.Screen;
-    private grid: contrib.grid;
-    private core: MonitorCore;
-    private theme: Theme;
+    private grid!: contrib.grid; // Инициализируется в конструкторе
+    private core!: MonitorCore; // Инициализируется в конструкторе
+    private theme!: Theme; // Инициализируется в конструкторе
     // Reserved for future widget management
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _widgets: Map<string, blessed.Widgets.Node> = new Map();
@@ -110,13 +110,164 @@ export class UIManager {
     private clientLogsBox: blessed.Widgets.Box; // Client logs
 
     // Log data
-    private logLines: Array<{ line: string; level: 'info' | 'warn' | 'error'; timestamp: string }> = [];
+    private _logLines: Array<{ line: string; level: 'info' | 'warn' | 'error'; timestamp: string }> = [];
     private serverLogLines: Array<{ line: string; level: 'info' | 'warn' | 'error'; timestamp: string }> = [];
     private clientLogLines: Array<{ line: string; level: 'info' | 'warn' | 'error'; timestamp: string }> = [];
 
-    // ... charts ...
+    // Charts
+    private _cpuChart: any;
+    private _ramChart: any;
+    private _fpsChart: any;
+    
+    // Публичные геттеры для обратной совместимости (если где-то используется UDManager)
+    public get fpsChart(): any { return this._fpsChart; }
+    public get cpuChart(): any { return this._cpuChart; }
+    public get maxLogLines(): number { return this._maxLogLines; }
+    public get logLines(): Array<{ line: string; level: 'info' | 'warn' | 'error'; timestamp: string }> { return this._logLines; }
+    public get grid(): contrib.grid { return this.grid; }
+    public get core(): MonitorCore { return this.core; }
+    public get theme(): Theme { return this.theme; }
 
-    // ...
+    // Log controls
+    private _maxLogLines: number = 100;
+    private logFilter: 'all' | 'info' | 'warn' | 'error' = 'all';
+    private logSearchQuery: string = '';
+
+    // Modal state
+    private currentModal: blessed.Widgets.Box | null = null;
+    private modalOverlay: blessed.Widgets.Box | null = null;
+
+    // Chart controls
+    private chartZoom: number = 1;
+    private chartScroll: number = 0;
+    private chartHistorySize: number = 60;
+
+    constructor(core: MonitorCore) {
+        this.core = core;
+        this.theme = themes['terminal-green'] ?? themes['matrix'] ?? {
+            name: 'Default',
+            colors: { fg: '#00ff00', bg: '#000000', border: '#00ff00', success: '#00ff00', warning: '#ffaa00', error: '#ff0000', info: '#00ffff' }
+        };
+
+        // Create screen
+        this.screen = blessed.screen({
+            smartCSR: true,
+            title: 'TX Server Monitor',
+            fullUnicode: true,
+            autoPadding: true
+        });
+
+        // Check minimum terminal size to prevent blessed-contrib crash
+        const termWidth = (this.screen as any).width || process.stdout.columns || 80;
+        const termHeight = (this.screen as any).height || process.stdout.rows || 24;
+
+        if (termWidth < 100 || termHeight < 30) {
+            console.error('\n╔═══════════════════════════════════════════════════════════════╗');
+            console.error('║  ОШИБКА: Окно терминала слишком маленькое!                    ║');
+            console.error('║                                                               ║');
+            console.error(`║  Текущий размер: ${termWidth}x${termHeight}`.padEnd(64) + '║');
+            console.error('║  Минимальный размер: 100x30                                   ║');
+            console.error('║                                                               ║');
+            console.error('║  Пожалуйста, увеличьте окно терминала и попробуйте снова.    ║');
+            console.error('║  Или используйте: npm run dev (без dashboard)                ║');
+            console.error('╚═══════════════════════════════════════════════════════════════╝\n');
+            process.exit(1);
+        }
+
+        // Create grid layout (12 rows, 12 cols)
+        this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
+
+        // Initialize UI
+        this.setupUI();
+        this.setupKeyboard();
+
+        // Start update loop
+        this.startUpdateLoop();
+    }
+
+    private startUpdateLoop(): void {
+        setInterval(() => {
+            this.update(this.core.getMetricsManager().getCurrentMetrics());
+        }, 1000);
+    }
+
+    public getHeaderContent(): string {
+        const title = '{bold}TX SERVER MONITOR{/bold}';
+        const time = new Date().toLocaleTimeString();
+        return `${title} | ${time}`;
+    }
+
+    public update(metrics: MetricsSnapshot | null): void {
+        if (!metrics) return;
+
+        // Update header
+        if (this.headerBox) {
+            this.headerBox.setContent(this.getHeaderContent());
+        }
+
+        // Update status - use systemStatus.server
+        if (this.statusBox) {
+            const status = metrics.systemStatus.server.online ? '{green-fg}ONLINE{/}' : '{red-fg}OFFLINE{/}';
+            const uptimeMs = metrics.systemStatus.server.uptime || 0; // Already in milliseconds from server
+            this.statusBox.setContent(`Status: ${status}\nUptime: ${this.formatUptimeMs(uptimeMs)}`);
+        }
+
+        // Update performance - use performance.cpu/ram
+        if (this.performanceBox) {
+            this.performanceBox.setContent(
+                `CPU: ${this.createProgressBar(metrics.performance.cpu.usage, 100, 15)} ${metrics.performance.cpu.usage.toFixed(1)}%\n` +
+                `RAM: ${this.createProgressBar(metrics.performance.ram.percent, 100, 15)} ${this.formatBytes(metrics.performance.ram.used)}`
+            );
+        }
+
+        // Update connections
+        if (this.connectionsBox) {
+            this.connectionsBox.setContent(
+                `Players: ${metrics.connections.players}\n` +
+                `Rooms: ${metrics.connections.rooms}\n` +
+                `Ping: ${metrics.connections.avgPing > 0 ? metrics.connections.avgPing.toFixed(0) + 'ms' : 'N/A'}`
+            );
+        }
+
+        // Update charts with progress bars (same style as PERFORMANCE block)
+        const history = this.core.getHistoryManager().getLatest(this.chartHistorySize);
+        if (history.length > 0) {
+            const cpuValue = history[history.length - 1]?.performance?.cpu?.usage ?? 0;
+            const ramValue = history[history.length - 1]?.performance?.ram?.percent ?? 0;
+            const fpsValue = history[history.length - 1]?.performance?.clientFps ?? 0;
+
+            // Progress bar style like PERFORMANCE block
+            if (this._cpuChart) {
+                this._cpuChart.setContent(
+                    `${this.createProgressBar(cpuValue, 100, 30)} ${cpuValue.toFixed(1)}%`
+                );
+            }
+            if (this._ramChart) {
+                this._ramChart.setContent(
+                    `${this.createProgressBar(ramValue, 100, 30)} ${ramValue.toFixed(1)}%`
+                );
+            }
+            if (this._fpsChart) {
+                const maxFps = 120; // Assume 120 FPS max for scale
+                this._fpsChart.setContent(
+                    `${this.createProgressBar(fpsValue, maxFps, 30)} ${Math.round(fpsValue)}`
+                );
+            }
+        } else {
+            // Initialize with zeros
+            if (this._cpuChart) this._cpuChart.setContent(`${this.createProgressBar(0, 100, 30)} 0%`);
+            if (this._ramChart) this._ramChart.setContent(`${this.createProgressBar(0, 100, 30)} 0%`);
+            if (this._fpsChart) this._fpsChart.setContent(`${this.createProgressBar(0, 120, 30)} 0`);
+        }
+
+        // Render
+        this.screen.render();
+    }
+
+    public handleAlert(alert: Alert): void {
+        const color = alert.severity === 'error' ? '{red-fg}' : alert.severity === 'warning' ? '{yellow-fg}' : '{green-fg}';
+        this.addLog(`${color}[ALERT]{/} ${alert.message}`, alert.severity === 'error' ? 'error' : alert.severity === 'warning' ? 'warn' : 'info');
+    }
 
     private setupUI(): void {
         // ... (Header to Game State remains same System Status row 1-2 etc) ...
@@ -176,70 +327,36 @@ export class UIManager {
             border: { type: 'line' }
         });
 
-        // Charts (Row 7-8)
-        this._cpuChart = this.grid.set(7, 0, 2, 4, contrib.line, {
-            style: { line: this.theme.colors.fg, text: this.theme.colors.fg, baseline: this.theme.colors.border, focus: { border: { fg: this.theme.colors.border } } },
-            label: ' CPU % ', showLegend: false, maxY: 100, minY: 0
-        });
-
-        this._ramChart = this.grid.set(7, 4, 2, 4, contrib.line, {
-            style: { line: this.theme.colors.fg, text: this.theme.colors.fg, baseline: this.theme.colors.border, focus: { border: { fg: this.theme.colors.border } } },
-            label: ' RAM % ', showLegend: false, maxY: 100, minY: 0
-        });
-
-        this._fpsChart = this.grid.set(7, 8, 2, 4, contrib.line, {
-            style: { line: this.theme.colors.fg, text: this.theme.colors.fg, baseline: this.theme.colors.border, focus: { border: { fg: this.theme.colors.border } } },
-            label: ' FPS ', showLegend: false, maxY: 60, minY: 0
-        });
-
-        // Logs Area (Row 9-11) - SPLIT INTO 3
-
-        // Server Logs (Left)
-        this.serverLogsBox = this.grid.set(9, 0, 3, 4, blessed.box, {
-            label: ' SERVER LOGS ',
-            tags: true, scrollable: true, alwaysScroll: true, scrollbar: { ch: ' ', inverse: true },
-            keys: true, vi: true, mouse: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+        // Charts (Row 7-8) - Using simple boxes with ASCII sparklines for compatibility
+        this._cpuChart = this.grid.set(7, 0, 2, 4, blessed.box, {
+            label: ' CPU % ',
+            tags: true,
+            style: { fg: this.theme.colors.success, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
             border: { type: 'line' }
         });
 
-        // Client Logs (Middle)
-        this.clientLogsBox = this.grid.set(9, 4, 3, 4, blessed.box, {
-            label: ' CLIENT LOGS ',
-            tags: true, scrollable: true, alwaysScroll: true, scrollbar: { ch: ' ', inverse: true },
-            keys: true, vi: true, mouse: true,
+        this._ramChart = this.grid.set(7, 4, 2, 4, blessed.box, {
+            label: ' RAM % ',
+            tags: true,
             style: { fg: 'cyan', bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
             border: { type: 'line' }
         });
 
-        // System Logs (Right) - was full width
-        this.logsBox = this.grid.set(9, 8, 3, 4, blessed.box, {
-            label: ' SYSTEM LOGS ',
-            tags: true, scrollable: true, alwaysScroll: true, scrollbar: { ch: ' ', inverse: true },
-            keys: true, vi: true, mouse: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+        this._fpsChart = this.grid.set(7, 8, 2, 4, blessed.box, {
+            label: ' FPS ',
+            tags: true,
+            style: { fg: 'yellow', bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
             border: { type: 'line' }
         });
 
-        // Footer (row 11, full width) - Grid is 0-11, so row 11 is taken by logs?
-        // Wait, grid rows are 12. 0..11.
-        // Row 9, 10, 11 occupied by Logs.
-        // Where is footer? In original code: this.grid.set(11, 0, 1, 12 ... 
-        // Original logs were 9, 0, 3, 12? No, original logs were 9, 0, 3 .. meaning 9, 10, 11.
-        // The original code overwrite row 11 with logs?
-        // Let's check original. Original logs: 9, 0, 3, 12 -> 3 rows height. 9, 10, 11.
-        // Original Footer: 11, 0, 1, 12.
-        // They overlap! blessed-contrib handles this? Or maybe logs should be height 2 (9, 10) and footer at 11.
-        // Or I increase rows. I'll stick to 12 rows.
-        // I will make logs height 2 (9, 10) and footer at 11.
-
-        // Correction: Let's make logs height 2 (rows 9-10) and footer at 11.
+        // Logs Area (Row 9-11) - SPLIT INTO 3
 
         // Server Logs (Left)
         this.serverLogsBox = this.grid.set(9, 0, 2, 4, blessed.box, {
             label: ' SERVER LOGS ',
             tags: true, scrollable: true, alwaysScroll: true, scrollbar: { ch: ' ', inverse: true },
             keys: true, vi: true, mouse: true,
+            wrap: true,
             style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
             border: { type: 'line' }
         });
@@ -249,6 +366,7 @@ export class UIManager {
             label: ' CLIENT LOGS ',
             tags: true, scrollable: true, alwaysScroll: true, scrollbar: { ch: ' ', inverse: true },
             keys: true, vi: true, mouse: true,
+            wrap: true,
             style: { fg: 'cyan', bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
             border: { type: 'line' }
         });
@@ -258,6 +376,7 @@ export class UIManager {
             label: ' SYSTEM LOGS ',
             tags: true, scrollable: true, alwaysScroll: true, scrollbar: { ch: ' ', inverse: true },
             keys: true, vi: true, mouse: true,
+            wrap: true,
             style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
             border: { type: 'line' }
         });
@@ -286,12 +405,13 @@ export class UIManager {
     private addLogToBox(box: blessed.Widgets.Box, lines: any[], message: string, level: string, prefixLabel: string): void {
         const timestamp = new Date().toLocaleTimeString();
         lines.push({ line: message, level, timestamp });
-        if (lines.length > this.maxLogLines) lines.shift();
+        if (lines.length > this._maxLogLines) lines.shift();
 
         // Basic rendering
         const formatted = lines.slice(-20).map(l => {
             const color = l.level === 'error' ? '{red-fg}' : l.level === 'warn' ? '{yellow-fg}' : '{green-fg}';
-            return `${color}${l.timestamp} ${l.line}{/}`;
+            const cleanLine = this.cleanLogLine(l.line);
+            return `${color}${l.timestamp} ${cleanLine}{/}`;
         }).join('\n');
 
         box.setContent(formatted);
@@ -303,16 +423,46 @@ export class UIManager {
         // ... existing implementation adapted ...
         if (!this.logsBox) return;
         const timestamp = new Date().toLocaleTimeString();
-        this.logLines.push({ line: message, level, timestamp });
-        if (this.logLines.length > this.maxLogLines) this.logLines.shift();
+        this._logLines.push({ line: message, level, timestamp });
+        if (this._logLines.length > this._maxLogLines) this._logLines.shift();
         this.updateLogsDisplay();
+    }
+
+    private cleanLogLine(line: string): string {
+        // Remove ANSI codes for blessed compatibility (since we use tags)
+        // eslint-disable-next-line no-control-regex
+        const ansiRegex = /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+        let clean = line.replace(ansiRegex, '');
+
+        // Replace common emojis that might break TUI on some terminals
+        clean = clean
+            .replace(/📦/g, '[PKG]')
+            .replace(/🚀/g, '[LAU]')
+            .replace(/✅/g, '[OK]')
+            .replace(/❌/g, '[ERR]')
+            .replace(/⚠️/g, '[WARN]')
+            .replace(/➜/g, '>')
+            .replace(/✔/g, 'v')
+            .replace(/ℹ/g, 'i')
+            .replace(/👤/g, '[USER]')
+            .replace(/💀/g, '[KILL]')
+            .replace(/🎮/g, '[GAME]')
+            .replace(/⚔/g, '[FIGHT]'); // ⚔️ without selector
+
+        // Strip any remaining non-printable/weird wide chars that aren't Cyrillic or Basic Latin
+        // This regex preserves Cyrillic (\u0400-\u04FF), Basic Latin, and some punctuation.
+        // It aggressively replaces everything else with an empty string to ensure a clean layout.
+        // eslint-disable-next-line no-control-regex
+        clean = clean.replace(/[^\x00-\x7F\u0400-\u04FF\u00A0-\u00FF\s]/g, ''); // Quietly remove unknown rubbish
+
+        return clean;
     }
 
     private updateLogsDisplay(): void {
         if (!this.logsBox || typeof this.logsBox.setContent !== 'function') return;
 
         // Filter logs
-        let filtered = this.logLines;
+        let filtered = this._logLines;
         if (this.logFilter !== 'all') {
             filtered = filtered.filter(log => log.level === this.logFilter);
         }
@@ -330,12 +480,14 @@ export class UIManager {
         const formattedLines = filtered.slice(-20).map(log => {
             const prefix = log.level === 'error' ? '[ERROR]' : log.level === 'warn' ? '[WARN]' : '[INFO]';
             const colorTag = log.level === 'error' ? '{red-fg}' : log.level === 'warn' ? '{yellow-fg}' : '{green-fg}';
-            return `${colorTag}${log.timestamp} ${prefix}{/} ${log.line}`;
+            // Clean the line to prevent rendering glitches
+            const cleanLine = this.cleanLogLine(log.line);
+            return `${colorTag}${log.timestamp} ${prefix}{/} ${cleanLine}`;
         });
 
         const filterLabel = this.logFilter === 'all' ? 'ALL' : this.logFilter.toUpperCase();
         const searchLabel = this.logSearchQuery ? ` | Search: "${this.logSearchQuery}"` : '';
-        this.logsBox.setLabel(` LOGS [${filterLabel}]${searchLabel} `);
+        this.logsBox.setLabel(` SYSTEM LOGS [${filterLabel}]${searchLabel} `);
         this.logsBox.setContent(formattedLines.join('\n') || 'No logs matching filter');
     }
 
@@ -352,7 +504,7 @@ export class UIManager {
     }
 
     private clearLogs(): void {
-        this.logLines = [];
+        this._logLines = [];
         this.logSearchQuery = '';
         this.updateLogsDisplay();
         this.screen.render();
@@ -784,6 +936,12 @@ Press [ESC] to close`;
         return `${hours}h ${minutes}m`;
     }
 
+    private formatUptimeMs(ms: number): string {
+        const hours = Math.floor(ms / 3600000);
+        const minutes = Math.floor((ms % 3600000) / 60000);
+        return `${hours}h ${minutes}m`;
+    }
+
     private formatBytes(bytes: number): string {
         if (bytes < 1024) return bytes + 'B';
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'KB';
@@ -800,17 +958,19 @@ Press [ESC] to close`;
     private createProgressBar(value: number, max: number, width: number): string {
         const filled = Math.round((value / max) * width);
         const empty = width - filled;
+        // Use Unicode block characters for proper visual display
         return '█'.repeat(filled) + '░'.repeat(empty);
     }
 
     private createSparkline(data: number[]): string {
         if (data.length === 0) return '';
 
+        // Use solid block characters for a cleaner progress bar look
+        const blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         const min = Math.min(...data);
         const max = Math.max(...data);
         const range = max - min || 1;
 
-        const blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
         return data.map(val => {
             const normalized = (val - min) / range;
             const index = Math.floor(normalized * (blocks.length - 1));
