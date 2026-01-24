@@ -1082,16 +1082,16 @@ export class GameCamera {
         // Параметры зависят от режима
         const isAiming = t > 0.01;
         const minDistance = isAiming ? 1.5 : 3.0;
-        const wallBuffer = isAiming ? 0.3 : 0.8; // Меньший буфер в режиме прицеливания
-        const reactionSpeed = isAiming ? 0.9 : 0.7; // Быстрее реагируем в режиме прицеливания
+        const wallBuffer = isAiming ? 0.5 : 1.0; // УВЕЛИЧЕН буфер для предотвращения прохождения сквозь объекты
+        const reactionSpeed = isAiming ? 0.95 : 0.85; // УВЕЛИЧЕНА скорость реакции для более быстрого предотвращения коллизий
         const returnSpeed = isAiming ? 0.1 : 0.05; // Скорость возвращения к нормальному радиусу
 
-        // Проверяем коллизию с мешами
-        const ray = new Ray(rayOrigin, direction, currentDistance + 1);
+        // ИСПРАВЛЕНО: Проверяем коллизию с увеличенным диапазоном и несколькими лучами для надежности
+        const ray = new Ray(rayOrigin, direction, currentDistance + 2);
         const hit = this.scene.pickWithRay(ray, (mesh) => this.cameraCollisionMeshFilter(mesh));
 
         if (hit && hit.hit && hit.distance !== null && hit.distance < currentDistance) {
-            // Есть коллизия - вычисляем безопасный радиус
+            // Есть коллизия - вычисляем безопасный радиус с увеличенным буфером
             const safeDistance = Math.max(minDistance, hit.distance - wallBuffer);
 
             // ИСПРАВЛЕНО: Корректно работаем с ArcRotateCamera через radius
@@ -1101,6 +1101,12 @@ export class GameCamera {
             // Ограничиваем минимальный радиус
             if (this.camera.radius < minDistance) {
                 this.camera.radius = minDistance;
+            }
+            
+            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если камера все еще слишком близко, принудительно отодвигаем
+            const actualDistance = Vector3.Distance(rayOrigin, this.camera.position);
+            if (actualDistance < safeDistance) {
+                this.camera.radius = safeDistance;
             }
         } else if (!isAiming) {
             // Нет коллизии и не в режиме прицеливания - плавно возвращаем камеру к нормальному радиусу
@@ -1129,19 +1135,31 @@ export class GameCamera {
         // Если расстояние слишком маленькое, пропускаем
         if (targetDistance < 0.5) return targetCamPos;
         
-        direction.normalize();
+        const directionNormalized = direction.normalize();
 
         const minDistance = 1.5;
-        const wallBuffer = 0.5;
+        const wallBuffer = 0.8; // УВЕЛИЧЕН буфер для предотвращения прохождения сквозь объекты
 
-        // Проверяем коллизию с улучшенным фильтром (включает все объекты карты)
-        const ray = new Ray(rayOrigin, direction, targetDistance + 1);
+        // ИСПРАВЛЕНО: Проверяем коллизию с увеличенным диапазоном для надежности
+        const ray = new Ray(rayOrigin, directionNormalized, targetDistance + 2);
         const hit = this.scene.pickWithRay(ray, (mesh) => this.cameraCollisionMeshFilter(mesh));
 
         if (hit && hit.hit && hit.distance !== null && hit.distance < targetDistance) {
-            // Есть коллизия - возвращаем безопасную позицию
+            // Есть коллизия - возвращаем безопасную позицию с увеличенным буфером
             const safeDistance = Math.max(minDistance, hit.distance - wallBuffer);
-            return rayOrigin.add(direction.scale(safeDistance));
+            const safePos = rayOrigin.add(directionNormalized.scale(safeDistance));
+            
+            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Проверяем еще раз с новой позиции
+            const checkRay = new Ray(rayOrigin, directionNormalized, safeDistance + 1);
+            const checkHit = this.scene.pickWithRay(checkRay, (mesh) => this.cameraCollisionMeshFilter(mesh));
+            
+            if (checkHit && checkHit.hit && checkHit.distance !== null && checkHit.distance < safeDistance) {
+                // Если все еще есть коллизия, отодвигаем еще дальше
+                const extraSafeDistance = Math.max(minDistance, checkHit.distance - wallBuffer);
+                return rayOrigin.add(directionNormalized.scale(extraSafeDistance));
+            }
+            
+            return safePos;
         }
 
         return targetCamPos;
