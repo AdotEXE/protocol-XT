@@ -1507,10 +1507,11 @@ export class GameMultiplayerCallbacks {
 
         // Initialize voice chat (lazy loaded)
         if (roomId && playerId) {
-            import("../voiceChat").then(({ voiceChatManager }) => {
-                (window as any).voiceChatManager = voiceChatManager;
+            import("../voiceChat").then(({ getVoiceChatManager }) => {
+                const voiceManager = getVoiceChatManager();
+                (window as any).voiceChatManager = voiceManager;
 
-                voiceChatManager.initialize(serverUrl, roomId);
+                voiceManager.initialize(serverUrl, roomId);
             }).catch(error => {
                 logger.error("[Game] Failed to load voice chat:", error);
             });

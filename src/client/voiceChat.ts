@@ -425,5 +425,20 @@ export class VoiceChatManager {
     }
 }
 
-export const voiceChatManager = new VoiceChatManager();
+// Lazy singleton для избежания проблем с порядком инициализации модулей
+let _voiceChatManagerInstance: VoiceChatManager | null = null;
+
+export function getVoiceChatManager(): VoiceChatManager {
+    if (!_voiceChatManagerInstance) {
+        _voiceChatManagerInstance = new VoiceChatManager();
+    }
+    return _voiceChatManagerInstance;
+}
+
+// Для обратной совместимости (deprecated, используйте getVoiceChatManager())
+export const voiceChatManager = {
+    get instance(): VoiceChatManager {
+        return getVoiceChatManager();
+    }
+};
 

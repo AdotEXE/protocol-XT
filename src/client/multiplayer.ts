@@ -7,7 +7,7 @@ import { nanoid } from "nanoid";
 import { logger } from "./utils/logger";
 import { getSkinById, getDefaultSkin } from "./tank/tankSkins";
 import { firebaseService } from "./firebaseService";
-import { voiceChatManager } from "./voiceChat";
+import { getVoiceChatManager } from "./voiceChat";
 
 /**
  * Safely convert any position object to Vector3
@@ -751,7 +751,7 @@ export class MultiplayerManager {
         this.messageQueue = [];
 
         // Cleanup Voice Chat
-        voiceChatManager.cleanup();
+        getVoiceChatManager().cleanup();
     }
 
     /**
@@ -1029,7 +1029,7 @@ export class MultiplayerManager {
                 case ServerMessageType.VOICE_PLAYER_JOINED:
                 case ServerMessageType.VOICE_PLAYER_LEFT:
                     // Route to Voice Chat Manager
-                    voiceChatManager.handleSignalingMessage(message);
+                    getVoiceChatManager().handleSignalingMessage(message);
                     break;
 
                 case ServerMessageType.SAFE_ZONE_UPDATE:
@@ -1585,12 +1585,12 @@ export class MultiplayerManager {
 
         // Initialize Voice Chat
         // We do this after successful room join
-        voiceChatManager.initialize(data.roomId, this.playerId).then(success => {
+        getVoiceChatManager().initialize(data.roomId, this.playerId).then(success => {
             if (success) {
                 logger.log("[Multiplayer] Voice Chat initialized");
 
                 // Set handler for sending voice messages via game connection
-                voiceChatManager.setMessageSender((type: string, data: any) => {
+                getVoiceChatManager().setMessageSender((type: string, data: any) => {
                     // Type strings (e.g. "voice_offer") match ClientMessageType values
                     this.send(createClientMessage(type as ClientMessageType, data));
                 });
