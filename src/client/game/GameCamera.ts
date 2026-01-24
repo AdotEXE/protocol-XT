@@ -1082,8 +1082,8 @@ export class GameCamera {
         // Параметры зависят от режима
         const isAiming = t > 0.01;
         const minDistance = isAiming ? 1.5 : 3.0;
-        const wallBuffer = isAiming ? 0.5 : 1.0; // УВЕЛИЧЕН буфер для предотвращения прохождения сквозь объекты
-        const reactionSpeed = isAiming ? 0.95 : 0.85; // УВЕЛИЧЕНА скорость реакции для более быстрого предотвращения коллизий
+        const wallBuffer = isAiming ? 1.0 : 1.5; // УВЕЛИЧЕНЫ буферы для предотвращения прохождения сквозь объекты (было 0.5 и 1.0)
+        const reactionSpeed = isAiming ? 0.98 : 0.9; // УВЕЛИЧЕНА скорость реакции для более быстрого предотвращения коллизий (было 0.95 и 0.85)
         const returnSpeed = isAiming ? 0.1 : 0.05; // Скорость возвращения к нормальному радиусу
 
         // ИСПРАВЛЕНО: Проверяем коллизию с увеличенным диапазоном и несколькими лучами для надежности
@@ -1138,7 +1138,7 @@ export class GameCamera {
         const directionNormalized = direction.normalize();
 
         const minDistance = 1.5;
-        const wallBuffer = 0.8; // УВЕЛИЧЕН буфер для предотвращения прохождения сквозь объекты
+        const wallBuffer = 1.2; // УВЕЛИЧЕН буфер для предотвращения прохождения сквозь объекты (было 0.8)
 
         // ИСПРАВЛЕНО: Проверяем коллизию с увеличенным диапазоном для надежности
         const ray = new Ray(rayOrigin, directionNormalized, targetDistance + 2);

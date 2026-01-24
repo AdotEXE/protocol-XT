@@ -577,8 +577,11 @@ export class MapEditor {
                 padding: 15px;
                 overflow-y: auto;
                 max-height: 100vh;
-                display: block !important;
+                display: flex !important; /* Изменено с block на flex */
+                flex-direction: column !important;
                 visibility: visible !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
             }
             .map-editor-properties[style*="display: none"] {
                 display: none !important;
@@ -596,7 +599,7 @@ export class MapEditor {
                 display: flex !important;
                 flex-direction: column;
                 gap: 12px;
-                min-height: 200px;
+                min-height: 0;
             }
             .properties-section {
                 margin-bottom: 20px;
@@ -1994,31 +1997,50 @@ export class MapEditor {
      * Обновить панель свойств
      */
     private updatePropertiesPanel(): void {
-        if (!this.container) return;
+        if (!this.container) {
+            console.error("[MapEditor] Cannot update properties panel: container not found");
+            return;
+        }
 
         const panel = this.container.querySelector("#properties-panel") as HTMLElement;
         const content = this.container.querySelector("#properties-content") as HTMLElement;
 
+        if (!panel || !content) {
+            console.error("[MapEditor] Properties panel elements not found", { panel: !!panel, content: !!content });
+            return;
+        }
+
         if (this.selectedObjectId || this.selectedTriggerId) {
-            if (panel) {
-                panel.style.setProperty('display', 'block', 'important');
-                panel.style.setProperty('visibility', 'visible', 'important');
-            }
-            if (content) {
-                const html = this.generatePropertiesPanel();
-                console.log("[MapEditor] Updating properties panel, HTML length:", html.length);
-                content.innerHTML = html;
-                if (this.selectedObjectId) {
-                    this.setupPropertiesListeners();
-                } else if (this.selectedTriggerId) {
-                    this.setupTriggerPropertiesListeners();
-                }
+            // Принудительно удаляем все inline стили
+            panel.removeAttribute('style');
+            content.removeAttribute('style');
+            
+            // Устанавливаем стили с !important
+            panel.style.setProperty('display', 'flex', 'important');
+            panel.style.setProperty('visibility', 'visible', 'important');
+            panel.style.setProperty('opacity', '1', 'important');
+            panel.style.setProperty('pointer-events', 'auto', 'important');
+            
+            content.style.setProperty('display', 'flex', 'important');
+            content.style.setProperty('flex-direction', 'column', 'important');
+            
+            // Генерируем и устанавливаем HTML
+            const html = this.generatePropertiesPanel();
+            console.log("[MapEditor] Updating properties panel, HTML length:", html.length);
+            content.innerHTML = html;
+            
+            // Настраиваем обработчики
+            if (this.selectedObjectId) {
+                this.setupPropertiesListeners();
+            } else if (this.selectedTriggerId) {
+                this.setupTriggerPropertiesListeners();
             }
         } else {
-            if (panel) {
-                panel.style.setProperty('display', 'none', 'important');
-                panel.style.setProperty('visibility', 'hidden', 'important');
-            }
+            // Скрываем панель
+            panel.style.setProperty('display', 'none', 'important');
+            panel.style.setProperty('visibility', 'hidden', 'important');
+            panel.style.setProperty('opacity', '0', 'important');
+            panel.style.setProperty('pointer-events', 'none', 'important');
         }
     }
 
@@ -4953,9 +4975,15 @@ export class MapEditor {
      * Свернуть редактор
      */
     minimize(): void {
-        if (!this.container) return;
+        if (!this.container) {
+            console.error("[MapEditor] Cannot minimize: container not found");
+            return;
+        }
 
-        // ИСПРАВЛЕНО: Используем !important для гарантированного скрытия
+        // ИСПРАВЛЕНО: Принудительно удаляем все inline стили, которые могут конфликтовать
+        this.container.removeAttribute('style');
+
+        // Устанавливаем стили с !important через setProperty
         this.container.style.setProperty('display', 'none', 'important');
         this.container.style.setProperty('visibility', 'hidden', 'important');
         this.container.style.setProperty('opacity', '0', 'important');
@@ -5008,9 +5036,15 @@ export class MapEditor {
      * Развернуть редактор
      */
     restore(): void {
-        if (!this.container) return;
+        if (!this.container) {
+            console.error("[MapEditor] Cannot restore: container not found");
+            return;
+        }
 
-        // ИСПРАВЛЕНО: Используем !important для гарантированного показа
+        // ИСПРАВЛЕНО: Принудительно удаляем все inline стили
+        this.container.removeAttribute('style');
+
+        // Устанавливаем стили с !important
         this.container.style.setProperty('display', 'flex', 'important');
         this.container.style.setProperty('visibility', 'visible', 'important');
         this.container.style.setProperty('opacity', '1', 'important');
