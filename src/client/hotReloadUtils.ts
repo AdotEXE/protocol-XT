@@ -6,7 +6,7 @@ import { HUD } from "./hud";
  */
 export function setupHotReload(hud: HUD) {
     if (import.meta.hot) {
-        console.log("[HotReload] HMR listener setup");
+        // console.log("[HotReload] HMR listener setup");
 
         // Listen for HMR updates
         import.meta.hot.on('vite:beforeUpdate', (pl) => {

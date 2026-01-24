@@ -73,6 +73,9 @@ export class DebugDashboard {
             <div class="debug-section">
                 <div class="debug-label">PERFORMANCE</div>
                 <div class="debug-row"><span>FPS:</span><span id="dbg-fps">-</span></div>
+                <div class="debug-row"><span>FPS Min:</span><span id="dbg-fps-min">-</span></div>
+                <div class="debug-row"><span>FPS Max:</span><span id="dbg-fps-max">-</span></div>
+                <div class="debug-row"><span>FPS Avg:</span><span id="dbg-fps-avg">-</span></div>
                 <div class="debug-row"><span>Frame Time:</span><span id="dbg-frametime">-</span></div>
                 <div class="debug-row"><span>Render Time:</span><span id="dbg-render-time">-</span></div>
                 <div class="debug-row"><span>Update Time:</span><span id="dbg-update-time">-</span></div>
@@ -396,6 +399,22 @@ export class DebugDashboard {
         if (fpsEl) {
             fpsEl.textContent = fps.toFixed(0);
             fpsEl.className = fps >= 55 ? "fps-good" : fps >= 30 ? "fps-ok" : "fps-bad";
+        }
+
+        // FPS Min/Max/Avg (за последние 60 кадров)
+        if (this.fpsHistory.length > 0) {
+            const fpsMin = Math.min(...this.fpsHistory);
+            const fpsMax = Math.max(...this.fpsHistory);
+            const fpsAvg = this.fpsHistory.reduce((a, b) => a + b, 0) / this.fpsHistory.length;
+            set("dbg-fps-min", fpsMin.toFixed(0));
+            set("dbg-fps-max", fpsMax.toFixed(0));
+            set("dbg-fps-avg", fpsAvg.toFixed(1));
+            
+            // Цветовая индикация для min FPS
+            const minEl = document.getElementById("dbg-fps-min");
+            if (minEl) {
+                minEl.className = fpsMin >= 55 ? "fps-good" : fpsMin >= 30 ? "fps-ok" : "fps-bad";
+            }
         }
 
         // FPS indicator removed - using HUD FPS only

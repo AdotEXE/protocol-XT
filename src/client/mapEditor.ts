@@ -205,6 +205,9 @@ export class MapEditor {
     private terrainMeshes: Map<string, GroundMesh> = new Map(); // Меши террейна по ключам чанков
     private isEditing: boolean = false;
     private pointerObserver: any = null;
+    
+    // ОПТИМИЗАЦИЯ: AbortController для управления слушателями событий
+    private abortController: AbortController = new AbortController();
 
     // Для терраформинга
     private heightData: Map<string, number> = new Map(); // Хранит изменения высоты (ключ: "x_z")
@@ -931,7 +934,8 @@ export class MapEditor {
                 }
             }
         };
-        window.addEventListener("keydown", keyHandler);
+        // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки при cleanup()
+        window.addEventListener("keydown", keyHandler, { signal: this.abortController.signal });
     }
 
     /**
@@ -4657,6 +4661,10 @@ export class MapEditor {
      */
     private cleanup(): void {
         try {
+            // ОПТИМИЗАЦИЯ: Отменяем все слушатели событий
+            this.abortController.abort();
+            this.abortController = new AbortController();
+            
             // Отключить обработчик мыши
             if (this.pointerObserver) {
                 this.scene.onPointerObservable.remove(this.pointerObserver);

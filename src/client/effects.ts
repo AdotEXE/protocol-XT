@@ -31,6 +31,9 @@ export class EffectsManager {
     // ОПТИМИЗАЦИЯ: Ограничение активных эффектов для предотвращения деградации производительности
     private readonly MAX_ACTIVE_EFFECTS = 50;
     private activeEffects: Set<Mesh> = new Set();
+    
+    // ОПТИМИЗАЦИЯ: Хранение всех таймеров для очистки при dispose
+    private activeTimeouts: Set<number> = new Set();
 
     constructor(scene: Scene, useParticles: boolean = true) {
         this.scene = scene;
@@ -58,7 +61,7 @@ export class EffectsManager {
         if (this.useParticles) {
             try {
                 this.particleEffects = new ParticleEffects(this.scene);
-                console.log("[EffectsManager] Initialized with ParticleEffects");
+                // console.log("[EffectsManager] Initialized with ParticleEffects");
             } catch (error) {
                 console.warn("[EffectsManager] Failed to initialize ParticleEffects, using simple mode:", error);
                 this.particleEffects = null;
@@ -139,7 +142,7 @@ export class EffectsManager {
             ringMat.alpha = Math.max(0, Math.min(1, ringAlpha));
 
             if (scale < maxScale) {
-                setTimeout(animate, 30);
+                this.trackTimeout(animate, 30);
             } else {
                 this.activeEffects.delete(ring);
                 this.activeEffects.delete(ring2);
@@ -182,7 +185,7 @@ export class EffectsManager {
                 particleMat.alpha = Math.max(0, Math.min(1, particleAlpha));
 
                 if (t < 1) {
-                    setTimeout(moveParticle, 30);
+                    this.trackTimeout(moveParticle, 30);
                 } else {
                     this.activeEffects.delete(particle);
                     particle.dispose();
@@ -231,7 +234,7 @@ export class EffectsManager {
             flashMat.alpha = Math.max(0, Math.min(1, flashAlpha));
 
             if (flashFrame < flashTotalFrames) {
-                setTimeout(flashAnimate, 30);
+                this.trackTimeout(flashAnimate, 30);
             } else {
                 this.activeEffects.delete(flash);
                 flash.dispose();
@@ -262,7 +265,7 @@ export class EffectsManager {
             pickupFlash.scaling.setAll(flashScale);
 
             if (flashFrame < 5) {
-                setTimeout(flashAnimate, 40);
+                this.trackTimeout(flashAnimate, 40);
             } else {
                 pickupFlash.dispose();
             }
@@ -289,7 +292,7 @@ export class EffectsManager {
             energyRing.scaling.setAll(ringScale);
 
             if (ringFrame < 8) {
-                setTimeout(ringAnimate, 30);
+                this.trackTimeout(ringAnimate, 30);
             } else {
                 energyRing.dispose();
             }
@@ -315,7 +318,7 @@ export class EffectsManager {
                 particle.scaling.setAll(1 - t);
 
                 if (t < 1) {
-                    setTimeout(moveParticle, 30);
+                    this.trackTimeout(moveParticle, 30);
                 } else {
                     particle.dispose();
                 }
@@ -403,7 +406,7 @@ export class EffectsManager {
                 flashMat.dispose();
                 return;
             }
-            setTimeout(animate, 30);
+            this.trackTimeout(animate, 30);
         };
         animate();
     }
@@ -459,13 +462,13 @@ export class EffectsManager {
                 explosionMat.dispose();
                 return;
             }
-            setTimeout(animate, 40);
+            this.trackTimeout(animate, 40);
         };
         animate();
 
         // УЛУЧШЕНО: Secondary explosion rings с alpha анимацией
         for (let ring = 0; ring < 2; ring++) {
-            setTimeout(() => {
+            this.trackTimeout(() => {
                 // ОПТИМИЗАЦИЯ: Проверка лимита перед созданием кольца
                 if (this.activeEffects.size >= this.MAX_ACTIVE_EFFECTS) {
                     const oldest = Array.from(this.activeEffects)[0];
@@ -509,7 +512,7 @@ export class EffectsManager {
                         ringMat.dispose();
                         return;
                     }
-                    setTimeout(ringAnimate, 40);
+                    this.trackTimeout(ringAnimate, 40);
                 };
                 ringAnimate();
             }, ring * 50);
@@ -562,7 +565,7 @@ export class EffectsManager {
                     debrisMat.dispose();
                     return;
                 }
-                setTimeout(moveDebris, 30);
+                this.trackTimeout(moveDebris, 30);
             };
             moveDebris();
         }
@@ -592,7 +595,7 @@ export class EffectsManager {
                 flashMat.dispose();
                 return;
             }
-            setTimeout(flashAnimate, 30);
+            this.trackTimeout(flashAnimate, 30);
         };
         flashAnimate();
     }
@@ -621,7 +624,7 @@ export class EffectsManager {
                 dust.dispose();
                 return;
             }
-            setTimeout(animate, 50);
+            this.trackTimeout(animate, 50);
         };
         animate();
     }
@@ -637,7 +640,7 @@ export class EffectsManager {
         spark.position = position.clone();
         spark.material = this.flashMat;
 
-        setTimeout(() => spark.dispose(), 100);
+        this.trackTimeout(() => spark.dispose(), 100);
     }
 
     // Ricochet spark - более яркий и заметный эффект рикошета
@@ -694,7 +697,7 @@ export class EffectsManager {
             });
 
             if (frame < 8) {
-                setTimeout(animate, 30);
+                this.trackTimeout(animate, 30);
             } else {
                 spark.dispose();
                 sparkMat.dispose();
@@ -736,7 +739,7 @@ export class EffectsManager {
             ring.scaling.setAll(scale);
 
             if (frame < 15) {
-                setTimeout(animate, 40);
+                this.trackTimeout(animate, 40);
             } else {
                 ring.dispose();
             }
@@ -767,7 +770,7 @@ export class EffectsManager {
                 particle.scaling.setAll(1 - t * 0.8);
 
                 if (t < 1) {
-                    setTimeout(moveParticle, 30);
+                    this.trackTimeout(moveParticle, 30);
                 } else {
                     particle.dispose();
                 }
@@ -794,7 +797,7 @@ export class EffectsManager {
             flash.scaling.setAll(flashScale);
 
             if (flashFrame < 8) {
-                setTimeout(flashAnimate, 30);
+                this.trackTimeout(flashAnimate, 30);
             } else {
                 flash.dispose();
             }
@@ -838,7 +841,7 @@ export class EffectsManager {
                 tracer.dispose();
                 return;
             }
-            setTimeout(fade, 15);
+            this.trackTimeout(fade, 15);
         };
         fade();
 
@@ -867,7 +870,7 @@ export class EffectsManager {
                 glow.dispose();
                 return;
             }
-            setTimeout(glowFade, 15);
+            this.trackTimeout(glowFade, 15);
         };
         glowFade();
     }
@@ -1003,7 +1006,7 @@ export class EffectsManager {
                     dust.dispose();
                     return;
                 }
-                setTimeout(animateDust, 40);
+                this.trackTimeout(animateDust, 40);
             };
             animateDust();
         }
@@ -1047,7 +1050,7 @@ export class EffectsManager {
                 smoke.dispose();
                 return;
             }
-            setTimeout(animateSmoke, 60); // Slower animation
+            this.trackTimeout(animateSmoke, 60); // Slower animation
         };
         animateSmoke();
     }
@@ -1073,7 +1076,7 @@ export class EffectsManager {
             mat.diffuseColor = new Color3(1 * brightness, 0, 1 * brightness);
 
             if (frame < 10) {
-                setTimeout(animate, 40);
+                this.trackTimeout(animate, 40);
             } else {
                 burst.dispose();
             }
@@ -1109,7 +1112,7 @@ export class EffectsManager {
                 shard.rotation.y += 0.1;
 
                 if (t < 2) {
-                    setTimeout(move, 30);
+                    this.trackTimeout(move, 30);
                 } else {
                     shard.dispose();
                 }
@@ -1139,7 +1142,7 @@ export class EffectsManager {
             mat.diffuseColor = new Color3(0, 1 * brightness, 0);
 
             if (frame < 15) {
-                setTimeout(animate, 50);
+                this.trackTimeout(animate, 50);
             } else {
                 cloud.dispose();
             }
@@ -1170,7 +1173,7 @@ export class EffectsManager {
                 mat.diffuseColor = new Color3(1 * brightness, 0.3 * brightness, 0);
 
                 if (t < 3) {
-                    setTimeout(animate, 30);
+                    this.trackTimeout(animate, 30);
                 } else {
                     flame.dispose();
                 }
@@ -1180,8 +1183,37 @@ export class EffectsManager {
     }
 
     clearAll(): void {
-        // EffectsManager использует самоуничтожающиеся эффекты
-        // Все эффекты автоматически удаляются после анимации
-        // Этот метод для совместимости API
+        // Очищаем все активные таймеры
+        for (const timeoutId of this.activeTimeouts) {
+            window.clearTimeout(timeoutId);
+        }
+        this.activeTimeouts.clear();
+        
+        // Удаляем все активные эффекты (меши)
+        for (const mesh of this.activeEffects) {
+            if (mesh && !mesh.isDisposed()) {
+                try {
+                    mesh.dispose();
+                } catch (e) {
+                    // Игнорируем ошибки при удалении
+                }
+            }
+        }
+        this.activeEffects.clear();
+        
+        // Очищаем улучшенную систему частиц
+        if (this.particleEffects && typeof this.particleEffects.clear === 'function') {
+            this.particleEffects.clear();
+        }
+    }
+    
+    // Вспомогательный метод для отслеживания таймеров
+    private trackTimeout(callback: () => void, delay: number): number {
+        const timeoutId = window.setTimeout(() => {
+            this.activeTimeouts.delete(timeoutId);
+            callback();
+        }, delay);
+        this.activeTimeouts.add(timeoutId);
+        return timeoutId;
     }
 }

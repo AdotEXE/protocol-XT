@@ -1629,7 +1629,7 @@ export class Game {
         // ИСПРАВЛЕНИЕ: Также проверяем и удаляем ВСЕ экраны загрузки по ID (на случай если они созданы в других местах)
         // Это включает экраны, созданные через класс LoadingScreen или другими способами
         const existingScreens = document.querySelectorAll("#loading-screen");
-        console.log(`[Game] Found ${existingScreens.length} existing loading screens, removing them...`);
+        // console.log(`[Game] Found ${existingScreens.length} existing loading screens, removing them...`);
         existingScreens.forEach((screen, index) => {
             try {
                 console.log(`[Game] Removing loading screen ${index + 1}`);
@@ -1929,7 +1929,7 @@ export class Game {
         } else {
             // Если экрана нет, добавляем новый
             document.body.appendChild(this.loadingScreen);
-            console.log("[Game] Created new loading screen");
+            // console.log("[Game] Created new loading screen");
         }
 
         // Показать случайный совет
@@ -2634,6 +2634,10 @@ export class Game {
 
         // Очищаем танк игрока - полностью удаляем все части
         if (this.tank) {
+            // ОПТИМИЗАЦИЯ: Очищаем траектории снарядов и их таймеры
+            if (typeof this.tank.clearTrajectoryLines === 'function') {
+                this.tank.clearTrajectoryLines();
+            }
             // Удаляем все меши танка
             if (this.tank.chassis && !this.tank.chassis.isDisposed()) {
                 this.tank.chassis.dispose();
@@ -3175,7 +3179,7 @@ export class Game {
             this.aimCamera.setTarget(initialAimTarget);
             this.aimCamera.minZ = 0.1; // Минимальное расстояние отсечения
             this.aimCamera.maxZ = 10000; // Максимальное расстояние отсечения (далёкие объекты видны)
-            console.log("[Game] AimCamera created with minZ=0.1, maxZ=10000");
+            // console.log("[Game] AimCamera created with minZ=0.1, maxZ=10000");
 
             // КРИТИЧНО: Устанавливаем камеру как активную СРАЗУ и проверяем
             this.scene.activeCamera = this.camera;
@@ -5130,14 +5134,17 @@ export class Game {
 
     /**
      * Запускает периодическую проверку anti-stuck для танка
-     * Вызывается после спавна игрока на custom картах
+     * Вызывается после спавна/респавна/переодевания игрока
+     * ИСПРАВЛЕНО: Увеличено количество проверок и добавлена проверка при переодевании
      */
     startAntiStuckCheck(): void {
-        // Проверяем несколько раз после спавна
-        const checkTimes = [100, 500, 1000, 2000]; // ms после спавна
+        // Проверяем несколько раз после спавна/респавна/переодевания
+        const checkTimes = [100, 300, 600, 1000, 2000]; // ms после спавна (увеличено количество проверок)
         for (const delay of checkTimes) {
             setTimeout(() => {
-                this.ejectTankFromCollision();
+                if (this.tank && this.tank.isAlive) {
+                    this.ejectTankFromCollision();
+                }
             }, delay);
         }
     }
@@ -5423,63 +5430,57 @@ export class Game {
         }
 
         if (!this.chunkSystem || !this.chunkSystem.garagePositions.length) {
-            logger.warn("[Game] No garages available, using safe spawn position (not center)");
-            // Fallback на безопасный спавн (не в центре!)
+            logger.warn("[Game] No garages/spawn points available, using center spawn position above highest object");
+            // ИСПРАВЛЕНО: Если нет точек спавна, используем центр игрового поля над самым верхним объектом
             if (this.tank.chassis && this.tank.physicsBody) {
-                // Спавним на расстоянии 30 единиц от центра в случайном направлении
-                const angle = Math.random() * Math.PI * 2;
-                const radius = 30;
-                const terrainY = this.getTopSurfaceHeight(Math.cos(angle) * radius, Math.sin(angle) * radius);
-                const defaultPos = new Vector3(Math.cos(angle) * radius, terrainY + 2.0, Math.sin(angle) * radius);
-                logger.log(`[Game] 📍 Fallback spawn at: (${defaultPos.x.toFixed(1)}, ${defaultPos.y.toFixed(1)}, ${defaultPos.z.toFixed(1)})`);
-                this.tank.chassis.position.copyFrom(defaultPos);
-                // ОПТИМИЗАЦИЯ: Удален computeWorldMatrix - физика обновит матрицу автоматически
-                if (this.tank.physicsBody) {
-                    this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                    this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                const centerX = 0;
+                const centerZ = 0;
+                const tankHeight = this.tank?.chassisType?.height || 2.0;
+                const minOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
+                
+                // Используем findSafeSpawnPositionAt для поиска позиции над самым верхним объектом в центре
+                const safeSpawnPos = this.findSafeSpawnPositionAt(centerX, centerZ, minOffset, 10);
+                
+                if (safeSpawnPos) {
+                    logger.log(`[Game] 📍 Center spawn at: (${safeSpawnPos.x.toFixed(1)}, ${safeSpawnPos.y.toFixed(1)}, ${safeSpawnPos.z.toFixed(1)})`);
+                    this.tank.chassis.position.copyFrom(safeSpawnPos);
+                    if (this.tank.physicsBody) {
+                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    }
+                    // Сохраняем позицию для респавна
+                    if (this.gameGarage) {
+                        this.gameGarage.setPlayerGaragePosition(safeSpawnPos.clone());
+                    }
+                } else {
+                    // Fallback: используем базовую высоту
+                    const terrainY = this.getTopSurfaceHeight(centerX, centerZ);
+                    const defaultPos = new Vector3(centerX, terrainY + minOffset, centerZ);
+                    logger.warn(`[Game] ⚠️ Fallback center spawn at: (${defaultPos.x.toFixed(1)}, ${defaultPos.y.toFixed(1)}, ${defaultPos.z.toFixed(1)})`);
+                    this.tank.chassis.position.copyFrom(defaultPos);
+                    if (this.tank.physicsBody) {
+                        this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                        this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                    }
+                    if (this.gameGarage) {
+                        this.gameGarage.setPlayerGaragePosition(defaultPos.clone());
+                    }
                 }
             }
             return;
         }
 
-        // ИСПРАВЛЕНИЕ: Используем ПЕРВЫЙ spawn point из списка (если есть spawn point объект, он будет первым)
-        // Если нет spawn point объектов, выбираем ближайший к центру
-        if (!this.chunkSystem || this.chunkSystem.garagePositions.length === 0) {
-            logger.warn("[Game] Cannot select player garage: no garage positions available");
-            return;
-        }
+        // ИСПРАВЛЕНО: Используем ТОЛЬКО точки спавна выставленные на карте
         const playerGarages = this.chunkSystem.garagePositions;
         if (!playerGarages || playerGarages.length === 0) {
-            logger.warn("[Game] No garage positions available");
+            logger.warn("[Game] No spawn points available after check");
             return;
         }
 
-        let selectedGarage: { x: number; z: number } | null = null;
-
-        // ИСПРАВЛЕНИЕ: ПЕРВЫЙ spawn point в списке - это spawn point объект из редактора карт
-        // Используем его ПЕРВЫМ, если он есть
-        if (playerGarages.length > 0) {
-            selectedGarage = playerGarages[0]; // ПЕРВЫЙ элемент - это spawn point объект
-            logger.log(`[Game] 🎯 Using FIRST spawn point (from map editor) at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)})`);
-        } else {
-            // Fallback: находим гараж ближайший к центру карты
-            let minDist = Infinity;
-            for (const garage of playerGarages) {
-                const dist = Math.sqrt(garage.x * garage.x + garage.z * garage.z);
-                if (dist < minDist) {
-                    minDist = dist;
-                    selectedGarage = garage;
-                }
-            }
-            if (selectedGarage) {
-                logger.log(`[Game] Selected player garage at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)}) - distance from center: ${minDist.toFixed(1)}`);
-            }
-        }
-
-        if (!selectedGarage) {
-            logger.warn("[Game] Could not select player garage");
-            return;
-        }
+        // ПЕРВЫЙ элемент в списке - это spawn point объект из редактора карт (если есть)
+        // Используем первую точку спавна из карты
+        const selectedGarage = playerGarages[0];
+        logger.log(`[Game] 🎯 Using spawn point from map at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)})`);
 
 
         // Сохраняем позицию гаража для респавна (ВСЕГДА в этом же гараже!)
@@ -5895,6 +5896,15 @@ export class Game {
             this.aiCoordinator.unregisterBot(enemy.getId().toString());
         }
 
+        // ИСПРАВЛЕНО: Вызываем dispose для полной очистки ресурсов врага перед удалением из массива
+        if (enemy && typeof enemy.dispose === 'function') {
+            try {
+                enemy.dispose();
+            } catch (e) {
+                logger.warn("[Game] Error disposing enemy:", e);
+            }
+        }
+
         // Удаляем из массива
         const idx = this.enemyTanks.indexOf(enemy);
         if (idx !== -1) this.enemyTanks.splice(idx, 1);
@@ -5915,6 +5925,39 @@ export class Game {
             }
         } else {
             this.gameGarage.startGarageRespawnTimer(pos);
+        }
+    }
+
+    /**
+     * ОПТИМИЗАЦИЯ: Периодическая очистка мертвых врагов для предотвращения утечек памяти
+     * Удаляет врагов которые не живы и освобождает их ресурсы
+     */
+    private cleanupDeadEnemies(): void {
+        if (!this.enemyTanks || this.enemyTanks.length === 0) return;
+
+        // Проходим по массиву в обратном порядке для безопасного удаления
+        for (let i = this.enemyTanks.length - 1; i >= 0; i--) {
+            const enemy = this.enemyTanks[i];
+            if (!enemy || !enemy.isAlive) {
+                // Враг мертв - удаляем его
+                if (enemy && typeof enemy.dispose === 'function') {
+                    try {
+                        enemy.dispose();
+                    } catch (e) {
+                        logger.warn("[Game] Error disposing dead enemy:", e);
+                    }
+                }
+                // Удаляем из AI Coordinator
+                if (enemy && this.aiCoordinator) {
+                    try {
+                        this.aiCoordinator.unregisterBot(enemy.getId?.()?.toString() || "");
+                    } catch (e) {
+                        // Игнорируем ошибки
+                    }
+                }
+                // Удаляем из массива
+                this.enemyTanks.splice(i, 1);
+            }
         }
     }
 
@@ -7450,6 +7493,12 @@ export class Game {
             this.hud.setEnemyHealth(enemyHp, enemyCount);
         }
 
+        // ОПТИМИЗАЦИЯ: Периодическая очистка мертвых врагов для предотвращения утечек памяти
+        // Проверяем каждые 60 кадров (примерно раз в секунду)
+        if (this._updateTick % 60 === 0) {
+            this.cleanupDeadEnemies();
+        }
+
         // Aim-highlight enemy HP when looking at them (ОПТИМИЗИРОВАНО)
         // Вызываем реже - каждые 3 кадра
         if (this._updateTick % 3 === 0) {
@@ -8690,13 +8739,19 @@ export class Game {
                 customMapData.mapType = this.currentMapType;
             }
 
-            logger.log(`[Game] ===== Loading custom map =====`);
-            logger.log(`[Game] Map name: ${customMapData.name}`);
-            logger.log(`[Game] Map type: ${customMapData.mapType}`);
-            logger.log(`[Game] Map version: ${customMapData.version || 'legacy'}`);
-            logger.log(`[Game] Objects: ${customMapData.placedObjects?.length || 0}`);
-            logger.log(`[Game] Triggers: ${customMapData.triggers?.length || 0}`);
-            logger.log(`[Game] Terrain edits: ${customMapData.terrainEdits?.length || 0}`);
+        // КРИТИЧНО: В мультиплеере используем тип карты с сервера
+        if (isInMultiplayerRoom && this.currentMapType) {
+            logger.log(`[Game] 🗺️ Мультиплеер: используем тип карты с сервера '${this.currentMapType}' вместо '${customMapData.mapType}' из данных карты`);
+            customMapData.mapType = this.currentMapType;
+        }
+
+        logger.log(`[Game] ===== Loading custom map =====`);
+        logger.log(`[Game] Map name: ${customMapData.name}`);
+        logger.log(`[Game] Map type: ${customMapData.mapType}`);
+        logger.log(`[Game] Map version: ${customMapData.version || 'legacy'}`);
+        logger.log(`[Game] Objects: ${customMapData.placedObjects?.length || 0}`);
+        logger.log(`[Game] Triggers: ${customMapData.triggers?.length || 0}`);
+        logger.log(`[Game] Terrain edits: ${customMapData.terrainEdits?.length || 0}`);
 
             // Проверяем, что chunkSystem готов
             if (!this.chunkSystem) {
@@ -8843,6 +8898,14 @@ export class Game {
             console.log("[Game] ====== openMapEditorFromMenu() CALLED ======");
             logger.log("[Game] openMapEditorFromMenu() called");
 
+            // ИСПРАВЛЕНИЕ: Удаляем ВСЕ существующие экраны загрузки перед открытием редактора
+            // Это предотвращает появление множественных экранов загрузки
+            const existingLoadingScreens = document.querySelectorAll('#loading-screen, .loading-screen');
+            existingLoadingScreens.forEach(screen => {
+                console.log('[Game] 🧹 Removing existing loading screen before editor');
+                screen.remove();
+            });
+
             // Инициализируем игру и запускаем, если ещё не запущена
             if (!this.gameInitialized) {
                 console.log("[Game] Game not initialized, initializing...");
@@ -8861,6 +8924,9 @@ export class Game {
                 console.log("[Game] Waiting for chunkSystem initialization...");
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 console.log("[Game] ✅ Game started");
+                
+                // ИСПРАВЛЕНИЕ: Скрываем экран загрузки после запуска игры для редактора
+                this.hideLoadingScreen();
             }
 
             // Проверяем что chunkSystem готов

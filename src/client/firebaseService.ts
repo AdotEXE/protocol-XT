@@ -435,8 +435,8 @@ export class FirebaseService {
         if (import.meta.env.DEV) {
             const apiWarnings = checkIdentityToolkitAPIWarnings(firebaseConfig.projectId, firebaseConfig.apiKey);
             if (apiWarnings.length > 0) {
-                console.log("[Firebase] ℹ️ Identity Toolkit API requirements:");
-                apiWarnings.forEach(warning => console.log(`[Firebase]   ${warning}`));
+                // console.log("[Firebase] ℹ️ Identity Toolkit API requirements:");
+                // apiWarnings.forEach(warning => console.log(`[Firebase]   ${warning}`));
             }
         }
 

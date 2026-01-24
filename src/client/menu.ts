@@ -140,6 +140,9 @@ export class MainMenu {
     private garageScene: Scene | null = null; // Minimal scene for garage (if created in menu)
     private garageCurrencyManager: CurrencyManager | null = null; // Currency manager for garage
     private returnToPlayMenuAfterGarage = false;
+    
+    // ОПТИМИЗАЦИЯ: AbortController для управления слушателями событий
+    private abortController: AbortController = new AbortController();
 
     private voxelEditor: VoxelEditor | null = null;
     private editorContainer: HTMLElement | null = null;
@@ -245,6 +248,7 @@ export class MainMenu {
         this.updatePlayerInfo(true);
 
         // Listen for lobby chat messages
+        // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки при dispose
         window.addEventListener("mp-lobby-chat-message", (e: any) => {
             const data = e.detail;
             const chatMessages = document.getElementById("mp-room-panel-chat-messages");
@@ -264,15 +268,16 @@ export class MainMenu {
                 chatMessages.appendChild(messageEl);
                 chatMessages.scrollTop = chatMessages.scrollHeight;
             }
-        });
+        }, { signal: this.abortController.signal });
     }
 
     private setupFullscreenListener(): void {
         // Слушаем изменения полноэкранного режима для обновления кнопки
+        // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки
         document.addEventListener("fullscreenchange", () => {
             const isFullscreen = !!document.fullscreenElement;
             this.syncFullscreenState(isFullscreen);
-        });
+        }, { signal: this.abortController.signal });
     }
 
     private setupGlobalEventBlocking(): void {
@@ -304,9 +309,10 @@ export class MainMenu {
         };
 
         // Добавляем обработчики на все фазы событий
-        document.addEventListener("mousedown", globalHandler, true);
-        document.addEventListener("mouseup", globalHandler, true);
-        document.addEventListener("click", globalHandler, true);
+        // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки при dispose
+        document.addEventListener("mousedown", globalHandler, { capture: true, signal: this.abortController.signal });
+        document.addEventListener("mouseup", globalHandler, { capture: true, signal: this.abortController.signal });
+        document.addEventListener("click", globalHandler, { capture: true, signal: this.abortController.signal });
 
         debugLog("[Menu] Global event blocking setup complete");
     }
@@ -4510,7 +4516,8 @@ export class MainMenu {
                 document.removeEventListener("keydown", escHandler);
             }
         };
-        document.addEventListener("keydown", escHandler);
+        // ОПТИМИЗАЦИЯ: Добавляем signal как запасной вариант очистки
+        document.addEventListener("keydown", escHandler, { signal: this.abortController.signal });
     }
 
     /**
@@ -4827,7 +4834,8 @@ export class MainMenu {
                     debugError("[Menu] Error in ESC handler:", error);
                 }
             };
-            document.addEventListener("keydown", escHandler);
+            // ОПТИМИЗАЦИЯ: Добавляем signal как запасной вариант очистки
+            document.addEventListener("keydown", escHandler, { signal: this.abortController.signal });
 
             // Сохраняем обработчик для возможности удаления
             (panel as any)._escHandler = escHandler;
@@ -10714,6 +10722,7 @@ transition: all 0.2s;
      * Настройка горячих клавиш для лобби
      */
     private setupLobbyHotkeys(): void {
+        // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки при dispose
         document.addEventListener("keydown", (e) => {
             const lobbyPanel = document.getElementById("lobby-panel");
             if (!lobbyPanel || lobbyPanel.offsetParent === null) {
@@ -10744,7 +10753,7 @@ transition: all 0.2s;
                     }
                 }
             }
-        });
+        }, { signal: this.abortController.signal });
     }
 
     /**
@@ -13349,16 +13358,37 @@ transition: all 0.2s;
                     // Hide menu
                     console.log('[Menu] 🎮 Hiding menu...');
                     this.container.classList.add('hidden');
-                    // Start game
-                    console.log('[Menu] 🎮 Calling game.init()...');
-                    this.game.init().then(() => {
-                        console.log('[Menu] 🎮 init() completed, calling startGame()...');
-                        this.game!.startGame();
-                        console.log('[Menu] 🎮 startGame() called!');
-                        debugLog("[Menu] Game started in test mode with editor map");
-                    }).catch((e: any) => {
-                        console.error("[Menu] ❌ Failed to start test game:", e);
+                    
+                    // ИСПРАВЛЕНИЕ: Удаляем ВСЕ существующие экраны загрузки перед запуском игры
+                    // Это предотвращает появление множественных экранов загрузки
+                    const existingLoadingScreens = document.querySelectorAll('#loading-screen, .loading-screen');
+                    existingLoadingScreens.forEach(screen => {
+                        console.log('[Menu] 🧹 Removing existing loading screen');
+                        screen.remove();
                     });
+                    
+                    // Start game - проверяем, уже ли игра инициализирована
+                    if (this.game.gameInitialized && this.game.gameStarted) {
+                        // Игра уже запущена - просто перезагружаем карту
+                        console.log('[Menu] 🎮 Game already running, reloading map...');
+                        if (typeof this.game.reloadMap === 'function') {
+                            this.game.reloadMap('custom').then(() => {
+                                console.log('[Menu] 🎮 Map reloaded!');
+                            }).catch((e: any) => {
+                                console.error('[Menu] ❌ Failed to reload map:', e);
+                            });
+                        }
+                    } else {
+                        console.log('[Menu] 🎮 Calling game.init()...');
+                        this.game.init().then(() => {
+                            console.log('[Menu] 🎮 init() completed, calling startGame()...');
+                            this.game!.startGame();
+                            console.log('[Menu] 🎮 startGame() called!');
+                            debugLog("[Menu] Game started in test mode with editor map");
+                        }).catch((e: any) => {
+                            console.error("[Menu] ❌ Failed to start test game:", e);
+                        });
+                    }
                 } else {
                     console.error('[Menu] ❌ this.game is NULL! Cannot start test mode.');
                 }
@@ -13570,6 +13600,33 @@ transition: all 0.2s;
             this.settingsPanel.style.setProperty("visibility", "hidden", "important");
             this.enforceCanvasPointerEvents(); // Обновляем состояние canvas
         }
+    }
+
+    /**
+     * ОПТИМИЗАЦИЯ: Очистка всех слушателей событий и ресурсов
+     * Вызывается при уничтожении меню для предотвращения утечек памяти
+     */
+    public dispose(): void {
+        debugLog("[Menu] dispose() called - cleaning up event listeners");
+        
+        // Отменяем все слушатели событий, зарегистрированные с signal
+        this.abortController.abort();
+        
+        // Создаём новый контроллер на случай если меню будет переинициализировано
+        this.abortController = new AbortController();
+        
+        // Очищаем интервал проверки canvas
+        if (this.canvasPointerEventsCheckInterval) {
+            clearInterval(this.canvasPointerEventsCheckInterval);
+            this.canvasPointerEventsCheckInterval = null;
+        }
+        
+        // Очищаем подписку на прогресс
+        if (this.experienceSubscription) {
+            this.experienceSubscription = null;
+        }
+        
+        debugLog("[Menu] dispose() completed");
     }
 
     // === AUTH METHODS ===
@@ -14215,7 +14272,8 @@ transition: all 0.2s;
         (this.container as any)._escHandler = escHandler;
 
         // Добавляем обработчик на window для перехвата ESC
-        window.addEventListener("keydown", escHandler, true); // Используем capture phase для приоритета
+        // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки
+        window.addEventListener("keydown", escHandler, { capture: true, signal: this.abortController.signal });
         
         // НАВИГАЦИЯ КЛАВИАТУРОЙ: Стрелки, Tab, Enter
         this.setupKeyboardNavigation();
@@ -14280,7 +14338,8 @@ transition: all 0.2s;
             }
         };
         
-        window.addEventListener("keydown", keyHandler, true);
+        // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки
+        window.addEventListener("keydown", keyHandler, { capture: true, signal: this.abortController.signal });
         
         // Сохраняем ссылку для очистки
         (this.container as any)._keyboardNavHandler = keyHandler;

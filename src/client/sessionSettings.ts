@@ -79,6 +79,9 @@ export class SessionSettings {
     private worldManager: WorldManager | null = null;
     private waveEditor: WaveEditor | null = null;
     private embedded: boolean = false;
+    
+    // ОПТИМИЗАЦИЯ: AbortController для управления слушателями событий
+    private abortController: AbortController = new AbortController();
 
     constructor(embedded: boolean = false) {
         this.settings = this.getDefaultSettings();
@@ -855,6 +858,10 @@ export class SessionSettings {
     }
 
     dispose(): void {
+        // ОПТИМИЗАЦИЯ: Очищаем все слушатели событий
+        this.abortController.abort();
+        this.abortController = new AbortController();
+        
         this.container.remove();
     }
 

@@ -13,7 +13,7 @@ import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { MaterialFactory } from "./garage/materials";
 import type { EffectsManager } from "./effects";
 import { createUniqueChassis, type ChassisAnimationElements } from "./tank/tankChassis";
-import { createVisualTracks } from "./tank/tankTracks";
+// createVisualTracks removed - using createVisualWheels with trackType instead
 
 export class NetworkPlayerTank {
     scene: Scene;
@@ -398,30 +398,8 @@ export class NetworkPlayerTank {
         chassis.isVisible = true;
         chassis.setEnabled(true);
 
-        const w = this.chassisType.width;
-        const h = this.chassisType.height;
-        const d = this.chassisType.depth;
-
-        // Цвет для гусениц (обычно темно-серый)
-        // Если у типа гусениц есть цвет, можно использовать его, но в NetworkPlayerTank нет trackType
-        // Поэтому используем стандартный цвет
-        const trackColor = new Color3(0.15, 0.15, 0.15);
-
-        // Используем общую логику создания гусениц
-        const tracks = createVisualTracks(
-            this.scene,
-            chassis,
-            w * 0.15, // ширина гусеницы
-            h * 0.8,  // высота гусеницы
-            d * 1.1,  // длина гусеницы
-            trackColor,
-            w,
-            h,
-            `net_${this.uniqueId}_` // префикс для уникальности
-        );
-
-        this.leftTrack = tracks.left;
-        this.rightTrack = tracks.right;
+        // ИСПРАВЛЕНО: Гусеницы создаются в createVisualWheels() с правильным trackType
+        // Убрано дублирование создания гусениц
 
         return chassis;
     }
@@ -486,6 +464,7 @@ export class NetworkPlayerTank {
 
     /**
      * Создание ДЕТАЛИЗИРОВАННОГО ствола пушки (используя createUniqueCannon)
+     * ИСПРАВЛЕНО: Позиция ствола ИДЕНТИЧНА локальному игроку (TankController)
      */
     private createDetailedBarrel(): Mesh {
         const barrelWidth = this.cannonType.barrelWidth || 0.15;
@@ -509,8 +488,14 @@ export class NetworkPlayerTank {
         // ИСПРАВЛЕНИЕ: Не применяем цвет танка к стволу, оставляем серый (как у реальной модели)
         // Код применения цвета удалён по требованию пользователя
 
-        // Позиционируем ствол на башне
-        barrel.position = new Vector3(0, 0, barrelLength * 0.5 + this.chassisType.depth * 0.25);
+        // КРИТИЧНО: Позиция ствола ИДЕНТИЧНА локальному игроку (TankController строка 1102-1105)
+        // Формула: turretDepth / 2 + barrelLength / 2
+        const w = this.chassisType.width;
+        const h = this.chassisType.height;
+        const d = this.chassisType.depth;
+        const turretDepth = d * 0.6; // Те же пропорции что в createDetailedTurret
+        const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
+        barrel.position = new Vector3(0, 0, baseBarrelZ);
         barrel.parent = this.turret;
 
         // Убеждаемся что ствол смотрит вперёд (rotation = 0)
@@ -967,7 +952,8 @@ export class NetworkPlayerTank {
     }
 
     /**
-     * Обновление видимости танка
+     * Обновление видимости танка с LOD оптимизацией
+     * Отключает детали на большом расстоянии для улучшения FPS
      */
     private updateVisibility(): void {
         const status = this.networkPlayer.status;
@@ -976,6 +962,31 @@ export class NetworkPlayerTank {
         if (this.chassis) {
             this.chassis.isVisible = shouldBeVisible;
             this.chassis.setEnabled(shouldBeVisible);
+            
+            // LOD оптимизация - отключаем детали на расстоянии > 100м
+            const camera = this.scene.activeCamera;
+            if (camera && shouldBeVisible) {
+                const distance = Vector3.Distance(this.chassis.position, camera.position);
+                const isNear = distance < 100;
+                
+                // Дочерние детализированные меши отключаем на расстоянии
+                this.chassis.getChildMeshes().forEach(child => {
+                    // Пропускаем основные части (башня, ствол, гусеницы)
+                    if (child === this.turret || child === this.barrel || 
+                        child === this.leftTrack || child === this.rightTrack) {
+                        return;
+                    }
+                    // Мелкие детали скрываем на большом расстоянии
+                    child.isVisible = isNear && shouldBeVisible;
+                });
+                
+                // Замораживаем world matrix для далёких танков (оптимизация)
+                if (!isNear) {
+                    this.chassis.freezeWorldMatrix();
+                } else {
+                    this.chassis.unfreezeWorldMatrix();
+                }
+            }
         }
     }
 

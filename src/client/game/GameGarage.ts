@@ -681,6 +681,14 @@ export class GameGarage {
         // Вызываем respawn (он пересоздаст части)
         tankController.respawn();
 
+        // ИСПРАВЛЕНО: Запускаем проверку anti-stuck после переодевания для предотвращения застревания
+        const game = (window as any).gameInstance;
+        if (game && typeof game.startAntiStuckCheck === 'function') {
+            setTimeout(() => {
+                game.startAntiStuckCheck();
+            }, 500); // Запускаем через 500ms после respawn
+        }
+
         // КРИТИЧНО: Восстанавливаем callback с ЗАДЕРЖКОЙ (после завершения respawn)
         setTimeout(() => {
             if (originalCallback) {

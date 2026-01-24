@@ -89,6 +89,12 @@ export class AdminPanel {
                     </div>
                     <div id="admin-tab-debug" class="tab-content">
                         <div id="admin-debug-info">Loading stats...</div>
+                        <div class="setting-group" style="margin-top: 15px; border-top: 1px solid #333; padding-top: 15px;">
+                            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                                <input type="checkbox" id="admin-projectile-trajectory" style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>🎯 Показывать траекторию снарядов (красным)</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -118,6 +124,23 @@ export class AdminPanel {
         // Actions
         document.getElementById('admin-apply-map-btn')?.addEventListener('click', () => this.changeMap());
         document.getElementById('admin-restart-btn')?.addEventListener('click', () => this.restartGame());
+
+        // Debug: Траектория снарядов
+        const trajectoryCheckbox = document.getElementById('admin-projectile-trajectory') as HTMLInputElement;
+        if (trajectoryCheckbox) {
+            // Инициализация: синхронизируем с текущим состоянием танка
+            trajectoryCheckbox.checked = this.game.tankController?.showProjectileTrajectory ?? true;
+            
+            trajectoryCheckbox.addEventListener('change', () => {
+                if (this.game.tankController) {
+                    this.game.tankController.showProjectileTrajectory = trajectoryCheckbox.checked;
+                    if (!trajectoryCheckbox.checked) {
+                        this.game.tankController.clearTrajectoryLines();
+                    }
+                    logger.log(`[AdminPanel] Projectile trajectory: ${trajectoryCheckbox.checked ? 'ON' : 'OFF'}`);
+                }
+            });
+        }
     }
 
     private setupInput(): void {
@@ -198,6 +221,12 @@ export class AdminPanel {
             <p><strong>Room ID:</strong> ${roomId}</p>
             <p><strong>Map Type:</strong> ${this.game.currentMapType}</p>
         `;
+
+        // Синхронизируем checkbox траектории с текущим состоянием танка
+        const trajectoryCheckbox = document.getElementById('admin-projectile-trajectory') as HTMLInputElement;
+        if (trajectoryCheckbox && this.game.tankController) {
+            trajectoryCheckbox.checked = this.game.tankController.showProjectileTrajectory;
+        }
     }
 
     private kickPlayer(id: string): void {

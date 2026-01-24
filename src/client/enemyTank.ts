@@ -374,6 +374,13 @@ export class EnemyTank {
     private _cachedWorldMatrix?: Matrix;
     private _tmpRight: Vector3 = new Vector3();
     private _tmpUp: Vector3 = new Vector3();
+    
+    // ОПТИМИЗАЦИЯ: Расширенный пул переиспользуемых Vector3
+    private _tmpVec1: Vector3 = new Vector3();
+    private _tmpVec2: Vector3 = new Vector3();
+    private _tmpVec3: Vector3 = new Vector3();
+    private _tmpVec4: Vector3 = new Vector3();
+    private _tmpVec5: Vector3 = new Vector3();
 
     // === SPAWN STABILIZATION ===
     private _spawnStabilizing = true;
@@ -710,6 +717,17 @@ export class EnemyTank {
 
         // Синхронизируем текущее здоровье с новым максимумом
         this.currentHealth = this.maxHealth;
+
+        // === КОРРЕКТИРОВКА СКОРОСТИ ДЛЯ МАЛЕНЬКИХ КОРПУСОВ ===
+        // Предотвращаем слишком быстрое движение легких танков (scout, racer)
+        const isSmallChassis = this.chassisType.mass < 3000 || 
+                               this.chassisType.id === "scout" || 
+                               this.chassisType.id === "racer";
+        if (isSmallChassis) {
+            // Ограничиваем скорость движения для предотвращения хаотичного поведения
+            this.moveSpeed = Math.min(this.moveSpeed, 18); // Максимум 18 м/с для маленьких
+            this.turnSpeed = Math.min(this.turnSpeed, 3.0); // Более плавные повороты
+        }
 
         logger.debug(`[EnemyTank ${this.id}] Equipment: ${this.chassisType.name} chassis, ${this.cannonType.name} cannon, ${this.trackType?.name || 'standard'} tracks | Modules: ${this.modules.length} | Speed: ${this.moveSpeed.toFixed(1)}, HP: ${this.maxHealth}, Damage: ${this.damage}, Cooldown: ${this.cooldown}ms`);
     }
@@ -1197,12 +1215,28 @@ export class EnemyTank {
 
             // === ОГРАНИЧЕНИЕ СКОРОСТЕЙ (как у игрока) ===
             const maxLinearSpeed = 50;
-            const maxAngularSpeed = 8;
+            // Для маленьких корпусов (scout, racer) ограничиваем angular velocity сильнее
+            // чтобы они не вращались хаотично
+            const isSmallChassis = this.chassisType.mass < 3000 || 
+                                   this.chassisType.id === "scout" || 
+                                   this.chassisType.id === "racer";
+            const maxAngularSpeed = isSmallChassis ? 4 : 8; // Меньше для маленьких корпусов
+            
             if (vel.length() > maxLinearSpeed) {
                 body.setLinearVelocity(vel.normalize().scale(maxLinearSpeed));
             }
             if (angVel.length() > maxAngularSpeed) {
                 body.setAngularVelocity(angVel.normalize().scale(maxAngularSpeed));
+            }
+            
+            // Дополнительное ограничение для X и Z осей (предотвращение опрокидывания)
+            if (isSmallChassis) {
+                const clampedAngVel = angVel.clone();
+                clampedAngVel.x = Math.max(-2, Math.min(2, clampedAngVel.x));
+                clampedAngVel.z = Math.max(-2, Math.min(2, clampedAngVel.z));
+                if (clampedAngVel.x !== angVel.x || clampedAngVel.z !== angVel.z) {
+                    body.setAngularVelocity(clampedAngVel);
+                }
             }
 
             // Получаем ориентацию танка
@@ -1832,8 +1866,9 @@ export class EnemyTank {
         // Плавно наводим ствол вертикально
         const pitchDiff = this.barrelTargetPitch - this.barrelCurrentPitch;
         this.barrelCurrentPitch += pitchDiff * 0.15;
-        // Ограничиваем угол (-15° до +10°)
-        this.barrelCurrentPitch = Math.max(-Math.PI / 12, Math.min(Math.PI / 18, this.barrelCurrentPitch));
+        // Ограничиваем угол от -12.5° до +12.5° (симметричный диапазон как у игрока)
+        const PITCH_LIMIT = Math.PI * 12.5 / 180; // ±12.5° в радианах (≈0.218)
+        this.barrelCurrentPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.barrelCurrentPitch));
         // Применяем к стволу (инвертируем знак как у игрока)
         this.barrel.rotation.x = -this.barrelCurrentPitch;
     }

@@ -373,6 +373,7 @@ export class HUD {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _playerProgression: any = null;
     private experienceSubscription: any = null;
+    private _xpSyncTimer: number = 0; // Таймер для периодической синхронизации XP BAR
 
     // Death screen
     private deathScreen: Rectangle | null = null;
@@ -745,6 +746,24 @@ export class HUD {
                 // Experience changed event received
                 this.updateCentralXp(data.current, data.required, data.level);
             });
+            
+            // ИСПРАВЛЕНО: Принудительно уведомляем об изменении опыта при установке, чтобы обновить XP BAR
+            // Это гарантирует что XP BAR обновится даже если событие не было отправлено ранее
+            try {
+                const xpProgress = playerProgression.getExperienceProgress?.();
+                const level = playerProgression.getLevel?.() ?? 1;
+                if (xpProgress) {
+                    // Отправляем событие об изменении опыта для обновления XP BAR
+                    playerProgression.onExperienceChanged.notifyObservers({
+                        current: xpProgress.current,
+                        required: xpProgress.required,
+                        percent: xpProgress.percent,
+                        level: level
+                    });
+                }
+            } catch (e) {
+                // Игнорируем ошибки при принудительном обновлении
+            }
         } else {
             // Cannot subscribe to experience changes - playerProgression or onExperienceChanged is null
         }
@@ -1292,6 +1311,22 @@ export class HUD {
         this.animateXpBar(deltaTime);
         this.updateGlowEffects();
         this.updateComboAnimation(deltaTime);
+
+        // ИСПРАВЛЕНО: Периодическая синхронизация XP BAR с PlayerProgressionSystem
+        // Это гарантирует что XP BAR всегда показывает актуальные данные
+        this._xpSyncTimer = (this._xpSyncTimer || 0) + deltaTime;
+        if (this._xpSyncTimer >= 1.0 && this._playerProgression) {
+            this._xpSyncTimer = 0;
+            try {
+                const xpProgress = this._playerProgression.getExperienceProgress?.();
+                const level = this._playerProgression.getLevel?.() ?? 1;
+                if (xpProgress) {
+                    this.updateCentralXp(xpProgress.current, xpProgress.required, level);
+                }
+            } catch (e) {
+                // Игнорируем ошибки при синхронизации
+            }
+        }
 
         // Обновление индикаторов направления урона
         this.updateDamageIndicators();
@@ -3452,17 +3487,18 @@ export class HUD {
         infoPanel.addControl(speedText);
         (this.minimapContainer as any)._speedValue = speedText;
 
-        // НОВОЕ: Угол наклона ствола по центру
+        // НОВОЕ: Угол наклона ствола по центру (фиксированная позиция)
         const barrelAngleText = new TextBlock("barrelAngleText");
-        barrelAngleText.text = "↗0°";
+        barrelAngleText.text = "+0.000";
         barrelAngleText.color = "#ffaa00"; // Оранжевый для отличия от скорости
         barrelAngleText.fontSize = this.scaleFontSize(11, 9, 13); // УВЕЛИЧЕННЫЙ шрифт для читаемости
         barrelAngleText.fontWeight = "bold";
         barrelAngleText.fontFamily = "'Press Start 2P', monospace";
         barrelAngleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         barrelAngleText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-        barrelAngleText.left = this.scalePx(95); // Смещение для увеличенного текста
-        barrelAngleText.top = "2px"; // Опущен для симметричного расположения
+        // ФИКСИРОВАННАЯ ПОЗИЦИЯ: фиксированная точка, чтобы число не плавало
+        barrelAngleText.left = this.scalePx(95); // Фиксированное смещение
+        barrelAngleText.top = "2px"; // Фиксированная вертикальная позиция
         barrelAngleText.width = "20%"; // Увеличено для читаемости
         barrelAngleText.zIndex = 1000;
         barrelAngleText.textWrapping = false;
@@ -5065,18 +5101,20 @@ export class HUD {
         if (this.minimapContainer) {
             const barrelAngleValue = (this.minimapContainer as any)._barrelAngleValue as TextBlock;
             if (barrelAngleValue) {
-                // Используем toFixed(2) для точности до 0.01°
-                const formattedAngle = angleDegrees.toFixed(2);
-                // Выбираем символ в зависимости от направления
-                const arrow = angleDegrees >= 0 ? "↗" : "↘";
-                barrelAngleValue.text = `${arrow}${Math.abs(parseFloat(formattedAngle))}°`;
+                // Конвертируем градусы в радианы для отображения в тысячных единицах
+                const angleRadians = (angleDegrees * Math.PI) / 180;
+                // Форматируем в тысячные единицы (0.001) с тремя знаками после запятой
+                const formattedAngle = Math.abs(angleRadians).toFixed(3);
+                // Выбираем символ в зависимости от направления: + для вверх, - для вниз
+                const sign = angleDegrees >= 0 ? "+" : "-";
+                barrelAngleValue.text = `${sign}${formattedAngle}`;
 
-                // Цвет в зависимости от угла (обновлены пороги для нового диапазона -12.50° до +12.50°)
-                const absAngle = Math.abs(angleDegrees);
-                if (absAngle >= 10) {
-                    barrelAngleValue.color = "#ff4444"; // Красный для углов ≥ 10°
-                } else if (absAngle >= 5) {
-                    barrelAngleValue.color = "#ffaa00"; // Оранжевый для углов 5°-10°
+                // Цвет в зависимости от угла (пороги в радианах: 10° ≈ 0.175 рад, 5° ≈ 0.087 рад)
+                const absAngleRad = Math.abs(angleRadians);
+                if (absAngleRad >= 0.175) { // ≥ 10°
+                    barrelAngleValue.color = "#ff4444"; // Красный
+                } else if (absAngleRad >= 0.087) { // 5°-10°
+                    barrelAngleValue.color = "#ffaa00"; // Оранжевый
                 } else {
                     barrelAngleValue.color = "#00ff00"; // Зелёный для углов < 5°
                 }
@@ -6852,6 +6890,19 @@ export class HUD {
         // Убеждаемся, что контейнер видим
         this.centralXpContainer.isVisible = true;
         this.centralXpBar.isVisible = true;
+
+        // ИСПРАВЛЕНО: Если PlayerProgressionSystem уже установлен, обновляем XP BAR сразу
+        if (this._playerProgression) {
+            try {
+                const xpProgress = this._playerProgression.getExperienceProgress?.();
+                const level = this._playerProgression.getLevel?.() ?? 1;
+                if (xpProgress) {
+                    this.updateCentralXp(xpProgress.current, xpProgress.required, level);
+                }
+            } catch (e) {
+                // Игнорируем ошибки при начальном обновлении
+            }
+        }
 
         // Central XP bar created
     }
@@ -9868,7 +9919,7 @@ export class HUD {
     // === MISSION PANEL ===
 
     private createMissionPanel(): void {
-        console.log("[HUD] createMissionPanel() called");
+        // console.log("[HUD] createMissionPanel() called");
         try {
             // Mission panel (top right, below compass) - СТИЛЬ ИГРЫ
             this.missionPanel = new Rectangle("missionPanel");
@@ -9907,7 +9958,7 @@ export class HUD {
             headerLine.top = "22px";
             this.missionPanel.addControl(headerLine);
 
-            console.log("[HUD] Mission panel created successfully");
+            // console.log("[HUD] Mission panel created successfully");
         } catch (error) {
             console.error("[HUD] ERROR creating mission panel:", error);
         }

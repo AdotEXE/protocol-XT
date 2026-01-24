@@ -83,6 +83,14 @@ export class TankController {
     // =========================================================================
     flyMode: boolean = false; // Режим полёта - Q вверх, E вниз, отключает гравитацию
 
+    // =========================================================================
+    // DEBUG: Флаг для отображения траектории снаряда (красным цветом)
+    // =========================================================================
+    public showProjectileTrajectory: boolean = true; // По умолчанию ВКЛ
+    private trajectoryLines: Mesh[] = []; // Линии траектории
+    private trajectoryFrameCounter: number = 0; // Счётчик кадров для оптимизации
+    private trajectoryTimeoutIds: number[] = []; // ID таймеров для очистки при dispose
+
     // Респавн с таймером
     private respawnCountdown = 0; // Секунды до респавна
     private respawnIntervalId: number | null = null;
@@ -274,6 +282,9 @@ export class TankController {
     private _tmpVector5 = new Vector3(); // For torque scaling to avoid mutations
     private _tmpVector6 = new Vector3(); // For hoverForceVec (to avoid corrupting up)
     private _tmpVector7 = new Vector3(); // For correctiveTorque (to avoid corrupting forward)
+    private _tmpVector8 = new Vector3(); // For projectile previous position
+    private _tmpVector9 = new Vector3(); // For projectile current position
+    private _cachedRedColor = new Color3(1, 0, 0); // Кэшированный красный цвет для траектории
 
     // Position caching for performance optimization
     private _cachedChassisPosition = new Vector3();
@@ -1264,32 +1275,48 @@ export class TankController {
     respawn(position?: Vector3): void {
         const game = (window as any).gameInstance;
 
-        // 1. Determine safe position base
-        let safePos = position ? position.clone() : (this.chassis ? this.chassis.position.clone() : new Vector3(0, 5, 0));
+        // 1. Определяем базовую позицию
+        let basePos = position ? position.clone() : (this.chassis ? this.chassis.position.clone() : new Vector3(0, 5, 0));
 
-        // 2. Validate height against terrain
-        if (game && typeof game.getTopSurfaceHeight === 'function') {
-            const surfaceY = game.getTopSurfaceHeight(safePos.x, safePos.z);
-            // If strictly below surface - 0.5m OR strictly below -5m absolute (void)
-            if (safePos.y < surfaceY - 0.5 || safePos.y < -5.0) {
-                logger.warn(`[TankController] Respawn Y=${safePos.y.toFixed(2)} unsafe (Surface=${surfaceY.toFixed(2)}). Fixing.`);
-                safePos.y = surfaceY + 2.0;
+        // 2. ИСПРАВЛЕНО: Используем findSafeSpawnPositionAt для поиска безопасной позиции над верхней поверхностью
+        // Это предотвращает застревание в текстурах объектов
+        let safePos: Vector3;
+        if (game && typeof game.findSafeSpawnPositionAt === 'function') {
+            const tankHeight = this.chassisType?.height || 2.0;
+            const minOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
+            const foundSafePos = game.findSafeSpawnPositionAt(basePos.x, basePos.z, minOffset, 10);
+            
+            if (foundSafePos) {
+                safePos = foundSafePos;
+                logger.log(`[TankController] Found safe respawn position at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)})`);
+            } else {
+                // Fallback: используем базовую позицию с проверкой высоты
+                if (game && typeof game.getTopSurfaceHeight === 'function') {
+                    const surfaceY = game.getTopSurfaceHeight(basePos.x, basePos.z);
+                    safePos = new Vector3(basePos.x, surfaceY + minOffset, basePos.z);
+                    logger.warn(`[TankController] Using fallback respawn position at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)})`);
+                } else {
+                    safePos = basePos;
+                }
             }
-        } else if (safePos.y < -2.0) {
-            // Fallback safety
-            safePos.y = 5.0;
+        } else {
+            // Fallback если game не доступен
+            safePos = basePos;
+            if (safePos.y < -2.0) {
+                safePos.y = 5.0;
+            }
         }
 
-        // 3. Check for configuration changes and rebuild if needed
-        // Use the validated safePos for reconstruction
+        // 3. Проверяем изменения конфигурации и пересоздаём если нужно
+        // Используем проверенную безопасную позицию для пересоздания
         if (this.checkForConfigurationChanges()) {
             logger.log("[TankController] Configuration change detected. Rebuilding tank visuals...");
             this.rebuildTankVisuals(safePos);
         }
 
-        // 4. Restore physics using SAFE POS
+        // 4. Восстанавливаем физику используя БЕЗОПАСНУЮ ПОЗИЦИЮ
         const respawnPos = safePos;
-        console.log(`[TankController] Respawning at (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)})`);
+        console.log(`[TankController] Respawning at safe position (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)})`);
 
         this.isAlive = true;
         this.isMovementEnabled = true;
@@ -4365,6 +4392,9 @@ export class TankController {
     private readonly MAX_MANUAL_PROJECTILES = 100;
     
     private updateProjectiles(dt: number) {
+        // Инкремент счётчика кадров для оптимизации траектории
+        this.trajectoryFrameCounter++;
+        
         // ИСПРАВЛЕНИЕ: Очищаем старые снаряды если их слишком много
         if (this.manualProjectiles.length > this.MAX_MANUAL_PROJECTILES) {
             const toRemove = this.manualProjectiles.length - this.MAX_MANUAL_PROJECTILES;
@@ -4398,9 +4428,84 @@ export class TankController {
                 continue;
             }
 
-            // Двигаем: position += velocity * dt
+            // Двигаем снаряд: position += velocity * dt
+            // ОПТИМИЗАЦИЯ: Используем переиспользуемые Vector3 вместо clone()
+            this._tmpVector8.copyFrom(proj.mesh.position);
             proj.mesh.position.addInPlace(proj.velocity.scale(dt));
+
+            // DEBUG: Отображение траектории снаряда красным цветом (оптимизировано)
+            // Создаём линию только каждые 3 кадра для экономии производительности
+            if (this.showProjectileTrajectory && this.trajectoryFrameCounter % 3 === 0) {
+                this._tmpVector9.copyFrom(proj.mesh.position);
+                const trajectoryLine = MeshBuilder.CreateLines(
+                    `traj_${i}`,
+                    {
+                        points: [this._tmpVector8.clone(), this._tmpVector9.clone()],
+                        updatable: false
+                    },
+                    this.scene
+                );
+                trajectoryLine.color = this._cachedRedColor; // Используем кэшированный цвет
+                trajectoryLine.isPickable = false;
+                this.trajectoryLines.push(trajectoryLine);
+                
+                // Удаляем старые линии траектории (максимум 100 для производительности)
+                while (this.trajectoryLines.length > 100) {
+                    const toRemove = this.trajectoryLines.shift();
+                    if (toRemove && !toRemove.isDisposed()) {
+                        toRemove.dispose();
+                    }
+                }
+                
+                // Автоматическое удаление линии через 3 секунды
+                const timeoutId = window.setTimeout(() => {
+                    // Удаляем ID из массива
+                    const tidx = this.trajectoryTimeoutIds.indexOf(timeoutId);
+                    if (tidx !== -1) {
+                        this.trajectoryTimeoutIds.splice(tidx, 1);
+                    }
+                    const idx = this.trajectoryLines.indexOf(trajectoryLine);
+                    if (idx !== -1) {
+                        this.trajectoryLines.splice(idx, 1);
+                    }
+                    if (!trajectoryLine.isDisposed()) {
+                        trajectoryLine.dispose();
+                    }
+                }, 3000);
+                this.trajectoryTimeoutIds.push(timeoutId);
+            }
         }
+    }
+
+    /**
+     * Переключить отображение траектории снаряда (для тестирования)
+     */
+    public toggleProjectileTrajectory(): boolean {
+        this.showProjectileTrajectory = !this.showProjectileTrajectory;
+        if (!this.showProjectileTrajectory) {
+            this.clearTrajectoryLines();
+        }
+        console.log(`[TankController] 🎯 Projectile trajectory: ${this.showProjectileTrajectory ? 'ON (RED)' : 'OFF'}`);
+        return this.showProjectileTrajectory;
+    }
+
+    /**
+     * Очистить все линии траектории
+     */
+    public clearTrajectoryLines(): void {
+        // Очищаем все таймеры траектории
+        for (const timeoutId of this.trajectoryTimeoutIds) {
+            window.clearTimeout(timeoutId);
+        }
+        this.trajectoryTimeoutIds = [];
+        
+        // Удаляем все линии
+        for (const line of this.trajectoryLines) {
+            if (line && !line.isDisposed()) {
+                line.dispose();
+            }
+        }
+        this.trajectoryLines = [];
     }
 
     updatePhysics() {
@@ -4476,7 +4581,6 @@ export class TankController {
             const dt = this.scene.getEngine().getDeltaTime() / 1000;
 
             // Update Tank Components
-            this.movementModule.updateMovement(dt);
             this.movementModule.updateMovement(dt);
             this.projectilesModule.updateShellCasings();
             this.updateProjectiles(dt); // ОПТИМИЗАЦИЯ: Ручное движение трассеров
@@ -5780,8 +5884,9 @@ export class TankController {
                     // Обновляем aimPitch: F (barrelPitchTarget = -1, pitchDelta < 0) поднимает ствол (aimPitch увеличивается)
                     // R (barrelPitchTarget = +1, pitchDelta > 0) опускает ствол (aimPitch уменьшается)
                     this.aimPitch -= pitchDelta;
-                    // Ограничиваем угол от -10° (вниз) до +5° (вверх)
-                    this.aimPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, this.aimPitch));
+                    // Ограничиваем угол от -12.5° до +12.5° (симметричный диапазон)
+                    const PITCH_LIMIT = Math.PI * 12.5 / 180; // ±12.5° в радианах (≈0.218)
+                    this.aimPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.aimPitch));
                 }
             } else {
                 // В режиме прицеливания - сбрасываем ускорение и smooth значение
@@ -5813,8 +5918,9 @@ export class TankController {
                 }
 
                 // Применяем aimPitch к rotation.x ствола (вертикальный поворот)
-                // Ограничиваем угол от -10° (вниз) до +5° (вверх)
-                const clampedPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, this.aimPitch));
+                // Ограничиваем угол от -12.5° до +12.5° (симметричный диапазон)
+                const PITCH_LIMIT = Math.PI * 12.5 / 180; // ±12.5° в радианах (≈0.218)
+                const clampedPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.aimPitch));
                 if (isFinite(clampedPitch)) {
                     // ИСПРАВЛЕНИЕ: В Babylon.js rotation.x положительный = вниз, отрицательный = вверх
                     // Поэтому инвертируем знак, чтобы визуал ствола соответствовал направлению снаряда

@@ -971,7 +971,7 @@ export class AchievementsSystem {
                 Object.entries(data).forEach(([key, value]) => {
                     this.progress.set(key, value);
                 });
-                console.log(`[Achievements] Loaded ${this.progress.size} achievement records`);
+                // console.log(`[Achievements] Loaded ${this.progress.size} achievement records`);
             }
         } catch (e) {
             console.warn("[Achievements] Failed to load progress:", e);

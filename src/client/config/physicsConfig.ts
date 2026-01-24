@@ -345,7 +345,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
     },
     tank: {
         basic: {
-            mass: 40000, // 40 тонн (x4)
+            mass: 50000, // УВЕЛИЧЕНО: 50 тонн (было 40000) - танки стали тяжелее, не как перышки
             hoverHeight: 1.0,
             moveSpeed: 24,
             turnSpeed: 5.0,
@@ -455,8 +455,8 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             projectileSize: 0.2,
         },
         recoil: {
-            force: 20000, // x2 (было 10000)
-            torque: 80000, // x2 (было 40000)
+            force: 10000, // УМЕНЬШЕНО в 2 раза (было 20000)
+            torque: 40000, // УМЕНЬШЕНО в 2 раза (было 80000)
             barrelRecoilSpeed: 0.3,
             barrelRecoilAmount: -1.6,
             applicationPoint: "center",
@@ -584,7 +584,7 @@ function createDefaultConfig(): PhysicsConfig {
         },
         tank: {
             basic: {
-                mass: 40000, // 40 тонн (x4)
+                mass: 50000, // УВЕЛИЧЕНО: 50 тонн (было 40000) - танки стали тяжелее
                 hoverHeight: 1.0,
                 moveSpeed: 24,
                 turnSpeed: 5.0,
@@ -694,8 +694,8 @@ function createDefaultConfig(): PhysicsConfig {
                 projectileSize: 0.2,
             },
             recoil: {
-                force: 5000, // x2 (было 2500)
-                torque: 20000, // x2 (было 10000)
+                force: 10000, // УМЕНЬШЕНО в 2 раза (было 20000)
+                torque: 40000, // УМЕНЬШЕНО в 2 раза (было 80000)
                 barrelRecoilSpeed: 0.3,
                 barrelRecoilAmount: -1.6,
                 applicationPoint: "center",

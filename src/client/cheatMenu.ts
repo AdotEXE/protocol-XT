@@ -714,7 +714,7 @@ export class CheatMenu {
                 }
             }
         });
-        
+
         // Спавн врага (улучшенная версия)
         this.addCheat({
             id: "spawnEnemyNear",

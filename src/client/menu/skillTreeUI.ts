@@ -973,7 +973,7 @@ export function saveSkillTreeCameraPosition(): void {
     if (wrapper) {
         savedSkillTreeScrollX = wrapper.scrollLeft;
         savedSkillTreeScrollY = wrapper.scrollTop;
-        console.log(`[Skills] Camera position saved: ${savedSkillTreeScrollX}, ${savedSkillTreeScrollY}`);
+        // console.log(`[Skills] Camera position saved: ${savedSkillTreeScrollX}, ${savedSkillTreeScrollY}`);
     }
 }
 
