@@ -33,6 +33,30 @@ export interface CannonType {
     ricochetSpeedRetention?: number; // Сохранение скорости при рикошете (0.0-1.0)
     ricochetAngle?: number; // Угол рикошета (градусы)
     maxRange?: number; // Максимальная дальность выстрела (м) - рассчитывается автоматически если не указано
+    dps?: number; // Damage Per Second (рассчитывается автоматически)
+}
+
+/**
+ * Тип для расчета DPS - поддерживает CannonType или объект с уроном и перезарядкой
+ */
+type DPSCalculable = CannonType | { damage: number | { total: number }, cooldown: number | { total: number }, dps?: number };
+
+/**
+ * Рассчитывает DPS (Damage Per Second) для пушки
+ * @param cannon - Тип пушки или данные о пушке
+ * @returns DPS в единицах урона в секунду
+ */
+export function calculateDPS(cannon: DPSCalculable): number {
+    if (cannon.dps !== undefined) {
+        return cannon.dps;
+    }
+    // Извлекаем значения урона и перезарядки (поддерживаем и StatWithBonus, и обычные числа)
+    const damage = typeof cannon.damage === 'object' && 'total' in cannon.damage ? cannon.damage.total : (cannon.damage as number);
+    const cooldown = typeof cannon.cooldown === 'object' && 'total' in cannon.cooldown ? cannon.cooldown.total : (cannon.cooldown as number);
+    
+    // DPS = damage / (cooldown / 1000)
+    const cooldownSeconds = cooldown / 1000;
+    return damage / cooldownSeconds;
 }
 
 // 15 chassis types (ordered as specified: 9, 8, 10, 11, 13, 1, 2, 3, 4, 5, 6, 7, 14, 15, 12)
@@ -694,6 +718,51 @@ export function getChassisById(id: string): ChassisType {
 // Получить пушку по ID
 export function getCannonById(id: string): CannonType {
     const result = CANNON_TYPES.find(c => c.id === id) ?? CANNON_TYPES[1]!;
+    return result;
+}
+
+export interface TrackType {
+    id: string;
+    name: string;
+    width: number;
+    height: number;
+    depth: number;
+    color: string;
+    description: string;
+}
+
+export const TRACK_TYPES: TrackType[] = [
+    {
+        id: "standard",
+        name: "Standard",
+        width: 0.5,
+        height: 0.6,
+        depth: 1.0,
+        color: "#222222",
+        description: "Standard tracks"
+    },
+    {
+        id: "heavy",
+        name: "Heavy",
+        width: 0.7,
+        height: 0.7,
+        depth: 1.1,
+        color: "#111111",
+        description: "Heavy reinforced tracks"
+    },
+    {
+        id: "light",
+        name: "Light",
+        width: 0.4,
+        height: 0.5,
+        depth: 0.9,
+        color: "#333333",
+        description: "Light maneuverable tracks"
+    }
+];
+
+export function getTrackById(id: string): TrackType {
+    const result = TRACK_TYPES.find(t => t.id === id) ?? TRACK_TYPES[0]!;
     return result;
 }
 
