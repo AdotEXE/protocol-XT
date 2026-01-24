@@ -21,7 +21,7 @@ export interface PhysicsConfig {
  */
 export const DEFAULT_PHYSICS_CONFIG: PhysicsConfig = {
     gravity: new Vector3(0, -19.6, 0),
-    substeps: 2,
+    substeps: 1, // ОПТИМИЗАЦИЯ: Уменьшено до 1 для повышения FPS (было 2)
     fixedTimeStep: 1 / 60
 };
 
@@ -39,11 +39,11 @@ export class GamePhysics {
     private havokInstance: any | undefined;
     private config: PhysicsConfig;
     private isInitialized = false;
-    
+
     constructor(config: PhysicsConfig = DEFAULT_PHYSICS_CONFIG) {
         this.config = { ...DEFAULT_PHYSICS_CONFIG, ...config };
     }
-    
+
     /**
      * Инициализация физического движка
      * @returns Promise<boolean> - успешность инициализации
@@ -53,9 +53,9 @@ export class GamePhysics {
             logger.warn("[GamePhysics] Already initialized");
             return true;
         }
-        
+
         this.scene = scene;
-        
+
         try {
             // Загружаем Havok WASM с указанием пути
             logger.log("[GamePhysics] Loading Havok WASM...");
@@ -69,15 +69,15 @@ export class GamePhysics {
                 }
             });
             logger.log("[GamePhysics] Havok WASM loaded");
-            
+
             // Создаём плагин
             this.havokPlugin = new HavokPlugin(true, this.havokInstance);
-            
+
             // Включаем физику в сцене
             const gravity = this.config.gravity || DEFAULT_PHYSICS_CONFIG.gravity;
             scene.enablePhysics(gravity, this.havokPlugin);
             logger.log("[GamePhysics] Physics enabled with gravity:", gravity?.toString());
-            
+
             this.isInitialized = true;
             return true;
         } catch (error) {
@@ -85,47 +85,47 @@ export class GamePhysics {
             return false;
         }
     }
-    
+
     /**
      * Проверка инициализации
      */
     getIsInitialized(): boolean {
         return this.isInitialized;
     }
-    
+
     /**
      * Получение Havok плагина
      */
     getHavokPlugin(): HavokPlugin | undefined {
         return this.havokPlugin;
     }
-    
+
     /**
      * Получение Havok инстанса
      */
     getHavokInstance(): any | undefined {
         return this.havokInstance;
     }
-    
+
     /**
      * Установка гравитации
      */
     setGravity(gravity: Vector3): void {
         this.config.gravity = gravity;
-        
+
         if (this.scene?.getPhysicsEngine()) {
             this.scene.getPhysicsEngine()?.setGravity(gravity);
             logger.debug("[GamePhysics] Gravity set to:", gravity.toString());
         }
     }
-    
+
     /**
      * Получение гравитации
      */
     getGravity(): Vector3 {
         return this.config.gravity || new Vector3(0, -9.81, 0);
     }
-    
+
     /**
      * Пауза физики
      */
@@ -134,32 +134,32 @@ export class GamePhysics {
         // В будущем можно добавить флаг для пропуска обновлений
         logger.debug("[GamePhysics] Physics paused");
     }
-    
+
     /**
      * Возобновление физики
      */
     resume(): void {
         logger.debug("[GamePhysics] Physics resumed");
     }
-    
+
     /**
      * Сброс позиции объекта к указанной точке
      */
     resetObjectPosition(
-        physicsBody: any, 
-        position: Vector3, 
+        physicsBody: any,
+        position: Vector3,
         stopMotion: boolean = true
     ): void {
         if (!physicsBody) return;
-        
+
         if (stopMotion) {
             physicsBody.setLinearVelocity(Vector3.Zero());
             physicsBody.setAngularVelocity(Vector3.Zero());
         }
-        
+
         physicsBody.setTargetTransform(position, null);
     }
-    
+
     /**
      * Dispose
      */
@@ -169,7 +169,7 @@ export class GamePhysics {
         this.havokInstance = undefined;
         this.scene = undefined;
         this.isInitialized = false;
-        
+
         logger.log("[GamePhysics] Disposed");
     }
 }

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
 import { useLoader } from './contexts/LoaderContext';
 import { Scene } from './components/Scene';
@@ -11,8 +11,9 @@ import { generateCity, CityConfig } from './services/cityGenerator';
 import { multiplayer, RemoteCursor } from './services/multiplayer';
 import { applyTerrainBrush, TerrainToolMode } from './services/terrain';
 import { createRoadPath, scatterObjects } from './services/tools';
+import { getElevationAt } from './services/elevationService';
 import { generateModel, repairModelWithAI, refineSelectionWithAI } from './services/gemini';
-import { exportToJSON, exportToOBJ, exportToBlockbench, exportToPLY, exportToPoly, importFromBlockbench, exportToTXMap, exportForTest, importFromTXMap, sendMapToTX, isInTXIframe, requestGameMap } from './services/exporter';
+import { exportToJSON, exportToOBJ, exportToBlockbench, exportToPLY, exportToPoly, importFromBlockbench, exportToTXMap, exportForTest, importFromTXMap, sendMapToTX, isInTXIframe, requestGameMap, clearRespawnEffect, setLowHealthEffect, clearLowHealthEffect } from './services/exporter';
 import { CubeElement, ToolMode, FileSystem, FileNode, GenerationOptions, Theme, LogEntry, Vector3, MaterialProperties, GenerationHistoryEntry, PaletteItem } from './types';
 import { MAP_PRESETS, MapPreset } from './constants/presets';
 
@@ -21,6 +22,7 @@ import * as Icons from './components/Icons';
 import { ObjectCreator } from './components/ObjectCreator';
 import RealWorldGenerator, { TerrainData } from './components/RealWorldGenerator';
 import SettingsModal, { loadSettings, isFirstLaunch, EditorSettings, DEFAULT_SETTINGS } from './components/SettingsModal';
+import { useHMRNotifications } from './hooks/useHMRNotifications';
 
 
 const DraggableNumberInput = ({ label, value, onChange, step = 0.1, className = "" }: any) => {
@@ -260,6 +262,12 @@ export const App = () => {
     // Help Modal State
     const [showHelpModal, setShowHelpModal] = useState(false);
 
+    // Pause Menu State (for game mode)
+    const [showPauseMenu, setShowPauseMenu] = useState(false);
+
+    // Session/Multiplayer Modal State
+    const [showSessionModal, setShowSessionModal] = useState(false);
+
     // Custom Object Creator State
     const [showObjCreator, setShowObjCreator] = useState(false);
     const [paletteItems, setPaletteItems] = useState<PaletteItem[]>([
@@ -475,18 +483,71 @@ export const App = () => {
                             // Just let user know? Or ignore.
                             // setEditorMode('map') would be better but it's derived from URL.
                         }
-                    } else {
-                        addLog('Imported map has no objects', 'warning');
-                    }
-                } catch (err) {
-                    addLog('Failed to import map data', 'error');
-                    console.error(err);
-                }
+            } else {
+                addLog('Imported map has no objects', 'warning');
             }
-        };
-        window.addEventListener('message', handler);
-        return () => window.removeEventListener('message', handler);
-    }, [editorMode, addLog, pushHistory]);
+        } catch (err) {
+            addLog('Failed to import map data', 'error');
+            console.error(err);
+        }
+    } else if (e.data?.type === 'PLAYER_RESPAWNED' || e.data?.type === 'RESPAWN_COMPLETE' || e.data?.type === 'RESPAWN' || e.data?.type === 'SPAWN') {
+        // Clear respawn effect when player respawns - aggressive clearing
+        clearRespawnEffect();
+        setTimeout(() => clearRespawnEffect(), 50);
+        setTimeout(() => clearRespawnEffect(), 100);
+        setTimeout(() => clearRespawnEffect(), 200);
+        setTimeout(() => clearRespawnEffect(), 500);
+        setTimeout(() => clearRespawnEffect(), 1000);
+        setTimeout(() => clearRespawnEffect(), 2000);
+        console.log('[App] Player respawned - cleared respawn effect (aggressive clearing)');
+    } else if (e.data?.type === 'PLAYER_HEALTH_CHANGED' || e.data?.type === 'HEALTH_UPDATE') {
+        // Update low health effect based on health percentage
+        const healthPercent = e.data.healthPercent ?? e.data.health ?? 1;
+        if (healthPercent < 0.3) {
+            // Low health - show heartbeat effect with gradient from perimeter to center
+            // Max 25% darkness at edges, fading to 0% at center
+            setLowHealthEffect(healthPercent, 0.25);
+        } else {
+            // Health is good - clear effect
+            clearLowHealthEffect();
+        }
+    } else if (e.data?.type === 'PLAYER_DIED' || e.data?.type === 'DEATH') {
+        // Player died - clear low health effect (will be replaced by death effect)
+        clearLowHealthEffect();
+    } else if (e.data?.type === 'MAP_LOADED' || e.data?.type === 'GAME_READY') {
+        // Game is ready - clear any lingering effects
+        clearRespawnEffect();
+        clearLowHealthEffect();
+    }
+};
+window.addEventListener('message', handler);
+return () => window.removeEventListener('message', handler);
+}, [editorMode, addLog, pushHistory]);
+
+    // Periodic check to clear dark screen effect (in case game doesn't send respawn event)
+    useEffect(() => {
+        if (!isInTXIframe() && editorMode !== 'tank') return;
+        
+        // Check every 2 seconds if we need to clear effects (fallback mechanism)
+        const interval = setInterval(() => {
+            // Only clear occasionally to reduce spam (10% chance)
+            if (Math.random() < 0.1) {
+                clearRespawnEffect();
+            }
+        }, 2000);
+        
+        return () => clearInterval(interval);
+    }, [editorMode]);
+
+    // HMR Notifications - show hot reload updates
+    useHMRNotifications(showToast, {
+        enabled: true,
+        showInProduction: false,
+        minUpdateCount: 1,
+        autoHideDelay: 5000,
+        showFileList: true,
+        groupByCategory: true,
+    });
 
     // --- Multiplayer Setup ---
     useEffect(() => {
@@ -505,12 +566,27 @@ export const App = () => {
 
     }, [isConnected, addLog]);
 
-    // Sync changes
+    // Sync changes with debouncing to avoid excessive network calls
+    const multiplayerSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     useEffect(() => {
-        if (isConnected) {
-            multiplayer.sendUpdate(cubes);
+        if (!isConnected) return;
+        
+        // Clear previous timeout
+        if (multiplayerSyncTimeoutRef.current) {
+            clearTimeout(multiplayerSyncTimeoutRef.current);
         }
-    }, [cubes, isConnected]); // WARNING: This triggers on every local change. Ideally should debounce.
+        
+        // Debounce multiplayer sync by 400ms
+        multiplayerSyncTimeoutRef.current = setTimeout(() => {
+            multiplayer.sendUpdate(cubes);
+        }, 400);
+        
+        return () => {
+            if (multiplayerSyncTimeoutRef.current) {
+                clearTimeout(multiplayerSyncTimeoutRef.current);
+            }
+        };
+    }, [cubes, isConnected]);
 
 
 
@@ -540,22 +616,40 @@ export const App = () => {
     const handleGenerate = async () => {
         if (!prompt || isGenerating) return;
         setIsGenerating(true);
-        setLoading(true, 'SYNTHESIZING NEURAL GEOMETRY...');
+        // Using non-blocking toast instead of full loading screen
+        const toastId = showProgressToast('SYNTHESIZING NEURAL GEOMETRY...');
+        // setLoading(true, 'SYNTHESIZING NEURAL GEOMETRY...');
         setProgress(10);
+        updateToast(toastId, { progress: 10 });
+
         addLog(`Synthesis: "${prompt}"...`, 'info');
         try {
             // Fake progress for "thinking" feel
-            const interval = setInterval(() => setProgress(p => Math.min(p + 5, 90)), 300);
+            const interval = setInterval(() => {
+                setProgress(p => {
+                    const next = Math.min(p + 5, 90);
+                    updateToast(toastId, { progress: next });
+                    return next;
+                });
+            }, 300);
 
             const { cubes: result, time } = await generateModel(getGenOptions());
             clearInterval(interval);
             setProgress(100);
+            updateToast(toastId, { progress: 100, message: 'Synthesis Complete!', type: 'success', isLoading: false });
+
+            // Auto dismiss success toast after delay
+            setTimeout(() => removeToast(toastId), 3000);
 
             setCubes(result); pushHistory(result);
             setGenHistory(prev => [{ id: generateId(), prompt, timestamp: Date.now(), options: getGenOptions(), cubes: result }, ...prev].slice(0, 50));
             addLog(`Synthesis Complete: ${time.toFixed(0)}ms.`, 'success');
             setShowGenSettings(false);
-        } catch (e) { addLog('Synthesis Error.', 'error'); }
+        } catch (e) {
+            addLog('Synthesis Error.', 'error');
+            updateToast(toastId, { message: 'Synthesis Failed', type: 'error', isLoading: false });
+            setTimeout(() => removeToast(toastId), 3000);
+        }
         finally { setIsGenerating(false); setLoading(false); }
     };
 
@@ -564,10 +658,11 @@ export const App = () => {
         setIsGenerating(true);
         cancelBatchRef.current = false;
 
-        // Loader UI takes precedence over batchProgress (or we can use both)
-        // We'll use the overlay for high visibility
-        setLoading(true, 'INITIALIZING BATCH MATRIX...');
+        // Non-blocking toast for batch
+        const toastId = showProgressToast('INITIALIZING BATCH MATRIX...');
+        // setLoading(true, 'INITIALIZING BATCH MATRIX...');
         setProgress(0);
+        updateToast(toastId, { progress: 0 });
 
         setBatchProgress({ current: 0, total: 10, isPaused: false, isMinimized: false });
 
@@ -584,7 +679,9 @@ export const App = () => {
                 while (batchProgress?.isPaused) { await new Promise(r => setTimeout(r, 500)); if (cancelBatchRef.current) break; }
 
                 const percent = ((i) / 10) * 100;
-                setLoading(true, `GENERATING VARIATION ${i + 1}/10...`);
+                // setLoading(true, `GENERATING VARIATION ${i + 1}/10...`);
+                updateToast(toastId, { message: `GENERATING VARIATION ${i + 1}/10...`, progress: percent });
+
                 setProgress(percent);
                 setBatchProgress(prev => prev ? { ...prev, current: i + 1 } : null);
 
@@ -595,7 +692,13 @@ export const App = () => {
                 addLog(`Matrix Cycle ${i + 1} saved.`, 'info');
             }
             addLog(`Matrix Process Finalized.`, 'success');
-        } catch (e) { addLog('Batch synthesis aborted.', 'error'); }
+            updateToast(toastId, { message: 'Matrix Process Finalized', type: 'success', isLoading: false, progress: 100 });
+            setTimeout(() => removeToast(toastId), 3000);
+        } catch (e) {
+            addLog('Batch synthesis aborted.', 'error');
+            updateToast(toastId, { message: 'Batch Aborted', type: 'error', isLoading: false });
+            setTimeout(() => removeToast(toastId), 3000);
+        }
         finally { setIsGenerating(false); setBatchProgress(null); setLoading(false); }
     };
 
@@ -679,20 +782,36 @@ export const App = () => {
     const handleRepair = async () => {
         if (cubes.length === 0 || isGenerating) return;
         setIsGenerating(true);
-        setLoading(true, 'ANALYZING GEOMETRY...');
+        // Non-blocking toast
+        const toastId = showProgressToast('ANALYZING GEOMETRY...');
+        // setLoading(true, 'ANALYZING GEOMETRY...');
         setProgress(20);
+        updateToast(toastId, { progress: 20 });
+
         addLog('AI Geometry Repair active...', 'warning');
         try {
             // Fake progress
-            const interval = setInterval(() => setProgress(p => Math.min(p + 10, 90)), 200);
+            const interval = setInterval(() => {
+                setProgress(p => {
+                    const next = Math.min(p + 10, 90);
+                    updateToast(toastId, { progress: next });
+                    return next;
+                });
+            }, 200);
 
             const { cubes: repaired, time } = await repairModelWithAI(cubes);
             clearInterval(interval);
             setProgress(100);
+            updateToast(toastId, { progress: 100, message: 'Geometry Repaired!', type: 'success', isLoading: false });
+            setTimeout(() => removeToast(toastId), 3000);
 
             setCubes(repaired); pushHistory(repaired);
             addLog(`Geometry fixed: ${time.toFixed(0)}ms.`, 'success');
-        } catch (e) { addLog('Repair error.', 'error'); }
+        } catch (e) {
+            addLog('Repair error.', 'error');
+            updateToast(toastId, { message: 'Repair Failed', type: 'error', isLoading: false });
+            setTimeout(() => removeToast(toastId), 3000);
+        }
         finally { setIsGenerating(false); setLoading(false); }
     };
 
@@ -889,11 +1008,21 @@ export const App = () => {
     const handleRefineSelection = async () => {
         if (selectedIds.length === 0 || isGenerating || !refinePrompt) return;
         setIsGenerating(true);
-        setLoading(true, 'REFINING SELECTION...');
+        // Non-blocking toast
+        const toastId = showProgressToast('REFINING SELECTION...');
+        // setLoading(true, 'REFINING SELECTION...');
         setProgress(20);
+        updateToast(toastId, { progress: 20 });
+
         addLog(`AI Refinement starting...`, 'info');
         try {
-            const interval = setInterval(() => setProgress(p => Math.min(p + 5, 90)), 300);
+            const interval = setInterval(() => {
+                setProgress(p => {
+                    const next = Math.min(p + 5, 90);
+                    updateToast(toastId, { progress: next });
+                    return next;
+                });
+            }, 300);
 
             const selectedCubes = cubes.filter(c => selectedIds.includes(c.id));
             const { cubes: refinedCubes, time } = await refineSelectionWithAI(selectedCubes, refinePrompt);
@@ -901,12 +1030,18 @@ export const App = () => {
 
             clearInterval(interval);
             setProgress(100);
+            updateToast(toastId, { progress: 100, message: 'Refinement Complete!', type: 'success', isLoading: false });
+            setTimeout(() => removeToast(toastId), 3000);
 
             setCubes(nextCubes); pushHistory(nextCubes);
             setSelectedIds(refinedCubes.map(c => c.id));
             addLog(`Refinement complete: ${time.toFixed(0)}ms.`, 'success');
             setRefinePrompt('');
-        } catch (e) { addLog('Refinement failed.', 'error'); }
+        } catch (e) {
+            addLog('Refinement failed.', 'error');
+            updateToast(toastId, { message: 'Refinement Failed', type: 'error', isLoading: false });
+            setTimeout(() => removeToast(toastId), 3000);
+        }
         finally { setIsGenerating(false); setLoading(false); }
     };
 
@@ -951,8 +1086,15 @@ export const App = () => {
                     const isTest = format === 'test_in_game';
                     addLog(`${isTest ? 'Testing' : 'Sending'} map '${name}'...`, 'info');
                     sendMapToTX(cubes, name, isTest).then(success => {
-                        if (success) addLog(`${isTest ? 'Test started!' : 'Map sent successfully!'}`, 'success');
-                        else addLog(`Failed to ${isTest ? 'start test' : 'send map'}.`, 'warning');
+                        if (success) {
+                            addLog(`${isTest ? 'Test started!' : 'Map sent successfully!'}`, 'success');
+                            // Clear respawn effect when map is loaded - aggressive clearing
+                            [100, 200, 500, 1000, 1500, 2000, 3000, 5000].forEach(delay => {
+                                setTimeout(() => clearRespawnEffect(), delay);
+                            });
+                        } else {
+                            addLog(`Failed to ${isTest ? 'start test' : 'send map'}.`, 'warning');
+                        }
                     }).catch(e => {
                         addLog(`${isTest ? 'Test' : 'Send'} failed: ${e.message || e}`, 'error');
                     });
@@ -991,11 +1133,11 @@ export const App = () => {
     };
 
     // --- Interaction ---
-    const handleSelect = (ids: string | string[] | null, additive = false) => {
+    const handleSelect = useCallback((ids: string | string[] | null, additive = false) => {
         if (ids === null) { setSelectedIds([]); return; }
         const list = Array.isArray(ids) ? ids : [ids];
         setSelectedIds(prev => additive ? Array.from(new Set([...prev, ...list])) : list);
-    };
+    }, []);
 
     const handleUpdateSelected = (up: Partial<CubeElement> | ((c: CubeElement) => Partial<CubeElement>)) => {
         const next = cubes.map(c => selectedIds.includes(c.id) ? { ...c, ...(typeof up === 'function' ? up(c) : up) } : c);
@@ -1121,6 +1263,156 @@ export const App = () => {
         addLog(`Preset '${preset.name}' applied.`, 'info');
     };
 
+    // Memoize filtered cubes for Scene component
+    const filteredCubes = useMemo(() => {
+        if (isIsolated) {
+            return cubes.filter(c => selectedIds.includes(c.id));
+        }
+        return cubes.filter(c => {
+            if (!c.visible) return false;
+            const cat = c.properties?.txCategory as TXObjectCategory;
+            return cat ? layerVisibility[cat] !== false : true;
+        });
+    }, [isIsolated, cubes, selectedIds, layerVisibility]);
+
+    // Memoize Scene callbacks
+    const handleSceneSelect = useCallback((ids: string | string[] | null, add?: boolean) => {
+        handleSelect(ids, add);
+        setContextMenu(prev => ({ ...prev, visible: false }));
+    }, [handleSelect]);
+
+    const handleSceneTransform = useCallback(() => {
+        // Empty transform handler
+    }, []);
+
+    const handleSceneBatchTransform = useCallback((ups: { id: string, position?: any, rotation?: any, size?: any }[]) => {
+        setCubes(prev => prev.map(c => {
+            const u = ups.find(x => x.id === c.id);
+            return u ? { ...c, ...u } : c;
+        }));
+    }, []);
+
+    const handleSceneTransformEnd = useCallback(() => {
+        pushHistory(cubes);
+    }, [cubes, pushHistory]);
+
+    // Function to find the highest point above surface at given X, Z position
+    const getSurfaceHeight = useCallback((x: number, z: number, objectSize: { x: number, y: number, z: number }): number => {
+        let maxHeight = 0;
+
+        // 1. Check terrain elevation if available
+        if (terrainMeshData) {
+            const terrainHeight = getElevationAt(
+                x,
+                z,
+                terrainMeshData.elevationGrid,
+                terrainMeshData.gridSize,
+                terrainMeshData.width
+            );
+            maxHeight = Math.max(maxHeight, terrainHeight);
+        }
+
+        // 2. Check all cubes that might be under or near this position
+        // Check cubes that overlap with the object's footprint (considering object size)
+        const halfSizeX = objectSize.x / 2;
+        const halfSizeZ = objectSize.z / 2;
+
+        for (const cube of cubes) {
+            if (!cube.visible) continue;
+
+            // Calculate cube bounds
+            const cubeHalfX = cube.size.x / 2;
+            const cubeHalfZ = cube.size.z / 2;
+            const cubeMinX = cube.position.x - cubeHalfX;
+            const cubeMaxX = cube.position.x + cubeHalfX;
+            const cubeMinZ = cube.position.z - cubeHalfZ;
+            const cubeMaxZ = cube.position.z + cubeHalfZ;
+
+            // Check if object footprint overlaps with cube footprint
+            const objMinX = x - halfSizeX;
+            const objMaxX = x + halfSizeX;
+            const objMinZ = z - halfSizeZ;
+            const objMaxZ = z + halfSizeZ;
+
+            if (objMaxX >= cubeMinX && objMinX <= cubeMaxX &&
+                objMaxZ >= cubeMinZ && objMinZ <= cubeMaxZ) {
+                // Overlap detected - get top of this cube
+                const cubeTop = cube.position.y + (cube.size.y / 2);
+                maxHeight = Math.max(maxHeight, cubeTop);
+            }
+        }
+
+        // 3. Ensure minimum height above ground (0.1 units minimum)
+        return Math.max(maxHeight, 0.1);
+    }, [cubes, terrainMeshData]);
+
+    // Memoize onDropItem callback
+    const handleDropItem = useCallback((itemId: string, position: { x: number, y: number, z: number }) => {
+        const paletteItem = paletteItems.find(p => p.id === itemId);
+        const size = { x: 1, y: 1, z: 1 };
+
+        let type = 'cube';
+        let color = '#cccccc';
+        let name = 'Cube';
+        let props: any = {};
+        let material = undefined;
+
+        if (paletteItem) {
+            name = paletteItem.name;
+            color = paletteItem.color;
+            type = paletteItem.type;
+
+            // Get size from palette item properties if available
+            if (paletteItem.properties?.size) {
+                size.x = paletteItem.properties.size.x || size.x;
+                size.y = paletteItem.properties.size.y || size.y;
+                size.z = paletteItem.properties.size.z || size.z;
+            }
+
+            // Special handling for specific types
+            if (type === 'spawn') props = { txType: 'spawn' };
+
+            if (paletteItem.properties) {
+                props = { ...props, ...paletteItem.properties };
+                if (paletteItem.properties.material) {
+                    material = paletteItem.properties.material;
+                }
+            }
+        } else {
+            // Fallback/Legacy
+            if (itemId === 'window') { color = '#607d8b'; props = { transparent: true, opacity: 0.5 }; }
+            if (itemId === 'ramp') { color = '#ffb74d'; type = 'ramp'; }
+        }
+
+        // Calculate correct Y position above surface
+        const surfaceHeight = getSurfaceHeight(position.x, position.z, size);
+        // Position object so its bottom is on the surface, center is at surfaceHeight + size.y/2
+        const correctedY = surfaceHeight + (size.y / 2);
+
+        const newCube: CubeElement = {
+            id: generateId(),
+            name,
+            type: type as any,
+            position: {
+                x: position.x,
+                y: correctedY,
+                z: position.z
+            },
+            size,
+            rotation: { x: 0, y: 0, z: 0 },
+            color,
+            visible: true,
+            isLocked: false,
+            properties: props,
+            material
+        };
+        const nextCubes = [...cubes, newCube];
+        setCubes(nextCubes);
+        setSelectedIds([newCube.id]);
+        pushHistory(nextCubes);
+        setDraggedItem(null);
+    }, [paletteItems, cubes, pushHistory, getSurfaceHeight]);
+
     if (!isAppLoaded) return <div className="h-screen w-screen bg-gray-950 flex items-center justify-center text-accent-500 font-mono animate-pulse uppercase tracking-[0.5em]">PolyGen Engine v5.0 Finalizing...</div>;
 
     return (
@@ -1150,7 +1442,16 @@ export const App = () => {
                     setSelectedIds(cubes.filter(c => c.visible && !c.isLocked).map(c => c.id));
                     e.preventDefault();
                 } // Select All
-                if (e.key === 'Escape') { setSelectedIds([]); } // Deselect all
+                if (e.key === 'Escape') {
+                    // In game mode (tank mode or in iframe), show pause menu
+                    if (editorMode === 'tank' || isInTXIframe()) {
+                        setShowPauseMenu(prev => !prev);
+                        e.preventDefault();
+                    } else {
+                        // In editor mode, deselect all
+                        setSelectedIds([]);
+                    }
+                }
                 if (e.ctrlKey && e.key === 'd') { handleCopy(); handlePaste(); e.preventDefault(); } // Duplicate
 
                 // Delete
@@ -1409,6 +1710,17 @@ export const App = () => {
                             <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><label htmlFor="setting-axes">Axes</label><input id="setting-axes" name="setting-axes" type="checkbox" checked={showAxes} onChange={e => setShowAxes(e.target.checked)} className="accent-accent-500" /></div>
                             <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><label htmlFor="setting-wireframe">Wireframe</label><input id="setting-wireframe" name="setting-wireframe" type="checkbox" checked={showWireframe} onChange={e => setShowWireframe(e.target.checked)} className="accent-accent-500" /></div>
                             <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><label htmlFor="setting-stats">Stats Overlay</label><input id="setting-stats" name="setting-stats" type="checkbox" checked={showStats} onChange={e => setShowStats(e.target.checked)} className="accent-accent-500" /></div>
+                        </div>
+                        <div className="border-t border-gray-800 pt-4">
+                            <button 
+                                onClick={() => {
+                                    setShowSettingsMenu(false);
+                                    setShowSessionModal(true);
+                                }}
+                                className="w-full px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg text-[10px] font-bold uppercase transition-colors flex items-center justify-center gap-2"
+                            >
+                                <span>🔗</span> Сессия
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1769,69 +2081,22 @@ export const App = () => {
                     }}
                 >
                     <Scene
-                        cubes={isIsolated ? cubes.filter(c => selectedIds.includes(c.id)) : cubes.filter(c => {
-                            if (!c.visible) return false;
-                            const cat = c.properties?.txCategory as TXObjectCategory;
-                            return cat ? layerVisibility[cat] !== false : true;
-                        })}
-                        selectedIds={selectedIds} onSelect={(ids, add) => { handleSelect(ids, add); setContextMenu({ ...contextMenu, visible: false }); }} onTransform={() => { }}
-                        onBatchTransform={(ups) => setCubes(prev => prev.map(c => { const u = ups.find(x => x.id === c.id); return u ? { ...c, ...u } : c }))}
-                        onTransformEnd={() => pushHistory(cubes)} toolMode={toolMode} snapGrid={snapEnabled ? 0.25 : null} snapAngle={snapEnabled ? 15 : null}
+                        cubes={filteredCubes}
+                        selectedIds={selectedIds} 
+                        onSelect={handleSceneSelect} 
+                        onTransform={handleSceneTransform}
+                        onBatchTransform={handleSceneBatchTransform}
+                        onTransformEnd={handleSceneTransformEnd} 
+                        toolMode={toolMode} 
+                        snapGrid={snapEnabled ? 0.25 : null} 
+                        snapAngle={snapEnabled ? 15 : null}
                         backgroundColor={viewportColor} gridColor="#1a1a20" sectionColor="#2a2a35" showGrid={showGrid} showWireframe={showWireframe} showAxes={showAxes}
                         cameraMode={cameraMode}
 
                         performanceMode={!showStats}
                         terrainData={terrainMeshData || undefined}
                         draggedItem={draggedItem}
-                        onDropItem={(itemId, position) => {
-                            const paletteItem = paletteItems.find(p => p.id === itemId);
-                            const size = { x: 1, y: 1, z: 1 };
-
-                            let type = 'cube';
-                            let color = '#cccccc';
-                            let name = 'Cube';
-                            let props: any = {};
-                            let material = undefined;
-
-                            if (paletteItem) {
-                                name = paletteItem.name;
-                                color = paletteItem.color;
-                                type = paletteItem.type;
-
-                                // Special handling for specific types
-                                if (type === 'spawn') props = { txType: 'spawn' };
-
-                                if (paletteItem.properties) {
-                                    props = { ...props, ...paletteItem.properties };
-                                    if (paletteItem.properties.material) {
-                                        material = paletteItem.properties.material;
-                                    }
-                                }
-                            } else {
-                                // Fallback/Legacy
-                                if (itemId === 'window') { color = '#607d8b'; props = { transparent: true, opacity: 0.5 }; }
-                                if (itemId === 'ramp') { color = '#ffb74d'; type = 'ramp'; }
-                            }
-
-                            const newCube: CubeElement = {
-                                id: generateId(),
-                                name,
-                                type: type as any,
-                                position,
-                                size,
-                                rotation: { x: 0, y: 0, z: 0 },
-                                color,
-                                visible: true,
-                                isLocked: false,
-                                properties: props,
-                                material
-                            };
-                            const nextCubes = [...cubes, newCube];
-                            setCubes(nextCubes);
-                            setSelectedIds([newCube.id]);
-                            pushHistory(nextCubes);
-                            setDraggedItem(null);
-                        }}
+                        onDropItem={handleDropItem}
                         onPaintCube={(id) => {
                             if (toolMode === ToolMode.PAINT) {
                                 const nc = cubes.map(c => c.id === id ? { ...c, color: paintColor } : c);
@@ -1995,11 +2260,47 @@ export const App = () => {
                                 isMapMode={true}
                                 onDragStart={handleDragStart}
                                 onPlaceObject={(newCubes) => {
-                                    const next = [...cubes, ...newCubes];
-                                    setCubes(next);
-                                    pushHistory(next);
-                                    setSelectedIds(newCubes.map(c => c.id));
-                                    addLog(`Добавлен объект: ${newCubes[0]?.name || 'TX Object'}`, 'success');
+                                    // Calculate surface height for the first cube (main object position)
+                                    if (newCubes.length > 0) {
+                                        const firstCube = newCubes[0];
+                                        // Find the minimum Y offset among all cubes to get the bottom of the object
+                                        const minY = Math.min(...newCubes.map(c => c.position.y - c.size.y / 2));
+                                        
+                                        // Calculate surface height at the object's X, Z position
+                                        // Use the largest footprint dimension for better collision detection
+                                        const maxSizeX = Math.max(...newCubes.map(c => c.size.x));
+                                        const maxSizeZ = Math.max(...newCubes.map(c => c.size.z));
+                                        const surfaceHeight = getSurfaceHeight(
+                                            firstCube.position.x,
+                                            firstCube.position.z,
+                                            { x: maxSizeX, y: 0, z: maxSizeZ }
+                                        );
+                                        
+                                        // Calculate offset to place object bottom on surface
+                                        // minY is the bottom of the lowest cube, surfaceHeight is where we want the bottom
+                                        const yOffset = surfaceHeight - minY;
+                                        
+                                        // Adjust Y position for all cubes in the object
+                                        const adjustedCubes = newCubes.map(cube => ({
+                                            ...cube,
+                                            position: {
+                                                ...cube.position,
+                                                y: cube.position.y + yOffset
+                                            }
+                                        }));
+                                        
+                                        const next = [...cubes, ...adjustedCubes];
+                                        setCubes(next);
+                                        pushHistory(next);
+                                        setSelectedIds(adjustedCubes.map(c => c.id));
+                                        addLog(`Добавлен объект: ${adjustedCubes[0]?.name || 'TX Object'}`, 'success');
+                                    } else {
+                                        const next = [...cubes, ...newCubes];
+                                        setCubes(next);
+                                        pushHistory(next);
+                                        setSelectedIds(newCubes.map(c => c.id));
+                                        addLog(`Добавлен объект: ${newCubes[0]?.name || 'TX Object'}`, 'success');
+                                    }
                                 }}
                             />
                         ) : rightTab === 'layers' ? (
@@ -2176,27 +2477,22 @@ export const App = () => {
                                         </button>
                                         <input type="file" ref={uploadRefineRef} className="hidden" accept=".txt,.md,.json" onChange={(e) => handleFileUpload(e, setRefinePrompt)} />
                                         <button
-                                            onClick={() => setShowGenSettings(!showGenSettings)}
-                                            className={`text-[9px] flex items-center gap-1 font-bold uppercase transition-colors ${showGenSettings ? 'text-accent-400' : 'text-gray-500 hover:text-white'}`}
+                                            className={`text-[9px] flex items-center gap-1 font-bold uppercase transition-colors text-gray-500 cursor-default`}
                                         >
-                                            <Icons.Sliders /> {showGenSettings ? 'Hide Settings' : 'Expand Map/Model'}
+                                            <Icons.Sliders /> AI Edit
                                         </button>
                                     </div>
                                     {/* Generation Settings for Refine - Collapsible */}
                                     {showGenSettings && (
                                         <>
                                             <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-800">
-                                                <div className="space-y-1"><label className="text-[9px] font-bold text-gray-500 uppercase">Complexity</label><select value={genComplexity} onChange={e => setGenComplexity(e.target.value as any)} className="w-full bg-gray-900 border border-gray-700 rounded p-1.5 text-[9px] text-white outline-none"><option value="simple">Simple</option><option value="medium">Standard</option><option value="detailed">Ultra</option></select></div>
-                                                <div className="space-y-1"><label className="text-[9px] font-bold text-gray-500 uppercase">Map Size</label><select value={genMapSize} onChange={e => setGenMapSize(Number(e.target.value))} className="w-full bg-gray-900 border border-gray-700 rounded p-1.5 text-[9px] text-white outline-none"><option value={100}>100×100</option><option value={200}>200×200</option><option value={300}>300×300</option><option value={500}>500×500</option><option value={1000}>1000×1000</option></select></div>
+                                                <div className="space-y-1 col-span-2"><label className="text-[9px] font-bold text-gray-500 uppercase">Complexity</label><select value={genComplexity} onChange={e => setGenComplexity(e.target.value as any)} className="w-full bg-gray-900 border border-gray-700 rounded p-1.5 text-[9px] text-white outline-none"><option value="simple">Simple</option><option value="medium">Standard</option><option value="detailed">Ultra</option></select></div>
                                             </div>
                                             <div className="grid grid-cols-3 gap-2">
                                                 <div className="space-y-1"><label className="text-[9px] font-bold text-gray-500 uppercase">Detail</label><DraggableNumberInput label="D" value={genDetailDensity} onChange={setGenDetailDensity} step={1} /></div>
                                                 <div className="space-y-1"><label className="text-[9px] font-bold text-gray-500 uppercase">Organic</label><DraggableNumberInput label="O" value={genOrganicness} onChange={setGenOrganicness} step={0.1} /></div>
                                                 <div className="space-y-1"><label className="text-[9px] font-bold text-accent-500 uppercase">Creativity</label><DraggableNumberInput label="C" value={genCreativity} onChange={setGenCreativity} step={0.1} /></div>
                                             </div>
-                                            <button className="w-full py-1.5 mt-1 bg-gray-800 hover:bg-gray-700 text-[9px] font-bold text-gray-300 uppercase rounded border border-gray-700 flex justify-center items-center gap-2" onClick={() => { setGenMapSize(prev => Math.min(1000, prev + 100)); }}>
-                                                <Icons.Expand /> Extend Map via AI (+100)
-                                            </button>
                                         </>
                                     )}
                                     <div className="flex gap-2">
@@ -2345,16 +2641,189 @@ export const App = () => {
                 </div>
             )}
 
+            {/* Pause Menu (Game Mode) */}
+            {showPauseMenu && (editorMode === 'tank' || isInTXIframe()) && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center pointer-events-auto">
+                    {/* Transparent backdrop - only visible where there are menu elements */}
+                    <div 
+                        className="absolute inset-0 bg-transparent"
+                        onClick={() => setShowPauseMenu(false)}
+                    />
+                    
+                    {/* Menu Content - visible with solid background */}
+                    <div 
+                        className="relative bg-gray-900/95 backdrop-blur-xl border border-gray-700 rounded-2xl shadow-2xl p-8 min-w-[320px] max-w-[500px] animate-in zoom-in-95 duration-200"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex flex-col gap-4">
+                            <div className="flex justify-between items-center border-b border-gray-800 pb-4">
+                                <h2 className="text-xl font-black text-white uppercase tracking-wider">Game Menu</h2>
+                                <button 
+                                    onClick={() => setShowPauseMenu(false)}
+                                    className="text-gray-500 hover:text-white transition-colors"
+                                >
+                                    <Icons.Close />
+                                </button>
+                            </div>
+                            
+                            <div className="flex flex-col gap-2">
+                                <button
+                                    onClick={() => {
+                                        setShowPauseMenu(false);
+                                        // Clear any lingering effects when resuming
+                                        clearRespawnEffect();
+                                        clearLowHealthEffect();
+                                    }}
+                                    className="px-6 py-3 bg-accent-600 hover:bg-accent-500 text-white rounded-lg text-sm font-bold uppercase tracking-wider transition-all shadow-lg"
+                                >
+                                    Resume
+                                </button>
+                                
+                                <button
+                                    onClick={() => {
+                                        // Force clear dark screen effect
+                                        clearRespawnEffect();
+                                        clearLowHealthEffect();
+                                        addLog('Dark screen effect cleared', 'info');
+                                    }}
+                                    className="px-6 py-3 bg-yellow-900/50 hover:bg-yellow-900/70 text-yellow-400 rounded-lg text-sm font-bold uppercase tracking-wider transition-all border border-yellow-900/50"
+                                >
+                                    Clear Dark Screen
+                                </button>
+                                
+                                <button
+                                    onClick={() => {
+                                        setShowSettingsModal(true);
+                                        setShowPauseMenu(false);
+                                    }}
+                                    className="px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm font-bold uppercase tracking-wider transition-all border border-gray-700"
+                                >
+                                    Settings
+                                </button>
+                                
+                                <button
+                                    onClick={() => {
+                                        setShowHelpModal(true);
+                                        setShowPauseMenu(false);
+                                    }}
+                                    className="px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm font-bold uppercase tracking-wider transition-all border border-gray-700"
+                                >
+                                    Help
+                                </button>
+                                
+                                {isInTXIframe() && (
+                                    <button
+                                        onClick={() => {
+                                            window.parent.postMessage({ type: 'CLOSE_EDITOR' }, '*');
+                                        }}
+                                        className="px-6 py-3 bg-red-900/50 hover:bg-red-900/70 text-red-400 rounded-lg text-sm font-bold uppercase tracking-wider transition-all border border-red-900/50"
+                                    >
+                                        Exit Game
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Session/Multiplayer Modal */}
+            {showSessionModal && (
+                <div 
+                    className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+                    onClick={() => setShowSessionModal(false)}
+                >
+                    <div 
+                        className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md p-6"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                                🔗 Управление сессией
+                            </h2>
+                            <button 
+                                onClick={() => setShowSessionModal(false)}
+                                className="text-gray-400 hover:text-white transition-colors"
+                            >
+                                <Icons.Close />
+                            </button>
+                        </div>
+                        
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-400 mb-2 uppercase">
+                                    ID Комнаты
+                                </label>
+                                <input
+                                    type="text"
+                                    value={roomId}
+                                    onChange={(e) => setRoomId(e.target.value)}
+                                    className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:border-accent-500 outline-none"
+                                    placeholder="Введите ID комнаты"
+                                />
+                            </div>
+                            
+                            <div className="flex items-center justify-between p-3 bg-gray-950 rounded-lg border border-gray-800">
+                                <div>
+                                    <div className="text-sm font-bold text-gray-300">Статус подключения</div>
+                                    <div className={`text-xs mt-1 ${isConnected ? 'text-green-400' : 'text-gray-500'}`}>
+                                        {isConnected ? '✓ Подключено' : '✗ Не подключено'}
+                                    </div>
+                                </div>
+                                <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-600'}`} />
+                            </div>
+                            
+                            <div className="flex gap-2">
+                                {!isConnected ? (
+                                    <button
+                                        onClick={() => {
+                                            handleConnect();
+                                            setShowSessionModal(false);
+                                        }}
+                                        className="flex-1 px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white rounded-lg text-sm font-bold uppercase transition-colors"
+                                    >
+                                        Подключиться
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={() => {
+                                            multiplayer.disconnect();
+                                            setIsConnected(false);
+                                            setShowSessionModal(false);
+                                            addLog('Отключено от сессии', 'info');
+                                        }}
+                                        className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-bold uppercase transition-colors"
+                                    >
+                                        Отключиться
+                                    </button>
+                                )}
+                            </div>
+                            
+                            {isConnected && (
+                                <div className="p-3 bg-gray-950 rounded-lg border border-gray-800">
+                                    <div className="text-xs text-gray-400 mb-2">Информация о сессии:</div>
+                                    <div className="text-xs text-gray-300 space-y-1">
+                                        <div>Комната: <span className="text-accent-400 font-mono">{roomId}</span></div>
+                                        <div>Удалённых курсоров: <span className="text-accent-400">{Object.keys(remoteCursors).length}</span></div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Toast Notifications with Progress */}
             <div className="fixed bottom-4 right-4 z-[9999] space-y-2 pointer-events-none">
                 {toasts.map(toast => (
                     <div
                         key={toast.id}
-                        className={`px-4 py-3 rounded-lg shadow-xl text-sm font-medium animate-in slide-in-from-right duration-300 min-w-[200px] ${toast.type === 'success' ? 'bg-green-600 text-white' :
+                        className={`px-4 py-3 rounded-lg shadow-xl text-sm font-medium animate-in slide-in-from-right duration-300 min-w-[200px] max-w-[400px] pointer-events-auto ${toast.type === 'success' ? 'bg-green-600 text-white' :
                             toast.type === 'error' ? 'bg-red-600 text-white' :
                                 toast.type === 'warning' ? 'bg-yellow-600 text-white' :
                                     'bg-gray-800 text-white border border-gray-700'
                             }`}
+                        style={{ whiteSpace: 'pre-line' }}
                     >
                         <div className="flex items-center gap-2">
                             {toast.isLoading && (

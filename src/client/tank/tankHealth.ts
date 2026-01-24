@@ -4,6 +4,7 @@ import { Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsBody, Phys
 import type { ITankController } from "./types";
 import { TANK_CONSTANTS } from "./constants";
 import { CHASSIS_SIZE_MULTIPLIERS } from "./tankChassis";
+import { tankLogger } from "../utils/logger";
 
 export class TankHealthModule {
     private tank: ITankController;
@@ -82,7 +83,7 @@ export class TankHealthModule {
                 // AVODED!
                 if (this.tank.hud && this.tank.chassis) {
                     const missPos = this.tank.chassis.position.clone().add(new Vector3(0, 2, 0));
-                    this.tank.hud.showDamageNumber(missPos, 0, 'received', false, "MISS");
+                    this.tank.hud.showDamageNumber(missPos, 0, 'received', false);
                 }
                 return;
             }
@@ -220,7 +221,7 @@ export class TankHealthModule {
             if (this.tank.currentFuel <= 0) {
                 this.tank.currentFuel = 0;
                 this.tank.isFuelEmpty = true;
-                console.log("[TANK] Out of fuel!");
+                tankLogger.warn("[TANK] Out of fuel!");
             }
         }
     }
@@ -300,7 +301,7 @@ export class TankHealthModule {
         }
     }
 
-    private updateInvulnerability(): void {
+    public updateInvulnerability(): void {
         if (!this.isInvulnerable) return;
 
         const elapsed = Date.now() - this.invulnerabilityStartTime;
@@ -451,7 +452,7 @@ export class TankHealthModule {
         // КРИТИЧНО: Блокируем updateCamera на время анимации (предотвращает дёрганья)
         game.isCameraAnimating = true;
 
-        console.log(`[TANK] Starting smooth camera transition from death (${startPos.x.toFixed(2)}, ${startPos.y.toFixed(2)}, ${startPos.z.toFixed(2)}) to respawn (${targetPos.x.toFixed(2)}, ${targetPos.y.toFixed(2)}, ${targetPos.z.toFixed(2)})`);
+        tankLogger.info(`[TANK] Starting smooth camera transition from death (${startPos.x.toFixed(2)}, ${startPos.y.toFixed(2)}, ${startPos.z.toFixed(2)}) to respawn (${targetPos.x.toFixed(2)}, ${targetPos.y.toFixed(2)}, ${targetPos.z.toFixed(2)})`);
 
         const animate = () => {
             const elapsed = Date.now() - startTime;
@@ -627,26 +628,36 @@ export class TankHealthModule {
 
     /**
      * Находит случайную безопасную позицию для респавна (если гаража нет)
+     * ИСПРАВЛЕНО: Использует findSafeSpawnPosition() для поиска безопасной позиции над верхней поверхностью
      * Танк спавнится на ВЕРХНЕЙ поверхности (крыша здания или террейн)
      */
     private findSafeRandomSpawnPosition(): Vector3 {
         const game = (window as any).gameInstance;
 
-        // Используем новую функцию из Game для спавна на верхней поверхности
+        // ИСПРАВЛЕНО: Используем findSafeSpawnPosition() для поиска случайной позиции в радиусе
         if (game && typeof game.findSafeSpawnPosition === 'function') {
-            const safePos = game.findSafeSpawnPosition(0, 0, 50, 200, 1);
-            console.log(`[TANK] Spawn on top surface via Game: (${safePos.x.toFixed(2)}, ${safePos.y.toFixed(2)}, ${safePos.z.toFixed(2)})`);
+            const safePos = game.findSafeSpawnPosition(0, 0, 50, 200, 10);
+            console.log(`[TANK] Spawn on top surface via Game.findSafeSpawnPosition: (${safePos.x.toFixed(2)}, ${safePos.y.toFixed(2)}, ${safePos.z.toFixed(2)})`);
             return safePos;
         }
 
-        // Fallback: генерируем позицию и находим верхнюю поверхность
+        // Fallback: генерируем позицию и используем findSafeSpawnPositionAt()
         const mapRadius = 200;
         const angle = Math.random() * Math.PI * 2;
         const distance = 50 + Math.random() * (mapRadius - 50);
         const x = Math.cos(angle) * distance;
         const z = Math.sin(angle) * distance;
 
-        // Получаем высоту верхней поверхности
+        // ИСПРАВЛЕНО: Используем findSafeSpawnPositionAt() для конкретных координат
+        if (game && typeof game.findSafeSpawnPositionAt === 'function') {
+            const safePos = game.findSafeSpawnPositionAt(x, z, 2.0, 5);
+            if (safePos) {
+                console.log(`[TANK] Spawn on top surface via Game.findSafeSpawnPositionAt: (${safePos.x.toFixed(2)}, ${safePos.y.toFixed(2)}, ${safePos.z.toFixed(2)})`);
+                return safePos;
+            }
+        }
+
+        // Fallback: получаем высоту верхней поверхности
         let surfaceY = 5;
         if (game && typeof game.getTopSurfaceHeight === 'function') {
             surfaceY = game.getTopSurfaceHeight(x, z);
@@ -657,34 +668,44 @@ export class TankHealthModule {
             surfaceY = this.getTopSurfaceHeightLocal(x, z);
         }
 
-        const spawnY = surfaceY + 1.5;
-        console.log(`[TANK] Spawn on top surface: (${x.toFixed(2)}, ${spawnY.toFixed(2)}, ${z.toFixed(2)})`);
+        const spawnY = surfaceY + 2.0; // ИСПРАВЛЕНО: Увеличен отступ до 2.0м
+        console.log(`[TANK] Spawn on top surface (fallback): (${x.toFixed(2)}, ${spawnY.toFixed(2)}, ${z.toFixed(2)})`);
         return new Vector3(x, spawnY, z);
     }
 
     /**
      * Локальный метод получения высоты САМОЙ ВЕРХНЕЙ поверхности
+     * ИСПРАВЛЕНО: Улучшен по аналогии с основным методом getTopSurfaceHeight() в game.ts
      * Использует multiPickWithRay для нахождения крыши
      */
     private getTopSurfaceHeightLocal(x: number, z: number): number {
-        // Raycast сверху вниз чтобы найти ВСЕ поверхности
-        const rayStart = new Vector3(x, 200, z);
-        const ray = new Ray(rayStart, new Vector3(0, -1, 0), 250);
+        if (!this.tank.scene) return 5.0; // Fallback если сцены нет
+
+        // ИСПРАВЛЕНО: Raycast с очень большой высоты (500м) вниз на 600м для покрытия всех объектов
+        const rayStart = new Vector3(x, 500, z);
+        const ray = new Ray(rayStart, new Vector3(0, -1, 0), 600);
 
         const hits = this.tank.scene.multiPickWithRay(ray, (mesh) => {
-            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+            if (!mesh || !mesh.isEnabled()) return false;
+            
+            // ИСПРАВЛЕНО: Улучшенный фильтр - исключаем только явно служебные объекты
             const name = mesh.name.toLowerCase();
 
-            // Пропускаем служебные меши
+            // Пропускаем только явно служебные объекты
             if (name.includes("trigger") ||
                 name.includes("collider") ||
                 name.includes("invisible") ||
                 name.includes("skybox") ||
+                name.includes("light") ||
+                name.includes("particle") ||
                 name.includes("bullet") ||
-                name.includes("projectile")) {
+                name.includes("projectile") ||
+                name.includes("ui") ||
+                name.includes("hud")) {
                 return false;
             }
 
+            // Разрешаем все остальные меши (террейн, здания, объекты карты)
             return true;
         });
 
@@ -692,16 +713,22 @@ export class TankHealthModule {
             // Находим САМУЮ ВЫСОКУЮ точку (крышу)
             let maxHeight = -Infinity;
             for (const hit of hits) {
-                if (hit.hit && hit.pickedPoint && hit.pickedPoint.y > maxHeight) {
-                    maxHeight = hit.pickedPoint.y;
+                if (hit.hit && hit.pickedPoint) {
+                    const h = hit.pickedPoint.y;
+                    // ИСПРАВЛЕНО: Расширен диапазон валидных высот до [-10, 500]
+                    if (h > maxHeight && h > -10 && h < 500) {
+                        maxHeight = h;
+                    }
                 }
             }
-            if (maxHeight > -Infinity) {
+            
+            // ИСПРАВЛЕНО: Проверка валидности результата
+            if (maxHeight > -Infinity && maxHeight >= -10 && maxHeight <= 500) {
                 return maxHeight;
             }
         }
 
-        return 5; // Fallback
+        return 5.0; // Fallback
     }
 
     /**
@@ -1257,7 +1284,7 @@ export class TankHealthModule {
         (tank as any).leftTrack?.computeWorldMatrix?.(true);
         (tank as any).rightTrack?.computeWorldMatrix?.(true);
 
-        console.log("[TankHealth] Tank visual hierarchy restored");
+        tankLogger.info("[TankHealth] Tank visual hierarchy restored");
     }
 }
 

@@ -7,7 +7,7 @@
 
 import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, Quaternion } from "@babylonjs/core";
 import type { NetworkPlayer } from "./multiplayer";
-import { getChassisById, getCannonById, type ChassisType, type CannonType } from "./tankTypes";
+import { getChassisById, getCannonById, getTrackById, type ChassisType, type CannonType, type TrackType } from "./tankTypes";
 import { createUniqueCannon, type CannonAnimationElements } from "./tank/tankCannon";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { MaterialFactory } from "./garage/materials";
@@ -44,6 +44,7 @@ export class NetworkPlayerTank {
     // Tank types
     private chassisType: ChassisType;
     private cannonType: CannonType;
+    private trackType: TrackType;
 
     // Network player reference
     networkPlayer: NetworkPlayer;
@@ -59,6 +60,8 @@ export class NetworkPlayerTank {
 
     // КРИТИЧНО: Флаг для мгновенной телепортации при первом обновлении
     needsInitialSync: boolean = true;
+    // КРИТИЧНО: Флаг для мгновенной телепортации при респавне
+    needsRespawnTeleport: boolean = false;
 
     // Cubic interpolation state
     private useCubicInterpolation: boolean = true; // Enable cubic interpolation
@@ -108,12 +111,19 @@ export class NetworkPlayerTank {
 
         // Get tank types from network player or use defaults
         this.chassisType = getChassisById(networkPlayer.chassisType || "medium");
+        // Get tank types from network player or use defaults
+        this.chassisType = getChassisById(networkPlayer.chassisType || "medium");
         this.cannonType = getCannonById(networkPlayer.cannonType || "standard");
+        // FIX: Add track type support (default to standard if not in network player yet)
+        this.trackType = getTrackById((networkPlayer as any).trackType || "standard");
 
         // Create tank visuals using REAL detailed models
         this.chassis = this.createDetailedChassis();
         this.turret = this.createDetailedTurret();
         this.barrel = this.createDetailedBarrel();
+
+        // FIX: Add visual wheels (missing in previous version)
+        this.createVisualWheels();
 
         // Set initial position
         if (networkPlayer.position) {
@@ -213,6 +223,14 @@ export class NetworkPlayerTank {
         if (chassisChanged || colorsChanged) {
             this.chassisType = newChassisType;
 
+            // Эффект переодевания корпуса: голубое свечение корпуса
+            if (this.effectsManager && this.chassis) {
+                const effectPos = this.chassis.position.clone();
+                effectPos.y += this.chassisType.height * 0.5; // Центр корпуса
+                // Создаём эффект телепорта (голубое свечение)
+                this.effectsManager.createTeleportEffect(effectPos);
+            }
+
             // Dispose old chassis parts (tracks etc are children usually, but we keep refs)
             if (this.leftTrack) this.leftTrack.dispose();
             if (this.rightTrack) this.rightTrack.dispose();
@@ -232,9 +250,37 @@ export class NetworkPlayerTank {
 
         if (cannonChanged) {
             this.cannonType = newCannonType;
+            
+            // Эффект переодевания пушки: золотистое свечение ствола
+            if (this.effectsManager && this.barrel) {
+                const effectPos = this.barrel.position.clone();
+                // Эффект телепорта для золотистого свечения ствола
+                this.effectsManager.createTeleportEffect(effectPos);
+            }
+            
             // If only cannon changed, we could try to just replace the barrel, 
             // but 'createDetailedBarrel' assumes it attaches to 'this.turret'.
             // Safest to just rebuild turret + barrel or the whole tank.
+            this.rebuildTank();
+            return;
+        }
+
+        // Check track type change (if supported in future)
+        const newTrackType = getTrackById((this.networkPlayer as any).trackType || "standard");
+        if (newTrackType.id !== this.trackType.id) {
+            this.trackType = newTrackType;
+            
+            // Эффект переодевания гусениц: искры от гусениц
+            if (this.effectsManager && this.chassis) {
+                const leftPos = this.chassis.position.clone();
+                leftPos.x -= this.chassisType.width * 0.55;
+                const rightPos = this.chassis.position.clone();
+                rightPos.x += this.chassisType.width * 0.55;
+                // Искры от гусениц (используем эффект взрыва с маленьким радиусом)
+                this.effectsManager.createExplosion(leftPos, 0.3);
+                this.effectsManager.createExplosion(rightPos, 0.3);
+            }
+            
             this.rebuildTank();
             return;
         }
@@ -263,10 +309,12 @@ export class NetworkPlayerTank {
 
         this.chassisType = getChassisById(this.networkPlayer.chassisType || "medium");
         this.cannonType = getCannonById(this.networkPlayer.cannonType || "standard");
+        this.trackType = getTrackById((this.networkPlayer as any).trackType || "standard");
 
         this.chassis = this.createDetailedChassis();
         this.turret = this.createDetailedTurret();
         this.barrel = this.createDetailedBarrel();
+        this.createVisualWheels();
 
         // Restore transform
         this.chassis.position.copyFrom(pos);
@@ -380,16 +428,18 @@ export class NetworkPlayerTank {
 
 
     /**
-     * Создание ДЕТАЛИЗИРОВАННОЙ башни танка
+     * Создание башни танка (ИДЕНТИЧНО локальному игроку)
+     * ИСПРАВЛЕНО: Используем те же пропорции что и в TankController.rebuildTankVisuals
      */
     private createDetailedTurret(): Mesh {
         const w = this.chassisType.width;
         const h = this.chassisType.height;
         const d = this.chassisType.depth;
 
-        const turretWidth = w * 0.6;
-        const turretHeight = h * 0.5;
-        const turretDepth = d * 0.5;
+        // КРИТИЧНО: Те же пропорции что и у локального игрока (TankController строки 1044-1046)
+        const turretWidth = w * 0.65;
+        const turretHeight = h * 0.75;
+        const turretDepth = d * 0.6;
 
         const turret = MeshBuilder.CreateBox(
             `netTurret_${this.uniqueId}`,
@@ -397,25 +447,19 @@ export class NetworkPlayerTank {
             this.scene
         );
 
-        // Позиционируем башню на корпусе
-        turret.position.y = h * 0.5 + turretHeight * 0.5;
+        // Позиционируем башню на корпусе (как у локального игрока)
+        turret.position.y = h / 2 + turretHeight / 2;
         turret.parent = this.chassis;
 
-        // Материал башни - с безопасным парсингом цвета
-        // ИСПРАВЛЕНИЕ: Если turretColor серый (дефолтный), используем tankColor
-        let turretColorHex = this.networkPlayer.turretColor;
-        const isDefaultGray = !turretColorHex || turretColorHex === '#888888' || turretColorHex === '#808080';
-        if (isDefaultGray) {
-            turretColorHex = this.networkPlayer.tankColor || this.chassisType.color;
-        }
+        // Материал башни - используем тот же цвет что и корпус (как у локального игрока)
+        let turretColorHex = this.networkPlayer.tankColor || this.chassisType.color;
 
-        console.log(`[NetworkPlayerTank] 🎨 Turret color for ${this.playerId}:`, {
-            turretColor: this.networkPlayer.turretColor,
-            tankColor: this.networkPlayer.tankColor,
-            chassisColor: this.chassisType.color,
-            isDefaultGray,
-            finalColor: turretColorHex
-        });
+        // Если есть отдельный цвет башни и он не серый дефолтный - используем его
+        if (this.networkPlayer.turretColor &&
+            this.networkPlayer.turretColor !== '#888888' &&
+            this.networkPlayer.turretColor !== '#808080') {
+            turretColorHex = this.networkPlayer.turretColor;
+        }
 
         let color: Color3;
         try {
@@ -425,35 +469,17 @@ export class NetworkPlayerTank {
             color = new Color3(0, 1, 0);
         }
 
+        // Слегка темнее чем корпус (как у локального игрока)
+        color = color.scale(0.8);
+
         const turretMat = new StandardMaterial(`netTurretMat_${this.uniqueId}`, this.scene);
         turretMat.diffuseColor = color;
-        turretMat.emissiveColor = color.scale(0.15);
-        turretMat.specularColor = new Color3(0.2, 0.2, 0.2);
+        turretMat.specularColor = Color3.Black();
         turret.material = turretMat;
-
-        // Командирская башенка
-        const cupola = MeshBuilder.CreateBox(
-            `netCupola_${this.uniqueId}`,
-            { width: turretWidth * 0.35, height: turretHeight * 0.4, depth: turretDepth * 0.35 },
-            this.scene
-        );
-        cupola.position = new Vector3(0, turretHeight * 0.5 + turretHeight * 0.2, -turretDepth * 0.2);
-        cupola.parent = turret;
-        cupola.material = turretMat;
-
-        // Скосы башни спереди
-        const turretFrontSlope = MeshBuilder.CreateBox(
-            `netTurretFrontSlope_${this.uniqueId}`,
-            { width: turretWidth * 0.9, height: turretHeight * 0.6, depth: turretDepth * 0.3 },
-            this.scene
-        );
-        turretFrontSlope.position = new Vector3(0, turretHeight * 0.1, turretDepth * 0.4);
-        turretFrontSlope.rotation.x = -0.3;
-        turretFrontSlope.parent = turret;
-        turretFrontSlope.material = turretMat;
 
         turret.isVisible = true;
         turret.setEnabled(true);
+        turret.renderingGroupId = 0;
 
         return turret;
     }
@@ -499,6 +525,83 @@ export class NetworkPlayerTank {
     }
 
     /**
+     * Creates visual wheels/tracks for the tank
+     * Logic ported from TankController.createVisualWheels
+     */
+    private createVisualWheels(): void {
+        // Remove existing tracks if they exist (createDetailedChassis might have created them via createVisualTracks, 
+        // but we want to be consistent with TankController OR use createVisualTracks + Wheels?)
+
+        // Actually, createDetailedChassis calls createVisualTracks which returns {left, right}.
+        // TankController.createVisualWheels creates primitive boxes for tracks.
+        // If createVisualTracks creates nicer tracks, we should keep them.
+
+        // BUT TankController.createVisualWheels does NOT create wheels (cylinders). It creates tracks.
+        // So createDetailedChassis ALREADY did what TankController.createVisualWheels does.
+
+        // However, the user complains about missing details.
+        // Maybe TankController DOES create wheels elsewhere?
+        // I checked TankController.ts, it calls visualsModule.createVisualWheels().
+        // visualsModule delegates to tank.createVisualWheels().
+        // TankController.createVisualWheels() creates BOX TRACKS.
+
+        // So NetworkPlayerTank ALREADY has tracks (via createVisualTracks).
+        // If I replace them with createVisualWheels logic, it might match TankController better?
+
+        // Wait, NetworkPlayerTank.createDetailedChassis calls createVisualTracks.
+        // TankController calls createVisualWheels.
+
+        // Let's implement createVisualWheels as a way to overwrite/ensure tracks are correct using TrackType.
+        // Because createDetailedChassis used a default dark gray color and ignored TrackType!
+
+        // Dispose old tracks from createDetailedChassis if we are replacing them
+        if (this.leftTrack) {
+            this.leftTrack.dispose();
+            this.leftTrack = null;
+        }
+        if (this.rightTrack) {
+            this.rightTrack.dispose();
+            this.rightTrack = null;
+        }
+
+        // === TRACKS WITH SELECTED TYPE ===
+        const trackColor = Color3.FromHexString(this.trackType.color);
+        const trackMat = new StandardMaterial(`netTrackMat_${this.uniqueId}`, this.scene);
+        trackMat.diffuseColor = trackColor;
+        trackMat.specularColor = Color3.Black();
+        trackMat.freeze();
+
+        // Используем размеры из выбранного типа гусениц
+        const trackWidth = this.trackType.width;
+        const trackHeight = this.trackType.height;
+        const trackDepth = this.trackType.depth;
+
+        // Позиционирование относительно корпуса
+        const w = this.chassisType.width;
+        const h = this.chassisType.height;
+
+        // Left track
+        this.leftTrack = MeshBuilder.CreateBox(`netLeftTrack_${this.uniqueId}`, {
+            width: trackWidth,
+            height: trackHeight,
+            depth: trackDepth
+        }, this.scene);
+        this.leftTrack.position = new Vector3(-w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
+        this.leftTrack.parent = this.chassis;
+        this.leftTrack.material = trackMat;
+
+        // Right track
+        this.rightTrack = MeshBuilder.CreateBox(`netRightTrack_${this.uniqueId}`, {
+            width: trackWidth,
+            height: trackHeight,
+            depth: trackDepth
+        }, this.scene);
+        this.rightTrack.position = new Vector3(w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
+        this.rightTrack.parent = this.chassis;
+        this.rightTrack.material = trackMat;
+    }
+
+    /**
      * Пометить, что получено сетевое обновление
      */
     markNetworkUpdate(): void {
@@ -534,6 +637,24 @@ export class NetworkPlayerTank {
             }
             this.needsInitialSync = false;
             // Инициализируем буфер начальной позицией
+            this.positionBuffer = [{ x: targetX, y: targetY, z: targetZ, rotation: targetRotation, time: Date.now() }];
+            return;
+        }
+
+        // КРИТИЧНО: При респавне - МГНОВЕННАЯ телепортация (без интерполяции)
+        if (this.needsRespawnTeleport) {
+            this.chassis.position.x = targetX;
+            this.chassis.position.y = targetY;
+            this.chassis.position.z = targetZ;
+            this.chassis.rotation.y = targetRotation;
+            if (this.turret) {
+                this.turret.rotation.y = np.turretRotation || 0;
+            }
+            if (this.barrel) {
+                this.barrel.rotation.x = -(np.aimPitch || 0);
+            }
+            this.needsRespawnTeleport = false;
+            // Очищаем буфер и устанавливаем новую позицию
             this.positionBuffer = [{ x: targetX, y: targetY, z: targetZ, rotation: targetRotation, time: Date.now() }];
             return;
         }
@@ -887,6 +1008,9 @@ export class NetworkPlayerTank {
     setAlive(position?: Vector3): void {
         // console.log(`[NetworkPlayerTank] 🟢 setAlive called for ${this.playerId}, position=${position ? position.toString() : 'none'}`);
         // console.log(`[NetworkPlayerTank] 🟢 Chassis state: exists=${!!this.chassis}, disposed=${this.chassis?.isDisposed()}, enabled=${this.chassis?.isEnabled()}, visible=${this.chassis?.isVisible}`);
+
+        // КРИТИЧНО: Устанавливаем флаг для мгновенной телепортации при респавне
+        this.needsRespawnTeleport = true;
 
         if (position && this.chassis) {
             this.chassis.position.copyFrom(position);

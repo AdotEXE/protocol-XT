@@ -53,6 +53,11 @@ export interface ITankController {
     isFuelEmpty: boolean;
     fuelConsumptionRate: number;
 
+    // Tank bonuses (for tankHealth.ts)
+    evasion: number;
+    fuelEfficiencyBonus: number;
+    repairRate: number;
+
     // Движение
     throttleTarget: number;
     steerTarget: number;

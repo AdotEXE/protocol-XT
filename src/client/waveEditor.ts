@@ -41,24 +41,38 @@ export class WaveEditor {
         
         const style = document.createElement("style");
         style.textContent = `
+            /* ИСПРАВЛЕНИЕ: Переопределяем стили panel-overlay для wave-editor */
+            #wave-editor.panel-overlay {
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+                background: rgba(0, 0, 0, 0.8) !important;
+                display: flex !important;
+                justify-content: center !important;
+                align-items: center !important;
+                z-index: 100002 !important;
+            }
+            
             #wave-editor {
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                width: min(800px, 90vw);
-                max-height: min(700px, 90vh);
+                position: relative !important;
+                width: min(900px, 95vw) !important;
+                max-width: 95vw !important;
+                height: min(700px, 90vh) !important;
+                max-height: 90vh !important;
                 background: rgba(0, 10, 0, 0.95);
                 border: 2px solid rgba(0, 255, 4, 0.6);
                 border-radius: 8px;
                 color: #0f0;
                 font-family: Consolas, Monaco, 'Courier New', monospace;
-                z-index: 10002;
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
+                box-shadow: 0 0 20px rgba(0, 255, 0, 0.4);
             }
-            #wave-editor.hidden { display: none; }
+            #wave-editor.hidden { display: none !important; }
+            
             .wave-editor-header {
                 background: linear-gradient(180deg, rgba(0, 20, 0, 0.9) 0%, rgba(0, 10, 0, 0.95) 100%);
                 padding: 12px 16px;
@@ -66,6 +80,7 @@ export class WaveEditor {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
+                flex-shrink: 0;
             }
             .wave-editor-title {
                 color: #0ff;
@@ -80,21 +95,69 @@ export class WaveEditor {
                 height: 28px;
                 cursor: pointer;
                 border-radius: 4px;
+                transition: all 0.2s;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
+            .wave-editor-close:hover {
+                background: rgba(0, 255, 4, 0.4);
+                transform: scale(1.1);
+            }
+            
             .wave-editor-content {
                 padding: 16px;
-                overflow-y: auto;
+                overflow: hidden;
                 flex: 1;
                 display: flex;
                 gap: 16px;
+                min-height: 0; /* КРИТИЧНО: Позволяет flex-элементам сжиматься */
             }
+            
             .wave-list {
                 flex: 1;
-                min-width: 250px;
+                min-width: 0; /* КРИТИЧНО: Позволяет сжиматься */
+                max-width: 300px;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
             }
+            
+            #wave-list-items {
+                flex: 1;
+                overflow-y: auto;
+                overflow-x: hidden;
+                min-height: 0;
+            }
+            
             .wave-details {
                 flex: 2;
-                min-width: 400px;
+                min-width: 0; /* КРИТИЧНО: Позволяет сжиматься */
+                display: flex;
+                flex-direction: column;
+                overflow-y: auto;
+                overflow-x: hidden;
+                min-height: 0;
+            }
+            
+            /* Адаптивность для маленьких экранов */
+            @media (max-width: 768px) {
+                #wave-editor {
+                    width: 95vw !important;
+                    height: 90vh !important;
+                }
+                .wave-editor-content {
+                    flex-direction: column;
+                    gap: 12px;
+                }
+                .wave-list {
+                    max-width: 100%;
+                    max-height: 40%;
+                }
+                .wave-details {
+                    max-height: 60%;
+                    overflow-y: auto;
+                }
             }
             .wave-item {
                 padding: 10px;
@@ -167,6 +230,25 @@ export class WaveEditor {
                 justify-content: space-between;
                 align-items: center;
             }
+            
+            /* Скроллбары */
+            #wave-list-items::-webkit-scrollbar,
+            .wave-details::-webkit-scrollbar {
+                width: 8px;
+            }
+            #wave-list-items::-webkit-scrollbar-track,
+            .wave-details::-webkit-scrollbar-track {
+                background: rgba(0, 10, 0, 0.2);
+            }
+            #wave-list-items::-webkit-scrollbar-thumb,
+            .wave-details::-webkit-scrollbar-thumb {
+                background: rgba(0, 255, 4, 0.4);
+                border-radius: 4px;
+            }
+            #wave-list-items::-webkit-scrollbar-thumb:hover,
+            .wave-details::-webkit-scrollbar-thumb:hover {
+                background: rgba(0, 255, 4, 0.6);
+            }
         `;
         document.head.appendChild(style);
         
@@ -186,10 +268,10 @@ export class WaveEditor {
             </div>
             <div class="wave-editor-content">
                 <div class="wave-list">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
-                        <button class="wave-editor-btn" id="wave-add">+ Добавить</button>
-                        <button class="wave-editor-btn" id="wave-export">Экспорт</button>
-                        <button class="wave-editor-btn" id="wave-import">Импорт</button>
+                    <div style="display: flex; justify-content: space-between; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;">
+                        <button class="wave-editor-btn" id="wave-add" style="flex: 1; min-width: 100px;">+ Добавить</button>
+                        <button class="wave-editor-btn" id="wave-export" style="flex: 1; min-width: 100px;">Экспорт</button>
+                        <button class="wave-editor-btn" id="wave-import" style="flex: 1; min-width: 100px;">Импорт</button>
                     </div>
                     <div id="wave-list-items"></div>
                 </div>
@@ -204,6 +286,89 @@ export class WaveEditor {
         if (detailsDiv) {
             detailsDiv.innerHTML = this.currentWave ? this.renderWaveDetails() : '<div style="color: #666; text-align: center; padding: 40px;">Выберите волну для редактирования</div>';
         }
+    }
+    
+    /**
+     * Рендер встроенного редактора волн (для SessionSettings)
+     */
+    renderEmbeddedEditor(): void {
+        const listContainer = document.getElementById("wave-list-items-embedded");
+        const detailsContainer = document.getElementById("wave-details-embedded");
+        
+        if (listContainer) {
+            this.renderEmbeddedWaveList(listContainer);
+        }
+        
+        if (detailsContainer) {
+            if (this.currentWave) {
+                detailsContainer.innerHTML = this.renderWaveDetails();
+            } else {
+                detailsContainer.innerHTML = '<div style="color: #666; text-align: center; padding: 40px;">Выберите волну для редактирования</div>';
+            }
+        }
+    }
+    
+    /**
+     * Рендер списка волн для встроенного редактора
+     */
+    private renderEmbeddedWaveList(container: HTMLElement): void {
+        container.innerHTML = '';
+        
+        if (this.waves.length === 0) {
+            container.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">Нет волн. Добавьте первую волну.</div>';
+            return;
+        }
+        
+        this.waves.forEach((wave, index) => {
+            const item = document.createElement("div");
+            item.style.cssText = `
+                padding: 8px;
+                margin-bottom: 6px;
+                background: ${wave === this.currentWave ? 'rgba(0, 255, 4, 0.2)' : 'rgba(0, 20, 0, 0.3)'};
+                border: 1px solid ${wave === this.currentWave ? 'rgba(0, 255, 4, 0.8)' : 'rgba(0, 255, 4, 0.3)'};
+                border-radius: 4px;
+                cursor: pointer;
+                transition: all 0.2s;
+            `;
+            item.innerHTML = `
+                <div style="font-weight: bold; color: #0f0; margin-bottom: 4px;">${wave.name}</div>
+                <div style="font-size: 10px; color: #aaa;">
+                    Задержка: ${wave.delay}с | Врагов: ${wave.enemies.reduce((sum, e) => sum + e.count, 0)} | Паттерн: ${wave.spawnPattern}
+                </div>
+            `;
+            item.addEventListener("click", () => {
+                this.currentWave = wave;
+                this.renderEmbeddedEditor();
+            });
+            
+            const deleteBtn = document.createElement("button");
+            deleteBtn.textContent = "✕";
+            deleteBtn.style.cssText = `
+                padding: 2px 6px;
+                margin: 0;
+                float: right;
+                background: rgba(255, 50, 50, 0.2);
+                border: 1px solid rgba(255, 50, 50, 0.6);
+                color: #ff5050;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 10px;
+            `;
+            deleteBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                if (confirm(`Удалить волну "${wave.name}"?`)) {
+                    this.waves.splice(index, 1);
+                    if (this.currentWave === wave) {
+                        this.currentWave = null;
+                    }
+                    this.saveWaves();
+                    this.renderEmbeddedEditor();
+                }
+            });
+            item.appendChild(deleteBtn);
+            
+            container.appendChild(item);
+        });
     }
     
     /**
@@ -554,6 +719,7 @@ export class WaveEditor {
     show(): void {
         this.visible = true;
         this.container.classList.remove("hidden");
+        this.container.style.display = "flex"; // ИСПРАВЛЕНИЕ: Явно устанавливаем display
         this.container.style.display = "flex";
         
         // Показываем курсор и выходим из pointer lock
@@ -569,6 +735,7 @@ export class WaveEditor {
     hide(): void {
         this.visible = false;
         this.container.classList.add("hidden");
+        this.container.style.display = "none"; // ИСПРАВЛЕНИЕ: Явно скрываем
         this.container.style.display = "none";
     }
     

@@ -29,6 +29,7 @@ export class MaterialFactory {
         const mat = new StandardMaterial(`${prefix}ArmorMat`, scene);
         mat.diffuseColor = baseColor.scale(0.65);
         mat.specularColor = Color3.Black();
+        mat.alpha = 1.0; // ИСПРАВЛЕНИЕ БАГА: Явно устанавливаем полную непрозрачность
         this.materialCache.set(key, mat);
         return mat;
     }
@@ -45,6 +46,7 @@ export class MaterialFactory {
         const mat = new StandardMaterial(`${prefix}AccentMat`, scene);
         mat.diffuseColor = baseColor.scale(1.2);
         mat.specularColor = Color3.Black();
+        mat.alpha = 1.0; // ИСПРАВЛЕНИЕ БАГА: Явно устанавливаем полную непрозрачность
         this.materialCache.set(key, mat);
         return mat;
     }

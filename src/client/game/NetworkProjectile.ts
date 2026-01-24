@@ -18,14 +18,16 @@ export class NetworkProjectile {
     private scene: Scene;
 
     private effectsManager: EffectsManager | null = null;
+    private cannonType: string | undefined;
     // Removed unused trail timer fields
 
-    constructor(id: string, mesh: Mesh, velocity: Vector3, scene: Scene, effectsManager: EffectsManager | null, startDelay: number = 0) {
+    constructor(id: string, mesh: Mesh, velocity: Vector3, scene: Scene, effectsManager: EffectsManager | null, startDelay: number = 0, cannonType?: string) {
         this.id = id;
         this.mesh = mesh;
         this.velocity = velocity;
         this.scene = scene;
         this.effectsManager = effectsManager;
+        this.cannonType = cannonType;
         this.lastUpdateTime = Date.now();
 
         // Apply latency compensation (fast-forward)
@@ -34,10 +36,12 @@ export class NetworkProjectile {
         }
 
         // Initialize continuous trail matching local player visuals
+        // Синхронизация цвета трейла с типом пушки
         if (this.effectsManager) {
             this.effectsManager.createBulletTrail(
                 this.mesh,
-                new Color3(1, 0.8, 0.2) // Default Gold/Fire color
+                undefined, // Цвет будет определен по типу пушки
+                this.cannonType
             );
         }
     }

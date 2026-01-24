@@ -117,6 +117,7 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
         // Use larger area to capture more map content (maps like frontline are 1000x1000)
         // Generate in 600x600 centered at origin to cover most map designs
         const context: ChunkGenerationContext = {
+            scene,
             worldX: -300, // Start at -300 to cover center
             worldZ: -300,
             size: 600,
@@ -124,9 +125,7 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
             chunkZ: 0,
             chunkParent: root,
             random: new SeededRandom(123),
-            biome: 'plains',
-            lodLevel: 0,
-            isEdgeChunk: false
+            biome: 'plains'
         };
 
         generator.generateContent(context);
@@ -198,7 +197,7 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
         // Material Color
         let color = '#888888';
         if (capturedData && capturedData.mat && capturedMaterials[capturedData.mat]) {
-            color = capturedMaterials[capturedData.mat];
+            color = capturedMaterials[capturedData.mat] ?? '#888888';
         } else if (mesh.material instanceof StandardMaterial) {
             color = mesh.material.diffuseColor.toHexString();
         }
@@ -212,7 +211,7 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
             properties: {
                 color: color,
                 material: capturedData?.mat || mesh.material?.name || 'default',
-                originalName: name
+                name: name
             }
         });
     };
@@ -246,12 +245,9 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
         placedObjects: placedObjects,
         triggers: [],
         metadata: {
-            createdAt: Date.now(),
-            modifiedAt: Date.now(),
+            createdAt: new Date().toISOString(),
             author: "TX Game Import",
-            description: `Imported from ${mapId}`,
-            isPreset: false,
-            mapSize: 200
+            description: `Imported from ${mapId}`
         }
     };
 

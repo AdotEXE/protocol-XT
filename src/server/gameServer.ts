@@ -531,7 +531,7 @@ export class GameServer {
     }
 
     private handleCreateRoom(player: ServerPlayer, data: any): void {
-        const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType, enableBots, botCount } = data;
+        const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType, enableBots, botCount, customMapData } = data;
         const { chassisType, cannonType, tankColor, turretColor, playerName } = data; // Extract customization
 
         // Update player name if provided
@@ -555,6 +555,14 @@ export class GameServer {
         // Настройки ботов (по умолчанию отключены)
         room.enableBots = enableBots === true;
         room.botCount = typeof botCount === 'number' ? botCount : 0;
+
+        // Сохраняем данные кастомной карты, если они есть
+        if (customMapData) {
+            room.customMapData = customMapData;
+            serverLogger.log(`[Server] 📦 Room ${room.id} has custom map data: ${customMapData.name || 'Unnamed'}. Objects: ${customMapData.placedObjects?.length}, MapType in Data: ${customMapData.mapType}`);
+        } else if (mapType === 'custom') {
+            serverLogger.error(`[Server] ❌ CRITICAL: Room ${room.id} created with mapType='custom' but NO customMapData received!`);
+        }
 
         // Проверяем, что ID комнаты правильный
         if (room.id !== roomId) {
@@ -667,6 +675,7 @@ export class GameServer {
                     mode: room.mode,
                     worldSeed: room.worldSeed,
                     mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
+                    customMapData: room.customMapData, // КРИТИЧНО: Данные кастомной карты
                     players: room.getPlayerData(),
                     enemies: enemyData // Отправляем данные о ботах для синхронизации
                 }));
@@ -692,6 +701,7 @@ export class GameServer {
                     gameTime: 0,
                     worldSeed: room.worldSeed,
                     mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
+                    customMapData: room.customMapData, // КРИТИЧНО: Данные кастомной карты
                     players: room.getPlayerData(),
                     enemies: enemyData
                 };
@@ -778,14 +788,15 @@ export class GameServer {
             mode: room.mode,
             worldSeed: room.worldSeed,
             mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
+            customMapData: room.customMapData, // КРИТИЧНО: Данные кастомной карты
             players: room.getPlayerData(),
             enemies: enemyData // Отправляем данные о ботах для синхронизации
         }));
     }
 
     private handleQuickPlay(player: ServerPlayer, data: any): void {
-        const { mode, region, skillBased } = data;
-        serverLogger.log(`[Server] 🎮 QUICK_PLAY запрос от ${player.id} (${player.name}): mode=${mode}, region=${region}, skillBased=${skillBased}`);
+        const { mode, region, skillBased, mapType, customMapData } = data;
+        serverLogger.log(`[Server] 🎮 QUICK_PLAY запрос от ${player.id} (${player.name}): mode=${mode}, region=${region}, skillBased=${skillBased}, mapType=${mapType || 'normal'}${customMapData ? `, customMap=${customMapData.name}` : ''}`);
 
         // СНАЧАЛА ищем существующие комнаты с таким же режимом
         const availableRooms = Array.from(this.rooms.values()).filter(room => {

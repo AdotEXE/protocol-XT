@@ -11,7 +11,7 @@ import { FirebaseCollector } from './collectors/firebaseCollector';
 
 export interface MetricsSnapshot {
     timestamp: number;
-    
+
     // System status
     systemStatus: {
         vite: { online: boolean; responseTime?: number };
@@ -19,7 +19,7 @@ export interface MetricsSnapshot {
         firebase: { online: boolean; lastRequest?: number };
         physics: { active: boolean };
     };
-    
+
     // Performance
     performance: {
         cpu: { usage: number; cores: number };
@@ -43,7 +43,7 @@ export interface MetricsSnapshot {
             scene?: { meshes?: number; lights?: number; textures?: number };
         };
     };
-    
+
     // Connections
     connections: {
         players: number;
@@ -55,7 +55,7 @@ export interface MetricsSnapshot {
         websocketConns: number;
         avgPing: number;
     };
-    
+
     // Resources
     resources: {
         cpuHistory: number[];
@@ -70,7 +70,7 @@ export interface MetricsSnapshot {
             external: number;
         };
     };
-    
+
     // Game state
     gameState: {
         rooms: Array<{
@@ -91,12 +91,12 @@ export class MetricsManager {
     private systemCollector: SystemCollector;
     private networkCollector: NetworkCollector;
     private firebaseCollector: FirebaseCollector;
-    
+
     private currentMetrics: MetricsSnapshot | null = null;
-    
+
     constructor(config: MonitorConfig) {
         this.config = config;
-        
+
         // Initialize collectors
         this.serverCollector = new ServerCollector(config.server);
         this.clientCollector = new ClientCollector(config.client);
@@ -104,7 +104,7 @@ export class MetricsManager {
         this.networkCollector = new NetworkCollector();
         this.firebaseCollector = new FirebaseCollector();
     }
-    
+
     async start(): Promise<void> {
         // Start all collectors
         await Promise.all([
@@ -115,7 +115,7 @@ export class MetricsManager {
             this.firebaseCollector.start()
         ]);
     }
-    
+
     async stop(): Promise<void> {
         // Stop all collectors
         await Promise.all([
@@ -126,7 +126,7 @@ export class MetricsManager {
             this.firebaseCollector.stop()
         ]);
     }
-    
+
     async collectMetrics(): Promise<MetricsSnapshot> {
         // Collect from all sources (with error handling)
         const [serverMetrics, clientMetrics, systemMetrics, networkMetrics, firebaseMetrics] = await Promise.allSettled([
@@ -136,14 +136,14 @@ export class MetricsManager {
             this.networkCollector.collect(),
             this.firebaseCollector.collect()
         ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : {}));
-        
+
         // Combine metrics (with type safety)
         const server = (serverMetrics as any) || {};
         const client = (clientMetrics as any) || {};
         const system = (systemMetrics as any) || {};
         const network = (networkMetrics as any) || {};
         const firebase = (firebaseMetrics as any) || {};
-        
+
         const snapshot: MetricsSnapshot = {
             timestamp: Date.now(),
             systemStatus: {
@@ -154,7 +154,11 @@ export class MetricsManager {
             },
             performance: {
                 cpu: system.cpu || { usage: 0, cores: 0 },
-                ram: system.ram || { used: 0, total: 0, percent: 0 },
+                ram: server.memoryUsage ? {
+                    used: server.memoryUsage.heapUsed,
+                    total: 512 * 1024 * 1024, // 512MB fixed limit as requested
+                    percent: (server.memoryUsage.heapUsed / (512 * 1024 * 1024)) * 100
+                } : (system.ram || { used: 0, total: 0, percent: 0 }),
                 serverFps: server.fps || 0,
                 clientFps: server.aggregatedClientMetrics?.avgFps || client.fps,
                 latency: server.latency,
@@ -202,23 +206,23 @@ export class MetricsManager {
                 rooms: server.roomsList || []
             }
         };
-        
+
         this.currentMetrics = snapshot;
         return snapshot;
     }
-    
+
     getCurrentMetrics(): MetricsSnapshot | null {
         return this.currentMetrics;
     }
-    
+
     getServerCollector(): ServerCollector {
         return this.serverCollector;
     }
-    
+
     getClientCollector(): ClientCollector {
         return this.clientCollector;
     }
-    
+
     getSystemCollector(): SystemCollector {
         return this.systemCollector;
     }

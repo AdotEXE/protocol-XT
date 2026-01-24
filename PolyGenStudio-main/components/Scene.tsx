@@ -1,5 +1,5 @@
 
-import React, { useRef, useEffect, useState, useMemo, useLayoutEffect } from 'react';
+import React, { useRef, useEffect, useState, useMemo, useLayoutEffect, useCallback } from 'react';
 import { Canvas, useThree, useFrame, invalidate } from '@react-three/fiber';
 import { OrbitControls, TransformControls, Grid, Environment, ContactShadows, GizmoHelper, GizmoViewcube, PerspectiveCamera, OrthographicCamera } from '@react-three/drei';
 import * as THREE from 'three';
@@ -62,6 +62,29 @@ interface SceneProps {
 const DragPreview = ({ itemType, onDrop, snapGrid, dragPointerRef }: { itemType: string, onDrop: (pos: any) => void, snapGrid: number | null, dragPointerRef?: React.MutableRefObject<THREE.Vector2> }) => {
     const { camera, scene } = useThree();
     const [pos, setPos] = useState<THREE.Vector3 | null>(null);
+    
+    // Reusable THREE.js objects to avoid GC pressure
+    const planeRef = useRef(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0));
+    const targetRef = useRef(new THREE.Vector3());
+    const pRef = useRef(new THREE.Vector3());
+    const nRef = useRef(new THREE.Vector3(0, 1, 0));
+    const candidatesRef = useRef<THREE.Object3D[]>([]);
+
+    // Cache scene objects - only update when scene changes
+    useEffect(() => {
+        const updateCandidates = () => {
+            candidatesRef.current = [];
+            scene.traverse((obj) => {
+                if (obj instanceof THREE.Mesh && obj.userData?.type === 'cube' && obj.visible) {
+                    candidatesRef.current.push(obj);
+                }
+            });
+        };
+        updateCandidates();
+        // Update when scene children change
+        const interval = setInterval(updateCandidates, 500); // Update every 500ms instead of every frame
+        return () => clearInterval(interval);
+    }, [scene]);
 
     useFrame(({ raycaster, mouse }) => {
         // Use native drag pointer if available (during native DnD, R3F mouse might be stale)
@@ -71,54 +94,44 @@ const DragPreview = ({ itemType, onDrop, snapGrid, dragPointerRef }: { itemType:
 
         raycaster.setFromCamera(pointer, camera);
 
-        // 1. Try intersecting with existing objects first
-        const candidates: THREE.Object3D[] = [];
-        scene.traverse((obj) => {
-            // Filter: Meshes that are not the ghost itself and are part of the main scene (userData.type='cube')
-            if (obj instanceof THREE.Mesh && obj.userData?.type === 'cube' && obj.visible) {
-                candidates.push(obj);
-            }
-        });
-
-        const intersects = raycaster.intersectObjects(candidates, false);
+        // Use cached candidates instead of traversing every frame
+        const intersects = raycaster.intersectObjects(candidatesRef.current, false);
 
         if (intersects.length > 0) {
             // Snapping to object surface
             const hit = intersects[0];
-            const p = hit.point.clone();
-            const n = hit.face?.normal?.clone().transformDirection(hit.object.matrixWorld).normalize() || new THREE.Vector3(0, 1, 0);
+            pRef.current.copy(hit.point);
+            
+            if (hit.face?.normal) {
+                nRef.current.copy(hit.face.normal).transformDirection(hit.object.matrixWorld).normalize();
+            } else {
+                nRef.current.set(0, 1, 0);
+            }
 
             // "Stick" to surface: Position center 0.5 units away from surface along normal
             // Assuming 1x1x1 cube (radius 0.5)
             const offset = 0.5;
-            p.add(n.multiplyScalar(offset));
+            pRef.current.add(nRef.current.multiplyScalar(offset));
 
-            // Apply grid snap if enabled (local to the surface? or global?)
-            // Usually, global snap might fight with surface snapping. 
-            // Let's snap the *result* to grid if on ground, but maybe just rounded if on object?
-            // For now, let's strictly follow surface.
-
+            // Apply grid snap if enabled
             if (snapGrid) {
-                // If snapping is on, maybe we snap the calculated center?
-                p.x = Math.round(p.x / snapGrid) * snapGrid;
-                p.y = Math.round(p.y / snapGrid) * snapGrid;
-                p.z = Math.round(p.z / snapGrid) * snapGrid;
+                pRef.current.x = Math.round(pRef.current.x / snapGrid) * snapGrid;
+                pRef.current.y = Math.round(pRef.current.y / snapGrid) * snapGrid;
+                pRef.current.z = Math.round(pRef.current.z / snapGrid) * snapGrid;
             }
 
-            setPos(p);
+            setPos(pRef.current.clone());
         } else {
-            // 2. Fallback to Ground Plane
-            const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-            const target = new THREE.Vector3();
-            const hit = raycaster.ray.intersectPlane(plane, target);
+            // 2. Fallback to Ground Plane - reuse plane and target
+            const hit = raycaster.ray.intersectPlane(planeRef.current, targetRef.current);
 
             if (hit) {
                 if (snapGrid) {
-                    target.x = Math.round(target.x / snapGrid) * snapGrid;
-                    target.z = Math.round(target.z / snapGrid) * snapGrid;
+                    targetRef.current.x = Math.round(targetRef.current.x / snapGrid) * snapGrid;
+                    targetRef.current.z = Math.round(targetRef.current.z / snapGrid) * snapGrid;
                 }
-                target.y = Math.max(0, target.y + 0.5); // Center is 0.5 up
-                setPos(target);
+                targetRef.current.y = Math.max(0, targetRef.current.y + 0.5); // Center is 0.5 up
+                setPos(targetRef.current.clone());
             } else {
                 setPos(null);
             }
@@ -254,50 +267,69 @@ const BuildTool = ({
     const [previewPos, setPreviewPos] = useState<THREE.Vector3 | null>(null);
     const [targetColor, setTargetColor] = useState('#ffffff');
     const [targetSize, setTargetSize] = useState(new THREE.Vector3(1, 1, 1));
+    
+    // Reusable THREE.js objects to avoid GC pressure
+    const objectsRef = useRef<THREE.Object3D[]>([]);
+    const sizeRef = useRef(new THREE.Vector3(1, 1, 1));
+    const worldNormalRef = useRef(new THREE.Vector3());
+    const hitPosRef = useRef(new THREE.Vector3());
+    const offsetRef = useRef(new THREE.Vector3());
+    const newPosRef = useRef(new THREE.Vector3());
+
+    // Cache scene objects - only update when scene changes
+    useEffect(() => {
+        const updateObjects = () => {
+            objectsRef.current = [];
+            scene.traverse(obj => {
+                if (obj.userData && obj.userData.id && obj.userData.type !== 'group') {
+                    objectsRef.current.push(obj);
+                }
+            });
+        };
+        updateObjects();
+        // Update when scene children change
+        const interval = setInterval(updateObjects, 500); // Update every 500ms instead of every frame
+        return () => clearInterval(interval);
+    }, [scene]);
 
     useFrame(() => {
         if (!active || !ghostRef.current) return;
 
         raycaster.current.setFromCamera(pointer, camera);
 
-        const objects: THREE.Object3D[] = [];
-        scene.traverse(obj => {
-            if (obj.userData && obj.userData.id && obj.userData.type !== 'group') objects.push(obj);
-        });
-
-        const intersects = raycaster.current.intersectObjects(objects, false);
+        // Use cached objects instead of traversing every frame
+        const intersects = raycaster.current.intersectObjects(objectsRef.current, false);
 
         if (intersects.length > 0) {
             const intersect = intersects[0];
             const normal = intersect.face?.normal;
             if (normal) {
                 const targetObj = intersect.object;
-                const size = new THREE.Vector3(targetObj.scale.x, targetObj.scale.y, targetObj.scale.z);
-                const worldNormal = normal.clone().transformDirection(targetObj.matrixWorld).round();
+                sizeRef.current.set(targetObj.scale.x, targetObj.scale.y, targetObj.scale.z);
+                worldNormalRef.current.copy(normal).transformDirection(targetObj.matrixWorld).round();
 
-                const hitPos = new THREE.Vector3();
-                targetObj.getWorldPosition(hitPos);
+                targetObj.getWorldPosition(hitPosRef.current);
 
-                setTargetSize(size);
+                setTargetSize(sizeRef.current.clone());
 
                 if (targetObj instanceof THREE.Mesh && !Array.isArray(targetObj.material)) {
                     const mat = targetObj.material as THREE.MeshStandardMaterial;
                     setTargetColor(mat.color.getHexString());
                 }
 
-                const offset = new THREE.Vector3(
-                    worldNormal.x * size.x,
-                    worldNormal.y * size.y,
-                    worldNormal.z * size.z
+                offsetRef.current.set(
+                    worldNormalRef.current.x * sizeRef.current.x,
+                    worldNormalRef.current.y * sizeRef.current.y,
+                    worldNormalRef.current.z * sizeRef.current.z
                 );
 
-                const newPos = hitPos.clone().add(offset);
+                newPosRef.current.copy(hitPosRef.current).add(offsetRef.current);
 
-                ghostRef.current.position.copy(newPos);
+                ghostRef.current.position.copy(newPosRef.current);
                 ghostRef.current.rotation.copy(targetObj.rotation);
-                ghostRef.current.scale.copy(size);
+                ghostRef.current.scale.copy(sizeRef.current);
                 ghostRef.current.visible = true;
-                setPreviewPos(newPos);
+                setPreviewPos(newPosRef.current.clone());
                 return;
             }
         }
@@ -329,6 +361,40 @@ const BuildTool = ({
         </mesh>
     );
 };
+
+// Material cache for SceneNode to avoid recreating materials
+const materialCache = new Map<string, THREE.MeshStandardMaterial>();
+
+function getSceneNodeMaterial(
+    color: string,
+    roughness: number,
+    metalness: number,
+    emissive: string,
+    emissiveIntensity: number,
+    opacity: number,
+    transparent: boolean,
+    wireframe: boolean
+): THREE.MeshStandardMaterial {
+    const key = `${color}_${roughness}_${metalness}_${emissive}_${emissiveIntensity}_${opacity}_${transparent}_${wireframe}`;
+    
+    if (!materialCache.has(key)) {
+        const mat = new THREE.MeshStandardMaterial({
+            color: color,
+            roughness: roughness,
+            metalness: metalness,
+            emissive: emissive,
+            emissiveIntensity: emissiveIntensity,
+            opacity: opacity,
+            transparent: transparent,
+            depthWrite: !transparent,
+            alphaTest: transparent ? 0.1 : 0,
+            wireframe: wireframe
+        });
+        materialCache.set(key, mat);
+    }
+    
+    return materialCache.get(key)!;
+}
 
 const SceneNode = React.memo(({
     id,
@@ -363,6 +429,7 @@ const SceneNode = React.memo(({
     const isSelectedAndDragging = isDraggingRef?.current && selectedIds.includes(id);
 
     useLayoutEffect(() => {
+        if (!cube) return;
         if (groupRef.current) {
             nodesRef.current[id] = groupRef.current;
             // Only update position from React state when NOT dragging
@@ -376,7 +443,7 @@ const SceneNode = React.memo(({
             }
         }
         return () => { delete nodesRef.current[id]; };
-    }, [id, nodesRef, cube.position, cube.rotation, isSelectedAndDragging]);
+    }, [id, nodesRef, cube?.position, cube?.rotation, isSelectedAndDragging]);
 
     if (!cube || !cube.visible) return null;
 
@@ -434,6 +501,23 @@ const SceneNode = React.memo(({
 
     const isTransparent = (cube.material?.transparent || (cube.material?.opacity ?? 1) < 1);
 
+    // Memoize material based on properties
+    const material = useMemo(() => {
+        if (!cube) return null;
+        return getSceneNodeMaterial(
+            cube.color,
+            cube.material?.roughness ?? 0.7,
+            cube.material?.metalness ?? 0.1,
+            cube.color,
+            cube.material?.emissive ?? 0,
+            cube.material?.opacity ?? 1,
+            isTransparent,
+            showWireframe
+        );
+    }, [cube?.color, cube?.material?.roughness, cube?.material?.metalness, cube?.material?.emissive, cube?.material?.opacity, isTransparent, showWireframe]);
+
+    if (!cube || !cube.visible) return null;
+
     return (
         <group
             ref={groupRef}
@@ -456,18 +540,7 @@ const SceneNode = React.memo(({
                     castShadow={!cube.isLocked}
                     receiveShadow={!cube.isLocked}
                 >
-                    <meshStandardMaterial
-                        color={cube.color}
-                        roughness={cube.material?.roughness ?? 0.7}
-                        metalness={cube.material?.metalness ?? 0.1}
-                        emissive={cube.color}
-                        emissiveIntensity={cube.material?.emissive ?? 0}
-                        opacity={cube.material?.opacity ?? 1}
-                        transparent={isTransparent}
-                        depthWrite={!isTransparent}
-                        alphaTest={isTransparent ? 0.1 : 0}
-                        wireframe={showWireframe}
-                    />
+                    {material && <primitive object={material} attach="material" />}
                     {isSelected && (
                         <lineSegments scale={[1.02, 1.02, 1.02]}>
                             <edgesGeometry args={[sharedBoxGeometry]} />
@@ -501,38 +574,56 @@ const SceneNode = React.memo(({
         </group>
     );
 }, (prev, next) => {
-    if (prev.selectedIds.includes(prev.id) !== next.selectedIds.includes(next.id)) return false;
+    // Quick checks first
+    if (prev.id !== next.id) return false;
     if (prev.showWireframe !== next.showWireframe) return false;
     if (prev.toolMode !== next.toolMode) return false;
+    
+    const prevSelected = prev.selectedIds.includes(prev.id);
+    const nextSelected = next.selectedIds.includes(next.id);
+    if (prevSelected !== nextSelected) return false;
 
+    // Find cubes - use reference equality first for performance
     const pC = prev.cubes.find(c => c.id === prev.id);
     const nC = next.cubes.find(c => c.id === next.id);
 
+    // If same reference, only check children
     if (pC === nC) {
+        // Quick check: if cubes array reference is same, children are likely same
+        if (prev.cubes === next.cubes) return true;
+        
         const pKids = prev.cubes.filter(c => c.parentId === prev.id);
         const nKids = next.cubes.filter(c => c.parentId === next.id);
         if (pKids.length !== nKids.length) return false;
-        for (let i = 0; i < pKids.length; i++) if (pKids[i] !== nKids[i]) return false;
+        // Use reference equality for children
+        for (let i = 0; i < pKids.length; i++) {
+            if (pKids[i] !== nKids[i]) return false;
+        }
         return true;
     }
 
     if (!pC || !nC) return false;
-    if (pC.name !== nC.name) return false;
-    if (pC.color !== nC.color) return false;
-    if (pC.visible !== nC.visible) return false;
-    if (pC.isLocked !== nC.isLocked) return false;
-    if (pC.isFavorite !== nC.isFavorite) return false;
+    
+    // Compare essential properties only
+    if (pC.name !== nC.name || pC.color !== nC.color || pC.visible !== nC.visible) return false;
+    if (pC.isLocked !== nC.isLocked || pC.isFavorite !== nC.isFavorite) return false;
 
+    // Position, rotation, size - use shallow comparison
     if (pC.position.x !== nC.position.x || pC.position.y !== nC.position.y || pC.position.z !== nC.position.z) return false;
-    if (pC.rotation.x !== nC.rotation.x || pC.position.y !== nC.position.y || pC.position.z !== nC.position.z) return false;
+    if ((pC.rotation?.x ?? 0) !== (nC.rotation?.x ?? 0) || 
+        (pC.rotation?.y ?? 0) !== (nC.rotation?.y ?? 0) || 
+        (pC.rotation?.z ?? 0) !== (nC.rotation?.z ?? 0)) return false;
     if (pC.size.x !== nC.size.x || pC.size.y !== nC.size.y || pC.size.z !== nC.size.z) return false;
 
+    // Material properties - only check if material exists
     const pM = pC.material;
     const nM = nC.material;
-    if (pM?.roughness !== nM?.roughness) return false;
-    if (pM?.metalness !== nM?.metalness) return false;
-    if (pM?.emissive !== nM?.emissive) return false;
-    if (pM?.opacity !== nM?.opacity) return false;
+    if (pM || nM) {
+        if ((pM?.roughness ?? 0.7) !== (nM?.roughness ?? 0.7)) return false;
+        if ((pM?.metalness ?? 0.1) !== (nM?.metalness ?? 0.1)) return false;
+        if ((pM?.emissive ?? 0) !== (nM?.emissive ?? 0)) return false;
+        if ((pM?.opacity ?? 1) !== (nM?.opacity ?? 1)) return false;
+    }
 
     return true;
 });
@@ -695,7 +786,14 @@ const MultiTransformControls: React.FC<{
         return center;
     }, [selectedCubes]);
 
-    useEffect(() => { invalidate(); }, [centroid]);
+    // Only invalidate when centroid actually changes
+    const prevCentroidRef = useRef<THREE.Vector3 | null>(null);
+    useEffect(() => {
+        if (centroid && (!prevCentroidRef.current || !centroid.equals(prevCentroidRef.current))) {
+            invalidate();
+            prevCentroidRef.current = centroid.clone();
+        }
+    }, [centroid]);
 
     useEffect(() => {
         if (pivot.current && selectedCubes.length > 1) {
@@ -859,23 +957,30 @@ const MultiTransformControls: React.FC<{
 const CameraRig: React.FC<{ selectedPos?: { x: number, y: number, z: number } | null }> = ({ selectedPos }) => {
     const { camera, controls } = useThree();
     const PAN_SPEED = 0.5;
+    
+    // Reusable THREE.js objects to avoid GC pressure
+    const targetRef = useRef(new THREE.Vector3());
+    const xDirRef = useRef(new THREE.Vector3());
+    const yDirRef = useRef(new THREE.Vector3());
+    
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
             if (e.key.toLowerCase() === 'f' && selectedPos && controls) {
                 const orb = controls as any;
-                const target = new THREE.Vector3(selectedPos.x, selectedPos.y, selectedPos.z);
-                orb.target.copy(target); invalidate();
+                targetRef.current.set(selectedPos.x, selectedPos.y, selectedPos.z);
+                orb.target.copy(targetRef.current);
+                invalidate();
             }
             if (e.shiftKey && controls) {
                 const orb = controls as any;
-                const xDir = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0).multiplyScalar(PAN_SPEED);
-                const yDir = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1).multiplyScalar(PAN_SPEED);
+                xDirRef.current.setFromMatrixColumn(camera.matrix, 0).multiplyScalar(PAN_SPEED);
+                yDirRef.current.setFromMatrixColumn(camera.matrix, 1).multiplyScalar(PAN_SPEED);
                 let moved = false;
-                if (e.key === 'ArrowLeft') { camera.position.sub(xDir); orb.target.sub(xDir); moved = true; }
-                if (e.key === 'ArrowRight') { camera.position.add(xDir); orb.target.add(xDir); moved = true; }
-                if (e.key === 'ArrowUp') { camera.position.add(yDir); orb.target.add(yDir); moved = true; }
-                if (e.key === 'ArrowDown') { camera.position.sub(yDir); orb.target.sub(yDir); moved = true; }
+                if (e.key === 'ArrowLeft') { camera.position.sub(xDirRef.current); orb.target.sub(xDirRef.current); moved = true; }
+                if (e.key === 'ArrowRight') { camera.position.add(xDirRef.current); orb.target.add(xDirRef.current); moved = true; }
+                if (e.key === 'ArrowUp') { camera.position.add(yDirRef.current); orb.target.add(yDirRef.current); moved = true; }
+                if (e.key === 'ArrowDown') { camera.position.sub(yDirRef.current); orb.target.sub(yDirRef.current); moved = true; }
                 if (moved) { e.preventDefault(); orb.update(); invalidate(); }
             }
         };
@@ -1030,7 +1135,60 @@ export const Scene: React.FC<SceneProps> = ({
     // Memoize AxesHelper to prevent recreation on every render (was causing 1 FPS!)
     const axesHelper = useMemo(() => new THREE.AxesHelper(5), []);
 
-    useEffect(() => { invalidate(); }, [cubes, selectedIds, toolMode, showGrid, showWireframe, showAxes]);
+    // Memoize filtered cubes arrays
+    const instancedCubes = useMemo(() => 
+        cubes.filter(c => !c.parentId && c.type === 'cube' && !c.name?.startsWith('Road_') && !c.name?.startsWith('River_')),
+        [cubes]
+    );
+
+    const polygonCubes = useMemo(() => 
+        cubes.filter(c => !c.parentId && (c.type === 'polygon' || c.type === 'water')),
+        [cubes]
+    );
+
+    const selectedOrGroupCubes = useMemo(() => 
+        cubes.filter(c => !c.parentId && (selectedIds.includes(c.id) || c.type === 'group')),
+        [cubes, selectedIds]
+    );
+
+    // Memoize excludeIds Set to avoid creating new Set on every render
+    const excludeIds = useMemo(() => new Set(selectedIds), [selectedIds]);
+
+    // Memoize onClick handlers
+    const handleInstancedClick = useCallback((id: string, e: any) => {
+        onSelect(id, e.shiftKey || e.ctrlKey || e.metaKey);
+    }, [onSelect]);
+
+    const handlePolygonClick = useCallback((id: string, e: any) => {
+        onSelect(id, e.shiftKey || e.ctrlKey || e.metaKey);
+    }, [onSelect]);
+
+    // Optimize invalidate calls - only invalidate when necessary
+    const prevDepsRef = useRef({ cubesLength: 0, selectedIdsLength: 0, toolMode: '', showGrid: false, showWireframe: false, showAxes: false });
+    useEffect(() => {
+        const current = {
+            cubesLength: cubes.length,
+            selectedIdsLength: selectedIds.length,
+            toolMode,
+            showGrid,
+            showWireframe,
+            showAxes
+        };
+        const prev = prevDepsRef.current;
+        
+        // Only invalidate if something actually changed
+        if (
+            current.cubesLength !== prev.cubesLength ||
+            current.selectedIdsLength !== prev.selectedIdsLength ||
+            current.toolMode !== prev.toolMode ||
+            current.showGrid !== prev.showGrid ||
+            current.showWireframe !== prev.showWireframe ||
+            current.showAxes !== prev.showAxes
+        ) {
+            invalidate();
+            prevDepsRef.current = current;
+        }
+    }, [cubes.length, selectedIds.length, toolMode, showGrid, showWireframe, showAxes]);
 
     return (
         <div className="w-full h-full relative group">
@@ -1105,16 +1263,16 @@ export const Scene: React.FC<SceneProps> = ({
 
                 {/* GPU INSTANCED RENDERING for non-selected cubes (simple boxes, excluding roads) */}
                 <InstancedBuildings
-                    cubes={cubes.filter(c => !c.parentId && c.type === 'cube' && !c.name?.startsWith('Road_') && !c.name?.startsWith('River_'))}
-                    excludeIds={new Set(selectedIds)}
-                    onClick={(id, e) => onSelect(id, e.shiftKey || e.ctrlKey || e.metaKey)}
+                    cubes={instancedCubes}
+                    excludeIds={excludeIds}
+                    onClick={handleInstancedClick}
                 />
 
                 {/* REAL POLYGON BUILDINGS AND WATER from OSM data */}
                 <PolygonBuildings
-                    cubes={cubes.filter(c => !c.parentId && (c.type === 'polygon' || c.type === 'water'))}
-                    excludeIds={new Set(selectedIds)}
-                    onClick={(id, e) => onSelect(id, e.shiftKey || e.ctrlKey || e.metaKey)}
+                    cubes={polygonCubes}
+                    excludeIds={excludeIds}
+                    onClick={handlePolygonClick}
                 />
 
                 {/* SMOOTH ROADS - ribbon geometry with CatmullRom interpolation */}
@@ -1126,7 +1284,7 @@ export const Scene: React.FC<SceneProps> = ({
 
                 {/* Individual mesh ONLY for selected/editable objects and groups */}
                 <group>
-                    {cubes.filter(c => !c.parentId && (selectedIds.includes(c.id) || c.type === 'group')).map((cube) => (
+                    {selectedOrGroupCubes.map((cube) => (
                         <SceneNode
                             key={cube.id}
                             id={cube.id}

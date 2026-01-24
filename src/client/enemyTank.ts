@@ -977,49 +977,37 @@ export class EnemyTank {
 
         const chassisShape = new PhysicsShapeContainer(this.scene);
 
-        // Размеры для скруглённых краёв гусениц (используем реальные размеры)
-        const cylinderRadius = realHeight * 0.45;
-        const cylinderOffset = finalDepth * 0.42;
         const chassisLowering = -realHeight * 0.1;
 
-        // 1. Центральный BOX (укороченный, без острых углов)
-        const centerBox = new PhysicsShape({
+        // 1. КОРПУС (центральный BOX) - ОДИН В ОДИН с визуальным размером
+        const chassisBox = new PhysicsShape({
             type: PhysicsShapeType.BOX,
             parameters: {
                 center: new Vector3(0, chassisLowering, 0),
                 rotation: Quaternion.Identity(),
-                extents: new Vector3(finalWidth, realHeight * 0.95, finalDepth * 0.95)
+                extents: new Vector3(finalWidth, realHeight, finalDepth) // ИСПРАВЛЕНИЕ: убрали * 0.95
             }
         }, this.scene);
-        // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
-        centerBox.material = { friction: 0, restitution: 0.0 };
-        chassisShape.addChildFromParent(this.chassis, centerBox, this.chassis);
+        chassisBox.material = { friction: 0, restitution: 0.0 };
+        chassisShape.addChildFromParent(this.chassis, chassisBox, this.chassis);
 
-        // 2. Передний CYLINDER (скруглённый край - позволяет заезжать на препятствия)
-        const frontCylinder = new PhysicsShape({
-            type: PhysicsShapeType.CYLINDER,
-            parameters: {
-                pointA: new Vector3(-finalWidth * 0.5, chassisLowering, cylinderOffset),
-                pointB: new Vector3(finalWidth * 0.5, chassisLowering, cylinderOffset),
-                radius: cylinderRadius
-            }
-        }, this.scene);
-        // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
-        frontCylinder.material = { friction: 0, restitution: 0.0 };
-        chassisShape.addChildFromParent(this.chassis, frontCylinder, this.chassis);
+        // 2. БАШНЯ (TURRET BOX) - ОДИН В ОДИН с визуальным размером
+        // Используем точные размеры башни из визуальной модели (как у игрока)
+        const turretHitboxHeight = this.chassisType.height * 0.75; // Как в визуальной модели
+        const turretHitboxWidth = this.chassisType.width * 0.65; // Как в визуальной модели
+        const turretHitboxDepth = this.chassisType.depth * 0.6; // Как в визуальной модели
+        const turretY = chassisLowering + (realHeight * 0.5) + (turretHitboxHeight * 0.5);
 
-        // 3. Задний CYLINDER (скруглённый край)
-        const backCylinder = new PhysicsShape({
-            type: PhysicsShapeType.CYLINDER,
+        const turretBox = new PhysicsShape({
+            type: PhysicsShapeType.BOX,
             parameters: {
-                pointA: new Vector3(-finalWidth * 0.5, chassisLowering, -cylinderOffset),
-                pointB: new Vector3(finalWidth * 0.5, chassisLowering, -cylinderOffset),
-                radius: cylinderRadius
+                center: new Vector3(0, turretY, 0),
+                rotation: Quaternion.Identity(),
+                extents: new Vector3(turretHitboxWidth, turretHitboxHeight, turretHitboxDepth)
             }
         }, this.scene);
-        // HEAVY & RESPONSIVE: Отключено трение Havok, используется только Custom Force
-        backCylinder.material = { friction: 0, restitution: 0.0 };
-        chassisShape.addChildFromParent(this.chassis, backCylinder, this.chassis);
+        turretBox.material = { friction: 0.1, restitution: 0 };
+        chassisShape.addChildFromParent(this.chassis, turretBox, this.chassis);
 
         // Настройки фильтрации столкновений
         chassisShape.filterMembershipMask = 8;

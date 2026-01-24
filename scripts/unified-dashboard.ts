@@ -125,7 +125,7 @@ async function bootstrap() {
     try {
         await core.start();
         SERVICES.forEach(startService);
-        ui.addLog('Unified Dashboard Started', 'success');
+        ui.addLog('Unified Dashboard Started', 'info');
     } catch (e) {
         console.error(e);
         process.exit(1);

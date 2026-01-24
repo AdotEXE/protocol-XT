@@ -157,14 +157,14 @@ export class ChatSystem {
         const scaleFactor = Math.min(window.innerWidth / baseWidth, window.innerHeight / baseHeight, 1.5);
 
         // Ограничиваем размеры экраном для предотвращения перекрытия всего экрана
-        const maxWidth = Math.min(window.innerWidth - 20, 1200);
-        const maxHeight = Math.min(window.innerHeight - 40, 800);
+        const maxWidth = window.innerWidth;
+        const maxHeight = window.innerHeight;
 
-        let defaultLeft = savedPosition?.left ?? 10;
-        let defaultTop = savedPosition?.top ?? 120;
-        let defaultWidth = savedPosition?.width ?? 500;
-        let defaultHeight = savedPosition?.height ?? 250;
-        const defaultCollapsed = savedPosition?.collapsed !== undefined ? savedPosition.collapsed : true;
+        let defaultLeft = savedPosition?.left ?? 0;
+        let defaultTop = savedPosition?.top ?? 0;
+        let defaultWidth = savedPosition?.width ?? window.innerWidth;
+        let defaultHeight = savedPosition?.height ?? window.innerHeight;
+        const defaultCollapsed = savedPosition?.collapsed !== undefined ? savedPosition.collapsed : false; // Default to open
 
         // Проверяем и ограничиваем размеры
         if (defaultWidth > maxWidth) {
@@ -187,19 +187,19 @@ export class ChatSystem {
         if (defaultHeight < 150) defaultHeight = 150;
 
         // Проверяем позицию, чтобы терминал не выходил за границы экрана
-        if (defaultLeft < 0) defaultLeft = 10;
-        if (defaultLeft + defaultWidth > window.innerWidth) defaultLeft = window.innerWidth - defaultWidth - 10;
-        if (defaultTop < 0) defaultTop = 10;
-        if (defaultTop + defaultHeight > window.innerHeight) defaultTop = window.innerHeight - defaultHeight - 10;
+        if (defaultLeft < 0) defaultLeft = 0;
+        if (defaultLeft + defaultWidth > window.innerWidth) defaultLeft = window.innerWidth - defaultWidth;
+        if (defaultTop < 0) defaultTop = 0;
+        if (defaultTop + defaultHeight > window.innerHeight) defaultTop = window.innerHeight - defaultHeight;
 
         // Создаём HTML контейнер для перетаскивания и изменения размера
         this.htmlContainer = document.createElement("div");
         this.htmlContainer.id = "system-terminal";
         // Use relative units for scalable sizing (scaleFactor уже объявлен выше)
-        const scaledWidth = Math.max(300, Math.min(1200, defaultWidth * scaleFactor));
-        const scaledHeight = Math.max(150, Math.min(800, defaultHeight * scaleFactor));
-        const scaledLeft = defaultLeft * scaleFactor;
-        const scaledTop = defaultTop * scaleFactor;
+        const scaledWidth = defaultWidth
+        const scaledHeight = defaultHeight;
+        const scaledLeft = defaultLeft;
+        const scaledTop = defaultTop;
 
         this.htmlContainer.style.cssText = `
             position: fixed;
@@ -223,14 +223,15 @@ export class ChatSystem {
             backdrop-filter: blur(4px);
         `;
 
-        // Check setting for visibility (Default: Visible)
+        // Check setting for visibility (Default: HIDDEN - ИСПРАВЛЕНО)
+        // Терминал скрыт по умолчанию и показывается только если явно включен в настройках
         const showTerminalSetting = localStorage.getItem("setting-show-system-terminal");
-        // Only hide if explicitly set to "false"
-        if (showTerminalSetting === "false") {
-            this.htmlContainer.style.display = "none";
-        } else {
-            // Default to visible
+        // Only show if explicitly set to "true"
+        if (showTerminalSetting === "true") {
             this.htmlContainer.style.display = "block";
+        } else {
+            // Default to hidden (ИСПРАВЛЕНО: по умолчанию скрыт)
+            this.htmlContainer.style.display = "none";
         }
 
         document.body.appendChild(this.htmlContainer);
@@ -677,6 +678,17 @@ export class ChatSystem {
         if (this.htmlContainer) {
             this.htmlContainer.style.display = visible ? "block" : "none";
         }
+    }
+
+    public isChatActive(): boolean {
+        // Return true if chat is visible (and thus potentially capturing input)
+        // Or strictly if input is focused
+        if (!this.htmlContainer) return false;
+
+        const isVisible = this.htmlContainer.style.display !== "none";
+        const isInputFocused = this.commandInput === document.activeElement;
+
+        return isVisible || isInputFocused;
     }
     updateConsumables(consumables: Map<number, any>): void {
         const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;

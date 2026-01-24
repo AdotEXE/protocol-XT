@@ -13,6 +13,8 @@ export interface GameModeRules {
 export class FFAMode implements GameModeRules {
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // Spawn in a circle around center
+        // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (5.0м)
+        // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const spawnIndex = Array.from(room.getAllPlayers()).indexOf(player);
         const totalPlayers = room.getAllPlayers().length;
         const angle = (spawnIndex / totalPlayers) * Math.PI * 2;
@@ -20,7 +22,7 @@ export class FFAMode implements GameModeRules {
 
         return new Vector3(
             Math.cos(angle) * radius,
-            5.0, // ИСПРАВЛЕНО: Спавн на 5 метров над поверхностью (падение на землю)
+            5.0, // Безопасная высота (будет пересчитана на клиенте)
             Math.sin(angle) * radius
         );
     }
@@ -48,6 +50,8 @@ export class FFAMode implements GameModeRules {
 export class TDMMode implements GameModeRules {
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // Spawn on team side
+        // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (5.0м)
+        // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const team = player.team || 0;
         const teamPlayers = room.getAllPlayers().filter(p => (p.team || 0) === team);
         const spawnIndex = teamPlayers.indexOf(player);
@@ -56,7 +60,7 @@ export class TDMMode implements GameModeRules {
         const baseX = team === 0 ? -40 : 40;
         const baseZ = (spawnIndex - teamPlayers.length / 2) * 15;
 
-        return new Vector3(baseX, 5, baseZ);
+        return new Vector3(baseX, 5, baseZ); // Безопасная высота (будет пересчитана на клиенте)
     }
 
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
@@ -90,13 +94,15 @@ export class TDMMode implements GameModeRules {
 export class CoopPVEMode implements GameModeRules {
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // Spawn together in safe zone
+        // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (5.0м)
+        // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const spawnIndex = Array.from(room.getAllPlayers()).indexOf(player);
         const angle = (spawnIndex / room.getAllPlayers().length) * Math.PI * 2;
         const radius = 15;
 
         return new Vector3(
             Math.cos(angle) * radius,
-            5.0, // ИСПРАВЛЕНО: Спавн на 5 метров над поверхностью (падение на землю)
+            5.0, // Безопасная высота (будет пересчитана на клиенте)
             Math.sin(angle) * radius
         );
     }
@@ -126,6 +132,8 @@ export class BattleRoyaleMode implements GameModeRules {
 
     getSpawnPosition(_player: ServerPlayer, _room: GameRoom): Vector3 {
         // Random spawn in safe zone (but not too close to center)
+        // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (1.0м)
+        // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const angle = Math.random() * Math.PI * 2;
         const minRadius = this.safeZoneRadius * 0.3; // Spawn in outer 70% of zone
         const maxRadius = this.safeZoneRadius * 0.9;
@@ -133,7 +141,7 @@ export class BattleRoyaleMode implements GameModeRules {
 
         return new Vector3(
             this.safeZoneCenter.x + Math.cos(angle) * radius,
-            1.0, // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+            1.0, // Безопасная высота (будет пересчитана на клиенте)
             this.safeZoneCenter.z + Math.sin(angle) * radius
         );
     }
@@ -243,10 +251,12 @@ export class BattleRoyaleMode implements GameModeRules {
 export class CTFMode implements GameModeRules {
     getSpawnPosition(player: ServerPlayer, _room: GameRoom): Vector3 {
         // Spawn at team base
+        // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (1.0м)
+        // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const team = player.team || 0;
         const baseX = team === 0 ? -50 : 50;
 
-        return new Vector3(baseX, 1.0, 0); // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+        return new Vector3(baseX, 1.0, 0); // Безопасная высота (будет пересчитана на клиенте)
     }
 
     checkWinCondition(_room: GameRoom): { winner: string | null; reason: string } | null {
@@ -269,6 +279,8 @@ export class ControlPointMode implements GameModeRules {
     private controlPoints: Array<{ id: string; position: Vector3; team: number | null; captureProgress: number }> = [];
 
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
+        // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (1.0м)
+        // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const team = player.team || 0;
         const teamPlayers = room.getAllPlayers().filter(p => (p.team || 0) === team);
         const spawnIndex = teamPlayers.indexOf(player);
@@ -277,7 +289,7 @@ export class ControlPointMode implements GameModeRules {
         const baseX = team === 0 ? -50 : 50;
         const baseZ = (spawnIndex - teamPlayers.length / 2) * 15;
 
-        return new Vector3(baseX, 1.0, baseZ); // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
+        return new Vector3(baseX, 1.0, baseZ); // Безопасная высота (будет пересчитана на клиенте)
     }
 
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
@@ -333,12 +345,14 @@ export class EscortMode implements GameModeRules {
     private escortEnd: Vector3 = new Vector3(100, 5, 0);
 
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
+        // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (5.0м)
+        // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const team = player.team || 0;
 
         if (team === 0) {
             // Attacking team spawns near escort start
             const spawnIndex = room.getAllPlayers().filter(p => (p.team || 0) === 0).indexOf(player);
-            return new Vector3(this.escortStart.x - 20 - spawnIndex * 10, 5, this.escortStart.z + (spawnIndex % 2 === 0 ? -10 : 10));
+            return new Vector3(this.escortStart.x - 20 - spawnIndex * 10, 5, this.escortStart.z + (spawnIndex % 2 === 0 ? -10 : 10)); // Безопасная высота (будет пересчитана на клиенте)
         } else {
             // Defending team spawns along the route
             const spawnIndex = room.getAllPlayers().filter(p => (p.team || 0) === 1).indexOf(player);
@@ -390,13 +404,15 @@ export class SurvivalMode implements GameModeRules {
 
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // All players spawn together in safe zone
+        // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (5.0м)
+        // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const spawnIndex = Array.from(room.getAllPlayers()).indexOf(player);
         const angle = (spawnIndex / room.getAllPlayers().length) * Math.PI * 2;
         const radius = 15;
 
         return new Vector3(
             Math.cos(angle) * radius,
-            5.0, // ИСПРАВЛЕНО: Спавн на 5 метров над поверхностью (падение на землю)
+            5.0, // Безопасная высота (будет пересчитана на клиенте)
             Math.sin(angle) * radius
         );
     }
@@ -435,13 +451,15 @@ export class RaidMode implements GameModeRules {
 
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // All players spawn together
+        // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (5.0м)
+        // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const spawnIndex = Array.from(room.getAllPlayers()).indexOf(player);
         const angle = (spawnIndex / room.getAllPlayers().length) * Math.PI * 2;
         const radius = 15;
 
         return new Vector3(
             Math.cos(angle) * radius,
-            5.0, // ИСПРАВЛЕНО: Спавн на 5 метров над поверхностью (падение на землю)
+            5.0, // Безопасная высота (будет пересчитана на клиенте)
             Math.sin(angle) * radius
         );
     }

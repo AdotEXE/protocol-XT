@@ -187,13 +187,16 @@ export class GameGarage {
 
             // Если найден ближайший гараж, используем сохраненную позицию или вычисляем высоту
             if (nearestDistance < Infinity) {
-                // КРИТИЧНО: ВСЕГДА пересчитываем высоту террейна, даже если есть сохраненная позиция
-                let groundHeight = 2.0;
+                // ИСПРАВЛЕНО: Используем getTopSurfaceHeight() вместо getGroundHeight() для нахождения верхней поверхности
+                let surfaceHeight = 2.0;
 
-                // Вычисляем высоту террейна через game instance (более надёжный метод)
+                // Вычисляем высоту ВЕРХНЕЙ поверхности через game instance
                 const game = (window as any).gameInstance;
-                if (game && typeof game.getGroundHeight === 'function') {
-                    groundHeight = game.getGroundHeight(nearestGarageX, nearestGarageZ);
+                if (game && typeof game.getTopSurfaceHeight === 'function') {
+                    surfaceHeight = game.getTopSurfaceHeight(nearestGarageX, nearestGarageZ);
+                } else if (game && typeof game.getGroundHeight === 'function') {
+                    // Fallback на getGroundHeight если getTopSurfaceHeight недоступен
+                    surfaceHeight = game.getGroundHeight(nearestGarageX, nearestGarageZ);
                 } else if (this.chunkSystem?.terrainGenerator) {
                     // Fallback: используем terrainGenerator
                     const biomes = ["dirt", "city", "residential", "park", "industrial", "concrete"];
@@ -201,21 +204,27 @@ export class GameGarage {
                     for (const biome of biomes) {
                         try {
                             const height = this.chunkSystem.terrainGenerator.getHeight(nearestGarageX, nearestGarageZ, biome);
-                            if (height > maxHeight && height > -10 && height < 200) {
+                            if (height > maxHeight && height > -10 && height < 500) {
                                 maxHeight = height;
                             }
                         } catch (e) {
                             // Игнорируем ошибки
                         }
                     }
-                    groundHeight = maxHeight > 0 ? maxHeight : 2.0;
+                    surfaceHeight = maxHeight > 0 ? maxHeight : 2.0;
                 }
 
-                // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
-                const garageY = groundHeight + 1.0;
+                // ИСПРАВЛЕНО: Проверка валидности высоты перед использованием
+                if (surfaceHeight < -10 || surfaceHeight > 500) {
+                    logger.warn(`[GameGarage] getPlayerGaragePosition: Invalid surface height ${surfaceHeight.toFixed(2)}, using fallback 2.0`);
+                    surfaceHeight = 2.0;
+                }
+
+                // Спавн на 2 метра над верхней поверхностью
+                const garageY = surfaceHeight + 2.0;
                 const correctedGaragePos = new Vector3(nearestGarageX, garageY, nearestGarageZ);
 
-                logger.log(`[GameGarage] Garage position: (${correctedGaragePos.x.toFixed(2)}, ${correctedGaragePos.y.toFixed(2)}, ${correctedGaragePos.z.toFixed(2)}) - ground: ${groundHeight.toFixed(2)}`);
+                logger.log(`[GameGarage] Garage position: (${correctedGaragePos.x.toFixed(2)}, ${correctedGaragePos.y.toFixed(2)}, ${correctedGaragePos.z.toFixed(2)}) - surface: ${surfaceHeight.toFixed(2)}`);
                 return correctedGaragePos;
             }
         }

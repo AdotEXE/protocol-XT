@@ -97,9 +97,9 @@ export class SettingsPanel {
                             <span class="setting-label">Качество теней</span>
                             <div class="setting-value">
                                 <select class="setting-select" id="set-shadow-quality">
-                                    <option value="low" ${this.settings.shadowQuality === 'low' ? 'selected' : ''}>Низкое</option>
-                                    <option value="medium" ${this.settings.shadowQuality === 'medium' ? 'selected' : ''}>Среднее</option>
-                                    <option value="high" ${this.settings.shadowQuality === 'high' ? 'selected' : ''}>Высокое</option>
+                                    <option value="0" ${this.settings.shadowQuality === 0 ? 'selected' : ''}>Низкое</option>
+                                    <option value="1" ${this.settings.shadowQuality === 1 ? 'selected' : ''}>Среднее</option>
+                                    <option value="2" ${this.settings.shadowQuality === 2 ? 'selected' : ''}>Высокое</option>
                                 </select>
                             </div>
                         </div>

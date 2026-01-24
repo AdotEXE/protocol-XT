@@ -190,8 +190,8 @@ export class GameCore implements Partial<IGameCore> {
         this.engine.enableOfflineSupport = false;
         this.engine.setHardwareScalingLevel(1.0);
         
-        // Оптимизация рендеринга
-        this.engine.setSize(0, 0);
+        // КРИТИЧНО: НЕ устанавливаем размер 0x0 - это блокирует рендеринг!
+        // Размер будет установлен автоматически через engine.resize() позже
         
         this.scene = new Scene(this.engine, {
             useGeometryUniqueIdsMap: true,

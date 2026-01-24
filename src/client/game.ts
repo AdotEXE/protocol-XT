@@ -101,7 +101,8 @@ import { GameMultiplayer } from "./game/GameMultiplayer";
 import { GameMultiplayerCallbacks } from "./game/GameMultiplayerCallbacks";
 import { CustomMapRunner } from "./CustomMapRunner";
 import { ActionManager, ExecuteCodeAction } from "@babylonjs/core";
-import { AdminPanel } from "./adminPanel";
+// AdminPanel is lazy loaded to avoid circular dependency
+import type { AdminPanel } from "./adminPanel";
 import { ProviderFactory, type IRewardProvider, type LocalRewardDependencies, type NetworkRewardDependencies } from "./game/providers";
 
 export class Game {
@@ -1625,12 +1626,31 @@ export class Game {
             this.loadingScreen = null;
         }
         
-        // ИСПРАВЛЕНИЕ: Также проверяем и удаляем все экраны загрузки по ID (на случай если они созданы в других местах)
+        // ИСПРАВЛЕНИЕ: Также проверяем и удаляем ВСЕ экраны загрузки по ID (на случай если они созданы в других местах)
+        // Это включает экраны, созданные через класс LoadingScreen или другими способами
         const existingScreens = document.querySelectorAll("#loading-screen");
-        existingScreens.forEach((screen) => {
+        console.log(`[Game] Found ${existingScreens.length} existing loading screens, removing them...`);
+        existingScreens.forEach((screen, index) => {
+            try {
+                console.log(`[Game] Removing loading screen ${index + 1}`);
+                if (screen.parentNode) {
+                    screen.parentNode.removeChild(screen);
+                } else {
+                    screen.remove();
+                }
+            } catch (e) {
+                console.error(`[Game] Error removing loading screen ${index + 1}:`, e);
+            }
+        });
+        
+        // Дополнительная проверка: удаляем все элементы с классом loading-screen (если есть)
+        const screensByClass = document.querySelectorAll(".loading-screen");
+        screensByClass.forEach((screen) => {
             try {
                 if (screen.parentNode) {
                     screen.parentNode.removeChild(screen);
+                } else {
+                    screen.remove();
                 }
             } catch (e) {
                 // Игнорируем ошибки
@@ -2696,15 +2716,21 @@ export class Game {
         try {
             logger.log(`[Game] init() called with mapType: ${this.currentMapType}`);
 
-            // КРИТИЧНО: Закрываем меню мультиплеера при показе экрана загрузки
-            if (this.networkMenu && typeof this.networkMenu.isVisible === 'function' && this.networkMenu.isVisible()) {
-                this.networkMenu.hide();
-                logger.debug("[Game] Closed network menu on loading screen show");
-            }
+            // ИСПРАВЛЕНИЕ: Не показываем экран загрузки, если игра уже инициализирована
+            // Это предотвращает множественные экраны загрузки при открытии редактора
+            if (!this.gameInitialized) {
+                // КРИТИЧНО: Закрываем меню мультиплеера при показе экрана загрузки
+                if (this.networkMenu && typeof this.networkMenu.isVisible === 'function' && this.networkMenu.isVisible()) {
+                    this.networkMenu.hide();
+                    logger.debug("[Game] Closed network menu on loading screen show");
+                }
 
-            // Показываем загрузочный экран
-            this.createLoadingScreen();
-            this.updateLoadingProgress(5, "Инициализация движка...");
+                // Показываем загрузочный экран только при первой инициализации
+                this.createLoadingScreen();
+                this.updateLoadingProgress(5, "Инициализация движка...");
+            } else {
+                logger.debug("[Game] init() called but game already initialized, skipping loading screen");
+            }
 
             // Убеждаемся, что canvas виден и не перекрыт
             if (this.canvas) {
@@ -4105,8 +4131,10 @@ export class Game {
                 logger.log("[Game] ✅ MultiplayerManager создан (fallback)");
             }
 
-            // Initialize Admin Panel (controls for host)
-            this.adminPanel = new AdminPanel(this);
+            // Initialize Admin Panel (controls for host) - lazy loaded to avoid circular dependency
+            import("./adminPanel").then(({ AdminPanel }) => {
+                this.adminPanel = new AdminPanel(this);
+            });
 
             // Настраиваем мультиплеерные колбэки через модуль
             this.gameMultiplayerCallbacks.updateDependencies({

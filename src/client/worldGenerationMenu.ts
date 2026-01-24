@@ -36,6 +36,11 @@ export interface WorldGenSettings {
     terrainDetail: number; // 0.5 - 2.0
     biomeTransitionSmoothness: number; // 0.1 - 1.0
 
+    // Custom Map Dimensions
+    useCustomMapSize: boolean;
+    customMapWidth: number;
+    customMapDepth: number;
+
     // Map-specific settings
     mapSpecific: {
         polygon?: {
@@ -113,6 +118,9 @@ export class WorldGenerationMenu {
         consumablesMax: 4,
         terrainDetail: 1.0,
         biomeTransitionSmoothness: 0.5,
+        useCustomMapSize: false,
+        customMapWidth: 1000,
+        customMapDepth: 1000,
         mapSpecific: {}
     };
 
@@ -156,6 +164,13 @@ export class WorldGenerationMenu {
             this.settings.renderDistance = config.renderDistance || 1.5;
             this.settings.unloadDistance = config.unloadDistance || 2.5;
             this.settings.worldSeed = config.worldSeed || 12345;
+
+            // Если в конфиге уже есть кастомные размеры
+            if (config.customBounds) {
+                this.settings.useCustomMapSize = true;
+                this.settings.customMapWidth = config.customBounds.width;
+                this.settings.customMapDepth = config.customBounds.depth;
+            }
 
             this.updateUI();
         }
@@ -427,6 +442,13 @@ export class WorldGenerationMenu {
         rightColumn.appendChild(this.createSection("🏔️ Ландшафт", [
             this.createSlider("terrainDetail", "Детализация ландшафта", 0.5, 2.0, 0.1, "x", "Уровень детализации рельефа"),
             this.createSlider("biomeTransitionSmoothness", "Плавность переходов биомов", 0.1, 1.0, 0.1, "", "Насколько плавно переходят биомы друг в друга")
+        ]));
+
+        // === РАЗМЕРЫ КАРТЫ ===
+        rightColumn.appendChild(this.createSection("📏 Размеры карты", [
+            this.createCheckbox("useCustomMapSize", "Использовать свои размеры", "Переопределить стандартные размеры карты"),
+            this.createSlider("customMapWidth", "Ширина карты (X)", 200, 5000, 100, "м", "Ширина генерируемой области"),
+            this.createSlider("customMapDepth", "Глубина карты (Z)", 200, 5000, 100, "м", "Глубина генерируемой области")
         ]));
 
         // === БЫСТРЫЕ ПРЕСЕТЫ ===
@@ -1299,7 +1321,11 @@ export class WorldGenerationMenu {
                     worldSeed: this.settings.useRandomSeed
                         ? Math.floor(Math.random() * 999999999)
                         : this.settings.worldSeed,
-                    mapType: (this.game as any).currentMapType || "normal"
+                    mapType: (this.game as any).currentMapType || "normal",
+                    customBounds: this.settings.useCustomMapSize ? {
+                        width: this.settings.customMapWidth,
+                        depth: this.settings.customMapDepth
+                    } : undefined
                 };
 
                 import("./chunkSystem").then(({ ChunkSystem }) => {

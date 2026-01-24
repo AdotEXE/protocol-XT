@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useMemo, ReactNode } from 'react';
 
 interface LoaderContextType {
     isLoading: boolean;
@@ -21,8 +21,17 @@ export const LoaderProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         if (!active) setProgress(0);
     };
 
+    // Memoize context value to prevent unnecessary re-renders
+    const value = useMemo(() => ({
+        isLoading,
+        progress,
+        status,
+        setLoading,
+        setProgress
+    }), [isLoading, progress, status]);
+
     return (
-        <LoaderContext.Provider value={{ isLoading, progress, status, setLoading, setProgress }}>
+        <LoaderContext.Provider value={value}>
             {children}
         </LoaderContext.Provider>
     );

@@ -166,6 +166,17 @@ export interface CreateRoomData {
     maxPlayers: number;
     isPrivate?: boolean;
     settings?: any;
+    mapType?: string; // Type of map
+    enableBots?: boolean; // Enable bots
+    botCount?: number; // Number of bots
+    // Customization
+    chassisType?: string;
+    cannonType?: string;
+    tankColor?: string;
+    turretColor?: string;
+    playerName?: string;
+    // Map Data
+    customMapData?: any; // Full JSON data for custom maps
 }
 
 export interface JoinRoomData {
@@ -239,6 +250,10 @@ export interface GameStateData {
     consumables: ConsumableData[];
     gameTime: number;
     matchStartTime: number;
+    // Map Info
+    mapType?: string;
+    customMapData?: any; // Full JSON data for custom maps
+    enemies?: any[]; // For bot synchronization
 }
 
 export interface ErrorData {

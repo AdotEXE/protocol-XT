@@ -1,5 +1,6 @@
 // Модуль управления движением и физикой танка
 import { Vector3, PhysicsMotionType, Quaternion } from "@babylonjs/core";
+import { tankLogger } from "../utils/logger";
 import type { ITankController } from "./types";
 
 export class TankMovementModule {
@@ -276,7 +277,7 @@ export class TankMovementModule {
             // Игнорируем если не поддерживается
         }
 
-        console.log("[TANK] Reset complete - Position:", spawnPos, "Alive:", this.tank.isAlive);
+        tankLogger.info(`[TANK] Reset complete - Position: ${spawnPos}, Alive: ${this.tank.isAlive}`);
     }
 
     /**

@@ -1,5 +1,5 @@
 // TerrainMesh.tsx - Visual terrain elevation mesh
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
 interface TerrainMeshProps {
@@ -21,7 +21,18 @@ const TerrainMesh: React.FC<TerrainMeshProps> = ({
     color = '#3a5a40',
     wireframe = false
 }) => {
+    const geometryRef = useRef<THREE.BufferGeometry | null>(null);
+    const materialRef = useRef<THREE.Material | null>(null);
+
     const { geometry, material } = useMemo(() => {
+        // Dispose previous geometry and material
+        if (geometryRef.current) {
+            geometryRef.current.dispose();
+        }
+        if (materialRef.current) {
+            materialRef.current.dispose();
+        }
+
         // Create plane geometry with subdivisions matching the grid
         const segments = gridSize - 1;
         const geo = new THREE.PlaneGeometry(width, width, segments, segments);
@@ -62,8 +73,25 @@ const TerrainMesh: React.FC<TerrainMeshProps> = ({
             metalness: 0.1
         });
 
+        geometryRef.current = geo;
+        materialRef.current = mat;
+
         return { geometry: geo, material: mat };
     }, [elevationGrid, gridSize, width, baseElevation, verticalScale, color, wireframe]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (geometryRef.current) {
+                geometryRef.current.dispose();
+                geometryRef.current = null;
+            }
+            if (materialRef.current) {
+                materialRef.current.dispose();
+                materialRef.current = null;
+            }
+        };
+    }, []);
 
     if (!elevationGrid || elevationGrid.length === 0) {
         return null;

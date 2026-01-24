@@ -12,7 +12,7 @@ import { Scene } from "@babylonjs/core/scene";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 import { Color3 } from "@babylonjs/core/Maths/math";
 import { MapGeneratorFactory } from "./shared";
-import { GenerationContext } from "./shared/MapGenerator";
+import { GenerationContext } from "./shared/MapTypes";
 
 // Import only Sand map generator (all other maps removed per user request)
 import { SandGenerator } from "./sand/SandGenerator";
@@ -28,7 +28,8 @@ const materialCache: Map<string, StandardMaterial> = new Map();
  */
 function getBasicMaterial(name: string, scene: Scene): StandardMaterial {
     const cached = materialCache.get(name);
-    if (cached && !cached.isDisposed()) return cached;
+    // Check if material is still valid (not disposed)
+    if (cached && cached.getScene() && !cached.getScene()?.isDisposed) return cached;
 
     const mat = new StandardMaterial(name, scene);
     mat.diffuseColor = new Color3(0.5, 0.5, 0.5);

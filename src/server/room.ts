@@ -113,6 +113,7 @@ export class GameRoom {
 
     // Map type
     mapType: string = "normal";
+    customMapData: any = null; // Store custom map JSON data
 
     // Room deletion timer
     deletionTimer: NodeJS.Timeout | null = null;

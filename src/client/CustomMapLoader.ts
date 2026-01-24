@@ -125,45 +125,22 @@ export class CustomMapLoader {
 
         let mesh: Mesh;
 
-        // Проверяем если это polygon-объект (здание/дорога из Real World Generator)
-        if (obj.isPolygon && obj.polygon && obj.polygon.length >= 3) {
-            try {
-                // Конвертируем polygon в Vector2[] для XZ плоскости
-                const shape: Vector2[] = obj.polygon.map(v => new Vector2(v.x, v.z));
+        // SIMPLIFIED: Всегда используем BOX для надёжности
+        // ExtrudePolygon удалён - часто вызывал невидимые меши
+        const scale = obj.scale || { x: 1, y: 1, z: 1 };
+        const width = Math.max(0.5, scale.x);
+        const height = Math.max(0.5, scale.y);
+        const depth = Math.max(0.5, scale.z);
 
-                // Создаём extruded polygon
-                const height = obj.height || 1;
-                mesh = MeshBuilder.ExtrudePolygon(meshName, {
-                    shape: shape,
-                    depth: height,
-                    sideOrientation: Mesh.DOUBLESIDE
-                }, this.scene, earcut);
+        mesh = MeshBuilder.CreateBox(meshName, {
+            width: width,
+            height: height,
+            depth: depth
+        }, this.scene);
 
-                // Позиционируем по Y (extrude идёт вниз, так что сдвигаем)
-                mesh.position = new Vector3(0, pos.y + height, 0);
+        // Позиция уже включает правильный Y offset из экспортёра
+        mesh.position = new Vector3(pos.x, pos.y, pos.z);
 
-                console.log(`[CustomMapLoader] Created polygon mesh: ${meshName} with ${shape.length} vertices, height: ${height}`);
-            } catch (e) {
-                console.warn(`[CustomMapLoader] Polygon creation failed for ${obj.id}, falling back to box:`, e);
-                // Fallback to box
-                const scale = obj.scale || { x: 1, y: 1, z: 1 };
-                mesh = MeshBuilder.CreateBox(meshName, {
-                    width: Math.max(0.1, scale.x),
-                    height: Math.max(0.1, scale.y),
-                    depth: Math.max(0.1, scale.z)
-                }, this.scene);
-                mesh.position = new Vector3(pos.x, pos.y, pos.z);
-            }
-        } else {
-            // Стандартный бокс
-            const scale = obj.scale || { x: 1, y: 1, z: 1 };
-            mesh = MeshBuilder.CreateBox(meshName, {
-                width: Math.max(0.1, scale.x),
-                height: Math.max(0.1, scale.y),
-                depth: Math.max(0.1, scale.z)
-            }, this.scene);
-            mesh.position = new Vector3(pos.x, pos.y, pos.z);
-        }
 
         // Поворот (в радианах)
         mesh.rotation = new Vector3(

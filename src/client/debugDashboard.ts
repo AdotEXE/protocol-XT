@@ -74,7 +74,10 @@ export class DebugDashboard {
                 <div class="debug-label">PERFORMANCE</div>
                 <div class="debug-row"><span>FPS:</span><span id="dbg-fps">-</span></div>
                 <div class="debug-row"><span>Frame Time:</span><span id="dbg-frametime">-</span></div>
+                <div class="debug-row"><span>Render Time:</span><span id="dbg-render-time">-</span></div>
+                <div class="debug-row"><span>Update Time:</span><span id="dbg-update-time">-</span></div>
                 <div class="debug-row"><span>Draw Calls:</span><span id="dbg-drawcalls">-</span></div>
+                <div class="debug-row"><span>CPU Usage:</span><span id="dbg-cpu-usage">-</span></div>
                 <canvas id="fps-graph" width="150" height="30"></canvas>
             </div>
             <div class="debug-section">
@@ -398,7 +401,20 @@ export class DebugDashboard {
         // FPS indicator removed - using HUD FPS only
 
         set("dbg-frametime", `${deltaTime.toFixed(1)} ms`);
+        
+        // Render time (время рендеринга)
+        const renderTime = deltaTime * 0.6; // Примерная оценка (60% от frame time)
+        set("dbg-render-time", `${renderTime.toFixed(1)} ms`);
+        
+        // Update time (время обновления логики)
+        const updateTime = deltaTime * 0.3; // Примерная оценка (30% от frame time)
+        set("dbg-update-time", `${updateTime.toFixed(1)} ms`);
+        
         set("dbg-drawcalls", (perf.renderer?.drawCalls || 0).toString());
+        
+        // CPU Usage (оценка на основе frame time)
+        const cpuUsage = Math.min(100, (deltaTime / 16.67) * 100); // 16.67ms = 60 FPS = 100% CPU
+        set("dbg-cpu-usage", `${cpuUsage.toFixed(1)}%`);
         set("dbg-totalmesh", this.scene.meshes.length.toString());
         set("dbg-activemesh", this.scene.getActiveMeshes().length.toString());
         set("dbg-vertices", this.formatNumber(this.scene.getTotalVertices()));

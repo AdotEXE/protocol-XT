@@ -425,10 +425,10 @@ export class MapEditor {
                             ${this.selectedObjectId ? `<div>Выбран: <span id="selected-object-name">${this.getSelectedObjectName()}</span></div>` : ''}
                         </div>
                     </div>
-                    <div class="map-editor-properties" id="properties-panel" style="display: ${this.selectedObjectId ? 'block' : 'none'}">
+                    <div class="map-editor-properties" id="properties-panel">
                         <div class="properties-header">SPATIAL CONFIGURATION</div>
                         <div class="properties-content" id="properties-content">
-                            ${this.selectedObjectId ? this.generatePropertiesPanel() : ''}
+                            <!-- Content will be populated by updatePropertiesPanel() -->
                         </div>
                     </div>
                 </div>
@@ -438,6 +438,9 @@ export class MapEditor {
         document.body.appendChild(this.container);
         this.injectStyles();
         this.setupUIEventListeners();
+        
+        // Инициализируем панель свойств - по умолчанию скрыта
+        this.updatePropertiesPanel();
     }
 
     /**
@@ -577,14 +580,12 @@ export class MapEditor {
                 padding: 15px;
                 overflow-y: auto;
                 max-height: 100vh;
-                display: flex !important; /* Изменено с block на flex */
-                flex-direction: column !important;
-                visibility: visible !important;
-                opacity: 1 !important;
-                pointer-events: auto !important;
-            }
-            .map-editor-properties[style*="display: none"] {
-                display: none !important;
+                /* По умолчанию скрыта - будет показана через updatePropertiesPanel() */
+                display: none;
+                flex-direction: column;
+                visibility: hidden;
+                opacity: 0;
+                pointer-events: none;
             }
             .properties-header {
                 color: #0f0;
@@ -4975,10 +4976,18 @@ export class MapEditor {
      * Свернуть редактор
      */
     minimize(): void {
+        console.log("[MapEditor] minimize() called, container:", !!this.container);
+        
         if (!this.container) {
             console.error("[MapEditor] Cannot minimize: container not found");
             return;
         }
+
+        console.log("[MapEditor] Container before minimize:", {
+            display: this.container.style.display,
+            visibility: this.container.style.visibility,
+            className: this.container.className
+        });
 
         // ИСПРАВЛЕНО: Принудительно удаляем все inline стили, которые могут конфликтовать
         this.container.removeAttribute('style');
@@ -4988,6 +4997,12 @@ export class MapEditor {
         this.container.style.setProperty('visibility', 'hidden', 'important');
         this.container.style.setProperty('opacity', '0', 'important');
         this.container.style.setProperty('pointer-events', 'none', 'important');
+        
+        console.log("[MapEditor] Container after minimize:", {
+            display: this.container.style.display,
+            visibility: this.container.style.visibility,
+            computedDisplay: getComputedStyle(this.container).display
+        });
 
         // Создаем кнопку восстановления, если её нет
         let restoreBtn = document.getElementById("map-editor-restore-btn");
@@ -5036,10 +5051,18 @@ export class MapEditor {
      * Развернуть редактор
      */
     restore(): void {
+        console.log("[MapEditor] restore() called, container:", !!this.container);
+        
         if (!this.container) {
             console.error("[MapEditor] Cannot restore: container not found");
             return;
         }
+
+        console.log("[MapEditor] Container before restore:", {
+            display: this.container.style.display,
+            visibility: this.container.style.visibility,
+            className: this.container.className
+        });
 
         // ИСПРАВЛЕНО: Принудительно удаляем все inline стили
         this.container.removeAttribute('style');
@@ -5049,6 +5072,12 @@ export class MapEditor {
         this.container.style.setProperty('visibility', 'visible', 'important');
         this.container.style.setProperty('opacity', '1', 'important');
         this.container.style.setProperty('pointer-events', 'auto', 'important');
+        
+        console.log("[MapEditor] Container after restore:", {
+            display: this.container.style.display,
+            visibility: this.container.style.visibility,
+            computedDisplay: getComputedStyle(this.container).display
+        });
 
         const restoreBtn = document.getElementById("map-editor-restore-btn");
         if (restoreBtn) {
@@ -5057,7 +5086,7 @@ export class MapEditor {
         }
         
         this.showNotification("Редактор развернут");
-        console.log("[MapEditor] Editor restored");
+        console.log("[MapEditor] Editor restored successfully");
     }
 
     /**

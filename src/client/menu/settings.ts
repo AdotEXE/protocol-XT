@@ -90,7 +90,17 @@ export interface GameSettings {
     showDebugInfo: boolean;
     enableCheats: boolean;
     maxFPS: number;
+    maxFps?: number; // Alias for settingsPanel.ts compatibility
     debugSync: boolean; // Debug multiplayer synchronization
+
+    // SettingsPanel.ts compatibility properties
+    renderScale?: number; // Alias for graphics quality
+    details?: 'low' | 'medium' | 'high'; // Detail level
+    particles?: boolean; // Enable particles
+    grass?: boolean; // Enable grass rendering
+    decals?: boolean; // Enable bullet decals
+    antialiasing?: boolean; // Alias for antiAliasing
+    ssao?: 'none' | 'low' | 'medium' | 'high'; // Screen space AO quality
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -176,7 +186,17 @@ export const DEFAULT_SETTINGS: GameSettings = {
     showDebugInfo: false,
     enableCheats: false,
     maxFPS: 0,
-    debugSync: false // Debug multiplayer synchronization (reduces log spam)
+    maxFps: 0,
+    debugSync: false, // Debug multiplayer synchronization (reduces log spam)
+
+    // SettingsPanel.ts compatibility properties
+    renderScale: 1.0,
+    details: 'high',
+    particles: true,
+    grass: true,
+    decals: true,
+    antialiasing: true,
+    ssao: 'none'
 };
 
 /**

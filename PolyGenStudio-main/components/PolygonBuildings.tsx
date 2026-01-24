@@ -11,6 +11,41 @@ import React, { useMemo, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { CubeElement } from '../types';
 
+// Memoized materials to avoid recreation on every render
+const WaterMaterial: React.FC<{ color: string }> = React.memo(({ color }) => {
+    const material = useMemo(() => new THREE.MeshStandardMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.7,
+        roughness: 0.2,
+        metalness: 0.3
+    }), [color]);
+
+    useEffect(() => {
+        return () => {
+            material.dispose();
+        };
+    }, [material]);
+
+    return <primitive object={material} attach="material" />;
+});
+
+const BuildingMaterial: React.FC<{ color: string }> = React.memo(({ color }) => {
+    const material = useMemo(() => new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.8,
+        metalness: 0.1
+    }), [color]);
+
+    useEffect(() => {
+        return () => {
+            material.dispose();
+        };
+    }, [material]);
+
+    return <primitive object={material} attach="material" />;
+});
+
 interface PolygonBuildingsProps {
     cubes: CubeElement[];
     excludeIds: Set<string>;
@@ -68,19 +103,52 @@ const PolygonBuilding = React.memo(({
     onClick?: (id: string, event: any) => void;
 }) => {
     const meshRef = useRef<THREE.Mesh>(null);
+    const geometryRef = useRef<THREE.BufferGeometry | null>(null);
+    const fallbackGeometryRef = useRef<THREE.BufferGeometry | null>(null);
 
     // Create geometry from polygon
     const geometry = useMemo(() => {
-        if (!cube.polygon || cube.polygon.length < 3) return null;
+        // Dispose previous geometry
+        if (geometryRef.current) {
+            geometryRef.current.dispose();
+        }
+        
+        if (!cube.polygon || cube.polygon.length < 3) {
+            geometryRef.current = null;
+            return null;
+        }
 
         const height = cube.height || cube.size.y || 10;
-        return createBuildingGeometry(cube.polygon, height);
+        const geo = createBuildingGeometry(cube.polygon, height);
+        geometryRef.current = geo;
+        return geo;
     }, [cube.polygon, cube.height, cube.size.y]);
 
     // Fallback to box if polygon geometry fails
     const fallbackGeometry = useMemo(() => {
-        return new THREE.BoxGeometry(cube.size.x, cube.size.y, cube.size.z);
+        // Dispose previous geometry
+        if (fallbackGeometryRef.current) {
+            fallbackGeometryRef.current.dispose();
+        }
+        
+        const geo = new THREE.BoxGeometry(cube.size.x, cube.size.y, cube.size.z);
+        fallbackGeometryRef.current = geo;
+        return geo;
     }, [cube.size.x, cube.size.y, cube.size.z]);
+
+    // Cleanup geometries on unmount
+    useEffect(() => {
+        return () => {
+            if (geometryRef.current) {
+                geometryRef.current.dispose();
+                geometryRef.current = null;
+            }
+            if (fallbackGeometryRef.current) {
+                fallbackGeometryRef.current.dispose();
+                fallbackGeometryRef.current = null;
+            }
+        };
+    }, []);
 
     const handleClick = (event: any) => {
         if (onClick) {
@@ -112,21 +180,11 @@ const PolygonBuilding = React.memo(({
             receiveShadow
         >
             {isWater ? (
-                // Water material - transparent blue
-                <meshStandardMaterial
-                    color={cube.color || '#1e5f8a'}
-                    transparent
-                    opacity={0.7}
-                    roughness={0.2}
-                    metalness={0.3}
-                />
+                // Water material - transparent blue (memoized)
+                <WaterMaterial color={cube.color || '#1e5f8a'} />
             ) : (
-                // Building material - opaque concrete
-                <meshStandardMaterial
-                    color={cube.color || '#cccccc'}
-                    roughness={0.8}
-                    metalness={0.1}
-                />
+                // Building material - opaque concrete (memoized)
+                <BuildingMaterial color={cube.color || '#cccccc'} />
             )}
         </mesh>
     );

@@ -132,6 +132,7 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
     }
@@ -174,7 +175,7 @@ export class SandGenerator extends BaseMapGenerator {
                 ramp.material = this.getMat("concrete");
                 ramp.parent = chunkParent;
                 ramp.freezeWorldMatrix();
-                ramp.freezeWorldMatrix();
+                ramp.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
                 this.addPhysicsIfAvailable(ramp, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
@@ -237,7 +238,7 @@ export class SandGenerator extends BaseMapGenerator {
                 ruinWall.material = this.getMat("concrete");
                 ruinWall.parent = chunkParent;
                 ruinWall.freezeWorldMatrix();
-                ruinWall.freezeWorldMatrix();
+                ruinWall.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
                 this.addPhysicsIfAvailable(ruinWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
@@ -293,7 +294,7 @@ export class SandGenerator extends BaseMapGenerator {
                 ruinWall.material = this.getMat("concrete");
                 ruinWall.parent = chunkParent;
                 ruinWall.freezeWorldMatrix();
-                ruinWall.freezeWorldMatrix();
+                ruinWall.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
                 this.addPhysicsIfAvailable(ruinWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
@@ -334,7 +335,7 @@ export class SandGenerator extends BaseMapGenerator {
                 ruinWall.material = this.getMat("concrete");
                 ruinWall.parent = chunkParent;
                 ruinWall.freezeWorldMatrix();
-                ruinWall.freezeWorldMatrix();
+                ruinWall.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
                 this.addPhysicsIfAvailable(ruinWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
@@ -364,7 +365,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
 
             // Короткая часть
@@ -375,7 +377,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
 
             // Окно в длинной части
@@ -386,7 +389,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("sand");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
 
@@ -401,7 +405,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
 
             box = MeshBuilder.CreateBox("sand_bld_se_short", {
@@ -411,7 +416,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
 
@@ -427,7 +433,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
 
             // Шапка
@@ -438,7 +445,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("concrete");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
 
@@ -454,7 +462,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
 
             // Правая стенка
@@ -465,7 +474,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
 
             // Перемычка
@@ -476,7 +486,8 @@ export class SandGenerator extends BaseMapGenerator {
             box.material = this.getMat("brick");
             box.parent = chunkParent;
             box.freezeWorldMatrix();
-            box.freezeWorldMatrix();
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
+            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
             this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
         }
     }

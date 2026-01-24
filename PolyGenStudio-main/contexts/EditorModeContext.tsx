@@ -3,7 +3,7 @@
  * 
  * URL params: ?mode=map | ?mode=tank
  */
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode } from 'react';
 
 export type EditorMode = 'map' | 'tank';
 
@@ -34,12 +34,13 @@ export const EditorModeProvider: React.FC<{ children: ReactNode }> = ({ children
         window.history.replaceState({}, '', url.toString());
     }, [mode]);
 
-    const value: EditorModeContextType = {
+    // Memoize context value to prevent unnecessary re-renders
+    const value: EditorModeContextType = useMemo(() => ({
         mode,
         setMode,
         isMapMode: mode === 'map',
         isTankMode: mode === 'tank',
-    };
+    }), [mode]);
 
     return (
         <EditorModeContext.Provider value={value}>

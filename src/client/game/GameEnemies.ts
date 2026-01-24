@@ -53,6 +53,8 @@ export interface GameSystemsAccess {
  * - Систему волн для режима Frontline
  */
 export class GameEnemies {
+    // ИСПРАВЛЕНИЕ: Ограничение на количество врагов для предотвращения утечек памяти
+    private readonly MAX_ENEMIES = 50;
     // Массив врагов
     enemyTanks: EnemyTank[] = [];
 
@@ -462,6 +464,17 @@ export class GameEnemies {
      * Создание врага с настройками
      * @param skipTargetAssignment - если true, цель НЕ будет установлена (для патрулирования)
      */
+    /**
+     * ИСПРАВЛЕНИЕ: Проверка лимита врагов перед созданием
+     */
+    private checkEnemyLimit(): boolean {
+        if (this.enemyTanks.length >= this.MAX_ENEMIES) {
+            logger.warn(`[GameEnemies] Enemy limit reached (${this.MAX_ENEMIES}), skipping spawn`);
+            return false;
+        }
+        return true;
+    }
+    
     private createEnemy(
         pos: Vector3,
         difficulty: "easy" | "medium" | "hard" | "nightmare",
@@ -1022,17 +1035,26 @@ export class GameEnemies {
                 spawnZ = Math.sin(angle) * distance;
             }
 
-            // УЛУЧШЕНО: Спавн на верхней поверхности (крыша или террейн)
-            let spawnY: number;
-            if (game && typeof game.getTopSurfaceHeight === 'function') {
-                const surfaceHeight = game.getTopSurfaceHeight(spawnX, spawnZ);
-                spawnY = surfaceHeight + 1.5; // 1.5м над поверхностью
-            } else {
-                const groundInfo = this.getGroundInfo(spawnX, spawnZ);
-                spawnY = Math.max(groundInfo.height + 1.5, 2.0);
+            // ИСПРАВЛЕНО: Используем findSafeSpawnPositionAt() для нахождения безопасной позиции над верхней поверхностью
+            let safePos: Vector3 | null = null;
+            if (game && typeof game.findSafeSpawnPositionAt === 'function') {
+                safePos = game.findSafeSpawnPositionAt(spawnX, spawnZ, 2.0, 5);
             }
 
-            pos = new Vector3(spawnX, spawnY, spawnZ);
+            if (safePos) {
+                pos = safePos;
+            } else {
+                // Fallback: если findSafeSpawnPositionAt вернул null, используем getTopSurfaceHeight
+                let spawnY: number;
+                if (game && typeof game.getTopSurfaceHeight === 'function') {
+                    const surfaceHeight = game.getTopSurfaceHeight(spawnX, spawnZ);
+                    spawnY = surfaceHeight + 2.0; // 2м над поверхностью
+                } else {
+                    const groundInfo = this.getGroundInfo(spawnX, spawnZ);
+                    spawnY = Math.max(groundInfo.height + 2.0, 2.0);
+                }
+                pos = new Vector3(spawnX, spawnY, spawnZ);
+            }
 
             // Проверяем расстояние до других врагов (минимум 20м на карте Песок, 100м на других картах)
             const minBotDistance = this.systems.currentMapType === "sand" ? 20 : 100;
@@ -1052,6 +1074,12 @@ export class GameEnemies {
             attempts++;
         } while (attempts < 30);
 
+        // ИСПРАВЛЕНИЕ: Проверяем лимит перед созданием
+        if (!this.checkEnemyLimit()) {
+            logger.warn("[GameEnemies] Cannot spawn enemy: limit reached");
+            return;
+        }
+        
         const groundNormal = (pos as any).groundNormal || Vector3.Up();
         // ИСПРАВЛЕНО: Боты СРАЗУ получают цель для агрессивного поведения
         // Для карты "Песок" используем специальный обработчик смерти с респавном
@@ -1149,17 +1177,26 @@ export class GameEnemies {
                     spawnZ = Math.sin(angle) * distance;
                 }
 
-                // УЛУЧШЕНО: Спавн на верхней поверхности (крыша или террейн)
-                let spawnY: number;
-                if (game && typeof game.getTopSurfaceHeight === 'function') {
-                    const surfaceHeight = game.getTopSurfaceHeight(spawnX, spawnZ);
-                    spawnY = surfaceHeight + 1.5; // 1.5м над поверхностью
-                } else {
-                    const groundInfo = this.getGroundInfo(spawnX, spawnZ);
-                    spawnY = Math.max(groundInfo.height + 1.5, 2.0);
+                // ИСПРАВЛЕНО: Используем findSafeSpawnPositionAt() для нахождения безопасной позиции над верхней поверхностью
+                let safePos: Vector3 | null = null;
+                if (game && typeof game.findSafeSpawnPositionAt === 'function') {
+                    safePos = game.findSafeSpawnPositionAt(spawnX, spawnZ, 2.0, 5);
                 }
 
-                pos = new Vector3(spawnX, spawnY, spawnZ);
+                if (safePos) {
+                    pos = safePos;
+                } else {
+                    // Fallback: если findSafeSpawnPositionAt вернул null, используем getTopSurfaceHeight
+                    let spawnY: number;
+                    if (game && typeof game.getTopSurfaceHeight === 'function') {
+                        const surfaceHeight = game.getTopSurfaceHeight(spawnX, spawnZ);
+                        spawnY = surfaceHeight + 2.0; // 2м над поверхностью
+                    } else {
+                        const groundInfo = this.getGroundInfo(spawnX, spawnZ);
+                        spawnY = Math.max(groundInfo.height + 2.0, 2.0);
+                    }
+                    pos = new Vector3(spawnX, spawnY, spawnZ);
+                }
 
                 // Проверяем расстояние до других врагов
                 let tooClose = false;

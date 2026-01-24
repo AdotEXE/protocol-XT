@@ -488,7 +488,7 @@ export class GameMultiplayerCallbacks {
                 // Локальный игрок получает урон от сервера
                 if (this.deps.tank) {
                     console.log(`[Game] 💥 Local player taking ${data.damage} damage from server`);
-                    this.deps.tank.setHealth(data.health);
+                    this.deps.tank.setHealth(data.health ?? 100);
                     // Показываем индикатор получения урона
                     if (this.deps.hud) {
                         (this.deps.hud as any).showDamageIndicator?.(data.damage);
@@ -501,7 +501,7 @@ export class GameMultiplayerCallbacks {
             const tank = this.deps.networkPlayerTanks.get(data.playerId);
             if (tank) {
                 console.log(`[Game] 💥 Updating network player ${data.playerId} health to ${data.health}/${data.maxHealth}`);
-                tank.setHealth(data.health, data.maxHealth);
+                tank.setHealth(data.health ?? 100, data.maxHealth ?? 100);
 
                 // Опционально: визуальный эффект получения урона
                 if (this.deps.effectsManager && (tank as any).getPosition) {
@@ -950,7 +950,7 @@ export class GameMultiplayerCallbacks {
             // Если урон нанесён локальному игроку
             if (data.playerId === localPlayerId) {
                 if (this.deps.tank) {
-                    this.deps.tank.setHealth(data.health, data.maxHealth);
+                    this.deps.tank.setHealth(data.health ?? 100, data.maxHealth ?? 100);
 
                     // Обновляем HUD и показываем эффект урона
                     if (this.deps.hud) {
@@ -973,7 +973,7 @@ export class GameMultiplayerCallbacks {
                 // Если урон нанесён сетевому игроку
                 const tank = this.deps.networkPlayerTanks.get(data.playerId);
                 if (tank) {
-                    tank.setHealth(data.health, data.maxHealth || 100);
+                    tank.setHealth(data.health ?? 100, data.maxHealth ?? 100);
 
                     // Визуальный эффект попадания
                     if (data.hitPosition && this.deps.effectsManager) {
@@ -1460,6 +1460,16 @@ export class GameMultiplayerCallbacks {
         const currentWorldSeed = mm?.getWorldSeed();
         const currentMapType = mm?.getMapType();
 
+        // КРИТИЧНО: Если получены данные кастомной карты, сохраняем их СРАЗУ
+        // Это должно произойти ДО любой проверки карты или reloadMap
+        if (data.customMapData) {
+            const gameInstance = (window as any).gameInstance;
+            if (gameInstance) {
+                logger.log(`[Game] 📦 GAME_START: Received custom map data (name: ${data.customMapData.name}, size: ${JSON.stringify(data.customMapData).length}), storing in pendingCustomMapData`);
+                gameInstance.pendingCustomMapData = data.customMapData;
+            }
+        }
+
         if (roomId && currentRoomId && roomId !== currentRoomId) {
             console.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: roomId не совпадает! GAME_START: ${roomId}, текущий: ${currentRoomId}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
             logger.error(`[Game] ❌ RoomId mismatch! GAME_START: ${roomId}, current: ${currentRoomId}`);
@@ -1818,10 +1828,10 @@ export class GameMultiplayerCallbacks {
             }
         });
 
-        mm.onPlayerDamaged((data: PlayerDamagedData) => {
+        mm.onPlayerDamaged((data) => {
             const localPlayerId = mm.getPlayerId();
             const damage = data.damage || 0;
-            const isCritical = data.isCritical || false;
+            const isCritical = (data as any).isCritical || false;
 
             // Определяем позицию для плавающего текста
             let targetPos: Vector3 | null = null;
@@ -1829,7 +1839,7 @@ export class GameMultiplayerCallbacks {
             if (data.playerId === localPlayerId) {
                 // Урон получен ЛОКАЛЬНЫМ игроком
                 if (this.deps.tank) {
-                    this.deps.tank.setHealth(data.health, data.maxHealth);
+                    this.deps.tank.setHealth(data.health ?? 100, data.maxHealth ?? 100);
                     targetPos = this.deps.tank.chassis.position.clone();
                     targetPos.y += 2; // Чуть выше танка
                 }
@@ -1847,7 +1857,7 @@ export class GameMultiplayerCallbacks {
                     }
                 }
 
-                const healthPercent = (data.health / data.maxHealth) * 100;
+                const healthPercent = ((data.health ?? 100) / (data.maxHealth ?? 100)) * 100;
                 if (healthPercent < 30) {
                     this.deps.hud?.showNotification?.(`⚠️ Критическое здоровье! ${Math.round(healthPercent)}%`, "warning");
                 }
@@ -1861,7 +1871,7 @@ export class GameMultiplayerCallbacks {
                 // Урон получен ДРУГИМ игроком
                 const networkTank = this.deps.networkPlayerTanks.get(data.playerId);
                 if (networkTank) {
-                    networkTank.setHealth(data.health, data.maxHealth);
+                    networkTank.setHealth(data.health ?? 100, data.maxHealth ?? 100);
                     targetPos = networkTank.chassis.position.clone();
                     targetPos.y += 2;
                 }
@@ -1903,9 +1913,9 @@ export class GameMultiplayerCallbacks {
                     this.deps.soundManager.playShoot(data.cannonType || "standard", pos);
                 }
 
-                // КРИТИЧНО: Создаём ВИДИМЫЙ снаряд для сетевых игроков
-                const delay = (this.deps.multiplayerManager?.getPing() || 0) / 1000 / 2;
-                this.createNetworkProjectile(pos.clone(), dir.clone(), data, delay);
+                // КРИТИЧНО: Создаём ВИДИМЫЙ снаряд для сетевых игроков БЕЗ ЗАДЕРЖКИ
+                // Убрана задержка на основе пинга для мгновенного отображения
+                this.createNetworkProjectile(pos.clone(), dir.clone(), data, 0);
             }
         });
 
@@ -2616,7 +2626,8 @@ export class GameMultiplayerCallbacks {
             velocity,
             scene,
             this.deps.effectsManager || null,
-            delay
+            delay,
+            cannonType // Передаём тип пушки для синхронизации цвета трейла
         );
 
         // Add to map for updates

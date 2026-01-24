@@ -23,7 +23,8 @@ import {
     HemisphericLight,
     DirectionalLight,
     TransformNode,
-    GroundMesh
+    GroundMesh,
+    DynamicTexture
 } from "@babylonjs/core";
 import { PhysicsAggregate, PhysicsShapeType } from "@babylonjs/core/Physics";
 import { logger } from "./utils/logger";
@@ -40,7 +41,9 @@ interface PlacedObject {
         color?: string;
         name?: string;
         hasCollision?: boolean;
+        txType?: string;
     };
+
     // Polygon support for Real World Generator buildings/roads
     polygon?: { x: number; y: number; z: number }[];
     height?: number;
@@ -88,9 +91,9 @@ export class CustomMapRunner {
      * ГЛАВНАЯ ФУНКЦИЯ: Запустить custom карту
      * 1. Удаляет ВСЕ меши кроме танка/камеры
      * 2. Создаёт пустой пол
-     * 3. Загружает объекты из localStorage
+     * 3. Загружает объекты из localStorage или переданных данных
      */
-    public run(): RunResult {
+    public run(mapData?: CustomMapData): RunResult {
         logger.log("[CustomMapRunner] ===== STARTING CUSTOM MAP =====");
 
         try {
@@ -100,8 +103,8 @@ export class CustomMapRunner {
             // ШАГ 2: Создать базовую среду (пол, свет)
             this.createEnvironment();
 
-            // ШАГ 3: Загрузить объекты из редактора
-            const result = this.loadEditorObjects();
+            // ШАГ 3: Загрузить объекты
+            const result = this.loadEditorObjects(mapData);
 
             logger.log(`[CustomMapRunner] ===== CUSTOM MAP READY =====`);
             logger.log(`[CustomMapRunner] Objects created: ${result.objectsCreated}`);
@@ -202,40 +205,46 @@ export class CustomMapRunner {
     }
 
     /**
-     * ШАГ 3: Загрузить объекты из localStorage
+     * ШАГ 3: Загрузить объекты из данных или localStorage
      */
-    private loadEditorObjects(): RunResult {
+    private loadEditorObjects(providedMapData?: CustomMapData): RunResult {
         logger.log("[CustomMapRunner] Step 3: Loading editor objects...");
 
-        // Читаем данные из localStorage
-        const mapDataStr = localStorage.getItem('selectedCustomMapData');
-
-        if (!mapDataStr) {
-            logger.warn("[CustomMapRunner] No map data in localStorage!");
-            return {
-                success: false,
-                objectsCreated: 0,
-                mapName: "none",
-                error: "No map data in localStorage"
-            };
-        }
-
-        // ЛОГИРОВАНИЕ РАЗМЕРА ДАННЫХ
-        const dataSizeKB = (mapDataStr.length / 1024).toFixed(2);
-        const dataSizeMB = (mapDataStr.length / 1024 / 1024).toFixed(2);
-        logger.log(`[CustomMapRunner] 📦 localStorage data: ${dataSizeKB}KB (${dataSizeMB}MB, ${mapDataStr.length} chars)`);
-
         let mapData: CustomMapData;
-        try {
-            mapData = JSON.parse(mapDataStr);
-        } catch (e) {
-            logger.error("[CustomMapRunner] Failed to parse map data:", e);
-            return {
-                success: false,
-                objectsCreated: 0,
-                mapName: "error",
-                error: "Invalid JSON in localStorage"
-            };
+
+        if (providedMapData) {
+            mapData = providedMapData;
+            logger.log(`[CustomMapRunner] Using provided map data: "${mapData.name}"`);
+        } else {
+            // Читаем данные из localStorage
+            const mapDataStr = localStorage.getItem('selectedCustomMapData');
+
+            if (!mapDataStr) {
+                logger.warn("[CustomMapRunner] No map data in localStorage!");
+                return {
+                    success: false,
+                    objectsCreated: 0,
+                    mapName: "none",
+                    error: "No map data in localStorage"
+                };
+            }
+
+            // ЛОГИРОВАНИЕ РАЗМЕРА ДАННЫХ
+            const dataSizeKB = (mapDataStr.length / 1024).toFixed(2);
+            const dataSizeMB = (mapDataStr.length / 1024 / 1024).toFixed(2);
+            logger.log(`[CustomMapRunner] 📦 localStorage data: ${dataSizeKB}KB (${dataSizeMB}MB, ${mapDataStr.length} chars)`);
+
+            try {
+                mapData = JSON.parse(mapDataStr);
+            } catch (e) {
+                logger.error("[CustomMapRunner] Failed to parse map data:", e);
+                return {
+                    success: false,
+                    objectsCreated: 0,
+                    mapName: "error",
+                    error: "Invalid JSON in localStorage"
+                };
+            }
         }
 
         logger.log(`[CustomMapRunner] Map: "${mapData.name}"`);
@@ -250,7 +259,7 @@ export class CustomMapRunner {
             };
         }
 
-        // Find spawn point from map objects
+        // ИСПРАВЛЕНО: Find spawn point from map objects and recalculate Y using findSafeSpawnPositionAt()
         const spawnObj = mapData.placedObjects.find(obj =>
             obj.type === 'spawn' ||
             obj.properties?.txType === 'spawn' ||
@@ -258,8 +267,28 @@ export class CustomMapRunner {
         );
         if (spawnObj) {
             const pos = spawnObj.position || { x: 0, y: 0, z: 0 };
-            this.spawnPosition = new Vector3(pos.x, pos.y + 2, pos.z); // +2m above ground
-            logger.log(`[CustomMapRunner] 🎯 Found spawn point at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+            
+            // Используем findSafeSpawnPositionAt() для пересчёта Y координаты
+            const game = (window as any).gameInstance;
+            let safePos: Vector3 | null = null;
+            
+            if (game && typeof game.findSafeSpawnPositionAt === 'function') {
+                safePos = game.findSafeSpawnPositionAt(pos.x, pos.z, 2.0, 5);
+            }
+
+            if (safePos) {
+                this.spawnPosition = safePos;
+                logger.log(`[CustomMapRunner] 🎯 Found spawn point at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)}) - adjusted from (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+            } else {
+                // Fallback: используем getTopSurfaceHeight или фиксированный отступ
+                let spawnY = pos.y + 2;
+                if (game && typeof game.getTopSurfaceHeight === 'function') {
+                    const surfaceHeight = game.getTopSurfaceHeight(pos.x, pos.z);
+                    spawnY = surfaceHeight + 2.0;
+                }
+                this.spawnPosition = new Vector3(pos.x, spawnY, pos.z);
+                logger.log(`[CustomMapRunner] 🎯 Found spawn point at (${pos.x.toFixed(1)}, ${spawnY.toFixed(1)}, ${pos.z.toFixed(1)}) - using fallback`);
+            }
         }
 
         // Создаём объекты
@@ -305,72 +334,89 @@ export class CustomMapRunner {
         const meshName = `customObj_${obj.id}`;
         let mesh: Mesh;
 
-        // Проверяем если это polygon-объект (здание/дорога из Real World Generator)
-        if (obj.isPolygon && obj.polygon && obj.polygon.length >= 3) {
-            try {
-                // КРИТИЧНО: Сначала вычисляем ЦЕНТР полигона
-                let sumX = 0, sumZ = 0;
-                let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        // SIMPLIFIED: Всегда используем BOX для надёжности
+        // ExtrudePolygon удалён - часто вызывал невидимые меши
+        const width = Math.max(0.5, scale.x);
+        const height = Math.max(0.5, scale.y);
+        const depth = Math.max(0.5, scale.z);
 
-                for (const v of obj.polygon) {
-                    sumX += v.x;
-                    sumZ += v.z;
-                    if (v.x < minX) minX = v.x;
-                    if (v.x > maxX) maxX = v.x;
-                    if (v.z < minZ) minZ = v.z;
-                    if (v.z > maxZ) maxZ = v.z;
-                }
+        // DEBUG: Логируем первые 50 объектов
+        if (this.createdMeshes.length < 50) {
+            console.log(`[CustomMapRunner] #${this.createdMeshes.length + 1} "${obj.properties?.name || obj.id}": ` +
+                `pos=(${pos.x.toFixed(0)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(0)}) ` +
+                `size=(${width.toFixed(1)}x${height.toFixed(1)}x${depth.toFixed(1)}) ` +
+                `color=${colorHex}`);
+        }
 
-                const centerX = sumX / obj.polygon.length;
-                const centerZ = sumZ / obj.polygon.length;
-                const shapeWidth = maxX - minX;
-                const shapeDepth = maxZ - minZ;
+        // GARAGE support
+        if (obj.type === 'garage') {
+            const width = 8;
+            const height = 5;
+            const depth = 12; // Standard garage size
 
-                // КРИТИЧНО: Конвертируем в ЛОКАЛЬНЫЕ координаты (относительно центра)
-                const shape: Vector2[] = obj.polygon.map(v =>
-                    new Vector2(v.x - centerX, v.z - centerZ)
-                );
-
-                // Создаём extruded polygon
-                const height = obj.height || 1;
-                mesh = MeshBuilder.ExtrudePolygon(meshName, {
-                    shape: shape,
-                    depth: height,
-                    sideOrientation: Mesh.DOUBLESIDE
-                }, this.scene, earcut);
-
-                // КРИТИЧНО: Позиционируем меш В ЦЕНТРЕ полигона
-                // Extrude идёт вниз по Y, поэтому сдвигаем на height
-                mesh.position = new Vector3(centerX, pos.y + height, centerZ);
-
-                // DEBUG: Показываем вершины первых 3 полигонов
-                if (this.createdMeshes.length < 3) {
-                    console.log(`[CustomMapRunner] 🔍 DEBUG POLYGON ${meshName}:`);
-                    console.log(`  - Vertices (local): ${shape.slice(0, 4).map(v => `(${v.x.toFixed(1)}, ${v.y.toFixed(1)})`).join(', ')}${shape.length > 4 ? '...' : ''}`);
-                    console.log(`  - BBox: minX=${minX.toFixed(1)}, maxX=${maxX.toFixed(1)}, minZ=${minZ.toFixed(1)}, maxZ=${maxZ.toFixed(1)}`);
-                    console.log(`  - Size: ${shapeWidth.toFixed(1)} x ${shapeDepth.toFixed(1)} | Height: ${height}`);
-                }
-
-                console.log(`[CustomMapRunner] ✅ POLYGON: ${meshName} | ${shape.length} verts | size: ${shapeWidth.toFixed(1)}x${shapeDepth.toFixed(1)} | height: ${height} | worldPos: (${centerX.toFixed(1)}, ${centerZ.toFixed(1)})`);
-            } catch (e) {
-                console.warn(`[CustomMapRunner] Polygon creation failed for ${obj.id}, falling back to box:`, e);
-                // Fallback to box
-                mesh = MeshBuilder.CreateBox(meshName, {
-                    width: Math.max(0.1, scale.x),
-                    height: Math.max(0.1, scale.y),
-                    depth: Math.max(0.1, scale.z)
-                }, this.scene);
-                mesh.position = new Vector3(pos.x, pos.y, pos.z);
-            }
-        } else {
-            // Стандартный бокс
             mesh = MeshBuilder.CreateBox(meshName, {
-                width: Math.max(0.1, scale.x),
-                height: Math.max(0.1, scale.y),
-                depth: Math.max(0.1, scale.z)
+                width, height, depth
             }, this.scene);
             mesh.position = new Vector3(pos.x, pos.y, pos.z);
+            mesh.rotation = new Vector3((rot.x || 0) * Math.PI / 180, (rot.y || 0) * Math.PI / 180, (rot.z || 0) * Math.PI / 180);
+
+            const garageMat = new StandardMaterial(`customGarageMat_${obj.id}`, this.scene);
+            garageMat.diffuseColor = new Color3(0.3, 0.3, 0.5);
+            garageMat.emissiveColor = new Color3(0.1, 0.1, 0.2);
+            mesh.material = garageMat;
+
+            // Label "G"
+            // Use DynamicTexture
+            const plane = MeshBuilder.CreatePlane(`garageLabel_${obj.id}`, { size: 4 }, this.scene);
+            plane.parent = mesh;
+            plane.position.y = 3;
+            plane.position.x = 0;
+            plane.position.z = 0;
+            plane.rotation.x = Math.PI / 2;
+            plane.rotation.y = Math.PI;
+
+            // Dynamic texture needs to be created safely
+            try {
+                const dt = new DynamicTexture(`garageLabelTex_${obj.id}`, { width: 128, height: 128 }, this.scene);
+                const ctx = dt.getContext() as CanvasRenderingContext2D;
+                ctx.fillStyle = "transparent";
+                ctx.fillRect(0, 0, 128, 128);
+                ctx.font = "bold 80px Arial";
+                ctx.fillStyle = "white";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText("G", 64, 64);
+                dt.update();
+
+                const planeMat = new StandardMaterial(`garageLabelMat_${obj.id}`, this.scene);
+                planeMat.diffuseTexture = dt;
+                planeMat.disableLighting = true;
+                planeMat.useAlphaFromDiffuseTexture = true;
+                plane.material = planeMat;
+            } catch (e) {
+                // Ignore texture error
+            }
+
+            mesh.parent = this.parentNode;
+            mesh.metadata = {
+                customMapObject: true,
+                objectId: obj.id,
+                objectType: 'garage'
+            };
+
+            return mesh;
         }
+
+        mesh = MeshBuilder.CreateBox(meshName, {
+            width: width,
+            height: height,
+            depth: depth
+        }, this.scene);
+
+        // Позиция уже включает правильный Y offset из экспортёра
+        mesh.position = new Vector3(pos.x, pos.y, pos.z);
+
+
 
         // Поворот (конвертируем градусы в радианы)
         mesh.rotation = new Vector3(
@@ -388,11 +434,10 @@ export class CustomMapRunner {
         // Родительский узел
         mesh.parent = this.parentNode;
 
-        // Физика (статический объект) - используем MESH для polygon
+        // Физика - ВСЕГДА BOX (MESH может падать)
         if (obj.properties?.hasCollision !== false) {
             try {
-                const physicsType = obj.isPolygon ? PhysicsShapeType.MESH : PhysicsShapeType.BOX;
-                new PhysicsAggregate(mesh, physicsType, {
+                new PhysicsAggregate(mesh, PhysicsShapeType.BOX, {
                     mass: 0,
                     friction: 0.5,
                     restitution: 0.1
@@ -401,6 +446,7 @@ export class CustomMapRunner {
                 // Ignore physics errors
             }
         }
+
 
         // Метаданные
         mesh.metadata = {

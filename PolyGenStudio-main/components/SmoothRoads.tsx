@@ -5,10 +5,25 @@
  * Creates flat ribbon geometry that follows terrain.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { mergeBufferGeometries } from 'three-stdlib';
 import { CubeElement } from '../types';
+
+// Memoized material pool for roads by color
+const roadMaterialCache = new Map<string, THREE.MeshStandardMaterial>();
+
+function getRoadMaterial(color: string): THREE.MeshStandardMaterial {
+    if (!roadMaterialCache.has(color)) {
+        roadMaterialCache.set(color, new THREE.MeshStandardMaterial({
+            color: color,
+            roughness: 0.9,
+            metalness: 0.1,
+            side: THREE.DoubleSide
+        }));
+    }
+    return roadMaterialCache.get(color)!;
+}
 
 interface SmoothRoadsProps {
     cubes: CubeElement[];
@@ -199,23 +214,22 @@ export const SmoothRoads: React.FC<SmoothRoadsProps> = React.memo(({
         return merged;
     }, [roadGeometries]);
 
-    // Clean up geometries on unmount
+    // Clean up geometries on unmount and when mergedRoads changes
     React.useEffect(() => {
+        const currentMerged = mergedRoads;
         return () => {
-            mergedRoads.forEach(r => r.geometry.dispose());
+            // Dispose merged geometries
+            currentMerged.forEach(r => r.geometry.dispose());
+            // Also dispose individual geometries that were merged
+            roadGeometries.forEach(r => r.geometry.dispose());
         };
-    }, [mergedRoads]);
+    }, [mergedRoads, roadGeometries]);
 
     return (
         <group name="smooth-roads">
             {mergedRoads.map(({ geometry, color }, index) => (
                 <mesh key={`roads_batch_${index}`} geometry={geometry} receiveShadow>
-                    <meshStandardMaterial
-                        color={color}
-                        roughness={0.9}
-                        metalness={0.1}
-                        side={THREE.DoubleSide}
-                    />
+                    <primitive object={getRoadMaterial(color)} attach="material" />
                 </mesh>
             ))}
         </group>

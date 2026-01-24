@@ -9,6 +9,9 @@ export interface VoiceChatConfig {
     mute: boolean;
 }
 
+import { createLogger, LogCategory } from './utils/logger';
+const logger = createLogger("[VoiceChat]", LogCategory.SOCIAL);
+
 export class VoiceChatManager {
     private localStream: MediaStream | null = null;
     private peers: Map<string, RTCPeerConnection> = new Map();
@@ -82,20 +85,20 @@ export class VoiceChatManager {
                 });
 
                 this.config.enabled = true;
-                console.log("[VoiceChat] Initialized successfully");
+                logger.info("Initialized successfully");
                 return true;
             } catch (mediaError: any) {
                 // Handle different types of media errors
                 if (mediaError.name === 'NotAllowedError' || mediaError.name === 'PermissionDeniedError') {
-                    console.warn("[VoiceChat] Microphone permission denied. Voice chat will be disabled.");
-                    console.warn("[VoiceChat] To enable voice chat, please allow microphone access in your browser settings.");
-                    console.warn("[VoiceChat] You can grant permission by clicking the microphone icon in the browser's address bar.");
+                    logger.warn("Microphone permission denied. Voice chat will be disabled.");
+                    logger.warn("To enable voice chat, please allow microphone access in your browser settings.");
+                    logger.warn("You can grant permission by clicking the microphone icon in the browser's address bar.");
                 } else if (mediaError.name === 'NotFoundError' || mediaError.name === 'DevicesNotFoundError') {
-                    console.warn("[VoiceChat] No microphone found. Voice chat will be disabled.");
+                    logger.warn("No microphone found. Voice chat will be disabled.");
                 } else if (mediaError.name === 'NotReadableError' || mediaError.name === 'TrackStartError') {
-                    console.warn("[VoiceChat] Microphone is already in use by another application. Voice chat will be disabled.");
+                    logger.warn("Microphone is already in use by another application. Voice chat will be disabled.");
                 } else {
-                    console.warn("[VoiceChat] Failed to access microphone:", mediaError.name, mediaError.message);
+                    logger.warn(`Failed to access microphone: ${mediaError.name} ${mediaError.message}`);
                 }
 
                 // Voice chat will work in receive-only mode (can hear others but can't speak)

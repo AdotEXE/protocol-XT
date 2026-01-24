@@ -79,6 +79,7 @@ export interface GameStartData {
     worldSeed?: number;
     players?: PlayerData[];
     mapType?: string;
+    customMapData?: any;
 }
 
 export interface GameEndData {
@@ -142,6 +143,17 @@ export interface PlayerRespawnedData {
     position: Vector3Data;
     health?: number;
     maxHealth?: number;
+}
+
+export interface PlayerDamagedData {
+    playerId: string;
+    attackerId?: string;
+    damage: number;
+    health?: number;
+    maxHealth?: number;
+    remainingHealth?: number;
+    position?: Vector3Data;
+    hitPosition?: Vector3Data;
 }
 
 
@@ -325,6 +337,19 @@ function savePlayerName(name: string): void {
 }
 
 export class MultiplayerManager {
+    // Public Accessors for AdminPanel and Debugging
+    public get localPlayerId(): string {
+        return this.playerId;
+    }
+
+    public get localPlayerName(): string {
+        return this.playerName;
+    }
+
+    public get players(): Map<string, NetworkPlayer> {
+        return this.networkPlayers;
+    }
+
     private ws: WebSocket | null = null;
     private _lastBlobErrorTime: number = 0; // Throttling для ошибок Blob conversion
     private _lastPacketLossLogTime: number = 0; // Throttling для логов packet loss
@@ -630,6 +655,13 @@ export class MultiplayerManager {
                     this.onDisconnectedCallback();
                 }
 
+                // Dispatch a custom event for connection lost notification
+                if (!this.isManualDisconnect) {
+                    window.dispatchEvent(new CustomEvent('tx:connection-lost', {
+                        detail: { code: event.code, reason: event.reason || 'Соединение потеряно' }
+                    }));
+                }
+
                 // Handle different close codes
                 const shouldReconnect = this.shouldReconnectOnClose(event.code);
 
@@ -734,8 +766,8 @@ export class MultiplayerManager {
         // Clear all callbacks
         this.onConnectedCallback = null;
         this.onDisconnectedCallback = null;
-        this.onPlayerJoinedCallback = null;
-        this.onPlayerLeftCallback = null;
+        this.onPlayerJoinedCallbacks = [];
+        this.onPlayerLeftCallbacks = [];
         this.onGameStartCallback = null;
         this.onGameEndCallback = null;
         this.onPlayerStatesCallback = null;
@@ -1864,6 +1896,11 @@ export class MultiplayerManager {
             logger.warn(`[Multiplayer] ⚠️ GAME_START received WITHOUT mapType! Keys: ${Object.keys(data).join(', ')}`);
         }
 
+        // КРИТИЧНО: Логируем получение кастомной карты
+        if (data.customMapData) {
+            logger.log(`[Multiplayer] 📦 GAME_START received customMapData: ${data.customMapData.name || 'Unnamed'} (${JSON.stringify(data.customMapData).length} bytes)`);
+        }
+
         // Store world seed for deterministic generation
         if (data.worldSeed !== undefined) {
             this.worldSeed = data.worldSeed;
@@ -2987,6 +3024,46 @@ export class MultiplayerManager {
 
 
     /**
+     * Kick a player from the room (Host only)
+     */
+    kickPlayer(targetPlayerId: string): void {
+        try {
+            if (!this.connected || !this.roomId) {
+                logger.warn("[Multiplayer] Cannot kick player: not connected or not in room");
+                return;
+            }
+
+            logger.log(`[Multiplayer] Kicking player: ${targetPlayerId}`);
+            this.send(createClientMessage(ClientMessageType.KICK_PLAYER, {
+                roomId: this.roomId,
+                targetPlayerId: targetPlayerId
+            }));
+        } catch (error) {
+            logger.error("[Multiplayer] Error in kickPlayer:", error);
+        }
+    }
+
+    /**
+     * Change room settings (Host only)
+     */
+    changeRoomSettings(settings: { mapType?: string; mode?: GameMode }): void {
+        try {
+            if (!this.connected || !this.roomId) {
+                logger.warn("[Multiplayer] Cannot change settings: not connected or not in room");
+                return;
+            }
+
+            logger.log(`[Multiplayer] Changing room settings:`, settings);
+            this.send(createClientMessage(ClientMessageType.CHANGE_ROOM_SETTINGS, {
+                roomId: this.roomId,
+                settings: settings
+            }));
+        } catch (error) {
+            logger.error("[Multiplayer] Error in changeRoomSettings:", error);
+        }
+    }
+
+    /**
      * Send chat message to server
      * @param message - Chat message text
      */
@@ -3071,11 +3148,12 @@ export class MultiplayerManager {
      * @param mapType - Map type (normal, desert, etc)
      * @param enableBots - Enable bots in the room (default: false)
      * @param botCount - Number of bots (0 = auto based on players)
+     * @param customMapData - Optional custom map JSON data
      * @returns True if room creation request was sent, false if not connected
      */
-    createRoom(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, mapType?: string, enableBots: boolean = false, botCount: number = 0): boolean {
+    createRoom(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, mapType?: string, enableBots: boolean = false, botCount: number = 0, customMapData?: any): boolean {
         // Log mapType to debug why it might be missing/wrong
-        logger.log(`[Multiplayer] createRoom called with mapType: '${mapType}' (type: ${typeof mapType}), enableBots=${enableBots}, botCount=${botCount}`);
+        logger.log(`[Multiplayer] createRoom called with mapType: '${mapType}', enableBots=${enableBots}, botCount=${botCount}, hasCustomMapData=${!!customMapData}`);
 
         if (!this.connected) {
             logger.warn("[Multiplayer] Cannot create room: not connected to server");
@@ -3095,6 +3173,14 @@ export class MultiplayerManager {
         const turretColor = skin.turretColor;
 
         logger.log(`[Multiplayer] Creating room with customization: ${chassisType}/${cannonType}, skin=${skinId}`);
+        if (mapType === 'custom') {
+            logger.log(`[Multiplayer] 🔍 DEBUG: createRoom called with mapType='custom'. Has data: ${!!customMapData}`);
+            if (customMapData) {
+                logger.log(`[Multiplayer] 📦 Custom Map Data Summary: Keys=${Object.keys(customMapData).join(',')}, Objects=${customMapData.placedObjects?.length}`);
+            } else {
+                logger.error(`[Multiplayer] ❌ CRITICAL: mapType is 'custom' but customMapData is MISSING!`);
+            }
+        }
 
         this.send(createClientMessage(ClientMessageType.CREATE_ROOM, {
             mode,
@@ -3107,7 +3193,9 @@ export class MultiplayerManager {
             chassisType,
             cannonType,
             tankColor,
-            turretColor
+            turretColor,
+            // Данные карты
+            customMapData
         }));
         return true;
     }
@@ -3199,7 +3287,22 @@ export class MultiplayerManager {
     quickPlay(mode: GameMode, region?: string): void {
         if (!this.connected) return;
 
-        this.send(createClientMessage(ClientMessageType.QUICK_PLAY, { mode, region }));
+        // КРИТИЧНО: Отправляем mapType и customMapData для кастомных карт
+        const mapType = localStorage.getItem("selectedMapType") || "normal";
+        let customMapData: any = null;
+
+        const customMapDataStr = localStorage.getItem("selectedCustomMapData");
+        if (customMapDataStr) {
+            try {
+                customMapData = JSON.parse(customMapDataStr);
+                logger.log(`[Multiplayer] quickPlay: sending customMapData: ${customMapData?.name}`);
+            } catch (e) {
+                logger.warn("[Multiplayer] Failed to parse customMapData for quickPlay");
+            }
+        }
+
+        logger.log(`[Multiplayer] quickPlay: mode=${mode}, region=${region}, mapType=${mapType}`);
+        this.send(createClientMessage(ClientMessageType.QUICK_PLAY, { mode, region, mapType, customMapData }));
     }
 
     /**
@@ -3675,7 +3778,7 @@ export class MultiplayerManager {
             sourceId: this.playerId,
             timestamp: Date.now()
         };
-        this.sendMessage({
+        this.send({
             type: ClientMessageType.RPC,
             data,
             timestamp: Date.now()

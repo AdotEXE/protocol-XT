@@ -775,7 +775,9 @@ export class RealWorldGeneratorV3 {
 
             try {
                 // Check if closed polygon
-                const isClosed = points[0].equalsWithEpsilon(points[points.length - 1], 0.1);
+                const first = points[0];
+                const last = points[points.length - 1];
+                const isClosed = first && last && first.equalsWithEpsilon(last, 0.1);
 
                 if (isClosed && points.length >= 4) {
                     // Create polygon for lakes/ponds
@@ -837,14 +839,14 @@ export class RealWorldGeneratorV3 {
         const rightPath: Vector3[] = [];
 
         for (let i = 0; i < points.length; i++) {
-            const current = points[i];
+            const current = points[i]!;
 
             // Calculate direction
             let dir: Vector3;
             if (i < points.length - 1) {
-                dir = points[i + 1].subtract(current).normalize();
+                dir = points[i + 1]!.subtract(current).normalize();
             } else {
-                dir = current.subtract(points[i - 1]).normalize();
+                dir = current.subtract(points[i - 1]!).normalize();
             }
 
             // Perpendicular

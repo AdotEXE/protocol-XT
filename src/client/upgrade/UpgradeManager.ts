@@ -32,6 +32,9 @@ import {
     getXpForAssist,
     getCreditsForBattle
 } from './UpgradeConfig';
+import { createLogger, LogCategory } from '../utils/logger';
+
+const logger = createLogger("[UpgradeManager]", LogCategory.MENU);
 
 // ============================================
 // МЕНЕДЖЕР ПРОКАЧКИ
@@ -46,7 +49,7 @@ export class UpgradeManager {
     private syncTimeout: number | null = null;
     private serverUrl: string;
     private playerId: string | null = null;
-    
+
     // Слушатели событий
     private onXpGained: ((event: XpGainEvent) => void)[] = [];
     private onCreditsGained: ((event: CreditsGainEvent) => void)[] = [];
@@ -106,9 +109,9 @@ export class UpgradeManager {
                         ...this.createDefaultUpgrades(),
                         ...data.upgrades
                     };
-                    console.log('[UpgradeManager] Loaded from localStorage');
+                    logger.info('Loaded from localStorage');
                 } else {
-                    console.log('[UpgradeManager] Data version mismatch, using defaults');
+                    logger.info('Data version mismatch, using defaults');
                 }
             }
         } catch (e) {
@@ -126,7 +129,7 @@ export class UpgradeManager {
                 upgrades: this.upgrades
             };
             localStorage.setItem(UPGRADE_STORAGE_KEY, JSON.stringify(data));
-            
+
             // Запланировать синхронизацию с сервером
             this.scheduleSyncToServer();
         } catch (e) {
@@ -156,7 +159,7 @@ export class UpgradeManager {
      */
     async syncToServer(): Promise<boolean> {
         if (!this.playerId || !this.syncPending) return false;
-        
+
         try {
             const response = await fetch(`${this.serverUrl}/sync`, {
                 method: 'POST',
@@ -168,7 +171,7 @@ export class UpgradeManager {
                     upgrades: this.upgrades
                 })
             });
-            
+
             if (response.ok) {
                 this.syncPending = false;
                 this.upgrades.lastSyncTime = Date.now();
@@ -176,7 +179,7 @@ export class UpgradeManager {
                 return true;
             }
         } catch (e) {
-            console.error('[UpgradeManager] Sync to server failed:', e);
+            logger.error('[UpgradeManager] Sync to server failed:', e);
         }
         return false;
     }
@@ -186,17 +189,17 @@ export class UpgradeManager {
      */
     async syncFromServer(): Promise<boolean> {
         if (!this.playerId) return false;
-        
+
         try {
             const response = await fetch(`${this.serverUrl}/load?playerId=${this.playerId}`);
-            
+
             if (response.ok) {
                 const data = await response.json();
                 if (data.upgrades) {
                     // Merge with local data, prefer server data if newer
                     const serverTime = data.upgrades.lastSyncTime || 0;
                     const localTime = this.upgrades.lastSyncTime || 0;
-                    
+
                     if (serverTime > localTime) {
                         this.upgrades = {
                             ...this.createDefaultUpgrades(),
@@ -243,25 +246,25 @@ export class UpgradeManager {
      */
     upgrade(category: UpgradeCategory, elementId: string): UpgradeResult {
         const currentLevel = this.getElementLevel(category, elementId);
-        
+
         // Проверка максимального уровня
         if (currentLevel >= MAX_UPGRADE_LEVEL) {
             return { success: false, error: "max_level" };
         }
-        
+
         const nextLevel = currentLevel + 1;
         const requirements = getLevelRequirements(nextLevel);
-        
+
         // Проверка XP
         if (this.upgrades.totalXp < requirements.xp) {
             return { success: false, error: "insufficient_xp" };
         }
-        
+
         // Проверка кредитов
         if (this.upgrades.credits < requirements.credits) {
             return { success: false, error: "insufficient_credits" };
         }
-        
+
         // Выполняем прокачку
         const categoryData = this.getCategoryData(category);
         if (!categoryData[elementId]) {
@@ -271,16 +274,16 @@ export class UpgradeManager {
                 currentXp: 0
             };
         }
-        
+
         categoryData[elementId]!.level = nextLevel;
         this.upgrades.credits -= requirements.credits;
         // XP не тратится, только проверяется наличие
-        
+
         this.save();
-        
+
         // Уведомляем слушателей
         this.onUpgradeComplete.forEach(cb => cb(category, elementId, nextLevel));
-        
+
         return {
             success: true,
             newLevel: nextLevel,
@@ -294,35 +297,35 @@ export class UpgradeManager {
     /**
      * Проверить, можно ли прокачать элемент
      */
-    canUpgrade(category: UpgradeCategory, elementId: string): { 
-        canUpgrade: boolean; 
+    canUpgrade(category: UpgradeCategory, elementId: string): {
+        canUpgrade: boolean;
         reason?: string;
         requirements?: { xp: number; credits: number };
     } {
         const currentLevel = this.getElementLevel(category, elementId);
-        
+
         if (currentLevel >= MAX_UPGRADE_LEVEL) {
             return { canUpgrade: false, reason: "Максимальный уровень" };
         }
-        
+
         const requirements = getLevelRequirements(currentLevel + 1);
-        
+
         if (this.upgrades.totalXp < requirements.xp) {
-            return { 
-                canUpgrade: false, 
+            return {
+                canUpgrade: false,
                 reason: `Недостаточно опыта (${this.upgrades.totalXp}/${requirements.xp})`,
                 requirements
             };
         }
-        
+
         if (this.upgrades.credits < requirements.credits) {
-            return { 
-                canUpgrade: false, 
+            return {
+                canUpgrade: false,
                 reason: `Недостаточно кредитов (${this.upgrades.credits}/${requirements.credits})`,
                 requirements
             };
         }
-        
+
         return { canUpgrade: true, requirements };
     }
 
@@ -369,7 +372,7 @@ export class UpgradeManager {
         const cannonBonuses = this.getCannonBonuses(cannonId);
         const chassisBonuses = this.getChassisBonuses(chassisId);
         const tracksBonuses = this.getTracksBonuses(tracksId);
-        
+
         return {
             ...cannonBonuses,
             ...chassisBonuses,
@@ -388,13 +391,13 @@ export class UpgradeManager {
         const oldLevel = this.upgrades.playerLevel;
         this.upgrades.totalXp += amount;
         this.upgrades.playerLevel = getPlayerLevelFromXp(this.upgrades.totalXp);
-        
+
         this.save();
-        
+
         // Уведомляем слушателей
         const event: XpGainEvent = { amount, source, description };
         this.onXpGained.forEach(cb => cb(event));
-        
+
         // Проверяем повышение уровня
         if (this.upgrades.playerLevel > oldLevel) {
             this.onLevelUp.forEach(cb => cb(this.upgrades.playerLevel));
@@ -407,7 +410,7 @@ export class UpgradeManager {
     addCredits(amount: number, source: CreditsGainEvent['source'], description?: string): void {
         this.upgrades.credits += amount;
         this.save();
-        
+
         const event: CreditsGainEvent = { amount, source, description };
         this.onCreditsGained.forEach(cb => cb(event));
     }

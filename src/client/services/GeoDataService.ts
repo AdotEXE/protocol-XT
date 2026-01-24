@@ -38,7 +38,7 @@ export class GeoDataService {
 
         for (const wayId in osmData.ways) {
             const way = osmData.ways[wayId];
-            if (!way.tags) continue;
+            if (!way || !way.tags) continue;
 
             const points: Vector3[] = [];
             let valid = true;

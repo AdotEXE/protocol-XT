@@ -3,6 +3,8 @@
  */
 
 import WebSocket from 'ws';
+import { deserializeMessage } from '../../../src/shared/protocol';
+import { ServerMessageType } from '../../../src/shared/messages';
 import type { ServerStats } from '../../../src/server/monitoring';
 
 export interface ServerCollectorConfig {
@@ -72,11 +74,11 @@ export class ServerCollector {
     private lastStats: ServerStats | null = null;
     private lastStatsTime: number = 0;
     private connectTime: number = 0;
-    
+
     constructor(config: ServerCollectorConfig) {
         this.config = config;
     }
-    
+
     async start(): Promise<void> {
         // Try to connect, but don't fail if it doesn't work immediately
         // The reconnect logic will handle retries
@@ -89,21 +91,21 @@ export class ServerCollector {
             this.scheduleReconnect();
         }
     }
-    
+
     async stop(): Promise<void> {
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
-        
+
         if (this.ws) {
             this.ws.close();
             this.ws = null;
         }
-        
+
         this.connected = false;
     }
-    
+
     async collect(): Promise<ServerMetrics> {
         if (!this.connected || !this.lastStats) {
             return {
@@ -112,17 +114,17 @@ export class ServerCollector {
                 }
             };
         }
-        
+
         const now = Date.now();
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const __uptime = this.connectTime > 0 ? now - this.connectTime : 0; void __uptime;
-        
+
         // Calculate latency (time since last stats update)
         const latency = this.lastStatsTime > 0 ? now - this.lastStatsTime : 0;
-        
+
         // Get rooms list from stats (if available)
         const roomsList = (this.lastStats as any).roomsList || [];
-        
+
         return {
             server: {
                 online: true,
@@ -143,10 +145,10 @@ export class ServerCollector {
             roomsList
         };
     }
-    
+
     private async connect(): Promise<void> {
         const url = `ws://${this.config.host}:${this.config.port}`;
-        
+
         try {
             // Close existing connection if any
             if (this.ws) {
@@ -158,20 +160,20 @@ export class ServerCollector {
                 }
                 this.ws = null;
             }
-            
+
             this.ws = new WebSocket(url);
-            
+
             this.ws.on('open', () => {
                 this.connected = true;
                 this.connectTime = Date.now();
                 console.log(`[ServerCollector] Connected to ${url}`);
-                
+
                 // Clear any pending reconnect timer
                 if (this.reconnectTimer) {
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
                 }
-                
+
                 // Send monitoring connect message
                 if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                     try {
@@ -190,14 +192,33 @@ export class ServerCollector {
                     }
                 }
             });
-            
+
             this.ws.on('message', (data: WebSocket.Data) => {
                 try {
-                    const dataStr = data.toString();
-                    const message = JSON.parse(dataStr);
-                    
+                    let message: any;
+
+                    // Try to deserialize using shared protocol (handles both binary and JSON)
+                    // WebSocket.Data in ws can be Buffer, ArrayBuffer, or Buffer[]
+                    if (Buffer.isBuffer(data) || data instanceof ArrayBuffer) {
+                        message = deserializeMessage(data);
+                    } else if (Array.isArray(data)) {
+                        // Buffer[] - concat them
+                        const buffer = Buffer.concat(data);
+                        message = deserializeMessage(buffer);
+                    } else {
+                        // String or others
+                        const dataStr = data.toString();
+                        // Try standard deserialize (which falls back to JSON) or direct JSON
+                        try {
+                            message = deserializeMessage(dataStr);
+                        } catch {
+                            message = JSON.parse(dataStr);
+                        }
+                    }
+
                     // Handle monitoring_stats message type
-                    if (message.type === 'monitoring_stats') {
+                    // Check against ServerMessageType.MONITORING_STATS or string 'monitoring_stats'
+                    if (message.type === 'monitoring_stats' || message.type === ServerMessageType.MONITORING_STATS) {
                         this.lastStats = message.data as ServerStats;
                         this.lastStatsTime = Date.now();
                     }
@@ -205,13 +226,13 @@ export class ServerCollector {
                     // Silently ignore parse errors - server sends binary messages for game data
                     // Only log if it's actually a JSON parse error (not binary data)
                     if (error instanceof SyntaxError) {
-                        // This is likely binary game data, ignore silently
+                        // This is likely binary game data that failed simple JSON parse (if fallback reached), ignore
                     } else {
                         // Only log unexpected errors, not connection issues
                     }
                 }
             });
-            
+
             this.ws.on('close', () => {
                 if (this.connected) {
                     console.log('[ServerCollector] Disconnected, reconnecting...');
@@ -219,7 +240,7 @@ export class ServerCollector {
                 this.connected = false;
                 this.scheduleReconnect();
             });
-            
+
             this.ws.on('error', (error: Error) => {
                 // Only log error if we were previously connected
                 // Initial connection errors are expected if server is not ready
@@ -229,7 +250,7 @@ export class ServerCollector {
                 this.connected = false;
                 // Don't schedule reconnect here - close event will handle it
             });
-            
+
             // Set timeout for initial connection
             setTimeout(() => {
                 if (!this.connected && this.ws && this.ws.readyState === WebSocket.CONNECTING) {
@@ -241,23 +262,23 @@ export class ServerCollector {
                     }
                 }
             }, 5000);
-            
+
         } catch (error: any) {
             // Connection setup failed - schedule reconnect
             this.scheduleReconnect();
         }
     }
-    
+
     private scheduleReconnect(): void {
         if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
         }
-        
+
         this.reconnectTimer = setTimeout(() => {
             this.connect();
         }, this.config.reconnectInterval);
     }
-    
+
     isConnected(): boolean {
         return this.connected;
     }

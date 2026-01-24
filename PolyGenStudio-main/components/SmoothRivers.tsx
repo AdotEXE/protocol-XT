@@ -5,10 +5,20 @@
  * Uses polygon path data from river CubeElements for accurate positioning.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { mergeBufferGeometries } from 'three-stdlib';
 import { CubeElement } from '../types';
+
+// Shared river material (created once, reused)
+const riverMaterial = new THREE.MeshStandardMaterial({
+    color: "#1e90ff",
+    roughness: 0.2,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.8,
+    side: THREE.DoubleSide
+});
 
 interface SmoothRiversProps {
     cubes: CubeElement[];
@@ -158,26 +168,26 @@ export const SmoothRivers: React.FC<SmoothRiversProps> = React.memo(({
         return merged;
     }, [riverGeometries]);
 
-    // Clean up geometries on unmount
+    // Clean up geometries on unmount and when mergedRiver changes
     React.useEffect(() => {
+        const currentMerged = mergedRiver;
+        const currentGeometries = riverGeometries;
         return () => {
-            mergedRiver?.dispose();
+            // Dispose merged geometry
+            if (currentMerged) {
+                currentMerged.dispose();
+            }
+            // Also dispose individual geometries that were merged
+            currentGeometries.forEach(r => r.geometry.dispose());
         };
-    }, [mergedRiver]);
+    }, [mergedRiver, riverGeometries]);
 
     if (!mergedRiver) return null;
 
     return (
         <group name="smooth-rivers">
             <mesh geometry={mergedRiver} receiveShadow>
-                <meshStandardMaterial
-                    color="#1e90ff"
-                    roughness={0.2}
-                    metalness={0.1}
-                    transparent
-                    opacity={0.8}
-                    side={THREE.DoubleSide}
-                />
+                <primitive object={riverMaterial} attach="material" />
             </mesh>
         </group>
     );

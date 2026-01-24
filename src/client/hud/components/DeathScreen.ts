@@ -19,7 +19,7 @@ export interface DeathScreenConfig {
 
 export const DEFAULT_DEATH_SCREEN_CONFIG: DeathScreenConfig = {
     respawnTime: 3,
-    backgroundColor: "rgba(0, 0, 0, 0.85)",
+    backgroundColor: "rgba(0, 0, 0, 0.4)", // Полупрозрачный фон (40% непрозрачности)
     titleColor: "#ff0000",
     statsBackgroundColor: "rgba(20, 0, 0, 0.8)"
 };

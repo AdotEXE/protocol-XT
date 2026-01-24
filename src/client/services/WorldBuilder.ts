@@ -24,11 +24,11 @@ export class WorldBuilder {
     private overpass: OverpassService;
     private geo: GeoDataService;
 
-    // Materials
-    private roadMat: StandardMaterial;
-    private buildingMat: StandardMaterial;
-    private waterMat: StandardMaterial;
-    private parkMat: StandardMaterial;
+    // Materials (initialized in initMaterials, called from constructor)
+    private roadMat!: StandardMaterial;
+    private buildingMat!: StandardMaterial;
+    private waterMat!: StandardMaterial;
+    private parkMat!: StandardMaterial;
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -125,8 +125,8 @@ export class WorldBuilder {
 
         // Ensure closed loop
         const path = [...entity.points];
-        if (!path[0].equals(path[path.length - 1])) {
-            path.push(path[0]);
+        if (path.length > 0 && !path[0]!.equals(path[path.length - 1]!)) {
+            path.push(path[0]!);
         }
 
         try {

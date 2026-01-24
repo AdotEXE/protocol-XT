@@ -40,6 +40,7 @@ export interface TXPlacedObject {
         color?: string;
         material?: string;
         name?: string;
+        shape?: string; // box, cylinder, pyramid, cone, prism
         hasCollision?: boolean;
         isDestructible?: boolean;
     };
@@ -169,6 +170,10 @@ export class CustomMapGenerator extends BaseMapGenerator {
      * Get spawn positions from triggers for the game spawn system
      * This bridges the gap between map triggers and chunkSystem.garagePositions
      */
+    /**
+     * Получить позиции спавна из карты
+     * ИСПРАВЛЕНО: Пересчитывает Y координату через findSafeSpawnPositionAt() для каждой позиции
+     */
     getSpawnPositions(): Vector3[] {
         if (!this.config.mapData) {
             console.warn("[CustomMapGenerator] No map data - using default spawns");
@@ -181,24 +186,51 @@ export class CustomMapGenerator extends BaseMapGenerator {
         // Also check placedObjects for spawn-type objects (legacy support)
         const spawnObjects = this.config.mapData.placedObjects.filter(o => o.type === 'spawn');
 
-        const positions: Vector3[] = [];
+        const rawPositions: Vector3[] = [];
 
         // Add positions from triggers
         for (const trigger of spawnTriggers) {
-            positions.push(new Vector3(trigger.position.x, trigger.position.y, trigger.position.z));
+            rawPositions.push(new Vector3(trigger.position.x, trigger.position.y || 2, trigger.position.z));
         }
 
         // Add positions from spawn objects
         for (const obj of spawnObjects) {
-            positions.push(new Vector3(obj.position.x, obj.position.y, obj.position.z));
+            rawPositions.push(new Vector3(obj.position.x, obj.position.y || 2, obj.position.z));
         }
 
-        console.log(`[CustomMapGenerator] Found ${positions.length} spawn positions from map data`);
+        console.log(`[CustomMapGenerator] Found ${rawPositions.length} spawn positions from map data`);
 
         // If no spawns found, provide defaults
-        if (positions.length === 0) {
+        if (rawPositions.length === 0) {
             console.warn("[CustomMapGenerator] No spawns in map - using defaults");
             return this.getDefaultSpawnPositions();
+        }
+
+        // ИСПРАВЛЕНО: Пересчитываем Y координату для каждой позиции через findSafeSpawnPositionAt()
+        const positions: Vector3[] = [];
+        const game = (window as any).gameInstance;
+
+        for (const rawPos of rawPositions) {
+            let safePos: Vector3 | null = null;
+            if (game && typeof game.findSafeSpawnPositionAt === 'function') {
+                safePos = game.findSafeSpawnPositionAt(rawPos.x, rawPos.z, 2.0, 5);
+            }
+
+            if (safePos) {
+                positions.push(safePos);
+                console.log(`[CustomMapGenerator] Adjusted spawn from (${rawPos.x.toFixed(1)}, ${rawPos.y.toFixed(1)}, ${rawPos.z.toFixed(1)}) to (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)})`);
+            } else {
+                // Fallback: используем позицию из карты с безопасным отступом
+                if (game && typeof game.getTopSurfaceHeight === 'function') {
+                    const surfaceHeight = game.getTopSurfaceHeight(rawPos.x, rawPos.z);
+                    const fallbackY = surfaceHeight + 5.0; // Безопасный отступ 5м
+                    positions.push(new Vector3(rawPos.x, fallbackY, rawPos.z));
+                    console.warn(`[CustomMapGenerator] Failed to find safe position at (${rawPos.x.toFixed(1)}, ${rawPos.z.toFixed(1)}), using fallback with ${fallbackY.toFixed(1)}m height`);
+                } else {
+                    // Последний fallback: используем позицию из карты
+                    positions.push(rawPos);
+                }
+            }
         }
 
         return positions;
@@ -383,9 +415,10 @@ export class CustomMapGenerator extends BaseMapGenerator {
                 addPhysics
             );
         } else if (shape === 'prism') {
-            mesh = this.createPrism(
+            // Prism approximated as 3-sided cylinder
+            mesh = this.createCylinder(
                 objectName,
-                { height: size.height, width: size.width, depth: size.depth },
+                { height: size.height, diameterTop: size.width, diameterBottom: size.width, tessellation: 3 },
                 pos,
                 material,
                 parent,

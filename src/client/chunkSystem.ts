@@ -87,6 +87,7 @@ interface ChunkConfig {
     worldSeed: number;
     mapType?: MapType;
     enableTerrainEdges?: boolean; // Показывать рёбра полигонов террейна (по умолчанию false)
+    customBounds?: { width: number; height?: number; depth: number }; // Кастомные размеры карты
 }
 
 // Biome types for variety
@@ -224,7 +225,21 @@ export class ChunkSystem {
         const mapType = this.config.mapType ?? "normal";
 
         // Используем централизованные константы из MapConstants.ts
-        const bounds = getMapBoundsFromConfig(mapType);
+        let bounds = getMapBoundsFromConfig(mapType);
+
+        // Если заданы кастомные размеры в конфиге - они имеют приоритет
+        if (this.config.customBounds) {
+            const halfWidth = this.config.customBounds.width / 2;
+            const halfDepth = this.config.customBounds.depth / 2;
+            bounds = {
+                minX: -halfWidth,
+                maxX: halfWidth,
+                minZ: -halfDepth,
+                maxZ: halfDepth
+            };
+            logger.log(`[ChunkSystem] Using Custom Map Bounds: ${this.config.customBounds.width}x${this.config.customBounds.depth}`);
+        }
+
         if (bounds) {
             this.mapBounds = bounds;
         } else {
@@ -288,9 +303,16 @@ export class ChunkSystem {
         const mapType = baseConfig.mapType;
         const mapBounds = getMapBoundsFromConfig(mapType);
 
-        if (mapBounds) {
-            const mapWidth = mapBounds.maxX - mapBounds.minX;
-            const mapHeight = mapBounds.maxZ - mapBounds.minZ;
+        if (mapBounds || baseConfig.customBounds) {
+            const effectiveBounds = baseConfig.customBounds ? {
+                minX: -baseConfig.customBounds.width / 2,
+                maxX: baseConfig.customBounds.width / 2,
+                minZ: -baseConfig.customBounds.depth / 2,
+                maxZ: baseConfig.customBounds.depth / 2
+            } : mapBounds!;
+
+            const mapWidth = effectiveBounds.maxX - effectiveBounds.minX;
+            const mapHeight = effectiveBounds.maxZ - effectiveBounds.minZ;
             const maxMapDimension = Math.max(mapWidth, mapHeight);
 
             // Рассчитываем сколько чанков нужно для покрытия всей карты
@@ -298,16 +320,24 @@ export class ChunkSystem {
             const neededChunks = Math.ceil(maxMapDimension / baseConfig.chunkSize) + 2;
             const neededRenderDistance = Math.ceil(neededChunks / 2);
 
-            // Для маленьких карт (polygon, frontline, canyon, sandbox, sand) загружаем всё
-            // Увеличиваем дистанцию террейна в 2 раза для плавного перехода с туманом
+            // ОПТИМИЗАЦИЯ: Для маленьких карт используем оптимизированные настройки
+            // Вместо загрузки всей карты x2, загружаем только необходимую область
             if (mapType === "polygon" || mapType === "frontline" ||
                 mapType === "canyon" || mapType === "sandbox" || mapType === "sand" || mapType === "madness" || mapType === "expo" || mapType === "brest" || mapType === "arena") {
-                // Террейн: покрываем всю карту x2 для тумана
-                baseConfig.renderDistance = neededRenderDistance * 2;
-                // Объекты: такая же дистанция как террейн
-                baseConfig.detailsRenderDistance = neededRenderDistance * 2;
-                baseConfig.unloadDistance = baseConfig.renderDistance + 2;
-                logger.log(`[ChunkSystem] Bounded map "${mapType}": terrainDist=${baseConfig.renderDistance}, detailsDist=${baseConfig.detailsRenderDistance}`);
+                // ОПТИМИЗАЦИЯ: Для маленьких карт (до 200м) используем меньшую дистанцию
+                if (maxMapDimension <= 200) {
+                    // Террейн: только необходимая область + небольшой запас для тумана
+                    baseConfig.renderDistance = Math.min(neededRenderDistance + 1, 4);
+                    // Объекты: та же дистанция (не нужно x2)
+                    baseConfig.detailsRenderDistance = baseConfig.renderDistance;
+                    baseConfig.unloadDistance = baseConfig.renderDistance + 1;
+                } else {
+                    // Для больших карт используем старую логику
+                    baseConfig.renderDistance = neededRenderDistance * 2;
+                    baseConfig.detailsRenderDistance = neededRenderDistance * 2;
+                    baseConfig.unloadDistance = baseConfig.renderDistance + 2;
+                }
+                logger.log(`[ChunkSystem] Bounded map "${mapType}": terrainDist=${baseConfig.renderDistance}, detailsDist=${baseConfig.detailsRenderDistance}, mapSize=${maxMapDimension.toFixed(0)}m`);
             }
         }
 
@@ -1121,9 +1151,15 @@ export class ChunkSystem {
         const startTime = performance.now();
         const { cx, cz } = this.worldToChunk(playerPos.x, playerPos.z);
 
-        // ОПТИМИЗАЦИЯ: При прогрессивной загрузке обновляем каждый кадр
-        if (this.progressiveLoadingEnabled || cx !== this.lastPlayerChunk.x || cz !== this.lastPlayerChunk.z) {
+        // ОПТИМИЗАЦИЯ: Обновляем чанки только при смене чанка или раз в N кадров
+        const now = performance.now();
+        const timeSinceLastUpdate = now - (this as any)._lastChunkUpdateTime || 0;
+        const shouldUpdate = cx !== this.lastPlayerChunk.x || cz !== this.lastPlayerChunk.z || 
+                            (this.progressiveLoadingEnabled && timeSinceLastUpdate > 100); // Обновляем раз в 100мс при прогрессивной загрузке
+        
+        if (shouldUpdate) {
             this.lastPlayerChunk = { x: cx, z: cz };
+            (this as any)._lastChunkUpdateTime = now;
             this.updateChunks(cx, cz);
         }
 
@@ -2318,7 +2354,7 @@ export class ChunkSystem {
         if (this.progressiveLoadingEnabled) {
             this.updateProgressiveChunkLoading(playerCx, playerCz, renderDistance);
         } else {
-            // Стандартная загрузка всех чанков сразу (для обратной совместимости)
+            // ОПТИМИЗАЦИЯ: Объединенный цикл - загружаем и обновляем чанки за один проход
             for (let dx = -renderDistance; dx <= renderDistance; dx++) {
                 for (let dz = -renderDistance; dz <= renderDistance; dz++) {
                     const cx = playerCx + dx;
@@ -2332,21 +2368,6 @@ export class ChunkSystem {
                         chunk.lastAccess = Date.now();
                         if (!chunk.loaded) this.showChunk(chunk);
                     }
-                }
-            }
-        }
-
-        // Обновляем доступ к существующим чанкам
-        for (let dx = -renderDistance; dx <= renderDistance; dx++) {
-            for (let dz = -renderDistance; dz <= renderDistance; dz++) {
-                const cx = playerCx + dx;
-                const cz = playerCz + dz;
-                const key = this.getChunkKey(cx, cz);
-
-                if (this.chunks.has(key)) {
-                    const chunk = this.chunks.get(key)!;
-                    chunk.lastAccess = Date.now();
-                    if (!chunk.loaded) this.showChunk(chunk);
                 }
             }
         }

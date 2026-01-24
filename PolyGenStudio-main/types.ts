@@ -43,6 +43,16 @@ export interface CubeElement {
    * Building height (for polygon extrusion)
    */
   height?: number;
+
+  /**
+   * Specific type of the object (building, prop, spawn, etc.)
+   */
+  objectType?: 'building' | 'road' | 'water' | 'vegetation' | 'prop' | 'spawn' | 'trigger' | string;
+
+  /**
+   * Whether the object has collision
+   */
+  collidable?: boolean;
 }
 
 

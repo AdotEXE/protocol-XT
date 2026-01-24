@@ -1,5 +1,6 @@
 import { CubeElement } from "../types";
 import * as THREE from 'three';
+import { getElevationAt } from './elevationService';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -333,6 +334,51 @@ const determineTXTriggerType = (name: string): TXMapData['triggers'][0]['type'] 
 const EDITOR_TO_GAME_SCALE = 1;
 
 /**
+ * Calculate surface height at given position (for spawn points)
+ * This ensures tanks spawn above the surface, not in the floor
+ */
+const getSurfaceHeightForExport = (
+    x: number,
+    z: number,
+    objectSize: { x: number, y: number, z: number },
+    allCubes: CubeElement[]
+): number => {
+    let maxHeight = 0;
+
+    // Check all cubes that might be under or near this position
+    const halfSizeX = objectSize.x / 2;
+    const halfSizeZ = objectSize.z / 2;
+
+    for (const cube of allCubes) {
+        if (!cube.visible) continue;
+
+        // Calculate cube bounds
+        const cubeHalfX = cube.size.x / 2;
+        const cubeHalfZ = cube.size.z / 2;
+        const cubeMinX = cube.position.x - cubeHalfX;
+        const cubeMaxX = cube.position.x + cubeHalfX;
+        const cubeMinZ = cube.position.z - cubeHalfZ;
+        const cubeMaxZ = cube.position.z + cubeHalfZ;
+
+        // Check if object footprint overlaps with cube footprint
+        const objMinX = x - halfSizeX;
+        const objMaxX = x + halfSizeX;
+        const objMinZ = z - halfSizeZ;
+        const objMaxZ = z + halfSizeZ;
+
+        if (objMaxX >= cubeMinX && objMinX <= cubeMaxX &&
+            objMaxZ >= cubeMinZ && objMinZ <= cubeMaxZ) {
+            // Overlap detected - get top of this cube
+            const cubeTop = cube.position.y + (cube.size.y / 2);
+            maxHeight = Math.max(maxHeight, cubeTop);
+        }
+    }
+
+    // Ensure minimum height above ground (0.1 units minimum)
+    return Math.max(maxHeight, 0.1);
+};
+
+/**
  * Extract map data from cubes (Separates Objects and Triggers)
  * Applies EDITOR_TO_GAME_SCALE to convert editor units to game world units
  */
@@ -341,67 +387,135 @@ const extractMapData = (cubes: CubeElement[]) => {
     const triggers: TXMapData['triggers'] = [];
 
     cubes.forEach(cube => {
-        // Экспортируем ВСЕ видимые объекты (убрана проверка на type === 'cube')
+        // Экспортируем ВСЕ видимые объекты
         if (!cube.visible) return;
 
-        // КРИТИЧНО: Для polygon-объектов (Real World Generator) позиция хранится в вершинах полигона,
-        // а cube.position всегда (0, Y, 0). Нужно вычислить центр полигона!
-        let actualPosition = cube.position;
+        // Для polygon объектов (RWG здания) - извлекаем РЕАЛЬНУЮ позицию из вершин
+        let position = { x: cube.position.x, y: cube.position.y, z: cube.position.z };
+        let sizeX = cube.size.x;
+        let sizeZ = cube.size.z;
 
-        if (cube.polygon && cube.polygon.length >= 3) {
-            // Вычисляем центроид (центр) полигона
+        // Проверяем polygon для ВСЕХ объектов (здания >= 3 точки, дороги >= 2 точки)
+        if (cube.polygon && cube.polygon.length >= 2) {
+            // Находим центр и размер из polygon
+            let minX = Infinity, maxX = -Infinity;
+            let minZ = Infinity, maxZ = -Infinity;
             let sumX = 0, sumZ = 0;
-            for (const vertex of cube.polygon) {
-                sumX += vertex.x;
-                sumZ += vertex.z;
+
+            for (const v of cube.polygon) {
+                sumX += v.x;
+                sumZ += v.z;
+                if (v.x < minX) minX = v.x;
+                if (v.x > maxX) maxX = v.x;
+                if (v.z < minZ) minZ = v.z;
+                if (v.z > maxZ) maxZ = v.z;
             }
+
+            // Центр полигона = реальная позиция объекта
             const centerX = sumX / cube.polygon.length;
             const centerZ = sumZ / cube.polygon.length;
 
-            // Позиция = центр полигона + высота Y
-            actualPosition = {
+            // Размеры из bounding box
+            sizeX = Math.max(1, maxX - minX);
+            sizeZ = Math.max(1, maxZ - minZ);
+
+            // Высота - используем cube.height для зданий, cube.size.y для дорог
+            // НЕТ fallback 10м - дороги должны быть плоскими!
+            const height = cube.height || cube.size.y || 0.1;
+
+
+            position = {
                 x: centerX,
-                y: cube.position.y,
+                y: cube.position.y + height / 2, // Центр бокса по Y
                 z: centerZ
             };
         }
 
-        // Scale position and size from editor to game coordinates
-        const scaledPosition = {
-            x: actualPosition.x * EDITOR_TO_GAME_SCALE,
-            y: actualPosition.y * EDITOR_TO_GAME_SCALE,
-            z: actualPosition.z * EDITOR_TO_GAME_SCALE
+        const size = {
+            x: sizeX,
+            y: cube.height || cube.size.y || 1,
+            z: sizeZ
         };
 
-        // КРИТИЧНО: Для polygon-зданий высота хранится в cube.height, а не cube.size.y!
-        const actualHeight = cube.height || cube.size.y || 10;
 
-        const scaledSize = {
-            x: cube.size.x * EDITOR_TO_GAME_SCALE,
-            y: actualHeight * EDITOR_TO_GAME_SCALE,
-            z: cube.size.z * EDITOR_TO_GAME_SCALE
-        };
 
         // Check if Trigger
         if (cube.name.startsWith('trigger_') || cube.name.includes('Zone')) {
             triggers.push({
                 id: cube.id,
                 type: determineTXTriggerType(cube.name),
-                position: scaledPosition,
-                size: { width: scaledSize.x, height: scaledSize.y, depth: scaledSize.z },
+                position: position,
+                size: { width: size.x, height: size.y, depth: size.z },
                 properties: {
                     name: cube.name,
                     ...cube.material // Pass material if needed
                 }
             });
         } else {
-            // Standard Object
+            // For spawn points, recalculate Y position to ensure tank spawns above surface
+            const isSpawnPoint = cube.properties?.txType === 'spawn' || 
+                                 determineTXObjectType(cube) === 'spawn' ||
+                                 cube.name.toLowerCase().includes('spawn');
+            
+            if (isSpawnPoint) {
+                // Recalculate surface height for spawn point
+                const surfaceHeight = getSurfaceHeightForExport(
+                    position.x,
+                    position.z,
+                    size,
+                    cubes
+                );
+                // Position spawn point so tank bottom is on surface
+                // Assuming tank height is ~2 units, center should be at surfaceHeight + 1
+                const tankHeight = 2; // Approximate tank height
+                const tankBottom = surfaceHeight;
+                const tankCenter = tankBottom + (tankHeight / 2);
+                
+                // Additional check: ensure tank doesn't spawn inside other objects
+                // Check if there are any objects at tank center height that would block spawn
+                let hasCollision = false;
+                for (const otherCube of cubes) {
+                    if (!otherCube.visible || otherCube.id === cube.id) continue;
+                    if (otherCube.properties?.txType === 'spawn') continue; // Ignore other spawn points
+                    
+                    const otherMinY = otherCube.position.y - (otherCube.size.y / 2);
+                    const otherMaxY = otherCube.position.y + (otherCube.size.y / 2);
+                    
+                    // Check if tank center would be inside this object vertically
+                    if (tankCenter >= otherMinY && tankCenter <= otherMaxY) {
+                        const otherHalfX = otherCube.size.x / 2;
+                        const otherHalfZ = otherCube.size.z / 2;
+                        const otherMinX = otherCube.position.x - otherHalfX;
+                        const otherMaxX = otherCube.position.x + otherHalfX;
+                        const otherMinZ = otherCube.position.z - otherHalfZ;
+                        const otherMaxZ = otherCube.position.z + otherHalfZ;
+                        
+                        // Check horizontal overlap (tank footprint ~2x2)
+                        const tankRadius = 1; // Tank radius
+                        if (position.x + tankRadius >= otherMinX && position.x - tankRadius <= otherMaxX &&
+                            position.z + tankRadius >= otherMinZ && position.z - tankRadius <= otherMaxZ) {
+                            hasCollision = true;
+                            // Move spawn point up above this object
+                            position.y = otherMaxY + (tankHeight / 2);
+                            break;
+                        }
+                    }
+                }
+                
+                if (!hasCollision) {
+                    position.y = tankCenter;
+                }
+                
+                console.log(`[Exporter] Spawn point "${cube.name}" adjusted: Y=${position.y.toFixed(2)} (surface=${surfaceHeight.toFixed(2)})${hasCollision ? ' [collision avoided]' : ''}`);
+            }
+
+            // Standard Object - передаём данные КАК ЕСТЬ
             const objData: any = {
                 id: cube.id,
                 type: determineTXObjectType(cube),
-                position: scaledPosition,
+                position: position,
                 rotation: cube.rotation,
-                scale: scaledSize,
+                scale: size,
                 properties: {
                     color: cube.color,
                     material: cube.material,
@@ -410,51 +524,21 @@ const extractMapData = (cubes: CubeElement[]) => {
                     isDestructible: false
                 }
             };
-
-            // КРИТИЧНО: Передаём polygon vertices ТОЛЬКО для ЗДАНИЙ (не дорог!)
-            // Дороги с height < 3 экспортируются как обычные боксы
-            const realHeight = cube.height || 0;
-
-            // DEBUG: Логируем каждый объект с polygon данными
-            if (cube.polygon) {
-                console.log(`[Exporter] 🔍 Object "${cube.name}" has polygon: ${cube.polygon.length} verts, height: ${realHeight}`);
+            // DEBUG: Логируем первые 20 объектов
+            if (placedObjects.length < 20) {
+                console.log(`[Exporter] #${placedObjects.length + 1} "${cube.name}": ` +
+                    `pos=(${position.x.toFixed(0)}, ${position.y.toFixed(1)}, ${position.z.toFixed(0)}) ` +
+                    `size=(${size.x.toFixed(1)}x${size.y.toFixed(1)}x${size.z.toFixed(1)}) ` +
+                    `color=${cube.color} hasPolygon=${!!cube.polygon}`);
             }
 
-            if (cube.polygon && cube.polygon.length >= 3 && realHeight >= 3) {
-                // Вычисляем bounding box для фильтрации гигантских полигонов
-                let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-                for (const v of cube.polygon) {
-                    if (v.x < minX) minX = v.x;
-                    if (v.x > maxX) maxX = v.x;
-                    if (v.z < minZ) minZ = v.z;
-                    if (v.z > maxZ) maxZ = v.z;
-                }
-                const polyWidth = (maxX - minX) * EDITOR_TO_GAME_SCALE;
-                const polyDepth = (maxZ - minZ) * EDITOR_TO_GAME_SCALE;
-
-                // СТРОГАЯ фильтрация:
-                // - Минимум 3м (слишком маленькие - артефакты)
-                // - Максимум 200м (слишком большие - артефакты или ошибки)
-                const isValidBuilding = polyWidth >= 3 && polyWidth <= 200 &&
-                    polyDepth >= 3 && polyDepth <= 200;
-
-                if (isValidBuilding) {
-                    // Scale polygon vertices for game
-                    objData.polygon = cube.polygon.map(v => ({
-                        x: v.x * EDITOR_TO_GAME_SCALE,
-                        y: v.y * EDITOR_TO_GAME_SCALE,
-                        z: v.z * EDITOR_TO_GAME_SCALE
-                    }));
-                    objData.height = realHeight * EDITOR_TO_GAME_SCALE;
-                    objData.isPolygon = true;
-
-                    console.log(`[Exporter] ✅ Building polygon: ${cube.polygon.length} verts, ${polyWidth.toFixed(0)}x${polyDepth.toFixed(0)}m, height: ${realHeight}m`);
-                }
-            }
-
+            // Игра теперь использует боксы, polygon не нужен
             placedObjects.push(objData);
         }
     });
+
+
+
 
     return { placedObjects, triggers };
 };
@@ -729,6 +813,95 @@ export const sendMapToTX = (cubes: CubeElement[], mapName: string, autoPlay: boo
  */
 export const isInTXIframe = (): boolean => {
     return window.parent !== window;
+};
+
+/**
+ * Clear respawn/death screen effect in the game
+ * Sends multiple message types to ensure compatibility
+ */
+export const clearRespawnEffect = (): void => {
+    if (window.parent && window.parent !== window) {
+        try {
+            // Send multiple message types to ensure compatibility
+            const messages = [
+                { type: 'CLEAR_RESPAWN_EFFECT' },
+                { type: 'CLEAR_DEATH_EFFECT' },
+                { type: 'CLEAR_SCREEN_EFFECT' },
+                { type: 'RESPAWN_EFFECT_CLEAR' },
+                { type: 'REMOVE_DARK_OVERLAY' },
+                { type: 'HIDE_DEATH_SCREEN' },
+                { type: 'RESET_SCREEN_EFFECTS' },
+                { type: 'CLEAR_ALL_EFFECTS' }
+            ];
+            
+            // Send all message types immediately
+            messages.forEach(msg => {
+                window.parent.postMessage(msg, '*');
+            });
+            
+            // Also send with delays to catch late respawns
+            [100, 200, 500, 1000, 2000, 3000].forEach(delay => {
+                setTimeout(() => {
+                    messages.forEach(msg => {
+                        window.parent.postMessage(msg, '*');
+                    });
+                }, delay);
+            });
+            
+            console.log('[Exporter] Sent CLEAR_RESPAWN_EFFECT messages to game (multiple types, multiple times)');
+        } catch (e) {
+            console.error("[Exporter] Failed to send CLEAR_RESPAWN_EFFECT:", e);
+        }
+    } else {
+        console.warn("[Exporter] Cannot clear respawn effect - not in iframe");
+    }
+};
+
+/**
+ * Set low health screen effect with heartbeat from perimeter to center
+ * @param healthPercent - Health percentage (0-1), where 0 = critical, 1 = full health
+ * @param maxDarkness - Maximum darkness at perimeter (0-1), default 0.25 (25%)
+ */
+export const setLowHealthEffect = (healthPercent: number, maxDarkness: number = 0.25): void => {
+    if (window.parent && window.parent !== window) {
+        try {
+            // Calculate darkness based on health (more darkness when health is lower)
+            // When health is 0, use maxDarkness (25%), when health is 1, use 0
+            const darkness = Math.max(0, maxDarkness * (1 - healthPercent));
+            
+            window.parent.postMessage({
+                type: 'SET_LOW_HEALTH_EFFECT',
+                healthPercent: healthPercent,
+                darkness: darkness,
+                maxDarkness: maxDarkness,
+                effectType: 'heartbeat' // Perimeter to center gradient
+            }, '*');
+            
+            console.log(`[Exporter] Sent SET_LOW_HEALTH_EFFECT: health=${(healthPercent * 100).toFixed(0)}%, darkness=${(darkness * 100).toFixed(0)}%`);
+        } catch (e) {
+            console.error("[Exporter] Failed to send SET_LOW_HEALTH_EFFECT:", e);
+        }
+    } else {
+        console.warn("[Exporter] Cannot set low health effect - not in iframe");
+    }
+};
+
+/**
+ * Clear low health screen effect
+ */
+export const clearLowHealthEffect = (): void => {
+    if (window.parent && window.parent !== window) {
+        try {
+            window.parent.postMessage({
+                type: 'CLEAR_LOW_HEALTH_EFFECT'
+            }, '*');
+            console.log('[Exporter] Sent CLEAR_LOW_HEALTH_EFFECT message to game');
+        } catch (e) {
+            console.error("[Exporter] Failed to send CLEAR_LOW_HEALTH_EFFECT:", e);
+        }
+    } else {
+        console.warn("[Exporter] Cannot clear low health effect - not in iframe");
+    }
 };
 
 /**
