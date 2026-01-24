@@ -1900,7 +1900,17 @@ export class Game {
             <div class="loading-tip" id="loading-tip"></div>
         `;
 
-        document.body.appendChild(this.loadingScreen);
+        // ИСПРАВЛЕНИЕ: Проверяем, что экран загрузки еще не добавлен в DOM
+        const existingScreen = document.getElementById("loading-screen");
+        if (existingScreen) {
+            // Если экран уже существует, используем его вместо создания нового
+            this.loadingScreen = existingScreen as HTMLDivElement;
+            console.log("[Game] Reusing existing loading screen");
+        } else {
+            // Если экрана нет, добавляем новый
+            document.body.appendChild(this.loadingScreen);
+            console.log("[Game] Created new loading screen");
+        }
 
         // Показать случайный совет
         this.showRandomLoadingTip();
