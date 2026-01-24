@@ -1245,6 +1245,9 @@ export class WorldGenerationMenu {
                 consumablesMax: 4,
                 terrainDetail: 1.0,
                 biomeTransitionSmoothness: 0.5,
+                useCustomMapSize: false,
+                customMapWidth: 1000,
+                customMapDepth: 1000,
                 mapSpecific: {}
             };
             this.updateUI();

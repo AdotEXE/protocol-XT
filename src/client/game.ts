@@ -919,12 +919,12 @@ export class Game {
         // КРИТИЧНО: Перехватываем запрос на захват курсора
         // Если открыт редактор карт, мы НЕ должны захватывать курсор
         const originalRequestPointerLock = this.canvas.requestPointerLock.bind(this.canvas);
-        this.canvas.requestPointerLock = () => {
+        this.canvas.requestPointerLock = async (options?: PointerLockOptions): Promise<void> => {
             if (this.mapEditor && this.mapEditor.isActive) {
                 console.log("[Game] 🛑 Pointer lock BLOCKED because Map Editor is active");
                 return;
             }
-            originalRequestPointerLock();
+            return originalRequestPointerLock(options);
         };
 
         // Устанавливаем pointer-events в зависимости от видимости меню
@@ -4951,9 +4951,9 @@ export class Game {
         
         for (let attempt = 0; attempt < Math.min(maxAttempts, radii.length * angles.length); attempt++) {
             const radiusIndex = Math.floor(attempt / angles.length);
-            const radius = radii[radiusIndex] || radii[radii.length - 1]; // Fallback на последний радиус
+            const radius = radii[radiusIndex] ?? radii[radii.length - 1] ?? 5; // Fallback на последний радиус или 5
             const angleIndex = attempt % angles.length;
-            const angle = angles[angleIndex] || 0; // Fallback на 0
+            const angle = angles[angleIndex] ?? 0; // Fallback на 0
             
             const checkX = x + Math.cos(angle) * radius;
             const checkZ = z + Math.sin(angle) * radius;
@@ -5003,8 +5003,8 @@ export class Game {
             if (!mesh || !mesh.isEnabled()) return false;
             
             // Исключаем сам танк и его части
-            if (mesh === this.tank.chassis || mesh === this.tank.turret || mesh === this.tank.barrel) return false;
-            if (mesh.parent === this.tank.chassis || mesh.parent === this.tank.turret) return false;
+            if (mesh === this.tank?.chassis || mesh === this.tank?.turret || mesh === this.tank?.barrel) return false;
+            if (mesh.parent === this.tank?.chassis || mesh.parent === this.tank?.turret) return false;
             
             // Исключаем служебные объекты
             const name = mesh.name.toLowerCase();
@@ -5480,6 +5480,10 @@ export class Game {
         // ПЕРВЫЙ элемент в списке - это spawn point объект из редактора карт (если есть)
         // Используем первую точку спавна из карты
         const selectedGarage = playerGarages[0];
+        if (!selectedGarage) {
+            logger.error("[Game] ❌ No spawn point found in playerGarages!");
+            return;
+        }
         logger.log(`[Game] 🎯 Using spawn point from map at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)})`);
 
 

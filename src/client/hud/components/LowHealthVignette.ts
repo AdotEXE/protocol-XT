@@ -163,27 +163,31 @@ export class LowHealthVignette {
                 const alpha = currentDarkness * gradientFactor;
                 
                 // Верхний край
-                if (this.topEdges[i]) {
-                    this.topEdges[i].alpha = alpha;
-                    this.topEdges[i].isVisible = alpha > 0.01; // Показываем только если видимо
+                const topEdge = this.topEdges[i];
+                if (topEdge) {
+                    topEdge.alpha = alpha;
+                    topEdge.isVisible = alpha > 0.01; // Показываем только если видимо
                 }
                 
                 // Нижний край
-                if (this.bottomEdges[i]) {
-                    this.bottomEdges[i].alpha = alpha;
-                    this.bottomEdges[i].isVisible = alpha > 0.01;
+                const bottomEdge = this.bottomEdges[i];
+                if (bottomEdge) {
+                    bottomEdge.alpha = alpha;
+                    bottomEdge.isVisible = alpha > 0.01;
                 }
                 
                 // Левый край
-                if (this.leftEdges[i]) {
-                    this.leftEdges[i].alpha = alpha;
-                    this.leftEdges[i].isVisible = alpha > 0.01;
+                const leftEdge = this.leftEdges[i];
+                if (leftEdge) {
+                    leftEdge.alpha = alpha;
+                    leftEdge.isVisible = alpha > 0.01;
                 }
                 
                 // Правый край
-                if (this.rightEdges[i]) {
-                    this.rightEdges[i].alpha = alpha;
-                    this.rightEdges[i].isVisible = alpha > 0.01;
+                const rightEdge = this.rightEdges[i];
+                if (rightEdge) {
+                    rightEdge.alpha = alpha;
+                    rightEdge.isVisible = alpha > 0.01;
                 }
             }
 
@@ -191,21 +195,25 @@ export class LowHealthVignette {
         } else {
             // Полностью скрываем эффект
             for (let i = 0; i < this.gradientSteps; i++) {
-                if (this.topEdges[i]) {
-                    this.topEdges[i].isVisible = false;
-                    this.topEdges[i].alpha = 0;
+                const topEdge = this.topEdges[i];
+                if (topEdge) {
+                    topEdge.isVisible = false;
+                    topEdge.alpha = 0;
                 }
-                if (this.bottomEdges[i]) {
-                    this.bottomEdges[i].isVisible = false;
-                    this.bottomEdges[i].alpha = 0;
+                const bottomEdge = this.bottomEdges[i];
+                if (bottomEdge) {
+                    bottomEdge.isVisible = false;
+                    bottomEdge.alpha = 0;
                 }
-                if (this.leftEdges[i]) {
-                    this.leftEdges[i].isVisible = false;
-                    this.leftEdges[i].alpha = 0;
+                const leftEdge = this.leftEdges[i];
+                if (leftEdge) {
+                    leftEdge.isVisible = false;
+                    leftEdge.alpha = 0;
                 }
-                if (this.rightEdges[i]) {
-                    this.rightEdges[i].isVisible = false;
-                    this.rightEdges[i].alpha = 0;
+                const rightEdge = this.rightEdges[i];
+                if (rightEdge) {
+                    rightEdge.isVisible = false;
+                    rightEdge.alpha = 0;
                 }
             }
             this._isVisible = false;

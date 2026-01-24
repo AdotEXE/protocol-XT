@@ -88,9 +88,9 @@ export const themes: Record<string, Theme> = {
 
 export class UIManager {
     private screen: blessed.Widgets.Screen;
-    private grid!: contrib.grid; // Инициализируется в конструкторе
-    private core!: MonitorCore; // Инициализируется в конструкторе
-    private theme!: Theme; // Инициализируется в конструкторе
+    private _grid!: contrib.grid; // Инициализируется в конструкторе
+    private _core!: MonitorCore; // Инициализируется в конструкторе
+    private _theme!: Theme; // Инициализируется в конструкторе
     // Reserved for future widget management
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private _widgets: Map<string, blessed.Widgets.Node> = new Map();
@@ -124,9 +124,9 @@ export class UIManager {
     public get cpuChart(): any { return this._cpuChart; }
     public get maxLogLines(): number { return this._maxLogLines; }
     public get logLines(): Array<{ line: string; level: 'info' | 'warn' | 'error'; timestamp: string }> { return this._logLines; }
-    public get grid(): contrib.grid { return this.grid; }
-    public get core(): MonitorCore { return this.core; }
-    public get theme(): Theme { return this.theme; }
+    public get grid(): contrib.grid { return this._grid; }
+    public get core(): MonitorCore { return this._core; }
+    public get theme(): Theme { return this._theme; }
 
     // Log controls
     private _maxLogLines: number = 100;
@@ -143,8 +143,8 @@ export class UIManager {
     private chartHistorySize: number = 60;
 
     constructor(core: MonitorCore) {
-        this.core = core;
-        this.theme = themes['terminal-green'] ?? themes['matrix'] ?? {
+        this._core = core;
+        this._theme = themes['terminal-green'] ?? themes['matrix'] ?? {
             name: 'Default',
             colors: { fg: '#00ff00', bg: '#000000', border: '#00ff00', success: '#00ff00', warning: '#ffaa00', error: '#ff0000', info: '#00ffff' }
         };
@@ -175,7 +175,7 @@ export class UIManager {
         }
 
         // Create grid layout (12 rows, 12 cols)
-        this.grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
+        this._grid = new contrib.grid({ rows: 12, cols: 12, screen: this.screen });
 
         // Initialize UI
         this.setupUI();
@@ -187,7 +187,7 @@ export class UIManager {
 
     private startUpdateLoop(): void {
         setInterval(() => {
-            this.update(this.core.getMetricsManager().getCurrentMetrics());
+            this.update(this._core.getMetricsManager().getCurrentMetrics());
         }, 1000);
     }
 
@@ -230,7 +230,7 @@ export class UIManager {
         }
 
         // Update charts with progress bars (same style as PERFORMANCE block)
-        const history = this.core.getHistoryManager().getLatest(this.chartHistorySize);
+        const history = this._core.getHistoryManager().getLatest(this.chartHistorySize);
         if (history.length > 0) {
             const cpuValue = history[history.length - 1]?.performance?.cpu?.usage ?? 0;
             const ramValue = history[history.length - 1]?.performance?.ram?.percent ?? 0;
@@ -272,122 +272,122 @@ export class UIManager {
     private setupUI(): void {
         // ... (Header to Game State remains same System Status row 1-2 etc) ...
         // Header (row 0, full width)
-        this.headerBox = this.grid.set(0, 0, 1, 12, blessed.box, {
+        this.headerBox = this._grid.set(0, 0, 1, 12, blessed.box, {
             content: this.getHeaderContent(),
             tags: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.fg, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // System Status (row 1-2, col 0-3)
-        this.statusBox = this.grid.set(1, 0, 2, 3, blessed.box, {
+        this.statusBox = this._grid.set(1, 0, 2, 3, blessed.box, {
             label: ' SYSTEM STATUS ',
             tags: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.fg, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // Performance (row 1-2, col 3-6)
-        this.performanceBox = this.grid.set(1, 3, 2, 3, blessed.box, {
+        this.performanceBox = this._grid.set(1, 3, 2, 3, blessed.box, {
             label: ' PERFORMANCE ',
             tags: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.fg, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // Connections (row 1-2, col 6-9)
-        this.connectionsBox = this.grid.set(1, 6, 2, 3, blessed.box, {
+        this.connectionsBox = this._grid.set(1, 6, 2, 3, blessed.box, {
             label: ' CONNECTIONS ',
             tags: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.fg, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // Alerts (row 1-2, col 9-12)
-        this.alertsBox = this.grid.set(1, 9, 2, 3, blessed.box, {
+        this.alertsBox = this._grid.set(1, 9, 2, 3, blessed.box, {
             label: ' ALERTS ',
             tags: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.fg, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // Resources (row 3-4, full width)
-        this.resourcesBox = this.grid.set(3, 0, 2, 12, blessed.box, {
+        this.resourcesBox = this._grid.set(3, 0, 2, 12, blessed.box, {
             label: ' RESOURCES ',
             tags: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.fg, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // Game State (row 5-6, full width)
-        this.gameStateBox = this.grid.set(5, 0, 2, 12, blessed.box, {
+        this.gameStateBox = this._grid.set(5, 0, 2, 12, blessed.box, {
             label: ' GAME STATE ',
             tags: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.fg, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // Charts (Row 7-8) - Using simple boxes with ASCII sparklines for compatibility
-        this._cpuChart = this.grid.set(7, 0, 2, 4, blessed.box, {
+        this._cpuChart = this._grid.set(7, 0, 2, 4, blessed.box, {
             label: ' CPU % ',
             tags: true,
-            style: { fg: this.theme.colors.success, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.success, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
-        this._ramChart = this.grid.set(7, 4, 2, 4, blessed.box, {
+        this._ramChart = this._grid.set(7, 4, 2, 4, blessed.box, {
             label: ' RAM % ',
             tags: true,
-            style: { fg: 'cyan', bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: 'cyan', bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
-        this._fpsChart = this.grid.set(7, 8, 2, 4, blessed.box, {
+        this._fpsChart = this._grid.set(7, 8, 2, 4, blessed.box, {
             label: ' FPS ',
             tags: true,
-            style: { fg: 'yellow', bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: 'yellow', bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // Logs Area (Row 9-11) - SPLIT INTO 3
 
         // Server Logs (Left)
-        this.serverLogsBox = this.grid.set(9, 0, 2, 4, blessed.box, {
+        this.serverLogsBox = this._grid.set(9, 0, 2, 4, blessed.box, {
             label: ' SERVER LOGS ',
             tags: true, scrollable: true, alwaysScroll: true, scrollbar: { ch: ' ', inverse: true },
             keys: true, vi: true, mouse: true,
             wrap: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.fg, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // Client Logs (Middle)
-        this.clientLogsBox = this.grid.set(9, 4, 2, 4, blessed.box, {
+        this.clientLogsBox = this._grid.set(9, 4, 2, 4, blessed.box, {
             label: ' CLIENT LOGS ',
             tags: true, scrollable: true, alwaysScroll: true, scrollbar: { ch: ' ', inverse: true },
             keys: true, vi: true, mouse: true,
             wrap: true,
-            style: { fg: 'cyan', bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: 'cyan', bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // System Logs (Right)
-        this.logsBox = this.grid.set(9, 8, 2, 4, blessed.box, {
+        this.logsBox = this._grid.set(9, 8, 2, 4, blessed.box, {
             label: ' SYSTEM LOGS ',
             tags: true, scrollable: true, alwaysScroll: true, scrollbar: { ch: ' ', inverse: true },
             keys: true, vi: true, mouse: true,
             wrap: true,
-            style: { fg: this.theme.colors.fg, bg: this.theme.colors.bg, border: { fg: this.theme.colors.border } },
+            style: { fg: this._theme.colors.fg, bg: this._theme.colors.bg, border: { fg: this._theme.colors.border } },
             border: { type: 'line' }
         });
 
         // Footer (row 11, full width)
-        this.grid.set(11, 0, 1, 12, blessed.box, {
+        this._grid.set(11, 0, 1, 12, blessed.box, {
             content: '[F1]Help [F2]Config [F3]Export [F4]Alerts [F5]Players [F6]Rooms [ESC]Quit',
             tags: true,
             style: {
-                fg: this.theme.colors.fg,
-                bg: this.theme.colors.bg
+                fg: this._theme.colors.fg,
+                bg: this._theme.colors.bg
             }
         });
     }
@@ -517,7 +517,7 @@ export class UIManager {
             if (this.currentModal) {
                 this.closeModal();
             } else {
-                await this.core.stop();
+                await this._core.stop();
                 process.exit(0);
             }
         });
@@ -596,7 +596,7 @@ export class UIManager {
 
         this.screen.key(['right'], () => {
             if (!this.currentModal) {
-                const maxScroll = this.core.getHistoryManager().getLatest(this.chartHistorySize * this.chartZoom).length - this.chartHistorySize;
+                const maxScroll = this._core.getHistoryManager().getLatest(this.chartHistorySize * this.chartZoom).length - this.chartHistorySize;
                 this.chartScroll = Math.min(maxScroll, this.chartScroll + 10);
             }
         });
@@ -648,10 +648,10 @@ export class UIManager {
                 type: 'line'
             },
             style: {
-                fg: this.theme.colors.fg,
-                bg: this.theme.colors.bg,
+                fg: this._theme.colors.fg,
+                bg: this._theme.colors.bg,
                 border: {
-                    fg: this.theme.colors.border
+                    fg: this._theme.colors.border
                 }
             },
             label: ` ${title} `,
@@ -729,7 +729,7 @@ Press [ESC] to close`;
     }
 
     private showConfig(): void {
-        const config = this.core.getConfig();
+        const config = this._core.getConfig();
         const configContent = `
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║                      CONFIGURATION                                    ║
@@ -776,8 +776,8 @@ Press [ESC] to close`;
     }
 
     private showAlerts(): void {
-        const alerts = this.core.getAlertManager().getAlertHistory();
-        const activeAlerts = this.core.getAlertManager().getActiveAlerts();
+        const alerts = this._core.getAlertManager().getAlertHistory();
+        const activeAlerts = this._core.getAlertManager().getActiveAlerts();
 
         let alertsContent = `
 ╔═══════════════════════════════════════════════════════════════════════╗
@@ -828,7 +828,7 @@ Press [ESC] to close`;
     private showPlayers(): void {
         // Get player stats from server collector
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const _serverCollector = (this.core.getMetricsManager() as any).serverCollector; void _serverCollector;
+        const _serverCollector = (this._core.getMetricsManager() as any).serverCollector; void _serverCollector;
         let playersContent = `
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║                      PLAYER STATISTICS                                ║
@@ -838,7 +838,7 @@ Press [ESC] to close`;
 
         // Try to get detailed player stats (this would require extending the API)
         // For now, show basic info from metrics
-        const metrics = this.core.getMetricsManager().getCurrentMetrics();
+        const metrics = this._core.getMetricsManager().getCurrentMetrics();
         if (metrics) {
             playersContent += `║  Total Players:     ${metrics.connections.players.toString().padEnd(55)}║\n`;
             playersContent += `║  Authenticated:     ${metrics.connections.authenticated.toString().padEnd(55)}║\n`;
@@ -857,7 +857,7 @@ Press [ESC] to close`;
     }
 
     private showRooms(): void {
-        const metrics = this.core.getMetricsManager().getCurrentMetrics();
+        const metrics = this._core.getMetricsManager().getCurrentMetrics();
         let roomsContent = `
 ╔═══════════════════════════════════════════════════════════════════════╗
 ║                      ROOM STATISTICS                                  ║
@@ -903,10 +903,10 @@ Press [ESC] to close`;
                 type: 'line'
             },
             style: {
-                fg: this.theme.colors.fg,
-                bg: this.theme.colors.bg,
+                fg: this._theme.colors.fg,
+                bg: this._theme.colors.bg,
                 border: {
-                    fg: this.theme.colors.border
+                    fg: this._theme.colors.border
                 }
             },
             label: ' Search Logs '
