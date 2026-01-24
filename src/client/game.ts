@@ -25,6 +25,7 @@ import {
 import "@babylonjs/gui";
 import { AdvancedDynamicTexture, TextBlock } from "@babylonjs/gui";
 import { TankController } from "./tankController";
+import { CHASSIS_SIZE_MULTIPLIERS } from "./tank/tankChassis";
 import { HUD } from "./hud";
 import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
@@ -98,6 +99,9 @@ import { GameMultiplayer } from "./game/GameMultiplayer";
 // GameSpectator is not currently used - removed to fix initialization order issue
 // import { GameSpectator } from "./game/GameSpectator";
 import { GameMultiplayerCallbacks } from "./game/GameMultiplayerCallbacks";
+import { CustomMapRunner } from "./CustomMapRunner";
+import { ActionManager, ExecuteCodeAction } from "@babylonjs/core";
+import { AdminPanel } from "./adminPanel";
 import { ProviderFactory, type IRewardProvider, type LocalRewardDependencies, type NetworkRewardDependencies } from "./game/providers";
 
 export class Game {
@@ -142,6 +146,9 @@ export class Game {
 
     // World generation menu (lazy loaded)
     worldGenerationMenu: WorldGenerationMenu | undefined; // Lazy loaded from "./worldGenerationMenu"
+
+    // Admin Panel (Room Host controls)
+    adminPanel: AdminPanel | undefined;
 
     // Help menu (lazy loaded)
     helpMenu: HelpMenu | undefined; // Lazy loaded from "./helpMenu"
@@ -218,6 +225,9 @@ export class Game {
     private readonly METRICS_SEND_INTERVAL = 5000; // Send metrics every 5 seconds
     battleRoyaleVisualizer: BattleRoyaleVisualizer | undefined; // Lazy loaded from "./battleRoyale"
     ctfVisualizer: CTFVisualizer | undefined; // Lazy loaded from "./ctfVisualizer"
+
+    // Pending custom map data received from multiplayer
+    public pendingCustomMapData: any = null;
 
     // Spectator mode
     isSpectating: boolean = false;
@@ -905,6 +915,17 @@ export class Game {
         this.canvas.id = "gameCanvas";
         document.body.appendChild(this.canvas);
 
+        // КРИТИЧНО: Перехватываем запрос на захват курсора
+        // Если открыт редактор карт, мы НЕ должны захватывать курсор
+        const originalRequestPointerLock = this.canvas.requestPointerLock.bind(this.canvas);
+        this.canvas.requestPointerLock = () => {
+            if (this.mapEditor && this.mapEditor.isActive) {
+                console.log("[Game] 🛑 Pointer lock BLOCKED because Map Editor is active");
+                return;
+            }
+            originalRequestPointerLock();
+        };
+
         // Устанавливаем pointer-events в зависимости от видимости меню
         this.updateCanvasPointerEvents();
 
@@ -943,8 +964,8 @@ export class Game {
             this.applyUISettings();
         }) as EventListener);
 
-        // Оптимизация рендеринга
-        this.engine.setSize(0, 0); // Будет установлен автоматически
+        // КРИТИЧНО: НЕ устанавливаем размер 0x0 - это блокирует рендеринг!
+        // Размер будет установлен автоматически через engine.resize() позже
 
         this.scene = new Scene(this.engine, {
             useGeometryUniqueIdsMap: true,
@@ -1591,7 +1612,30 @@ export class Game {
     // === LOADING SCREEN ===
 
     private createLoadingScreen(): void {
-        if (this.loadingScreen) return;
+        // ИСПРАВЛЕНИЕ: Удаляем ВСЕ существующие экраны загрузки (предотвращает множественные экраны)
+        // Проверяем и удаляем через this.loadingScreen
+        if (this.loadingScreen) {
+            try {
+                if (this.loadingScreen.parentNode) {
+                    this.loadingScreen.parentNode.removeChild(this.loadingScreen);
+                }
+            } catch (e) {
+                // Игнорируем ошибки
+            }
+            this.loadingScreen = null;
+        }
+        
+        // ИСПРАВЛЕНИЕ: Также проверяем и удаляем все экраны загрузки по ID (на случай если они созданы в других местах)
+        const existingScreens = document.querySelectorAll("#loading-screen");
+        existingScreens.forEach((screen) => {
+            try {
+                if (screen.parentNode) {
+                    screen.parentNode.removeChild(screen);
+                }
+            } catch (e) {
+                // Игнорируем ошибки
+            }
+        });
 
         this.loadingScreen = document.createElement("div");
         this.loadingScreen.id = "loading-screen";
@@ -2381,37 +2425,23 @@ export class Game {
             }
 
             // Если это custom карта, проверяем базовый тип из сохраненных данных
-            // КРИТИЧНО: В мультиплеере НЕ используем сохраненные custom карты
             if (mapTypeForChunkSystem === "custom") {
-                // Проверяем, не в мультиплеере ли мы
-                const hasRoomId = this.multiplayerManager?.getRoomId();
-                const hasPendingMapType = this.multiplayerManager?.getMapType();
-                const isInMultiplayerRoom = this.isMultiplayer || (this.multiplayerManager?.isConnected() && hasRoomId) || hasPendingMapType;
-
-                if (isInMultiplayerRoom) {
-                    // В мультиплеере custom карты не поддерживаются - используем sandbox как fallback
-                    logger.log(`[Game] 🗺️ Мультиплеер: custom карты не поддерживаются в reloadMap(), используем sandbox (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
-                    mapTypeForChunkSystem = "sand";
-                } else {
-                    // КРИТИЧНО: В одиночной игре СОХРАНЯЕМ custom как тип карты
-                    // PolyGenStudio карты ВСЕГДА должны использовать "custom" тип
-                    // Это отключает генерацию террейна и объектов - все приходит из редактора
-                    try {
-                        const customMapDataStr = localStorage.getItem("selectedCustomMapData");
-                        if (customMapDataStr) {
-                            // Custom карта есть - ОБЯЗАТЕЛЬНО оставляем custom!
-                            logger.log(`[Game] Custom map from PolyGenStudio - keeping mapTypeForChunkSystem as "custom"`);
-                            // НЕ меняем mapTypeForChunkSystem - он уже "custom"
-                        } else {
-                            // КРИТИЧНО: Нет данных custom карты - синхронизируем ОБА типа
-                            logger.warn(`[Game] No custom map data in localStorage, using sand for reload`);
-                            mapTypeForChunkSystem = "sand";
-                            this.currentMapType = "sand"; // КРИТИЧНО: Синхронизируем чтобы избежать mismatch!
-                        }
-                    } catch (error) {
-                        logger.error("[Game] Failed to read custom map data, using sand:", error);
+                // ПРОВЕРКА 1: Проверяем pendingCustomMapData (приоритет для мультиплеера)
+                if (this.pendingCustomMapData) {
+                    logger.log(`[Game] 🗺️ Using pending custom map data for reloadMap`);
+                    // OK - keep as custom
+                }
+                // ПРОВЕРКА 2: Проверяем localStorage (для одиночной игры/редактора)
+                else {
+                    const customMapDataStr = localStorage.getItem("selectedCustomMapData");
+                    if (customMapDataStr) {
+                        logger.log(`[Game] Custom map from localStorage available`);
+                        // OK - keep as custom
+                    } else {
+                        // КРИТИЧНО: Нет данных custom карты - синхронизируем ОБА типа
+                        logger.warn(`[Game] No custom map data found (pending or localStorage), using sand for reload`);
                         mapTypeForChunkSystem = "sand";
-                        this.currentMapType = "sand"; // КРИТИЧНО: Синхронизируем при ошибке
+                        this.currentMapType = "sand"; // КРИТИЧНО: Синхронизируем чтобы избежать mismatch!
                     }
                 }
             }
@@ -2428,7 +2458,8 @@ export class Game {
                 // Импортируем и запускаем CustomMapRunner
                 const { CustomMapRunner } = await import("./CustomMapRunner");
                 const runner = new CustomMapRunner(this.scene);
-                const result = runner.run();
+                // Передаем pendingCustomMapData если есть (иначе runner сам возьмет из localStorage)
+                const result = runner.run(this.pendingCustomMapData);
 
                 if (result.success) {
                     logger.log(`[Game] ✅ RELOAD: Custom map "${result.mapName}" loaded: ${result.objectsCreated} objects`);
@@ -2686,6 +2717,14 @@ export class Game {
             logger.debug("Engine initialized:", !!this.engine);
             logger.debug("Scene initialized:", !!this.scene);
 
+            // КРИТИЧНО: Создаём временную камеру ДО запуска render loop
+            // Это предотвращает создание default camera и чёрный экран
+            const tempCamera = new ArcRotateCamera("tempCamera", -Math.PI / 2, Math.PI / 2 - 0.35, 12, Vector3.Zero(), this.scene);
+            tempCamera.minZ = 0.1;
+            tempCamera.maxZ = 10000;
+            this.scene.activeCamera = tempCamera;
+            logger.log("[Game] Temporary camera created and set as active before render loop");
+
             // КРИТИЧНО: Запускаем render loop ТОЛЬКО ОДИН РАЗ в init()
             // Проверяем, не запущен ли уже render loop через флаг
             if (this.engine && this.scene) {
@@ -2694,13 +2733,29 @@ export class Game {
                     logger.log("[Game] Starting render loop in init() - SINGLE INSTANCE");
                     this.engine.runRenderLoop(() => {
                         if (this.scene && this.engine) {
+                            // КРИТИЧНО: Проверяем размер canvas - если 0x0, не рендерим
+                            if (this.canvas.width === 0 || this.canvas.height === 0) {
+                                // Canvas еще не инициализирован, пропускаем рендер
+                                return;
+                            }
+
                             // КРИТИЧЕСКИ ВАЖНО: Проверяем наличие активной камеры перед рендерингом
                             if (!this.scene.activeCamera) {
                                 if (this.camera) {
+                                    // Основная камера создана, но не установлена - устанавливаем
                                     this.scene.activeCamera = this.camera;
+                                    logger.log("[Game] Camera set as active in render loop");
                                 } else {
-                                    this.scene.createDefaultCamera(true);
+                                    // Это не должно происходить, так как временная камера создаётся ДО render loop
+                                    logger.error("[Game] CRITICAL: No camera found in render loop! This should not happen.");
+                                    // Создаём временную камеру только в крайнем случае
+                                    const defaultCam = this.scene.createDefaultCamera(true);
+                                    logger.warn("[Game] Emergency: created default camera as fallback");
                                 }
+                            } else if (this.camera && this.scene.activeCamera.name === "tempCamera") {
+                                // Временная камера всё ещё активна, но основная уже создана - заменяем
+                                this.scene.activeCamera = this.camera;
+                                logger.log("[Game] Replaced temporary camera with main camera in render loop");
                             }
 
                             // КРИТИЧНО: Обновляем логику ПЕРЕД рендерингом для правильного порядка
@@ -2715,7 +2770,16 @@ export class Game {
 
                                     // Update HUD effects (Damage indicators, etc)
                                     if (this.hud && this.camera) {
-                                        this.hud.update(this.engine.getDeltaTime(), this.camera);
+                                        // Получаем позицию и направление игрока для индикатора урона
+                                        let playerPos: Vector3 | undefined;
+                                        let playerForward: Vector3 | undefined;
+                                        if (this.tank && this.tank.chassis) {
+                                            playerPos = this.tank.chassis.position.clone();
+                                            if (this.camera) {
+                                                playerForward = this.camera.getForwardRay().direction;
+                                            }
+                                        }
+                                        this.hud.update(this.engine.getDeltaTime(), this.camera, playerPos, playerForward);
                                     }
                                 }
                                 // КРИТИЧНО: Рендерим сцену ТОЛЬКО ОДИН РАЗ за кадр!
@@ -2742,8 +2806,16 @@ export class Game {
                 }
             }
 
-            // Принудительно обновляем размер canvas
+            // КРИТИЧНО: Принудительно обновляем размер canvas ПЕРЕД первым рендером
+            // Это гарантирует, что canvas имеет правильный размер для рендеринга
             this.engine.resize();
+            // Дополнительная проверка: если размер все еще 0, устанавливаем явно
+            if (this.canvas.width === 0 || this.canvas.height === 0) {
+                const width = window.innerWidth || 1920;
+                const height = window.innerHeight || 1080;
+                this.engine.setSize(width, height);
+                logger.warn(`[Game] Canvas size was 0x0, forced resize to ${width}x${height}`);
+            }
             logger.debug("Canvas resized, size:", this.canvas.width, "x", this.canvas.height);
 
             // Убеждаемся, что все overlay скрыты
@@ -2822,16 +2894,25 @@ export class Game {
             // Оптимизация: используем встроенные возможности Babylon.js для ограничения активных мешей
             // Frustum culling уже включен выше, это достаточно для оптимизации
 
-            // Simple clear color - SOLID, dark gray sky
+            // КРИТИЧНО: Устанавливаем clear color для предотвращения чёрного экрана
+            // Используем тёмно-серый цвет вместо чёрного для лучшей видимости
             this.scene.clearColor.set(0.12, 0.12, 0.14, 1);
+            logger.log(`[Game] Scene clearColor set to: (${this.scene.clearColor.r}, ${this.scene.clearColor.g}, ${this.scene.clearColor.b}, ${this.scene.clearColor.a})`);
 
+            // КРИТИЧНО: Создаём свет ДО первого рендера для предотвращения чёрного экрана
             // Light - balanced hemispheric (not too bright!)
             const light = new HemisphericLight("light1", new Vector3(0, 1, 0), this.scene);
             light.intensity = 0.65; // Reduced to prevent washed-out colors
             light.specular = Color3.Black(); // No specular reflections!
             light.diffuse = new Color3(0.9, 0.9, 0.85); // Slightly warm
             light.groundColor = new Color3(0.25, 0.25, 0.28); // Ambient from below
-            logger.log("Light created (balanced, no specular)");
+            
+            // Проверяем что свет действительно создан
+            if (!this.scene.lights || this.scene.lights.length === 0) {
+                logger.error("[Game] CRITICAL: No lights in scene after creation!");
+            } else {
+                logger.log(`[Game] Light created (balanced, no specular). Total lights: ${this.scene.lights.length}`);
+            }
 
             // Directional light for shadows (sun)
             const sunLight = new DirectionalLight("sunLight", new Vector3(-0.5, -1, -0.3), this.scene);
@@ -3030,8 +3111,18 @@ export class Game {
             this.camera.lowerBetaLimit = 0.1;
             this.camera.upperBetaLimit = Math.PI / 2.1;
             this.camera.minZ = 0.1; // Минимальное расстояние до камеры (предотвращает заход за текстуры)
+            this.camera.maxZ = 10000; // Максимальное расстояние отсечения
             this.camera.inputs.clear();
             this.setupCameraInput();
+            
+            // КРИТИЧНО: Заменяем временную камеру на основную
+            if (this.scene.activeCamera && this.scene.activeCamera.name === "tempCamera") {
+                // Удаляем временную камеру
+                this.scene.activeCamera.dispose();
+                logger.log("[Game] Temporary camera disposed");
+            }
+            // Устанавливаем основную камеру
+            this.scene.activeCamera = this.camera;
 
             // Aim Camera Setup
             // ИСПРАВЛЕНО: Инициализируем с позицией танка, а не (0,0,0)
@@ -3050,10 +3141,22 @@ export class Game {
             this.aimCamera.maxZ = 10000; // Максимальное расстояние отсечения (далёкие объекты видны)
             console.log("[Game] AimCamera created with minZ=0.1, maxZ=10000");
 
-            // Устанавливаем камеру как активную СРАЗУ
+            // КРИТИЧНО: Устанавливаем камеру как активную СРАЗУ и проверяем
             this.scene.activeCamera = this.camera;
             // Контролы уже настроены через setupCameraInput(), не нужно вызывать attachControls
-            logger.log("[Game] Camera created and set as active");
+            
+            // Дополнительная проверка: убеждаемся что камера действительно активна
+            if (this.scene.activeCamera !== this.camera) {
+                logger.error("[Game] CRITICAL: Failed to set camera as active!");
+                this.scene.activeCamera = this.camera; // Повторная попытка
+            }
+            
+            // Проверяем что камера имеет правильные настройки
+            if (this.camera.minZ === 0 || this.camera.maxZ === 0) {
+                logger.warn("[Game] Camera clipping planes may be incorrect!");
+            }
+            
+            logger.log(`[Game] Camera created and set as active: ${this.camera.name}, minZ=${this.camera.minZ}, maxZ=${this.camera.maxZ}`);
 
             // Инициализация постпроцессинга (bloom, motion blur и др.)
             this.postProcessingManager = new PostProcessingManager(this.scene);
@@ -3539,10 +3642,10 @@ export class Game {
             let mapType = this.currentMapType || "normal";
 
             // КРИТИЧНО: Если есть данные custom карты в localStorage - это CUSTOM карта!
-            // Это нужно потому что currentMapType может быть не установлен при первом запуске
+            // ИСПРАВЛЕНИЕ: Используем custom данные только если карта явно не выбрана или выбрана как custom
             const hasCustomMapData = localStorage.getItem("selectedCustomMapData");
-            if (hasCustomMapData && hasCustomMapData.length > 100) {
-                console.log(`[Game] 🎯 Found custom map data in localStorage (${hasCustomMapData.length} bytes) - forcing mapType to 'custom'`);
+            if (hasCustomMapData && hasCustomMapData.length > 100 && (this.currentMapType === "custom" || !this.currentMapType)) {
+                console.log(`[Game] 🎯 Found custom map data in localStorage and mapType is custom/null - forcing mapType to 'custom'`);
                 mapType = "custom";
                 this.currentMapType = "custom";
             }
@@ -3817,13 +3920,13 @@ export class Game {
             Logger.setOnError((args) => {
                 if (this.hud) {
                     // Format error message safely
-                    const msg = args.map(a => (a instanceof Error ? a.message : String(a))).join(" ");
+                    const msg = args.map((a: unknown) => (a instanceof Error ? a.message : String(a))).join(" ");
                     this.hud.showNotification(`ERROR: ${msg.substring(0, 100)}...`, "error");
                 }
             });
 
             // Initialize HUD
-            this.hud = new HUD(this.scene, this.engine, this.experienceSystem, this.gameType);
+            this.hud = new HUD(this.scene);
 
             // Настраиваем callbacks для POI системы
             this.gamePOI.updateDependencies({
@@ -3946,12 +4049,22 @@ export class Game {
                     if (customMapDataStr) {
                         try {
                             const customMapData = JSON.parse(customMapDataStr);
-                            if (customMapData && customMapData.name) {
-                                logger.log(`[Game] Found custom map data in localStorage: ${customMapData.name}, waiting for terrain meshes...`);
+
+                            // FIX: Проверяем соответствие типа карты.
+                            // Загружаем данные только если:
+                            // 1. Текущий тип карты "custom" (пользовательская карта)
+                            // 2. ИЛИ тип в данных совпадает с текущим типом (например, отредактированная "normal")
+                            const dataMapType = customMapData.mapType || "custom";
+                            const shouldLoad = this.currentMapType === "custom" || dataMapType === this.currentMapType;
+
+                            if (customMapData && customMapData.name && shouldLoad) {
+                                logger.log(`[Game] Found matching custom map data in localStorage: ${customMapData.name} (type: ${dataMapType}), waiting for terrain meshes...`);
                                 // Даем время чанкам полностью загрузиться и мешам террейна создаться
                                 await new Promise(resolve => setTimeout(resolve, 500));
                                 logger.log(`[Game] Applying custom map data...`);
                                 await this.loadCustomMapData();
+                            } else if (!shouldLoad) {
+                                logger.log(`[Game] Skipping custom map data (type: ${dataMapType}) because it doesn't match current map type: ${this.currentMapType}`);
                             } else {
                                 logger.warn("[Game] Custom map data found but invalid (no name)");
                             }
@@ -3981,6 +4094,9 @@ export class Game {
                 this.multiplayerManager = new MultiplayerManager(undefined, true); // autoConnect = true
                 logger.log("[Game] ✅ MultiplayerManager создан (fallback)");
             }
+
+            // Initialize Admin Panel (controls for host)
+            this.adminPanel = new AdminPanel(this);
 
             // Настраиваем мультиплеерные колбэки через модуль
             this.gameMultiplayerCallbacks.updateDependencies({
@@ -4518,9 +4634,9 @@ export class Game {
             return 2.0; // Минимальная безопасная высота вместо 0
         }
 
-        // Улучшенный raycast: начинаем выше и с большим диапазоном
-        const rayStart = new Vector3(x, 150, z); // Увеличено с 100 до 150
-        const ray = new Ray(rayStart, Vector3.Down(), 300); // Увеличено с 200 до 300
+        // ИСПРАВЛЕНО: Улучшенный raycast с увеличенным диапазоном поиска до 500м вниз
+        const rayStart = new Vector3(x, 200, z);
+        const ray = new Ray(rayStart, Vector3.Down(), 500); // Увеличено до 500м для надёжности
 
         // Улучшенный фильтр мешей: проверяем больше паттернов
         const hit = this.scene.pickWithRay(ray, (mesh) => {
@@ -4537,7 +4653,8 @@ export class Game {
 
         if (hit?.hit && hit.pickedPoint) {
             const height = hit.pickedPoint.y;
-            if (height > -10 && height < 200) { // Разумные пределы
+            // ИСПРАВЛЕНО: Расширены пределы валидности до [-10, 500]
+            if (height > -10 && height < 500) {
                 return height;
             } else {
                 logger.warn(`[Game] getGroundHeight: Raycast returned suspicious height ${height.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
@@ -4580,8 +4697,9 @@ export class Game {
                     const checkZ = (chunkZ + dz) * chunkSize;
 
                     // Raycast в центре соседнего чанка
-                    const checkRayStart = new Vector3(checkX, 150, checkZ);
-                    const checkRay = new Ray(checkRayStart, Vector3.Down(), 300);
+                    // ИСПРАВЛЕНО: Увеличен диапазон поиска в соседних чанках
+                    const checkRayStart = new Vector3(checkX, 200, checkZ);
+                    const checkRay = new Ray(checkRayStart, Vector3.Down(), 500);
                     const checkHit = this.scene.pickWithRay(checkRay, (mesh) => {
                         if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
                         return mesh.name.startsWith("ground_") && mesh.isEnabled();
@@ -4606,23 +4724,31 @@ export class Game {
     /**
      * Получает высоту САМОЙ ВЕРХНЕЙ поверхности (крыша здания или террейн) для спавна
      * Использует multiPickWithRay чтобы найти ВСЕ поверхности и выбрать самую высокую
+     * ИСПРАВЛЕНО: Увеличен диапазон raycast для покрытия очень высоких объектов
      * @param x координата X
      * @param z координата Z
      * @returns высота самой верхней поверхности
      */
     getTopSurfaceHeight(x: number, z: number): number {
-        if (!this.scene) return 5.0; // Fallback если сцены нет
+        if (!this.scene) {
+            logger.warn(`[Game] getTopSurfaceHeight: No scene available at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+            return 5.0; // Fallback если сцены нет
+        }
 
-        // Raycast с большой высоты вниз - найдём ВСЕ поверхности
-        const rayStart = new Vector3(x, 200, z);
-        const ray = new Ray(rayStart, Vector3.Down(), 250);
+        // ИСПРАВЛЕНО: Raycast с очень большой высоты (500м) вниз на 600м для покрытия всех объектов
+        // Покрывает диапазон от 500м до -100м
+        const rayStart = new Vector3(x, 500, z);
+        const ray = new Ray(rayStart, Vector3.Down(), 600);
 
         // multiPickWithRay возвращает ВСЕ пересечения
         const hits = this.scene.multiPickWithRay(ray, (mesh) => {
-            if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+            if (!mesh || !mesh.isEnabled()) return false;
+            
+            // ИСПРАВЛЕНО: Улучшенный фильтр - исключаем только явно служебные объекты
+            // Разрешаем все видимые меши, даже если isPickable = false (для объектов карты)
             const name = mesh.name.toLowerCase();
 
-            // Пропускаем невидимые и служебные меши
+            // Пропускаем только явно служебные объекты
             if (name.includes("trigger") ||
                 name.includes("collider") ||
                 name.includes("invisible") ||
@@ -4630,10 +4756,13 @@ export class Game {
                 name.includes("light") ||
                 name.includes("particle") ||
                 name.includes("bullet") ||
-                name.includes("projectile")) {
+                name.includes("projectile") ||
+                name.includes("ui") ||
+                name.includes("hud")) {
                 return false;
             }
 
+            // Разрешаем все остальные меши (террейн, здания, объекты карты)
             return true;
         });
 
@@ -4643,20 +4772,26 @@ export class Game {
             for (const hit of hits) {
                 if (hit.hit && hit.pickedPoint) {
                     const h = hit.pickedPoint.y;
-                    if (h > maxHeight && h > -10 && h < 150) {
+                    // ИСПРАВЛЕНО: Расширен диапазон валидных высот до [-10, 500]
+                    if (h > maxHeight && h > -10 && h < 500) {
                         maxHeight = h;
                     }
                 }
             }
 
-            if (maxHeight > -Infinity) {
+            // ИСПРАВЛЕНО: Проверка валидности результата
+            if (maxHeight > -Infinity && maxHeight >= -10 && maxHeight <= 500) {
                 logger.log(`[Game] Top surface at (${x.toFixed(1)}, ${z.toFixed(1)}): ${maxHeight.toFixed(2)}m (from ${hits.length} hits)`);
                 return maxHeight;
+            } else {
+                logger.warn(`[Game] getTopSurfaceHeight: Invalid height ${maxHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)}), using fallback`);
             }
         }
 
         // Fallback на getGroundHeight если raycast не нашёл поверхность
-        return this.getGroundHeight(x, z);
+        const fallbackHeight = this.getGroundHeight(x, z);
+        logger.debug(`[Game] getTopSurfaceHeight: Using fallback height ${fallbackHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+        return fallbackHeight;
     }
 
     /**
@@ -4669,20 +4804,134 @@ export class Game {
      * @param maxAttempts максимальное количество попыток (не используется в новой логике)
      * @returns безопасная позиция Vector3
      */
+    /**
+     * Находит безопасную позицию для спавна в указанном радиусе
+     * ИСПРАВЛЕНО: Использует новую универсальную функцию findSafeSpawnPositionAt()
+     * Танк всегда спавнится НА ВЕРХНЕЙ поверхности (крыша здания или террейн)
+     * @param centerX центр поиска X
+     * @param centerZ центр поиска Z  
+     * @param minRadius минимальный радиус от центра
+     * @param maxRadius максимальный радиус от центра
+     * @param maxAttempts максимальное количество попыток поиска случайной позиции
+     * @returns безопасная позиция Vector3
+     */
     findSafeSpawnPosition(centerX: number = 0, centerZ: number = 0, minRadius: number = 20, maxRadius: number = 200, maxAttempts: number = 20): Vector3 {
-        // Генерируем случайную позицию в кольце между minRadius и maxRadius
+        // Пытаемся найти безопасную позицию в радиусе
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            // Генерируем случайную позицию в кольце между minRadius и maxRadius
+            const angle = Math.random() * Math.PI * 2;
+            const distance = minRadius + Math.random() * (maxRadius - minRadius);
+            const x = centerX + Math.cos(angle) * distance;
+            const z = centerZ + Math.sin(angle) * distance;
+
+            // Используем новую универсальную функцию для поиска безопасной позиции
+            const safePos = this.findSafeSpawnPositionAt(x, z, 2.0, 3);
+            
+            if (safePos) {
+                logger.log(`[Game] findSafeSpawnPosition: Found safe position at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)}) after ${attempt + 1} attempts`);
+                return safePos;
+            }
+        }
+
+        // Если все попытки неудачны, используем fallback с базовой логикой
+        logger.warn(`[Game] findSafeSpawnPosition: All attempts failed, using fallback`);
         const angle = Math.random() * Math.PI * 2;
         const distance = minRadius + Math.random() * (maxRadius - minRadius);
         const x = centerX + Math.cos(angle) * distance;
         const z = centerZ + Math.sin(angle) * distance;
-
-        // Получаем высоту ВЕРХНЕЙ поверхности (крыша или террейн)
         const surfaceHeight = this.getTopSurfaceHeight(x, z);
-        // Спавн на 1.5 метра выше поверхности
-        const spawnY = surfaceHeight + 1.5;
-
-        logger.log(`[Game] Spawn at top surface: (${x.toFixed(1)}, ${spawnY.toFixed(1)}, ${z.toFixed(1)}) - surface: ${surfaceHeight.toFixed(1)}m`);
+        const spawnY = surfaceHeight + 2.0;
         return new Vector3(x, spawnY, z);
+    }
+
+    /**
+     * Валидация позиции спавна
+     * Проверяет, что позиция находится в разумных пределах и над поверхностью
+     * @param pos позиция для проверки
+     * @returns true если позиция валидна
+     */
+    validateSpawnPosition(pos: Vector3): boolean {
+        // Проверка Y координаты в разумном диапазоне
+        if (pos.y < -10 || pos.y > 500) {
+            logger.warn(`[Game] validateSpawnPosition: Invalid Y coordinate ${pos.y.toFixed(2)}`);
+            return false;
+        }
+
+        // Проверка, что позиция не слишком далеко от центра карты
+        const distanceFromCenter = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+        if (distanceFromCenter > 1000) {
+            logger.warn(`[Game] validateSpawnPosition: Position too far from center (${distanceFromCenter.toFixed(2)}m)`);
+            return false;
+        }
+
+        // Проверка наличия поверхности под позицией через raycast
+        if (this.scene) {
+            const surfaceHeight = this.getTopSurfaceHeight(pos.x, pos.z);
+            const heightDiff = Math.abs(pos.y - surfaceHeight);
+            // Позиция должна быть в пределах 10м от поверхности (с учётом отступа)
+            if (heightDiff > 10) {
+                logger.warn(`[Game] validateSpawnPosition: Position too far from surface (diff: ${heightDiff.toFixed(2)}m)`);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Находит безопасную позицию для спавна в указанной точке
+     * ИСПРАВЛЕНО: Универсальная функция для поиска безопасной позиции над верхней поверхностью
+     * @param x координата X
+     * @param z координата Z
+     * @param minOffset минимальный отступ над поверхностью (по умолчанию 2.0м)
+     * @param maxAttempts количество попыток поиска соседних позиций (по умолчанию 5)
+     * @returns безопасная позиция Vector3 или null если не удалось найти
+     */
+    findSafeSpawnPositionAt(x: number, z: number, minOffset: number = 2.0, maxAttempts: number = 5): Vector3 | null {
+        // Попытка 1: основная позиция
+        let surfaceHeight = this.getTopSurfaceHeight(x, z);
+        
+        // Проверка валидности высоты
+        if (surfaceHeight >= -10 && surfaceHeight <= 500) {
+            const spawnY = surfaceHeight + minOffset;
+            const pos = new Vector3(x, spawnY, z);
+            
+            // Валидация позиции
+            if (this.validateSpawnPosition(pos)) {
+                logger.log(`[Game] findSafeSpawnPositionAt: Found safe position at (${x.toFixed(1)}, ${spawnY.toFixed(1)}, ${z.toFixed(1)})`);
+                return pos;
+            }
+        }
+
+        // Попытки 2-N: соседние позиции с увеличивающимся радиусом
+        const radii = [5, 10, 15, 20, 25];
+        const angles = [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2, Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4];
+        
+        for (let attempt = 0; attempt < Math.min(maxAttempts, radii.length * angles.length); attempt++) {
+            const radiusIndex = Math.floor(attempt / angles.length);
+            const radius = radii[radiusIndex] || radii[radii.length - 1]; // Fallback на последний радиус
+            const angleIndex = attempt % angles.length;
+            const angle = angles[angleIndex] || 0; // Fallback на 0
+            
+            const checkX = x + Math.cos(angle) * radius;
+            const checkZ = z + Math.sin(angle) * radius;
+            
+            surfaceHeight = this.getTopSurfaceHeight(checkX, checkZ);
+            
+            if (surfaceHeight >= -10 && surfaceHeight <= 500) {
+                const spawnY = surfaceHeight + minOffset;
+                const pos = new Vector3(checkX, spawnY, checkZ);
+                
+                if (this.validateSpawnPosition(pos)) {
+                    logger.log(`[Game] findSafeSpawnPositionAt: Found safe position at (${checkX.toFixed(1)}, ${spawnY.toFixed(1)}, ${checkZ.toFixed(1)}) after ${attempt + 1} attempts`);
+                    return pos;
+                }
+            }
+        }
+
+        // Все попытки неудачны
+        logger.warn(`[Game] findSafeSpawnPositionAt: Failed to find safe position at (${x.toFixed(1)}, ${z.toFixed(1)}) after ${maxAttempts} attempts`);
+        return null;
     }
 
     /**
@@ -4702,53 +4951,117 @@ export class Game {
         if (!this.tank?.chassis || !this.scene) return;
 
         const tankPos = this.tank.chassis.position.clone();
-        const checkRadius = 3; // Радиус проверки коллизий (размер танка ~3 метра)
+        const multipliers = CHASSIS_SIZE_MULTIPLIERS[this.tank.chassisType?.id || "medium"] ?? CHASSIS_SIZE_MULTIPLIERS["medium"]!;
+        const tankHeight = (this.tank.chassisType?.height || 1.5) * multipliers.height;
+        const tankWidth = (this.tank.chassisType?.width || 1.0) * multipliers.width;
+        const checkRadius = Math.max(tankWidth, tankHeight) * 0.6; // Радиус проверки коллизий
 
-        // Raycast во всех направлениях чтобы понять где мы застряли
+        // ИСПРАВЛЕНИЕ: Проверяем коллизии со ВСЕМИ объектами, не только customObj
+        const collisionFilter = (mesh: any) => {
+            if (!mesh || !mesh.isEnabled()) return false;
+            
+            // Исключаем сам танк и его части
+            if (mesh === this.tank.chassis || mesh === this.tank.turret || mesh === this.tank.barrel) return false;
+            if (mesh.parent === this.tank.chassis || mesh.parent === this.tank.turret) return false;
+            
+            // Исключаем служебные объекты
+            const name = mesh.name.toLowerCase();
+            if (name.includes("trigger") ||
+                name.includes("collider") ||
+                name.includes("invisible") ||
+                name.includes("skybox") ||
+                name.includes("light") ||
+                name.includes("particle") ||
+                name.includes("bullet") ||
+                name.includes("projectile") ||
+                name.includes("ui") ||
+                name.includes("hud")) {
+                return false;
+            }
+            
+            // Проверяем метаданные
+            const meta = mesh.metadata;
+            if (meta && (meta.type === "playerTank" || meta.type === "bullet" || meta.type === "consumable")) {
+                return false;
+            }
+            
+            // Разрешаем все остальные меши (террейн, здания, объекты карты)
+            return true;
+        };
+
+        // Проверка 1: Raycast вниз - проверяем, не застряли ли мы внутри объекта снизу
+        const downRay = new Ray(tankPos, Vector3.Down(), tankHeight + 2);
+        const downHit = this.scene.pickWithRay(downRay, collisionFilter);
+        
+        // Проверка 2: Raycast вверх - проверяем, не застряли ли мы внутри объекта сверху
+        const upRay = new Ray(tankPos, Vector3.Up(), tankHeight + 2);
+        const upHit = this.scene.pickWithRay(upRay, collisionFilter);
+        
+        // Проверка 3: Raycast по горизонтали во всех направлениях
         const directions = [
             new Vector3(1, 0, 0),   // Right
             new Vector3(-1, 0, 0),  // Left
             new Vector3(0, 0, 1),   // Forward
             new Vector3(0, 0, -1),  // Back
-            new Vector3(0, 1, 0),   // Up
-            new Vector3(0, -1, 0),  // Down
         ];
 
         let isInsideGeometry = false;
         let escapeDirection: Vector3 | null = null;
         let maxFreeDistance = 0;
+        let needsVerticalEject = false;
 
+        // Проверяем вертикальные коллизии
+        if (downHit?.hit && downHit.distance < tankHeight * 0.5) {
+            isInsideGeometry = true;
+            needsVerticalEject = true;
+            logger.warn(`[Game] ⚠️ Tank stuck below geometry! Distance: ${downHit.distance.toFixed(2)}m`);
+        }
+        
+        if (upHit?.hit && upHit.distance < tankHeight * 0.5) {
+            isInsideGeometry = true;
+            needsVerticalEject = true;
+            logger.warn(`[Game] ⚠️ Tank stuck above geometry! Distance: ${upHit.distance.toFixed(2)}m`);
+        }
+
+        // Проверяем горизонтальные коллизии
         for (const dir of directions) {
-            const ray = new Ray(tankPos, dir, 50);
-            const hit = this.scene.pickWithRay(ray, (mesh) => {
-                if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
-                const name = mesh.name.toLowerCase();
-                // Проверяем только customObj (объекты карты) и здания
-                return name.includes('customobj') ||
-                    name.includes('building') ||
-                    name.includes('wall');
-            });
+            const ray = new Ray(tankPos, dir, checkRadius * 2);
+            const hit = this.scene.pickWithRay(ray, collisionFilter);
 
             if (hit?.hit && hit.distance < checkRadius) {
-                // Мы внутри геометрии!
                 isInsideGeometry = true;
             } else if (!hit?.hit || hit.distance > maxFreeDistance) {
-                // Это направление свободнее
-                maxFreeDistance = hit?.distance || 50;
+                maxFreeDistance = hit?.distance || checkRadius * 2;
                 escapeDirection = dir.clone();
             }
         }
 
-        if (isInsideGeometry && escapeDirection) {
-            // Выталкиваем танк в свободном направлении
-            const ejectDistance = checkRadius + 5; // Выталкиваем на 5 метров дальше размера танка
-            const newPos = tankPos.add(escapeDirection.scale(ejectDistance));
-
-            // Корректируем высоту относительно поверхности
-            const surfaceY = this.getTopSurfaceHeight(newPos.x, newPos.z);
-            newPos.y = surfaceY + 2;
-
-            logger.log(`[Game] ⚡ ANTI-STUCK: Tank stuck inside geometry! Ejecting from (${tankPos.x.toFixed(1)}, ${tankPos.y.toFixed(1)}, ${tankPos.z.toFixed(1)}) to (${newPos.x.toFixed(1)}, ${newPos.y.toFixed(1)}, ${newPos.z.toFixed(1)})`);
+        if (isInsideGeometry) {
+            let newPos = tankPos.clone();
+            
+            // ИСПРАВЛЕНИЕ: Если застряли вертикально - поднимаем танк выше
+            if (needsVerticalEject) {
+                const surfaceY = this.getTopSurfaceHeight(tankPos.x, tankPos.z);
+                const safeOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
+                newPos.y = surfaceY + safeOffset;
+                logger.log(`[Game] ⚡ ANTI-STUCK: Lifting tank from Y=${tankPos.y.toFixed(2)} to Y=${newPos.y.toFixed(2)} (surface: ${surfaceY.toFixed(2)})`);
+            } else if (escapeDirection) {
+                // Выталкиваем танк в свободном направлении
+                const ejectDistance = checkRadius + 5;
+                newPos = tankPos.add(escapeDirection.scale(ejectDistance));
+                
+                // Корректируем высоту относительно поверхности
+                const surfaceY = this.getTopSurfaceHeight(newPos.x, newPos.z);
+                const safeOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
+                newPos.y = surfaceY + safeOffset;
+                logger.log(`[Game] ⚡ ANTI-STUCK: Ejecting tank horizontally from (${tankPos.x.toFixed(1)}, ${tankPos.y.toFixed(1)}, ${tankPos.z.toFixed(1)}) to (${newPos.x.toFixed(1)}, ${newPos.y.toFixed(1)}, ${newPos.z.toFixed(1)})`);
+            } else {
+                // Не нашли свободное направление - просто поднимаем выше
+                const surfaceY = this.getTopSurfaceHeight(tankPos.x, tankPos.z);
+                const safeOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
+                newPos.y = surfaceY + safeOffset;
+                logger.log(`[Game] ⚡ ANTI-STUCK: No escape direction found, lifting tank from Y=${tankPos.y.toFixed(2)} to Y=${newPos.y.toFixed(2)}`);
+            }
 
             // Перемещаем танк
             if (this.tank.physicsBody) {
@@ -5091,8 +5404,8 @@ export class Game {
             return;
         }
 
-        // ВСЕГДА выбираем центральный гараж (0, 0) для игрока
-        // Находим гараж ближайший к центру карты
+        // ИСПРАВЛЕНИЕ: Используем ПЕРВЫЙ spawn point из списка (если есть spawn point объект, он будет первым)
+        // Если нет spawn point объектов, выбираем ближайший к центру
         if (!this.chunkSystem || this.chunkSystem.garagePositions.length === 0) {
             logger.warn("[Game] Cannot select player garage: no garage positions available");
             return;
@@ -5104,14 +5417,24 @@ export class Game {
         }
 
         let selectedGarage: { x: number; z: number } | null = null;
-        let minDist = Infinity;
 
-        for (const garage of playerGarages) {
-            // garage это GaragePosition с x, z (не Vector3)
-            const dist = Math.sqrt(garage.x * garage.x + garage.z * garage.z);
-            if (dist < minDist) {
-                minDist = dist;
-                selectedGarage = garage;
+        // ИСПРАВЛЕНИЕ: ПЕРВЫЙ spawn point в списке - это spawn point объект из редактора карт
+        // Используем его ПЕРВЫМ, если он есть
+        if (playerGarages.length > 0) {
+            selectedGarage = playerGarages[0]; // ПЕРВЫЙ элемент - это spawn point объект
+            logger.log(`[Game] 🎯 Using FIRST spawn point (from map editor) at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)})`);
+        } else {
+            // Fallback: находим гараж ближайший к центру карты
+            let minDist = Infinity;
+            for (const garage of playerGarages) {
+                const dist = Math.sqrt(garage.x * garage.x + garage.z * garage.z);
+                if (dist < minDist) {
+                    minDist = dist;
+                    selectedGarage = garage;
+                }
+            }
+            if (selectedGarage) {
+                logger.log(`[Game] Selected player garage at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)}) - distance from center: ${minDist.toFixed(1)}`);
             }
         }
 
@@ -5120,16 +5443,26 @@ export class Game {
             return;
         }
 
-        logger.log(`[Game] Selected player garage at (${selectedGarage.x.toFixed(1)}, ${selectedGarage.z.toFixed(1)}) - distance from center: ${minDist.toFixed(1)}`);
-
 
         // Сохраняем позицию гаража для респавна (ВСЕГДА в этом же гараже!)
-        // КРИТИЧНО: Используем улучшенный метод получения высоты террейна
-        const terrainHeight = this.getGroundHeight(selectedGarage.x, selectedGarage.z);
-        // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
-        const garageY = terrainHeight + 1.0;
+        // ИСПРАВЛЕНИЕ: Используем findSafeSpawnPositionAt для правильной высоты над верхней поверхностью
+        const tankHeight = this.tank?.chassisType?.height || 2.0;
+        const minOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
+        const safeSpawnPos = this.findSafeSpawnPositionAt(selectedGarage.x, selectedGarage.z, minOffset, 5);
+        
+        let finalSpawnPos: Vector3;
+        if (safeSpawnPos) {
+            finalSpawnPos = safeSpawnPos;
+            logger.log(`[Game] ✅ Found safe spawn position at (${safeSpawnPos.x.toFixed(1)}, ${safeSpawnPos.y.toFixed(1)}, ${safeSpawnPos.z.toFixed(1)})`);
+        } else {
+            // Fallback: используем getTopSurfaceHeight
+            const terrainHeight = this.getTopSurfaceHeight(selectedGarage.x, selectedGarage.z);
+            const garageY = terrainHeight + minOffset;
+            finalSpawnPos = new Vector3(selectedGarage.x, garageY, selectedGarage.z);
+            logger.warn(`[Game] ⚠️ Using fallback spawn position at (${finalSpawnPos.x.toFixed(1)}, ${finalSpawnPos.y.toFixed(1)}, ${finalSpawnPos.z.toFixed(1)})`);
+        }
 
-        this.gameGarage.setPlayerGaragePosition(new Vector3(selectedGarage.x, garageY, selectedGarage.z));
+        this.gameGarage.setPlayerGaragePosition(finalSpawnPos.clone());
         logger.log(`[Game] Garage position saved for respawn: (${this.gameGarage.playerGaragePosition!.x.toFixed(2)}, ${this.gameGarage.playerGaragePosition!.y.toFixed(2)}, ${this.gameGarage.playerGaragePosition!.z.toFixed(2)})`);
 
         // Перемещаем танк в гараж
@@ -5139,63 +5472,12 @@ export class Game {
                 this.tank.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
             }
 
-            // КРИТИЧНО: Используем terrainGenerator напрямую для получения высоты террейна
-            // Это гарантирует правильную высоту даже если ground mesh ещё не загружен
-            let groundHeight = 2.0; // Безопасное значение по умолчанию
+            // ИСПРАВЛЕНИЕ: Используем finalSpawnPos (уже рассчитанную безопасную позицию из spawn point)
+            // finalSpawnPos уже содержит правильную высоту над верхней поверхностью
+            const garagePos = finalSpawnPos;
 
-            if (this.chunkSystem?.terrainGenerator) {
-                // Для polygon карты используем "military" биом
-                const biome = this.currentMapType === "polygon" ? "military" :
-                    this.currentMapType === "frontline" ? "wasteland" :
-                        this.currentMapType === "ruins" ? "wasteland" :
-                            this.currentMapType === "canyon" ? "park" :
-                                this.currentMapType === "industrial" ? "industrial" :
-                                    this.currentMapType === "urban_warfare" ? "city" :
-                                        this.currentMapType === "underground" ? "wasteland" :
-                                            this.currentMapType === "coastal" ? "park" : "dirt";
-
-                try {
-                    // terrainGenerator.getHeight уже учитывает гаражи и возвращает высоту террейна вокруг гаража
-                    groundHeight = this.chunkSystem.terrainGenerator.getHeight(selectedGarage.x, selectedGarage.z, biome);
-                    logger.log(`[Game] TerrainGenerator height at garage: ${groundHeight.toFixed(2)} (biome: ${biome})`);
-
-                    // КРИТИЧЕСКАЯ ПРОВЕРКА: Если высота слишком низкая или равна 0, используем безопасное значение
-                    if (groundHeight <= 0 || groundHeight < 0.5) {
-                        logger.warn(`[Game] TerrainGenerator returned suspicious height ${groundHeight.toFixed(2)}, using safe default 2.0`);
-                        groundHeight = 2.0; // Безопасная минимальная высота
-                    }
-
-                    // Дополнительная проверка: если высота очень маленькая, увеличиваем её
-                    if (groundHeight < 1.0) {
-                        groundHeight = Math.max(groundHeight, 2.0);
-                        logger.warn(`[Game] Corrected very low terrain height to ${groundHeight.toFixed(2)}`);
-                    }
-                } catch (e) {
-                    logger.warn(`[Game] TerrainGenerator error, using raycast fallback:`, e);
-                    groundHeight = this.getGroundHeight(selectedGarage.x, selectedGarage.z);
-                    // Если и raycast не помог, используем безопасное значение
-                    if (groundHeight <= 0) {
-                        groundHeight = 2.0;
-                    }
-                }
-            } else {
-                // Fallback на raycast если terrainGenerator недоступен
-                groundHeight = this.getGroundHeight(selectedGarage.x, selectedGarage.z);
-            }
-
-            // ИСПРАВЛЕНО: Спавн на 1 метр над поверхностью
-            let spawnHeight = groundHeight + 1.0;
-
-            // Минимальная защита: если высота слишком низкая (меньше 1.0), используем безопасное значение
-            if (spawnHeight < 1.0) {
-                logger.warn(`[Game] Spawn height too low (${spawnHeight.toFixed(2)}), using safe default 2.0`);
-                spawnHeight = 2.0; // Минимум 1 метр над поверхностью при groundHeight = 1.0
-            }
-
-            logger.log(`[Game] Player spawn height: ${spawnHeight.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
-
-            // КРИТИЧЕСКИ ВАЖНО: Устанавливаем позицию с правильной высотой
-            const spawnPos = new Vector3(selectedGarage.x, spawnHeight, selectedGarage.z);
+            // ИСПРАВЛЕНИЕ: garagePos уже содержит правильную позицию из spawn point
+            logger.log(`[Game] Player spawn position: (${garagePos.x.toFixed(2)}, ${garagePos.y.toFixed(2)}, ${garagePos.z.toFixed(2)})`);
 
             // Сбрасываем вращение корпуса (чтобы танк не был наклонён!)
             this.tank.chassis.rotationQuaternion = Quaternion.Identity();
@@ -5210,8 +5492,8 @@ export class Game {
             this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
             this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
 
-            // Шаг 2: Устанавливаем визуальную позицию
-            this.tank.chassis.position.copyFrom(spawnPos);
+            // Шаг 2: Устанавливаем визуальную позицию (из spawn point)
+            this.tank.chassis.position.copyFrom(garagePos);
             this.tank.chassis.computeWorldMatrix(true);
 
             // Шаг 3: Временно включаем preStep для синхронизации
@@ -6031,7 +6313,18 @@ export class Game {
                         this.tank.aimPitch = this.aimPitch;
                     }
                 } else if (!this.isFreeLook && this.tank && this.tank.turret && this.tank.chassis) {
-                    // НЕ в режиме прицеливания и НЕ freelook
+                    // НЕ в режиме прицеливания и НЕ freelook (ARCADE MODE)
+                    // УПРАВЛЕНИЕ ВЕРТИКАЛЬНЫМ УГЛОМ СТВОЛА МЫШКОЙ ОТКЛЮЧЕНО
+                    // Используется только клавиатура (R/F) для управления стволом вне режима прицеливания
+
+                    // КРИТИЧНО: Синхронизируем targetAimPitch с текущим aimPitch танка
+                    // чтобы не сбрасывать угол ствола при повороте башни
+                    if (this.tank && this.tank.aimPitch !== undefined) {
+                        this.targetAimPitch = this.tank.aimPitch;
+                        this.aimPitch = this.tank.aimPitch;
+                    }
+
+                    // 2. Обработка ГОРИЗОНТАЛЬНОГО вращения башни
                     // При движении мыши - сбрасываем виртуальную точку (игрок снова управляет башней)
                     this.virtualTurretTarget = null;
                     this.lastMouseControlTime = 0;
@@ -6435,8 +6728,13 @@ export class Game {
                 // Плавно уменьшаем прогресс перехода
                 this.aimingTransitionProgress = Math.max(0.0, this.aimingTransitionProgress - this.aimingTransitionSpeed);
 
-                // Сбрасываем целевые углы при выходе из режима прицеливания
-                this.targetAimPitch = 0;
+                // КРИТИЧНО: Сохраняем текущий угол ствола при выходе из режима прицеливания
+                // чтобы не сбрасывать его при повороте башни
+                if (this.tank && this.tank.aimPitch !== undefined) {
+                    this.targetAimPitch = this.tank.aimPitch;
+                } else {
+                    this.targetAimPitch = 0;
+                }
                 this.targetAimYaw = this.aimYaw; // Сохраняем текущий угол для плавного перехода
             }
 
@@ -6542,12 +6840,16 @@ export class Game {
                     // Очень быстрый переход камеры
                     const transitionSpeed = 0.5;
                     const newPos = Vector3.Lerp(currentPos, targetCameraPos, transitionSpeed);
-                    this.aimCamera.position.copyFrom(newPos);
+                    // УЛУЧШЕНО: Проверяем коллизии для промежуточной позиции
+                    const safeNewPos = this.gameCamera?.checkAimingCameraCollision(newPos) || newPos;
+                    this.aimCamera.position.copyFrom(safeNewPos);
                     const newTarget = Vector3.Lerp(currentTarget, targetLookAt, transitionSpeed);
                     this.aimCamera.setTarget(newTarget);
                 } else {
                     // Полный режим прицеливания - камера МГНОВЕННО следует за башней
-                    this.aimCamera.position.copyFrom(targetCameraPos);
+                    // УЛУЧШЕНО: Проверяем коллизии перед установкой позиции камеры
+                    const safeCameraPos = this.gameCamera?.checkAimingCameraCollision(targetCameraPos) || targetCameraPos;
+                    this.aimCamera.position.copyFrom(safeCameraPos);
                     this.aimCamera.setTarget(targetLookAt);
                 }
             }
@@ -7037,7 +7339,7 @@ export class Game {
         // АБСОЛЮТНЫЙ угол башни игрока = корпус + башня
         const absoluteTurretRotation = tankRotation + turretRelativeRotation;
         // Передаём флаг режима прицеливания для отображения линии обзора
-        this.hud.updateMinimap(allEnemies, playerPos, tankRotation, absoluteTurretRotation, this.isAiming);
+        this.hud.updateMinimap(allEnemies, playerPos, tankRotation, absoluteTurretRotation, this.isAiming, this.tank?.aimPitch);
 
         // УЛУЧШЕНО: Обновляем здания на радаре (каждые 2 секунды для производительности)
         if (!this.lastBuildingsUpdate || Date.now() - this.lastBuildingsUpdate > 2000) {
@@ -8379,14 +8681,18 @@ export class Game {
             // }
 
             // Устанавливаем нормализованные данные карты
-            // logger.log(`[Game] Setting map data to MapEditor...`);
-            // this.mapEditor.setMapData(customMapData);
-            // logger.log(`[Game] Map data set, applying without UI...`);
+            // Инициализация CustomMapRunner для загрузки объектов
+            logger.log(`[Game] Setting map data via CustomMapRunner...`);
+            const runner = new CustomMapRunner(this.scene);
+            const result = runner.run(customMapData);
 
-            // Применяем данные без открытия UI редактора
-            // await this.mapEditor.applyMapDataWithoutUI();
+            if (result.success) {
+                logger.log(`[Game] ✅ Custom map "${result.mapName}" loaded: ${result.objectsCreated} objects`);
+            } else {
+                logger.error(`[Game] ❌ Custom map failed: ${result.error}`);
+            }
 
-            logger.log(`[Game] Objects loaded via CustomMapLoader in ChunkSystem`);
+            logger.log(`[Game] Objects loaded via CustomMapRunner`);
 
             // CRITICAL: Inject spawn positions from custom map into chunkSystem.garagePositions
             // This ensures players can spawn on custom maps
@@ -8406,19 +8712,23 @@ export class Game {
      * Inject spawn positions from custom map data into chunkSystem.garagePositions
      * This is critical for allowing players to spawn on custom maps
      */
+    /**
+     * Инжектирует позиции спавна из кастомной карты в chunkSystem
+     * ИСПРАВЛЕНО: Пересчитывает Y координату через findSafeSpawnPositionAt() для каждой позиции
+     */
     private injectCustomMapSpawnPositions(customMapData: any): void {
         if (!this.chunkSystem) {
             logger.error("[Game] Cannot inject spawn positions - ChunkSystem not initialized");
             return;
         }
 
-        const spawnPositions: Vector3[] = [];
+        const rawSpawnPositions: Vector3[] = [];
 
         // Extract spawn positions from triggers (type: 'spawn')
         if (customMapData.triggers && Array.isArray(customMapData.triggers)) {
             for (const trigger of customMapData.triggers) {
                 if (trigger.type === 'spawn' && trigger.position) {
-                    spawnPositions.push(new Vector3(
+                    rawSpawnPositions.push(new Vector3(
                         trigger.position.x,
                         trigger.position.y || 2,
                         trigger.position.z
@@ -8427,33 +8737,57 @@ export class Game {
             }
         }
 
-        // Also check placedObjects for spawn-type objects (legacy support)
+        // ИСПРАВЛЕНИЕ: Также проверяем placedObjects для spawn-type объектов
+        // КРИТИЧНО: spawn point объекты должны быть ПЕРВЫМИ в списке, чтобы использоваться в первую очередь
         if (customMapData.placedObjects && Array.isArray(customMapData.placedObjects)) {
+            const spawnObjects: Vector3[] = [];
             for (const obj of customMapData.placedObjects) {
                 if (obj.type === 'spawn' && obj.position) {
-                    spawnPositions.push(new Vector3(
+                    spawnObjects.push(new Vector3(
                         obj.position.x,
                         obj.position.y || 2,
                         obj.position.z
                     ));
                 }
             }
+            // ИСПРАВЛЕНИЕ: Добавляем spawn points В НАЧАЛО списка, чтобы они использовались первыми
+            rawSpawnPositions.unshift(...spawnObjects);
+            if (spawnObjects.length > 0) {
+                logger.log(`[Game] Found ${spawnObjects.length} spawn point objects from placedObjects - they will be used FIRST`);
+            }
         }
 
         // If no spawns found in map data, create default spawn positions
-        if (spawnPositions.length === 0) {
+        if (rawSpawnPositions.length === 0) {
             logger.warn("[Game] No spawn positions in custom map - creating defaults");
             const mapSize = customMapData.mapSize || 200;
             const half = mapSize / 2;
             const offset = half * 0.7;
 
-            spawnPositions.push(
+            rawSpawnPositions.push(
                 new Vector3(-offset, 2, -offset),
                 new Vector3(offset, 2, -offset),
                 new Vector3(-offset, 2, offset),
                 new Vector3(offset, 2, offset),
                 new Vector3(0, 2, 0)
             );
+        }
+
+        // ИСПРАВЛЕНО: Пересчитываем Y координату для каждой позиции через findSafeSpawnPositionAt()
+        const spawnPositions: Vector3[] = [];
+        for (const rawPos of rawSpawnPositions) {
+            const safePos = this.findSafeSpawnPositionAt(rawPos.x, rawPos.z, 2.0, 5);
+            if (safePos) {
+                spawnPositions.push(safePos);
+                logger.log(`[Game] injectCustomMapSpawnPositions: Adjusted spawn from (${rawPos.x.toFixed(1)}, ${rawPos.y.toFixed(1)}, ${rawPos.z.toFixed(1)}) to (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)})`);
+            } else {
+                // Fallback: используем позицию из карты с безопасным отступом
+                const surfaceHeight = this.getTopSurfaceHeight(rawPos.x, rawPos.z);
+                const fallbackY = surfaceHeight + 5.0; // Безопасный отступ 5м
+                const fallbackPos = new Vector3(rawPos.x, fallbackY, rawPos.z);
+                spawnPositions.push(fallbackPos);
+                logger.warn(`[Game] injectCustomMapSpawnPositions: Failed to find safe position at (${rawPos.x.toFixed(1)}, ${rawPos.z.toFixed(1)}), using fallback with ${fallbackY.toFixed(1)}m height`);
+            }
         }
 
         // Inject into chunkSystem.garagePositions (used by spawn system)
