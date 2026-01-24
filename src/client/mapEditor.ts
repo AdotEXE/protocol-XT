@@ -3,7 +3,7 @@
  * Позволяет игроку создавать и редактировать карты
  */
 
-import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, GroundMesh, Ray, PickingInfo, AbstractMesh, PointerEventTypes, VertexBuffer } from "@babylonjs/core";
+import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, GroundMesh, Ray, PickingInfo, AbstractMesh, PointerEventTypes, VertexBuffer, DynamicTexture } from "@babylonjs/core";
 import { PhysicsBody, PhysicsShapeType, PhysicsAggregate } from "@babylonjs/core";
 
 // ============================================
@@ -79,7 +79,60 @@ export interface PlacedObject {
     position: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number };
     scale?: { x: number; y: number; z: number };
-    properties?: Record<string, any>;
+    properties?: {
+        // Общие свойства для всех объектов
+        name?: string;
+        tags?: string[];
+        visibility?: "always" | "day" | "night" | "conditional";
+        activity?: "always" | "on_trigger" | "on_event";
+        soundOnActivate?: string;
+        effectOnActivate?: string;
+        
+        // SPAWN POINT свойства
+        spawnType?: "general" | "player" | "bot" | "team_red" | "team_blue" | "team_green" | "team_yellow";
+        spawnPriority?: number; // 1-10
+        spawnRadius?: number; // в метрах
+        spawnRotation?: number; // 0-360 градусов
+        respawnDelay?: number; // секунды
+        maxUses?: number; // 0 = бесконечно
+        
+        // GARAGE свойства
+        garageTeam?: "neutral" | "team_red" | "team_blue" | "team_green" | "team_yellow";
+        captureTime?: number; // секунды
+        respawnTime?: number; // секунды
+        garageType?: "standard" | "repair" | "ammo" | "upgrade";
+        autoCapture?: boolean;
+        
+        // BUILDING свойства
+        buildingType?: "residential" | "industrial" | "military" | "commercial" | "ruins";
+        destructibility?: "indestructible" | "low" | "medium" | "high";
+        health?: number; // HP здания
+        canDriveThrough?: boolean;
+        height?: number; // метры
+        materialColor?: string; // hex цвет
+        
+        // TREE свойства
+        treeType?: "oak" | "pine" | "palm" | "dead" | "burning";
+        treeSize?: "small" | "medium" | "large" | "custom";
+        canChop?: boolean;
+        treeHealth?: number; // HP дерева
+        producesResources?: boolean;
+        
+        // ROCK свойства
+        rockType?: "boulder" | "stone" | "crystal" | "ore";
+        rockSize?: "small" | "medium" | "large" | "custom";
+        canDestroy?: boolean;
+        rockHealth?: number; // HP камня
+        resourceType?: "none" | "stone" | "ore" | "crystal";
+        
+        // CUSTOM свойства
+        model?: string; // путь к модели
+        texture?: string; // путь к текстуре
+        physics?: "static" | "dynamic" | "kinematic" | "none";
+        mass?: number;
+        hasCollision?: boolean;
+        renderLayer?: string;
+    };
 }
 
 /**
@@ -90,7 +143,35 @@ export interface MapTrigger {
     type: "spawn" | "teleport" | "damage" | "heal" | "custom";
     position: { x: number; y: number; z: number };
     size: { width: number; height: number; depth: number };
-    properties?: Record<string, any>;
+    properties?: {
+        // Общие свойства
+        name?: string;
+        tags?: string[];
+        visibility?: "always" | "day" | "night" | "conditional";
+        activity?: "always" | "on_trigger" | "on_event";
+        soundOnActivate?: string;
+        effectOnActivate?: string;
+        
+        // TELEPORT свойства
+        targetPosition?: { x: number; y: number; z: number };
+        targetObjectId?: string; // ID объекта-цели
+        teleportTeam?: "all" | "team_red" | "team_blue" | "player" | "bot";
+        activationDelay?: number; // секунды
+        singleUse?: boolean;
+        teleportEffect?: string;
+        
+        // DAMAGE свойства
+        damagePerSecond?: number;
+        damageType?: "normal" | "fire" | "poison" | "electric";
+        damageTeam?: "all" | "enemy" | "team_red" | "team_blue";
+        damageEffect?: string;
+        
+        // HEAL свойства
+        healPerSecond?: number;
+        healTeam?: "all" | "team_red" | "team_blue" | "player";
+        maxHealHP?: number;
+        healEffect?: string;
+    };
 }
 
 /**
@@ -163,6 +244,12 @@ export class MapEditor {
     private scaleStartValue: number = 1; // Начальное значение масштаба
     private scaleStartMouse: { x: number; y: number } | null = null; // Начальная позиция мыши при масштабировании
 
+    // Оптимизация производительности
+    private lastMouseX: number = 0;
+    private lastMouseY: number = 0;
+    private lastBrushUpdate: number = 0;
+    private lastInputUpdate: number = 0;
+
     constructor(scene: Scene) {
         this.scene = scene;
         // Инициализируем mapData в едином формате
@@ -187,6 +274,12 @@ export class MapEditor {
     open(): void {
         if (this.isActive) return;
         this.isActive = true;
+
+        // КРИТИЧНО: Освобождаем курсор при открытии редактора
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+
         this.createUI();
         this.setupInputHandlers();
         this.collectTerrainMeshes();
@@ -218,7 +311,10 @@ export class MapEditor {
             <div class="map-editor-container">
                 <div class="map-editor-header">
                     <div class="map-editor-title">РЕДАКТОР КАРТ</div>
-                    <button class="map-editor-close" id="map-editor-close">×</button>
+                    <div style="display: flex;">
+                        <button class="map-editor-close" id="map-editor-minimize" style="margin-right: 5px; font-size: 16px; padding: 5px 12px; line-height: 1;">_</button>
+                        <button class="map-editor-close" id="map-editor-close">×</button>
+                    </div>
                 </div>
                 <div class="map-editor-toolbar">
                     <div class="toolbar-section">
@@ -271,7 +367,9 @@ export class MapEditor {
                                 <option value="building">Здание</option>
                                 <option value="tree">Дерево</option>
                                 <option value="rock">Камень</option>
+                                <option value="rock">Камень</option>
                                 <option value="spawn">Точка спавна</option>
+                                <option value="garage">Гараж</option>
                             </select>
                         </div>
                         <div class="toolbar-section">
@@ -311,7 +409,9 @@ export class MapEditor {
                         <button class="toolbar-btn" id="redo-btn" title="Повторить (Ctrl+Y)">↷ Повторить</button>
                         <button class="toolbar-btn" id="save-map">💾 Сохранить</button>
                         <button class="toolbar-btn" id="load-map">📂 Загрузить</button>
+                        <button class="toolbar-btn" id="extend-map" title="Увеличить размер карты (+100)">📏 Расширить (+100)</button>
                         <button class="toolbar-btn" id="export-map">📤 Экспорт</button>
+                        <button class="toolbar-btn" id="test-map" title="Сохранить и тестировать (F5)">▶ Тест</button>
                         <button class="toolbar-btn" id="import-map">📥 Импорт</button>
                         <button class="toolbar-btn" id="new-map">🆕 Новая карта</button>
                     </div>
@@ -326,7 +426,7 @@ export class MapEditor {
                         </div>
                     </div>
                     <div class="map-editor-properties" id="properties-panel" style="display: ${this.selectedObjectId ? 'block' : 'none'}">
-                        <div class="properties-header">Свойства объекта</div>
+                        <div class="properties-header">SPATIAL CONFIGURATION</div>
                         <div class="properties-content" id="properties-content">
                             ${this.selectedObjectId ? this.generatePropertiesPanel() : ''}
                         </div>
@@ -502,7 +602,10 @@ export class MapEditor {
                 font-family: 'Consolas', 'Monaco', monospace;
             }
             .property-group input[type="number"],
-            .property-group select {
+            .property-group select,
+            .property-group input[type="text"],
+            .property-group input[type="color"],
+            .property-group input[type="checkbox"] {
                 background: rgba(0, 30, 0, 0.9);
                 border: 1px solid #0f0;
                 color: #0f0;
@@ -511,7 +614,9 @@ export class MapEditor {
                 font-size: 12px;
             }
             .property-group input[type="number"]:focus,
-            .property-group select:focus {
+            .property-group select:focus,
+            .property-group input[type="text"]:focus,
+            .property-group input[type="color"]:focus {
                 outline: none;
                 border-color: #0ff;
                 background: rgba(0, 40, 0, 0.9);
@@ -521,6 +626,53 @@ export class MapEditor {
                 font-size: 11px;
                 font-family: 'Consolas', 'Monaco', monospace;
                 font-style: italic;
+            }
+            .properties-section {
+                margin-top: 15px;
+                padding-top: 15px;
+                border-top: 1px solid rgba(0, 255, 4, 0.3);
+            }
+            .properties-header {
+                color: #ff0;
+                font-weight: bold;
+                font-size: 13px;
+                margin-bottom: 10px;
+                padding-bottom: 5px;
+                border-bottom: 1px solid rgba(0, 255, 4, 0.2);
+            }
+            .property-group input[type="checkbox"] {
+                width: auto;
+                margin-left: 10px;
+                cursor: pointer;
+                accent-color: #0f0;
+            }
+            .property-group input[type="color"] {
+                width: 60px;
+                height: 30px;
+                cursor: pointer;
+                border: 1px solid #0f0;
+            }
+            .property-group input[type="text"] {
+                background: rgba(0, 30, 0, 0.9);
+                border: 1px solid #0f0;
+                color: #0f0;
+                padding: 5px 8px;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 12px;
+            }
+            .properties-content {
+                max-height: 70vh;
+                overflow-y: auto;
+            }
+            .properties-content::-webkit-scrollbar {
+                width: 6px;
+            }
+            .properties-content::-webkit-scrollbar-track {
+                background: rgba(0, 10, 0, 0.2);
+            }
+            .properties-content::-webkit-scrollbar-thumb {
+                background: rgba(0, 255, 4, 0.4);
+                border-radius: 3px;
             }
         `;
         document.head.appendChild(style);
@@ -535,6 +687,11 @@ export class MapEditor {
         // Закрытие
         this.container.querySelector("#map-editor-close")?.addEventListener("click", () => {
             this.close();
+        });
+
+        // Сворачивание
+        this.container.querySelector("#map-editor-minimize")?.addEventListener("click", () => {
+            this.minimize();
         });
 
         // Переключение инструментов
@@ -678,8 +835,17 @@ export class MapEditor {
             this.exportMapToFile();
         });
 
+        this.container.querySelector("#test-map")?.addEventListener("click", () => {
+            this.exportMapAndTest();
+        });
+
         this.container.querySelector("#import-map")?.addEventListener("click", () => {
             this.importMapFromFile();
+        });
+
+        // Расширение карты
+        this.container.querySelector("#extend-map")?.addEventListener("click", () => {
+            this.extendMap();
         });
 
         this.container.querySelector("#new-map")?.addEventListener("click", () => {
@@ -798,6 +964,13 @@ export class MapEditor {
                     }
                 }
             } else if (pointerInfo.type === PointerEventTypes.POINTERMOVE && this.isMouseDown) {
+                // Оптимизация: троттлинг событий движения мыши (ограничение ~60 FPS)
+                const now = Date.now();
+                if (now - this.lastInputUpdate < 16) {
+                    return;
+                }
+                this.lastInputUpdate = now;
+
                 if (this.currentTool === "terrain") {
                     this.handleTerrainEdit();
                 } else if (this.currentTool === "objects") {
@@ -1231,52 +1404,575 @@ export class MapEditor {
     }
 
     /**
-     * Сгенерировать панель свойств
+     * Сгенерировать панель свойств с расширенными настройками
      */
     private generatePropertiesPanel(): string {
-        if (!this.selectedObjectId) return "";
+        if (this.selectedObjectId) {
+            const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
+            if (!obj) return "";
 
-        const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
-        if (!obj) return "";
+            const props = obj.properties || {};
+            
+            // Базовые свойства (позиция, поворот, масштаб)
+            let html = `
+            <div class="properties-section">
+                <div class="properties-header">📍 Базовые свойства</div>
+                <div class="property-group">
+                    <label>Позиция X:</label>
+                    <input type="number" id="prop-pos-x" value="${obj.position.x.toFixed(2)}" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Позиция Y:</label>
+                    <input type="number" id="prop-pos-y" value="${obj.position.y.toFixed(2)}" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Позиция Z:</label>
+                    <input type="number" id="prop-pos-z" value="${obj.position.z.toFixed(2)}" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Поворот Y:</label>
+                    <input type="number" id="prop-rot-y" value="${((obj.rotation?.y || 0) * 180 / Math.PI).toFixed(1)}" step="1" min="0" max="360">
+                </div>
+                <div class="property-group">
+                    <label>Масштаб X:</label>
+                    <input type="number" id="prop-scale-x" value="${(obj.scale?.x || 1).toFixed(2)}" step="0.1" min="0.1" max="10">
+                </div>
+                <div class="property-group">
+                    <label>Масштаб Y:</label>
+                    <input type="number" id="prop-scale-y" value="${(obj.scale?.y || 1).toFixed(2)}" step="0.1" min="0.1" max="10">
+                </div>
+                <div class="property-group">
+                    <label>Масштаб Z:</label>
+                    <input type="number" id="prop-scale-z" value="${(obj.scale?.z || 1).toFixed(2)}" step="0.1" min="0.1" max="10">
+                </div>
+                <div class="property-group">
+                    <label>Тип:</label>
+                    <select id="prop-type">
+                        <option value="building" ${obj.type === 'building' ? 'selected' : ''}>Здание</option>
+                        <option value="tree" ${obj.type === 'tree' ? 'selected' : ''}>Дерево</option>
+                        <option value="rock" ${obj.type === 'rock' ? 'selected' : ''}>Камень</option>
+                        <option value="spawn" ${obj.type === 'spawn' ? 'selected' : ''}>Точка спавна</option>
+                        <option value="garage" ${obj.type === 'garage' ? 'selected' : ''}>Гараж</option>
+                        <option value="custom" ${obj.type === 'custom' ? 'selected' : ''}>Кастомный</option>
+                    </select>
+                </div>
+            </div>
+            
+            ${this.generateCommonProperties(props)}
+            ${this.generateTypeSpecificProperties(obj.type, props)}
+            `;
+            
+            return html;
+        } else if (this.selectedTriggerId) {
+            const trigger = this.mapData.triggers.find(t => t.id === this.selectedTriggerId);
+            if (!trigger) return "";
 
+            const props = trigger.properties || {};
+            
+            let html = `
+            <div class="properties-section">
+                <div class="properties-header">📍 Базовые свойства</div>
+                <div class="property-group">
+                    <label>Позиция X:</label>
+                    <input type="number" id="prop-trigger-pos-x" value="${trigger.position.x.toFixed(2)}" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Позиция Y:</label>
+                    <input type="number" id="prop-trigger-pos-y" value="${trigger.position.y.toFixed(2)}" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Позиция Z:</label>
+                    <input type="number" id="prop-trigger-pos-z" value="${trigger.position.z.toFixed(2)}" step="0.1">
+                </div>
+                <div class="property-group">
+                    <label>Ширина (X):</label>
+                    <input type="number" id="prop-trigger-width" value="${trigger.size.width.toFixed(2)}" step="0.1" min="0.1" max="50">
+                </div>
+                <div class="property-group">
+                    <label>Высота (Y):</label>
+                    <input type="number" id="prop-trigger-height" value="${trigger.size.height.toFixed(2)}" step="0.1" min="0.1" max="50">
+                </div>
+                <div class="property-group">
+                    <label>Глубина (Z):</label>
+                    <input type="number" id="prop-trigger-depth" value="${trigger.size.depth.toFixed(2)}" step="0.1" min="0.1" max="50">
+                </div>
+                <div class="property-group">
+                    <label>Тип:</label>
+                    <select id="prop-trigger-type">
+                        <option value="spawn" ${trigger.type === 'spawn' ? 'selected' : ''}>Точка спавна</option>
+                        <option value="teleport" ${trigger.type === 'teleport' ? 'selected' : ''}>Телепорт</option>
+                        <option value="damage" ${trigger.type === 'damage' ? 'selected' : ''}>Урон</option>
+                        <option value="heal" ${trigger.type === 'heal' ? 'selected' : ''}>Лечение</option>
+                        <option value="custom" ${trigger.type === 'custom' ? 'selected' : ''}>Кастомный</option>
+                    </select>
+                </div>
+            </div>
+            
+            ${this.generateCommonProperties(props)}
+            ${this.generateTriggerTypeSpecificProperties(trigger.type, props)}
+            `;
+            
+            return html;
+        }
+        return "";
+    }
+
+    /**
+     * Генерировать общие свойства для всех объектов
+     */
+    private generateCommonProperties(props: any): string {
         return `
+        <div class="properties-section">
+            <div class="properties-header">⚙️ Общие настройки</div>
             <div class="property-group">
-                <label>Позиция X:</label>
-                <input type="number" id="prop-pos-x" value="${obj.position.x.toFixed(2)}" step="0.1">
+                <label>Имя объекта:</label>
+                <input type="text" id="prop-name" value="${props.name || ''}" placeholder="Название объекта">
             </div>
             <div class="property-group">
-                <label>Позиция Y:</label>
-                <input type="number" id="prop-pos-y" value="${obj.position.y.toFixed(2)}" step="0.1">
+                <label>Теги (через запятую):</label>
+                <input type="text" id="prop-tags" value="${(props.tags || []).join(', ')}" placeholder="tag1, tag2, tag3">
             </div>
             <div class="property-group">
-                <label>Позиция Z:</label>
-                <input type="number" id="prop-pos-z" value="${obj.position.z.toFixed(2)}" step="0.1">
-            </div>
-            <div class="property-group">
-                <label>Поворот Y:</label>
-                <input type="number" id="prop-rot-y" value="${((obj.rotation?.y || 0) * 180 / Math.PI).toFixed(1)}" step="1" min="0" max="360">
-            </div>
-            <div class="property-group">
-                <label>Масштаб X:</label>
-                <input type="number" id="prop-scale-x" value="${(obj.scale?.x || 1).toFixed(2)}" step="0.1" min="0.1" max="10">
-            </div>
-            <div class="property-group">
-                <label>Масштаб Y:</label>
-                <input type="number" id="prop-scale-y" value="${(obj.scale?.y || 1).toFixed(2)}" step="0.1" min="0.1" max="10">
-            </div>
-            <div class="property-group">
-                <label>Масштаб Z:</label>
-                <input type="number" id="prop-scale-z" value="${(obj.scale?.z || 1).toFixed(2)}" step="0.1" min="0.1" max="10">
-            </div>
-            <div class="property-group">
-                <label>Тип:</label>
-                <select id="prop-type">
-                    <option value="building" ${obj.type === 'building' ? 'selected' : ''}>Здание</option>
-                    <option value="tree" ${obj.type === 'tree' ? 'selected' : ''}>Дерево</option>
-                    <option value="rock" ${obj.type === 'rock' ? 'selected' : ''}>Камень</option>
-                    <option value="spawn" ${obj.type === 'spawn' ? 'selected' : ''}>Точка спавна</option>
+                <label>Видимость:</label>
+                <select id="prop-visibility">
+                    <option value="always" ${props.visibility === 'always' || !props.visibility ? 'selected' : ''}>Всегда</option>
+                    <option value="day" ${props.visibility === 'day' ? 'selected' : ''}>День</option>
+                    <option value="night" ${props.visibility === 'night' ? 'selected' : ''}>Ночь</option>
+                    <option value="conditional" ${props.visibility === 'conditional' ? 'selected' : ''}>Условная</option>
                 </select>
             </div>
+            <div class="property-group">
+                <label>Активность:</label>
+                <select id="prop-activity">
+                    <option value="always" ${props.activity === 'always' || !props.activity ? 'selected' : ''}>Всегда</option>
+                    <option value="on_trigger" ${props.activity === 'on_trigger' ? 'selected' : ''}>По триггеру</option>
+                    <option value="on_event" ${props.activity === 'on_event' ? 'selected' : ''}>По событию</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Звук при активации:</label>
+                <input type="text" id="prop-sound" value="${props.soundOnActivate || ''}" placeholder="Название звука">
+            </div>
+            <div class="property-group">
+                <label>Эффект при активации:</label>
+                <input type="text" id="prop-effect" value="${props.effectOnActivate || ''}" placeholder="Название эффекта">
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Генерировать свойства для конкретного типа объекта
+     */
+    private generateTypeSpecificProperties(type: string, props: any): string {
+        switch (type) {
+            case "spawn":
+                return this.generateSpawnProperties(props);
+            case "garage":
+                return this.generateGarageProperties(props);
+            case "building":
+                return this.generateBuildingProperties(props);
+            case "tree":
+                return this.generateTreeProperties(props);
+            case "rock":
+                return this.generateRockProperties(props);
+            case "custom":
+                return this.generateCustomProperties(props);
+            default:
+                return "";
+        }
+    }
+
+    /**
+     * Свойства для SPAWN POINT
+     */
+    private generateSpawnProperties(props: any): string {
+        return `
+        <div class="properties-section">
+            <div class="properties-header">🎯 Настройки спавна</div>
+            <div class="property-group">
+                <label>Тип спавна:</label>
+                <select id="prop-spawn-type">
+                    <option value="general" ${props.spawnType === 'general' || !props.spawnType ? 'selected' : ''}>Общий</option>
+                    <option value="player" ${props.spawnType === 'player' ? 'selected' : ''}>Только игроки</option>
+                    <option value="bot" ${props.spawnType === 'bot' ? 'selected' : ''}>Только боты</option>
+                    <option value="team_red" ${props.spawnType === 'team_red' ? 'selected' : ''}>Красная команда</option>
+                    <option value="team_blue" ${props.spawnType === 'team_blue' ? 'selected' : ''}>Синяя команда</option>
+                    <option value="team_green" ${props.spawnType === 'team_green' ? 'selected' : ''}>Зелёная команда</option>
+                    <option value="team_yellow" ${props.spawnType === 'team_yellow' ? 'selected' : ''}>Жёлтая команда</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Приоритет спавна (1-10):</label>
+                <input type="number" id="prop-spawn-priority" value="${props.spawnPriority || 5}" min="1" max="10" step="1">
+            </div>
+            <div class="property-group">
+                <label>Радиус спавна (м):</label>
+                <input type="number" id="prop-spawn-radius" value="${props.spawnRadius || 0}" min="0" step="0.5">
+            </div>
+            <div class="property-group">
+                <label>Угол поворота (0-360°):</label>
+                <input type="number" id="prop-spawn-rotation" value="${props.spawnRotation || 0}" min="0" max="360" step="1">
+            </div>
+            <div class="property-group">
+                <label>Задержка респавна (сек):</label>
+                <input type="number" id="prop-respawn-delay" value="${props.respawnDelay || 0}" min="0" step="0.1">
+            </div>
+            <div class="property-group">
+                <label>Максимум использований (0=∞):</label>
+                <input type="number" id="prop-max-uses" value="${props.maxUses || 0}" min="0" step="1">
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для GARAGE
+     */
+    private generateGarageProperties(props: any): string {
+        return `
+        <div class="properties-section">
+            <div class="properties-header">🏠 Настройки гаража</div>
+            <div class="property-group">
+                <label>Команда гаража:</label>
+                <select id="prop-garage-team">
+                    <option value="neutral" ${props.garageTeam === 'neutral' || !props.garageTeam ? 'selected' : ''}>Нейтральный</option>
+                    <option value="team_red" ${props.garageTeam === 'team_red' ? 'selected' : ''}>Красная</option>
+                    <option value="team_blue" ${props.garageTeam === 'team_blue' ? 'selected' : ''}>Синяя</option>
+                    <option value="team_green" ${props.garageTeam === 'team_green' ? 'selected' : ''}>Зелёная</option>
+                    <option value="team_yellow" ${props.garageTeam === 'team_yellow' ? 'selected' : ''}>Жёлтая</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Время захвата (сек):</label>
+                <input type="number" id="prop-capture-time" value="${props.captureTime || 30}" min="1" step="1">
+            </div>
+            <div class="property-group">
+                <label>Время респавна (сек):</label>
+                <input type="number" id="prop-garage-respawn-time" value="${props.respawnTime || 180}" min="1" step="1">
+            </div>
+            <div class="property-group">
+                <label>Тип гаража:</label>
+                <select id="prop-garage-type">
+                    <option value="standard" ${props.garageType === 'standard' || !props.garageType ? 'selected' : ''}>Стандартный</option>
+                    <option value="repair" ${props.garageType === 'repair' ? 'selected' : ''}>Ремонт</option>
+                    <option value="ammo" ${props.garageType === 'ammo' ? 'selected' : ''}>Боеприпасы</option>
+                    <option value="upgrade" ${props.garageType === 'upgrade' ? 'selected' : ''}>Улучшения</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Автоматический захват:</label>
+                <input type="checkbox" id="prop-auto-capture" ${props.autoCapture ? 'checked' : ''}>
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для BUILDING
+     */
+    private generateBuildingProperties(props: any): string {
+        return `
+        <div class="properties-section">
+            <div class="properties-header">🏢 Настройки здания</div>
+            <div class="property-group">
+                <label>Тип здания:</label>
+                <select id="prop-building-type">
+                    <option value="residential" ${props.buildingType === 'residential' || !props.buildingType ? 'selected' : ''}>Жилое</option>
+                    <option value="industrial" ${props.buildingType === 'industrial' ? 'selected' : ''}>Промышленное</option>
+                    <option value="military" ${props.buildingType === 'military' ? 'selected' : ''}>Военное</option>
+                    <option value="commercial" ${props.buildingType === 'commercial' ? 'selected' : ''}>Коммерческое</option>
+                    <option value="ruins" ${props.buildingType === 'ruins' ? 'selected' : ''}>Руины</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Разрушаемость:</label>
+                <select id="prop-destructibility">
+                    <option value="indestructible" ${props.destructibility === 'indestructible' || !props.destructibility ? 'selected' : ''}>Неразрушимое</option>
+                    <option value="low" ${props.destructibility === 'low' ? 'selected' : ''}>Низкая</option>
+                    <option value="medium" ${props.destructibility === 'medium' ? 'selected' : ''}>Средняя</option>
+                    <option value="high" ${props.destructibility === 'high' ? 'selected' : ''}>Высокая</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Прочность (HP):</label>
+                <input type="number" id="prop-building-health" value="${props.health || 1000}" min="1" step="10">
+            </div>
+            <div class="property-group">
+                <label>Можно проехать:</label>
+                <input type="checkbox" id="prop-can-drive-through" ${props.canDriveThrough ? 'checked' : ''}>
+            </div>
+            <div class="property-group">
+                <label>Высота (м):</label>
+                <input type="number" id="prop-building-height" value="${props.height || 8}" min="1" step="0.5">
+            </div>
+            <div class="property-group">
+                <label>Цвет материала:</label>
+                <input type="color" id="prop-material-color" value="${props.materialColor || '#999999'}">
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для TREE
+     */
+    private generateTreeProperties(props: any): string {
+        return `
+        <div class="properties-section">
+            <div class="properties-header">🌳 Настройки дерева</div>
+            <div class="property-group">
+                <label>Тип дерева:</label>
+                <select id="prop-tree-type">
+                    <option value="oak" ${props.treeType === 'oak' || !props.treeType ? 'selected' : ''}>Дуб</option>
+                    <option value="pine" ${props.treeType === 'pine' ? 'selected' : ''}>Сосна</option>
+                    <option value="palm" ${props.treeType === 'palm' ? 'selected' : ''}>Пальма</option>
+                    <option value="dead" ${props.treeType === 'dead' ? 'selected' : ''}>Мёртвое</option>
+                    <option value="burning" ${props.treeType === 'burning' ? 'selected' : ''}>Горящее</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Размер:</label>
+                <select id="prop-tree-size">
+                    <option value="small" ${props.treeSize === 'small' || !props.treeSize ? 'selected' : ''}>Маленькое</option>
+                    <option value="medium" ${props.treeSize === 'medium' ? 'selected' : ''}>Среднее</option>
+                    <option value="large" ${props.treeSize === 'large' ? 'selected' : ''}>Большое</option>
+                    <option value="custom" ${props.treeSize === 'custom' ? 'selected' : ''}>Кастомное</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Можно срубить:</label>
+                <input type="checkbox" id="prop-can-chop" ${props.canChop !== false ? 'checked' : ''}>
+            </div>
+            <div class="property-group">
+                <label>Прочность (HP):</label>
+                <input type="number" id="prop-tree-health" value="${props.treeHealth || 100}" min="1" step="10">
+            </div>
+            <div class="property-group">
+                <label>Плодоносит:</label>
+                <input type="checkbox" id="prop-produces-resources" ${props.producesResources ? 'checked' : ''}>
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для ROCK
+     */
+    private generateRockProperties(props: any): string {
+        return `
+        <div class="properties-section">
+            <div class="properties-header">🪨 Настройки камня</div>
+            <div class="property-group">
+                <label>Тип камня:</label>
+                <select id="prop-rock-type">
+                    <option value="boulder" ${props.rockType === 'boulder' || !props.rockType ? 'selected' : ''}>Валун</option>
+                    <option value="stone" ${props.rockType === 'stone' ? 'selected' : ''}>Камень</option>
+                    <option value="crystal" ${props.rockType === 'crystal' ? 'selected' : ''}>Кристалл</option>
+                    <option value="ore" ${props.rockType === 'ore' ? 'selected' : ''}>Руда</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Размер:</label>
+                <select id="prop-rock-size">
+                    <option value="small" ${props.rockSize === 'small' || !props.rockSize ? 'selected' : ''}>Маленький</option>
+                    <option value="medium" ${props.rockSize === 'medium' ? 'selected' : ''}>Средний</option>
+                    <option value="large" ${props.rockSize === 'large' ? 'selected' : ''}>Большой</option>
+                    <option value="custom" ${props.rockSize === 'custom' ? 'selected' : ''}>Кастомный</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Можно разрушить:</label>
+                <input type="checkbox" id="prop-can-destroy" ${props.canDestroy !== false ? 'checked' : ''}>
+            </div>
+            <div class="property-group">
+                <label>Прочность (HP):</label>
+                <input type="number" id="prop-rock-health" value="${props.rockHealth || 200}" min="1" step="10">
+            </div>
+            <div class="property-group">
+                <label>Тип ресурса:</label>
+                <select id="prop-resource-type">
+                    <option value="none" ${props.resourceType === 'none' || !props.resourceType ? 'selected' : ''}>Нет</option>
+                    <option value="stone" ${props.resourceType === 'stone' ? 'selected' : ''}>Камень</option>
+                    <option value="ore" ${props.resourceType === 'ore' ? 'selected' : ''}>Руда</option>
+                    <option value="crystal" ${props.resourceType === 'crystal' ? 'selected' : ''}>Кристалл</option>
+                </select>
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для CUSTOM
+     */
+    private generateCustomProperties(props: any): string {
+        return `
+        <div class="properties-section">
+            <div class="properties-header">🎨 Настройки кастомного объекта</div>
+            <div class="property-group">
+                <label>Модель (путь):</label>
+                <input type="text" id="prop-model" value="${props.model || ''}" placeholder="/models/object.glb">
+            </div>
+            <div class="property-group">
+                <label>Текстура (путь):</label>
+                <input type="text" id="prop-texture" value="${props.texture || ''}" placeholder="/textures/object.png">
+            </div>
+            <div class="property-group">
+                <label>Физика:</label>
+                <select id="prop-physics">
+                    <option value="static" ${props.physics === 'static' || !props.physics ? 'selected' : ''}>Статическая</option>
+                    <option value="dynamic" ${props.physics === 'dynamic' ? 'selected' : ''}>Динамическая</option>
+                    <option value="kinematic" ${props.physics === 'kinematic' ? 'selected' : ''}>Кинематическая</option>
+                    <option value="none" ${props.physics === 'none' ? 'selected' : ''}>Нет</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Масса (если dynamic):</label>
+                <input type="number" id="prop-mass" value="${props.mass || 1}" min="0.1" step="0.1">
+            </div>
+            <div class="property-group">
+                <label>Коллизия:</label>
+                <input type="checkbox" id="prop-has-collision" ${props.hasCollision !== false ? 'checked' : ''}>
+            </div>
+            <div class="property-group">
+                <label>Слой рендеринга:</label>
+                <input type="text" id="prop-render-layer" value="${props.renderLayer || 'default'}" placeholder="default">
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Генерировать свойства для триггеров по типу
+     */
+    private generateTriggerTypeSpecificProperties(type: string, props: any): string {
+        switch (type) {
+            case "teleport":
+                return this.generateTeleportTriggerProperties(props);
+            case "damage":
+                return this.generateDamageTriggerProperties(props);
+            case "heal":
+                return this.generateHealTriggerProperties(props);
+            default:
+                return "";
+        }
+    }
+
+    /**
+     * Свойства для TELEPORT триггера
+     */
+    private generateTeleportTriggerProperties(props: any): string {
+        return `
+        <div class="properties-section">
+            <div class="properties-header">🌀 Настройки телепорта</div>
+            <div class="property-group">
+                <label>Целевая позиция X:</label>
+                <input type="number" id="prop-teleport-x" value="${props.targetPosition?.x || 0}" step="0.1">
+            </div>
+            <div class="property-group">
+                <label>Целевая позиция Y:</label>
+                <input type="number" id="prop-teleport-y" value="${props.targetPosition?.y || 0}" step="0.1">
+            </div>
+            <div class="property-group">
+                <label>Целевая позиция Z:</label>
+                <input type="number" id="prop-teleport-z" value="${props.targetPosition?.z || 0}" step="0.1">
+            </div>
+            <div class="property-group">
+                <label>ID целевого объекта:</label>
+                <input type="text" id="prop-teleport-target-id" value="${props.targetObjectId || ''}" placeholder="obj_123...">
+            </div>
+            <div class="property-group">
+                <label>Команда:</label>
+                <select id="prop-teleport-team">
+                    <option value="all" ${props.teleportTeam === 'all' || !props.teleportTeam ? 'selected' : ''}>Все</option>
+                    <option value="team_red" ${props.teleportTeam === 'team_red' ? 'selected' : ''}>Красная</option>
+                    <option value="team_blue" ${props.teleportTeam === 'team_blue' ? 'selected' : ''}>Синяя</option>
+                    <option value="player" ${props.teleportTeam === 'player' ? 'selected' : ''}>Игроки</option>
+                    <option value="bot" ${props.teleportTeam === 'bot' ? 'selected' : ''}>Боты</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Задержка активации (сек):</label>
+                <input type="number" id="prop-teleport-delay" value="${props.activationDelay || 0}" min="0" step="0.1">
+            </div>
+            <div class="property-group">
+                <label>Однократное использование:</label>
+                <input type="checkbox" id="prop-teleport-single-use" ${props.singleUse ? 'checked' : ''}>
+            </div>
+            <div class="property-group">
+                <label>Эффект телепорта:</label>
+                <input type="text" id="prop-teleport-effect" value="${props.teleportEffect || ''}" placeholder="teleport_effect">
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для DAMAGE триггера
+     */
+    private generateDamageTriggerProperties(props: any): string {
+        return `
+        <div class="properties-section">
+            <div class="properties-header">⚔️ Настройки зоны урона</div>
+            <div class="property-group">
+                <label>Урон в секунду:</label>
+                <input type="number" id="prop-damage-dps" value="${props.damagePerSecond || 10}" min="0" step="1">
+            </div>
+            <div class="property-group">
+                <label>Тип урона:</label>
+                <select id="prop-damage-type">
+                    <option value="normal" ${props.damageType === 'normal' || !props.damageType ? 'selected' : ''}>Обычный</option>
+                    <option value="fire" ${props.damageType === 'fire' ? 'selected' : ''}>Огонь</option>
+                    <option value="poison" ${props.damageType === 'poison' ? 'selected' : ''}>Яд</option>
+                    <option value="electric" ${props.damageType === 'electric' ? 'selected' : ''}>Электричество</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Команда:</label>
+                <select id="prop-damage-team">
+                    <option value="all" ${props.damageTeam === 'all' || !props.damageTeam ? 'selected' : ''}>Все</option>
+                    <option value="enemy" ${props.damageTeam === 'enemy' ? 'selected' : ''}>Враги</option>
+                    <option value="team_red" ${props.damageTeam === 'team_red' ? 'selected' : ''}>Красная</option>
+                    <option value="team_blue" ${props.damageTeam === 'team_blue' ? 'selected' : ''}>Синяя</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Визуальный эффект:</label>
+                <input type="text" id="prop-damage-effect" value="${props.damageEffect || ''}" placeholder="damage_effect">
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для HEAL триггера
+     */
+    private generateHealTriggerProperties(props: any): string {
+        return `
+        <div class="properties-section">
+            <div class="properties-header">💚 Настройки зоны лечения</div>
+            <div class="property-group">
+                <label>Лечение в секунду:</label>
+                <input type="number" id="prop-heal-dps" value="${props.healPerSecond || 5}" min="0" step="0.5">
+            </div>
+            <div class="property-group">
+                <label>Команда:</label>
+                <select id="prop-heal-team">
+                    <option value="all" ${props.healTeam === 'all' || !props.healTeam ? 'selected' : ''}>Все</option>
+                    <option value="team_red" ${props.healTeam === 'team_red' ? 'selected' : ''}>Красная</option>
+                    <option value="team_blue" ${props.healTeam === 'team_blue' ? 'selected' : ''}>Синяя</option>
+                    <option value="player" ${props.healTeam === 'player' ? 'selected' : ''}>Игроки</option>
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Максимум HP:</label>
+                <input type="number" id="prop-max-heal-hp" value="${props.maxHealHP || 100}" min="1" step="10">
+            </div>
+            <div class="property-group">
+                <label>Визуальный эффект:</label>
+                <input type="text" id="prop-heal-effect" value="${props.healEffect || ''}" placeholder="heal_effect">
+            </div>
+        </div>
         `;
     }
 
@@ -1289,11 +1985,15 @@ export class MapEditor {
         const panel = this.container.querySelector("#properties-panel") as HTMLElement;
         const content = this.container.querySelector("#properties-content") as HTMLElement;
 
-        if (this.selectedObjectId) {
+        if (this.selectedObjectId || this.selectedTriggerId) {
             if (panel) panel.style.display = "block";
             if (content) {
                 content.innerHTML = this.generatePropertiesPanel();
-                this.setupPropertiesListeners();
+                if (this.selectedObjectId) {
+                    this.setupPropertiesListeners();
+                } else if (this.selectedTriggerId) {
+                    this.setupTriggerPropertiesListeners();
+                }
             }
         } else {
             if (panel) panel.style.display = "none";
@@ -1368,6 +2068,708 @@ export class MapEditor {
                 this.placedObjectMeshes.delete(this.selectedObjectId!);
                 this.createObjectMesh(obj);
                 this.updateObjectOutline();
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        // ИСПРАВЛЕНИЕ: Сохранение всех расширенных свойств
+        this.setupExtendedPropertiesListeners(obj);
+    }
+
+    /**
+     * Настроить обработчики для расширенных свойств объектов
+     */
+    private setupExtendedPropertiesListeners(obj: PlacedObject): void {
+        if (!obj.properties) obj.properties = {};
+
+        // Общие свойства
+        this.setupCommonPropertiesListeners(obj);
+        
+        // Свойства по типу объекта
+        switch (obj.type) {
+            case "spawn":
+                this.setupSpawnPropertiesListeners(obj);
+                break;
+            case "garage":
+                this.setupGaragePropertiesListeners(obj);
+                break;
+            case "building":
+                this.setupBuildingPropertiesListeners(obj);
+                break;
+            case "tree":
+                this.setupTreePropertiesListeners(obj);
+                break;
+            case "rock":
+                this.setupRockPropertiesListeners(obj);
+                break;
+            case "custom":
+                this.setupCustomPropertiesListeners(obj);
+                break;
+        }
+    }
+
+    /**
+     * Обработчики для общих свойств
+     */
+    private setupCommonPropertiesListeners(obj: PlacedObject): void {
+        if (!obj.properties) obj.properties = {};
+
+        const nameInput = this.container?.querySelector("#prop-name") as HTMLInputElement;
+        if (nameInput) {
+            nameInput.addEventListener("change", () => {
+                obj.properties!.name = nameInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const tagsInput = this.container?.querySelector("#prop-tags") as HTMLInputElement;
+        if (tagsInput) {
+            tagsInput.addEventListener("change", () => {
+                obj.properties!.tags = tagsInput.value.split(',').map(t => t.trim()).filter(t => t);
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const visibilitySelect = this.container?.querySelector("#prop-visibility") as HTMLSelectElement;
+        if (visibilitySelect) {
+            visibilitySelect.addEventListener("change", () => {
+                obj.properties!.visibility = visibilitySelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const activitySelect = this.container?.querySelector("#prop-activity") as HTMLSelectElement;
+        if (activitySelect) {
+            activitySelect.addEventListener("change", () => {
+                obj.properties!.activity = activitySelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const soundInput = this.container?.querySelector("#prop-sound") as HTMLInputElement;
+        if (soundInput) {
+            soundInput.addEventListener("change", () => {
+                obj.properties!.soundOnActivate = soundInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const effectInput = this.container?.querySelector("#prop-effect") as HTMLInputElement;
+        if (effectInput) {
+            effectInput.addEventListener("change", () => {
+                obj.properties!.effectOnActivate = effectInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств SPAWN POINT
+     */
+    private setupSpawnPropertiesListeners(obj: PlacedObject): void {
+        if (!obj.properties) obj.properties = {};
+
+        const spawnTypeSelect = this.container?.querySelector("#prop-spawn-type") as HTMLSelectElement;
+        if (spawnTypeSelect) {
+            spawnTypeSelect.addEventListener("change", () => {
+                obj.properties!.spawnType = spawnTypeSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const priorityInput = this.container?.querySelector("#prop-spawn-priority") as HTMLInputElement;
+        if (priorityInput) {
+            priorityInput.addEventListener("change", () => {
+                obj.properties!.spawnPriority = parseInt(priorityInput.value) || 5;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const radiusInput = this.container?.querySelector("#prop-spawn-radius") as HTMLInputElement;
+        if (radiusInput) {
+            radiusInput.addEventListener("change", () => {
+                obj.properties!.spawnRadius = parseFloat(radiusInput.value) || 0;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const rotationInput = this.container?.querySelector("#prop-spawn-rotation") as HTMLInputElement;
+        if (rotationInput) {
+            rotationInput.addEventListener("change", () => {
+                obj.properties!.spawnRotation = parseInt(rotationInput.value) || 0;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const delayInput = this.container?.querySelector("#prop-respawn-delay") as HTMLInputElement;
+        if (delayInput) {
+            delayInput.addEventListener("change", () => {
+                obj.properties!.respawnDelay = parseFloat(delayInput.value) || 0;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const maxUsesInput = this.container?.querySelector("#prop-max-uses") as HTMLInputElement;
+        if (maxUsesInput) {
+            maxUsesInput.addEventListener("change", () => {
+                obj.properties!.maxUses = parseInt(maxUsesInput.value) || 0;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств GARAGE
+     */
+    private setupGaragePropertiesListeners(obj: PlacedObject): void {
+        if (!obj.properties) obj.properties = {};
+
+        const teamSelect = this.container?.querySelector("#prop-garage-team") as HTMLSelectElement;
+        if (teamSelect) {
+            teamSelect.addEventListener("change", () => {
+                obj.properties!.garageTeam = teamSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const captureTimeInput = this.container?.querySelector("#prop-capture-time") as HTMLInputElement;
+        if (captureTimeInput) {
+            captureTimeInput.addEventListener("change", () => {
+                obj.properties!.captureTime = parseInt(captureTimeInput.value) || 30;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const respawnTimeInput = this.container?.querySelector("#prop-garage-respawn-time") as HTMLInputElement;
+        if (respawnTimeInput) {
+            respawnTimeInput.addEventListener("change", () => {
+                obj.properties!.respawnTime = parseInt(respawnTimeInput.value) || 180;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const garageTypeSelect = this.container?.querySelector("#prop-garage-type") as HTMLSelectElement;
+        if (garageTypeSelect) {
+            garageTypeSelect.addEventListener("change", () => {
+                obj.properties!.garageType = garageTypeSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const autoCaptureInput = this.container?.querySelector("#prop-auto-capture") as HTMLInputElement;
+        if (autoCaptureInput) {
+            autoCaptureInput.addEventListener("change", () => {
+                obj.properties!.autoCapture = autoCaptureInput.checked;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств BUILDING
+     */
+    private setupBuildingPropertiesListeners(obj: PlacedObject): void {
+        if (!obj.properties) obj.properties = {};
+
+        const buildingTypeSelect = this.container?.querySelector("#prop-building-type") as HTMLSelectElement;
+        if (buildingTypeSelect) {
+            buildingTypeSelect.addEventListener("change", () => {
+                obj.properties!.buildingType = buildingTypeSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const destructibilitySelect = this.container?.querySelector("#prop-destructibility") as HTMLSelectElement;
+        if (destructibilitySelect) {
+            destructibilitySelect.addEventListener("change", () => {
+                obj.properties!.destructibility = destructibilitySelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const healthInput = this.container?.querySelector("#prop-building-health") as HTMLInputElement;
+        if (healthInput) {
+            healthInput.addEventListener("change", () => {
+                obj.properties!.health = parseInt(healthInput.value) || 1000;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const canDriveInput = this.container?.querySelector("#prop-can-drive-through") as HTMLInputElement;
+        if (canDriveInput) {
+            canDriveInput.addEventListener("change", () => {
+                obj.properties!.canDriveThrough = canDriveInput.checked;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const heightInput = this.container?.querySelector("#prop-building-height") as HTMLInputElement;
+        if (heightInput) {
+            heightInput.addEventListener("change", () => {
+                obj.properties!.height = parseFloat(heightInput.value) || 8;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const colorInput = this.container?.querySelector("#prop-material-color") as HTMLInputElement;
+        if (colorInput) {
+            colorInput.addEventListener("change", () => {
+                obj.properties!.materialColor = colorInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств TREE
+     */
+    private setupTreePropertiesListeners(obj: PlacedObject): void {
+        if (!obj.properties) obj.properties = {};
+
+        const treeTypeSelect = this.container?.querySelector("#prop-tree-type") as HTMLSelectElement;
+        if (treeTypeSelect) {
+            treeTypeSelect.addEventListener("change", () => {
+                obj.properties!.treeType = treeTypeSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const treeSizeSelect = this.container?.querySelector("#prop-tree-size") as HTMLSelectElement;
+        if (treeSizeSelect) {
+            treeSizeSelect.addEventListener("change", () => {
+                obj.properties!.treeSize = treeSizeSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const canChopInput = this.container?.querySelector("#prop-can-chop") as HTMLInputElement;
+        if (canChopInput) {
+            canChopInput.addEventListener("change", () => {
+                obj.properties!.canChop = canChopInput.checked;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const treeHealthInput = this.container?.querySelector("#prop-tree-health") as HTMLInputElement;
+        if (treeHealthInput) {
+            treeHealthInput.addEventListener("change", () => {
+                obj.properties!.treeHealth = parseInt(treeHealthInput.value) || 100;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const producesInput = this.container?.querySelector("#prop-produces-resources") as HTMLInputElement;
+        if (producesInput) {
+            producesInput.addEventListener("change", () => {
+                obj.properties!.producesResources = producesInput.checked;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств ROCK
+     */
+    private setupRockPropertiesListeners(obj: PlacedObject): void {
+        if (!obj.properties) obj.properties = {};
+
+        const rockTypeSelect = this.container?.querySelector("#prop-rock-type") as HTMLSelectElement;
+        if (rockTypeSelect) {
+            rockTypeSelect.addEventListener("change", () => {
+                obj.properties!.rockType = rockTypeSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const rockSizeSelect = this.container?.querySelector("#prop-rock-size") as HTMLSelectElement;
+        if (rockSizeSelect) {
+            rockSizeSelect.addEventListener("change", () => {
+                obj.properties!.rockSize = rockSizeSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const canDestroyInput = this.container?.querySelector("#prop-can-destroy") as HTMLInputElement;
+        if (canDestroyInput) {
+            canDestroyInput.addEventListener("change", () => {
+                obj.properties!.canDestroy = canDestroyInput.checked;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const rockHealthInput = this.container?.querySelector("#prop-rock-health") as HTMLInputElement;
+        if (rockHealthInput) {
+            rockHealthInput.addEventListener("change", () => {
+                obj.properties!.rockHealth = parseInt(rockHealthInput.value) || 200;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const resourceTypeSelect = this.container?.querySelector("#prop-resource-type") as HTMLSelectElement;
+        if (resourceTypeSelect) {
+            resourceTypeSelect.addEventListener("change", () => {
+                obj.properties!.resourceType = resourceTypeSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств CUSTOM
+     */
+    private setupCustomPropertiesListeners(obj: PlacedObject): void {
+        if (!obj.properties) obj.properties = {};
+
+        const modelInput = this.container?.querySelector("#prop-model") as HTMLInputElement;
+        if (modelInput) {
+            modelInput.addEventListener("change", () => {
+                obj.properties!.model = modelInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const textureInput = this.container?.querySelector("#prop-texture") as HTMLInputElement;
+        if (textureInput) {
+            textureInput.addEventListener("change", () => {
+                obj.properties!.texture = textureInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const physicsSelect = this.container?.querySelector("#prop-physics") as HTMLSelectElement;
+        if (physicsSelect) {
+            physicsSelect.addEventListener("change", () => {
+                obj.properties!.physics = physicsSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const massInput = this.container?.querySelector("#prop-mass") as HTMLInputElement;
+        if (massInput) {
+            massInput.addEventListener("change", () => {
+                obj.properties!.mass = parseFloat(massInput.value) || 1;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const hasCollisionInput = this.container?.querySelector("#prop-has-collision") as HTMLInputElement;
+        if (hasCollisionInput) {
+            hasCollisionInput.addEventListener("change", () => {
+                obj.properties!.hasCollision = hasCollisionInput.checked;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const renderLayerInput = this.container?.querySelector("#prop-render-layer") as HTMLInputElement;
+        if (renderLayerInput) {
+            renderLayerInput.addEventListener("change", () => {
+                obj.properties!.renderLayer = renderLayerInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Настроить обработчики панели свойств для триггера
+     */
+    private setupTriggerPropertiesListeners(): void {
+        if (!this.container || !this.selectedTriggerId) return;
+
+        const trigger = this.mapData.triggers.find(t => t.id === this.selectedTriggerId);
+        if (!trigger) return;
+
+        const mesh = this.triggerMeshes.get(this.selectedTriggerId);
+        if (!mesh) return;
+
+        // Позиция
+        ["x", "y", "z"].forEach(axis => {
+            const input = this.container?.querySelector(`#prop-trigger-pos-${axis}`) as HTMLInputElement;
+            if (input) {
+                input.addEventListener("change", () => {
+                    const value = parseFloat(input.value);
+                    trigger.position[axis as "x" | "y" | "z"] = value;
+                    mesh.position[axis as "x" | "y" | "z"] = axis === 'y' ? value + 0.1 : value; // Offset for mesh
+                    if (this.triggerOutline) {
+                        this.triggerOutline.position[axis as "x" | "y" | "z"] = axis === 'y' ? value + 0.1 : value;
+                    }
+                    this.mapData.metadata.modifiedAt = Date.now();
+                });
+            }
+        });
+
+        // Размер
+        const sizeMap = { width: "x", height: "y", depth: "z" };
+        ["width", "height", "depth"].forEach(dim => {
+            const input = this.container?.querySelector(`#prop-trigger-${dim}`) as HTMLInputElement;
+            if (input) {
+                input.addEventListener("change", () => {
+                    const value = parseFloat(input.value);
+                    const axis = sizeMap[dim as keyof typeof sizeMap];
+
+                    trigger.size[dim as "width" | "height" | "depth"] = value;
+
+                    // Обновляем меш триггера (пересоздаем или масштабируем)
+                    // Проще масштабировать, если базовый размер был известен, но он создается с размерами
+                    // Поэтому просто обновляем scaling относительно созданного размера
+                    // Но проще удалить и пересоздать меш визуализации, чтобы он соответствовал рамеру
+
+                    // Пересоздаем меш
+                    mesh.dispose();
+                    this.triggerMeshes.delete(this.selectedTriggerId!);
+                    this.createTriggerMesh(trigger);
+
+                    // Обновляем outline
+                    this.updateTriggerOutline();
+
+                    this.mapData.metadata.modifiedAt = Date.now();
+                });
+            }
+        });
+
+        // Тип
+        const typeSelect = this.container?.querySelector("#prop-trigger-type") as HTMLSelectElement;
+        if (typeSelect) {
+            typeSelect.addEventListener("change", () => {
+                trigger.type = typeSelect.value as any;
+                // Пересоздаем меш с новым цветом
+                mesh.dispose();
+                this.triggerMeshes.delete(this.selectedTriggerId!);
+                this.createTriggerMesh(trigger);
+                this.updateTriggerOutline();
+                this.updatePropertiesPanel(); // Обновляем панель свойств для нового типа
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        // ИСПРАВЛЕНИЕ: Сохранение всех расширенных свойств триггеров
+        this.setupExtendedTriggerPropertiesListeners(trigger);
+    }
+
+    /**
+     * Настроить обработчики для расширенных свойств триггеров
+     */
+    private setupExtendedTriggerPropertiesListeners(trigger: MapTrigger): void {
+        if (!trigger.properties) trigger.properties = {};
+
+        // Общие свойства
+        this.setupCommonTriggerPropertiesListeners(trigger);
+        
+        // Свойства по типу триггера
+        switch (trigger.type) {
+            case "teleport":
+                this.setupTeleportTriggerPropertiesListeners(trigger);
+                break;
+            case "damage":
+                this.setupDamageTriggerPropertiesListeners(trigger);
+                break;
+            case "heal":
+                this.setupHealTriggerPropertiesListeners(trigger);
+                break;
+        }
+    }
+
+    /**
+     * Обработчики для общих свойств триггеров
+     */
+    private setupCommonTriggerPropertiesListeners(trigger: MapTrigger): void {
+        if (!trigger.properties) trigger.properties = {};
+
+        const nameInput = this.container?.querySelector("#prop-name") as HTMLInputElement;
+        if (nameInput) {
+            nameInput.addEventListener("change", () => {
+                trigger.properties!.name = nameInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const tagsInput = this.container?.querySelector("#prop-tags") as HTMLInputElement;
+        if (tagsInput) {
+            tagsInput.addEventListener("change", () => {
+                trigger.properties!.tags = tagsInput.value.split(',').map(t => t.trim()).filter(t => t);
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const visibilitySelect = this.container?.querySelector("#prop-visibility") as HTMLSelectElement;
+        if (visibilitySelect) {
+            visibilitySelect.addEventListener("change", () => {
+                trigger.properties!.visibility = visibilitySelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const activitySelect = this.container?.querySelector("#prop-activity") as HTMLSelectElement;
+        if (activitySelect) {
+            activitySelect.addEventListener("change", () => {
+                trigger.properties!.activity = activitySelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const soundInput = this.container?.querySelector("#prop-sound") as HTMLInputElement;
+        if (soundInput) {
+            soundInput.addEventListener("change", () => {
+                trigger.properties!.soundOnActivate = soundInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const effectInput = this.container?.querySelector("#prop-effect") as HTMLInputElement;
+        if (effectInput) {
+            effectInput.addEventListener("change", () => {
+                trigger.properties!.effectOnActivate = effectInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств TELEPORT триггера
+     */
+    private setupTeleportTriggerPropertiesListeners(trigger: MapTrigger): void {
+        if (!trigger.properties) trigger.properties = {};
+
+        const teleportXInput = this.container?.querySelector("#prop-teleport-x") as HTMLInputElement;
+        if (teleportXInput) {
+            teleportXInput.addEventListener("change", () => {
+                if (!trigger.properties!.targetPosition) trigger.properties!.targetPosition = { x: 0, y: 0, z: 0 };
+                trigger.properties!.targetPosition.x = parseFloat(teleportXInput.value) || 0;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const teleportYInput = this.container?.querySelector("#prop-teleport-y") as HTMLInputElement;
+        if (teleportYInput) {
+            teleportYInput.addEventListener("change", () => {
+                if (!trigger.properties!.targetPosition) trigger.properties!.targetPosition = { x: 0, y: 0, z: 0 };
+                trigger.properties!.targetPosition.y = parseFloat(teleportYInput.value) || 0;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const teleportZInput = this.container?.querySelector("#prop-teleport-z") as HTMLInputElement;
+        if (teleportZInput) {
+            teleportZInput.addEventListener("change", () => {
+                if (!trigger.properties!.targetPosition) trigger.properties!.targetPosition = { x: 0, y: 0, z: 0 };
+                trigger.properties!.targetPosition.z = parseFloat(teleportZInput.value) || 0;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const targetIdInput = this.container?.querySelector("#prop-teleport-target-id") as HTMLInputElement;
+        if (targetIdInput) {
+            targetIdInput.addEventListener("change", () => {
+                trigger.properties!.targetObjectId = targetIdInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const teamSelect = this.container?.querySelector("#prop-teleport-team") as HTMLSelectElement;
+        if (teamSelect) {
+            teamSelect.addEventListener("change", () => {
+                trigger.properties!.teleportTeam = teamSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const delayInput = this.container?.querySelector("#prop-teleport-delay") as HTMLInputElement;
+        if (delayInput) {
+            delayInput.addEventListener("change", () => {
+                trigger.properties!.activationDelay = parseFloat(delayInput.value) || 0;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const singleUseInput = this.container?.querySelector("#prop-teleport-single-use") as HTMLInputElement;
+        if (singleUseInput) {
+            singleUseInput.addEventListener("change", () => {
+                trigger.properties!.singleUse = singleUseInput.checked;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const effectInput = this.container?.querySelector("#prop-teleport-effect") as HTMLInputElement;
+        if (effectInput) {
+            effectInput.addEventListener("change", () => {
+                trigger.properties!.teleportEffect = effectInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств DAMAGE триггера
+     */
+    private setupDamageTriggerPropertiesListeners(trigger: MapTrigger): void {
+        if (!trigger.properties) trigger.properties = {};
+
+        const dpsInput = this.container?.querySelector("#prop-damage-dps") as HTMLInputElement;
+        if (dpsInput) {
+            dpsInput.addEventListener("change", () => {
+                trigger.properties!.damagePerSecond = parseFloat(dpsInput.value) || 10;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const damageTypeSelect = this.container?.querySelector("#prop-damage-type") as HTMLSelectElement;
+        if (damageTypeSelect) {
+            damageTypeSelect.addEventListener("change", () => {
+                trigger.properties!.damageType = damageTypeSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const teamSelect = this.container?.querySelector("#prop-damage-team") as HTMLSelectElement;
+        if (teamSelect) {
+            teamSelect.addEventListener("change", () => {
+                trigger.properties!.damageTeam = teamSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const effectInput = this.container?.querySelector("#prop-damage-effect") as HTMLInputElement;
+        if (effectInput) {
+            effectInput.addEventListener("change", () => {
+                trigger.properties!.damageEffect = effectInput.value;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств HEAL триггера
+     */
+    private setupHealTriggerPropertiesListeners(trigger: MapTrigger): void {
+        if (!trigger.properties) trigger.properties = {};
+
+        const healDpsInput = this.container?.querySelector("#prop-heal-dps") as HTMLInputElement;
+        if (healDpsInput) {
+            healDpsInput.addEventListener("change", () => {
+                trigger.properties!.healPerSecond = parseFloat(healDpsInput.value) || 5;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const teamSelect = this.container?.querySelector("#prop-heal-team") as HTMLSelectElement;
+        if (teamSelect) {
+            teamSelect.addEventListener("change", () => {
+                trigger.properties!.healTeam = teamSelect.value as any;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const maxHpInput = this.container?.querySelector("#prop-max-heal-hp") as HTMLInputElement;
+        if (maxHpInput) {
+            maxHpInput.addEventListener("change", () => {
+                trigger.properties!.maxHealHP = parseInt(maxHpInput.value) || 100;
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+
+        const effectInput = this.container?.querySelector("#prop-heal-effect") as HTMLInputElement;
+        if (effectInput) {
+            effectInput.addEventListener("change", () => {
+                trigger.properties!.healEffect = effectInput.value;
                 this.mapData.metadata.modifiedAt = Date.now();
             });
         }
@@ -1921,6 +3323,35 @@ export class MapEditor {
     }
 
     /**
+     * Расширить карту на 100 единиц
+     */
+    private extendMap(): void {
+        // Инициализируем mapSize если нет
+        if (!this.mapData.metadata) {
+            this.mapData.metadata = {
+                createdAt: Date.now(),
+                modifiedAt: Date.now()
+            };
+        }
+
+        const currentSize = this.mapData.metadata.mapSize || 200; // Default 200
+        const newSize = currentSize + 100;
+
+        // Обновляем и в metadata и в root (для совместимости)
+        this.mapData.metadata.mapSize = newSize;
+        (this.mapData as any).mapSize = newSize;
+
+        this.mapData.metadata.modifiedAt = Date.now();
+
+        this.showNotification(`📏 Размер карты увеличен: ${newSize}x${newSize}`);
+
+        // Если есть генератор пользовательской карты, обновляем его конфиг
+        // Это нужно, чтобы стены периметра перерисовались если мы используем CustomMapGenerator
+        // Но редактор может рисовать их сам? Пока просто сохраняем данные.
+        // TODO: Визуальное обновление границ в редакторе
+    }
+
+    /**
      * Экспортировать карту в файл
      */
     private exportMapToFile(): void {
@@ -2212,23 +3643,51 @@ export class MapEditor {
     /**
      * Обработать выбор объекта
      */
+    /**
+     * Обработать выбор объекта
+     */
+    /**
+     * Обработать выбор объекта с улучшенной точностью
+     */
     private handleObjectSelection(pointerInfo: any): void {
-        const pickInfo = this.scene.pick(this.scene.pointerX, this.scene.pointerY, (mesh) => {
-            return mesh.metadata && mesh.metadata.mapEditorObject === true;
+        // Используем multiPick чтобы получить все объекты под курсором
+        const pickResult = this.scene.multiPick(this.scene.pointerX, this.scene.pointerY, (mesh) => {
+            // Игнорируем невидимые меши и технические элементы
+            if (!mesh.isVisible || !mesh.isPickable) return false;
+
+            // Проверяем принадлежность к объектам редактора
+            if (mesh.metadata && mesh.metadata.mapEditorObject === true) return true;
+            if (mesh.parent && mesh.parent.metadata && mesh.parent.metadata.mapEditorObject === true) return true;
+            return false;
         });
 
-        if (pickInfo && pickInfo.pickedMesh && pickInfo.pickedMesh.metadata) {
-            const objectId = pickInfo.pickedMesh.metadata.objectId;
-            if (objectId) {
-                this.selectObject(objectId);
-            }
-        } else {
-            // Клик по пустому месту - снимаем выбор
-            this.deselectObject();
-        }
-    }
+        if (pickResult && pickResult.length > 0) {
+            // Сортируем по дистанции (хотя multiPick обычно возвращает отсортированный массив, но для надежности)
+            pickResult.sort((a, b) => a.distance - b.distance);
 
-    /**
+            // Берем самый ближний валидный объект
+            const hit = pickResult[0];
+
+            if (hit && hit.pickedMesh) {
+                let objectId: string | null = null;
+
+                // Получаем ID
+                if (hit.pickedMesh.metadata && hit.pickedMesh.metadata.objectId) {
+                    objectId = hit.pickedMesh.metadata.objectId;
+                } else if (hit.pickedMesh.parent && hit.pickedMesh.parent.metadata && hit.pickedMesh.parent.metadata.objectId) {
+                    objectId = hit.pickedMesh.parent.metadata.objectId;
+                }
+
+                if (objectId) {
+                    this.selectObject(objectId);
+                    return;
+                }
+            }
+        }
+
+        // Если ничего не нашли или кликнули в пустоту
+        this.deselectObject();
+    } /**
      * Выбрать объект
      */
     private selectObject(objectId: string): void {
@@ -2625,6 +4084,9 @@ export class MapEditor {
                     const buildingMat = new StandardMaterial(`buildingMat_${obj.id}`, this.scene);
                     buildingMat.diffuseColor = new Color3(0.6, 0.5, 0.4);
                     mesh.material = buildingMat;
+                    // ИСПРАВЛЕНИЕ: Помечаем объект для выделения
+                    mesh.metadata = { mapEditorObject: true, objectId: obj.id };
+                    mesh.isPickable = true;
                     break;
 
                 case "tree":
@@ -2654,6 +4116,11 @@ export class MapEditor {
                     // Связываем как один объект
                     crown.parent = trunk;
                     mesh = trunk;
+                    // ИСПРАВЛЕНИЕ: Помечаем объект для выделения
+                    trunk.metadata = { mapEditorObject: true, objectId: obj.id };
+                    crown.metadata = { mapEditorObject: true, objectId: obj.id };
+                    trunk.isPickable = true;
+                    crown.isPickable = true;
                     break;
 
                 case "rock":
@@ -2665,6 +4132,9 @@ export class MapEditor {
                     const rockMat = new StandardMaterial(`rockMat_${obj.id}`, this.scene);
                     rockMat.diffuseColor = new Color3(0.4, 0.4, 0.4);
                     mesh.material = rockMat;
+                    // ИСПРАВЛЕНИЕ: Помечаем объект для выделения
+                    mesh.metadata = { mapEditorObject: true, objectId: obj.id };
+                    mesh.isPickable = true;
                     break;
 
                 case "spawn":
@@ -2677,6 +4147,51 @@ export class MapEditor {
                     spawnMat.emissiveColor = new Color3(0, 1, 0);
                     spawnMat.alpha = 0.7;
                     mesh.material = spawnMat;
+                    // ИСПРАВЛЕНИЕ: Помечаем объект для выделения
+                    mesh.metadata = { mapEditorObject: true, objectId: obj.id };
+                    mesh.isPickable = true;
+                    break;
+
+                case "garage":
+                    mesh = MeshBuilder.CreateBox(`garage_${obj.id}`, {
+                        width: 8,
+                        height: 5,
+                        depth: 12
+                    }, this.scene);
+                    const garageMat = new StandardMaterial(`garageMat_${obj.id}`, this.scene);
+                    garageMat.diffuseColor = new Color3(0.3, 0.3, 0.5); // Синевато-серый
+                    garageMat.emissiveColor = new Color3(0.1, 0.1, 0.2);
+                    mesh.material = garageMat;
+
+                    // Добавляем метку "G"
+                    const plane = MeshBuilder.CreatePlane(`garageLabel_${obj.id}`, { size: 4 }, this.scene);
+                    plane.parent = mesh;
+                    plane.position.y = 3;
+                    plane.rotation.x = Math.PI / 2;
+                    plane.rotation.y = Math.PI; // Чтобы читалось сверху правильно
+
+                    const dynamicTexture = new DynamicTexture(`garageLabelTex_${obj.id}`, { width: 128, height: 128 }, this.scene);
+                    const ctx = dynamicTexture.getContext() as CanvasRenderingContext2D;
+                    ctx.fillStyle = "transparent";
+                    ctx.fillRect(0, 0, 128, 128);
+                    ctx.font = "bold 80px Arial";
+                    ctx.fillStyle = "white";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillText("G", 64, 64);
+                    dynamicTexture.update();
+
+                    const planeMat = new StandardMaterial(`garageLabelMat_${obj.id}`, this.scene);
+                    planeMat.diffuseTexture = dynamicTexture;
+                    planeMat.emissiveColor = new Color3(1, 1, 1);
+                    planeMat.disableLighting = true;
+                    planeMat.useAlphaFromDiffuseTexture = true;
+                    plane.material = planeMat;
+                    // ИСПРАВЛЕНИЕ: Помечаем объект для выделения
+                    mesh.metadata = { mapEditorObject: true, objectId: obj.id };
+                    plane.metadata = { mapEditorObject: true, objectId: obj.id };
+                    mesh.isPickable = true;
+                    plane.isPickable = true;
                     break;
 
                 default:
@@ -2688,6 +4203,10 @@ export class MapEditor {
                     const defaultMat = new StandardMaterial(`defaultMat_${obj.id}`, this.scene);
                     defaultMat.diffuseColor = new Color3(0.5, 0.5, 0.5);
                     mesh.material = defaultMat;
+                    // ИСПРАВЛЕНИЕ: Помечаем объект для выделения
+                    mesh.metadata = { mapEditorObject: true, objectId: obj.id };
+                    mesh.isPickable = true;
+                    break;
             }
 
             mesh.position = position;
@@ -2700,7 +4219,13 @@ export class MapEditor {
                 mesh.scaling = new Vector3(obj.scale.x, obj.scale.y, obj.scale.z);
             }
 
-            mesh.metadata = { mapEditorObject: true, objectId: obj.id };
+            // ИСПРАВЛЕНИЕ: Убеждаемся, что metadata установлены (если не были установлены в switch)
+            if (!mesh.metadata) {
+                mesh.metadata = {};
+            }
+            mesh.metadata.mapEditorObject = true;
+            mesh.metadata.objectId = obj.id;
+            mesh.isPickable = true;
 
             this.placedObjectMeshes.set(obj.id, mesh);
             return mesh;
@@ -3042,10 +4567,25 @@ export class MapEditor {
                 return;
             }
 
+            // Оптимизация: проверяем, изменилась ли позиция мыши достаточно сильно
+            const dx = Math.abs(this.scene.pointerX - this.lastMouseX);
+            const dy = Math.abs(this.scene.pointerY - this.lastMouseY);
+
+            // Обновляем только если мышь сдвинулась более чем на 1 пиксель
+            // или если прошло достаточно времени (для анимаций и т.д.)
+            const now = Date.now();
+            if (dx < 1 && dy < 1 && (now - this.lastBrushUpdate < 100)) {
+                return;
+            }
+
+            this.lastMouseX = this.scene.pointerX;
+            this.lastMouseY = this.scene.pointerY;
+            this.lastBrushUpdate = now;
+
             // Обновляем размер индикатора
             if (this.brushIndicator) {
                 const newRadius = this.brushSize;
-                // Пересоздаем диск с новым размером (Babylon.js не поддерживает изменение радиуса напрямую)
+                // Пересоздаем диск с новым размером
                 if (Math.abs((this.brushIndicator as any).geometry?.boundingInfo?.boundingBox?.maximumWorld?.y - newRadius) > 0.1) {
                     this.brushIndicator.dispose();
                     this.createBrushIndicator();
@@ -3386,5 +4926,122 @@ export class MapEditor {
             mesh.createNormals(true);
         }
     }
-}
 
+    /**
+     * Свернуть редактор
+     */
+    minimize(): void {
+        if (!this.container) return;
+
+        this.container.style.display = 'none';
+
+        // Создаем кнопку восстановления, если её нет
+        let restoreBtn = document.getElementById("map-editor-restore-btn");
+        if (!restoreBtn) {
+            restoreBtn = document.createElement("button");
+            restoreBtn.id = "map-editor-restore-btn";
+            restoreBtn.innerHTML = "🛠️";
+            restoreBtn.title = "Развернуть редактор";
+            restoreBtn.style.cssText = `
+                position: fixed;
+                top: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                padding: 10px;
+                background: rgba(0, 50, 0, 0.9);
+                border: 2px solid #0f0;
+                color: #0f0;
+                cursor: pointer;
+                font-family: 'Consolas', 'Monaco', monospace;
+                z-index: 10000;
+                font-size: 20px;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 0 10px #0f0;
+            `;
+            restoreBtn.addEventListener("click", () => {
+                this.restore();
+            });
+            document.body.appendChild(restoreBtn);
+        }
+
+        restoreBtn.style.display = 'flex';
+        this.showNotification("Редактор свернут");
+    }
+
+    /**
+     * Развернуть редактор
+     */
+    restore(): void {
+        if (!this.container) return;
+
+        this.container.style.display = 'flex'; // map-editor-overlay uses flex
+
+        const restoreBtn = document.getElementById("map-editor-restore-btn");
+        if (restoreBtn) {
+            restoreBtn.style.display = 'none';
+        }
+    }
+
+    /**
+     * Экспортировать карту и запустить тест
+     */
+    exportMapAndTest(): void {
+        try {
+            // Собираем все изменения террейна
+            this.collectTerrainModifications();
+
+            // Сохраняем в localStorage для CustomMapRunner
+            // Используем 'tx_test_map' как договаривались
+            const mapData = this.exportMap();
+            localStorage.setItem('tx_test_map', mapData);
+
+            // Сохраняем как 'selectedCustomMapData' тоже, для надежности (CustomMapRunner читает оттуда)
+            localStorage.setItem('selectedCustomMapData', mapData);
+
+            this.showNotification("Запуск тестирования...");
+
+            // ИСПРАВЛЕНО: Сворачиваем редактор вместо закрытия, чтобы можно было вернуться
+            this.minimize();
+
+            // Получаем экземпляр игры из window
+            const game = (window as any).gameInstance;
+            if (game) {
+                // Устанавливаем тип карты на custom
+                game.currentMapType = "custom";
+                
+                // Если игра уже запущена, перезагружаем карту
+                if (game.gameStarted) {
+                    game.reloadMap("custom").then(() => {
+                        console.log("[MapEditor] Map reloaded for testing");
+                    }).catch((e: any) => {
+                        console.error("[MapEditor] Failed to reload map:", e);
+                        this.showNotification("Ошибка перезагрузки карты");
+                    });
+                } else {
+                    // Если игра не запущена, запускаем её
+                    game.init().then(() => {
+                        game.startGame();
+                        console.log("[MapEditor] Game started with test map");
+                    }).catch((e: any) => {
+                        console.error("[MapEditor] Failed to start game:", e);
+                        this.showNotification("Ошибка запуска игры");
+                    });
+                }
+            } else {
+                // Если игры нет, перезагружаем страницу (fallback)
+                const url = new URL(window.location.href);
+                url.searchParams.set('testMap', 'current');
+                window.location.href = url.toString();
+            }
+
+        } catch (error) {
+            console.error("[MapEditor] Failed to test map:", error);
+            this.showNotification("Ошибка запуска теста");
+        }
+    }
+}
