@@ -1614,8 +1614,8 @@ export class TankController {
         // Это предотвращает конфликт между анимацией и updatePhysics/updateCamera
         this.isAlive = true;
 
-        const targetX = respawnPos.x;
-        const targetZ = respawnPos.z;
+        let targetX = respawnPos.x;
+        let targetZ = respawnPos.z;
 
         // КРИТИЧНО: Проверяем был ли танк уже телепортирован через startGarageRespawn
         // Если да - НЕ пересчитываем позицию, просто используем текущую (избегаем дёрганья)
@@ -4400,6 +4400,7 @@ export class TankController {
             const toRemove = this.manualProjectiles.length - this.MAX_MANUAL_PROJECTILES;
             for (let i = 0; i < toRemove; i++) {
                 const proj = this.manualProjectiles[i];
+                if (!proj) continue;
                 if (proj.mesh && !proj.mesh.isDisposed()) {
                     proj.mesh.dispose();
                 }
@@ -4415,6 +4416,7 @@ export class TankController {
         
         for (let i = this.manualProjectiles.length - 1; i >= 0; i--) {
             const proj = this.manualProjectiles[i];
+            if (!proj) continue;
             // Удаляем если меш уничтожен
             if (!proj.mesh || proj.mesh.isDisposed()) {
                 // ИСПРАВЛЕНИЕ: Очищаем интервалы и таймауты
