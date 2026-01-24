@@ -571,11 +571,17 @@ export class MapEditor {
             }
             .map-editor-properties {
                 width: 280px;
+                min-width: 280px;
                 background: rgba(0, 25, 0, 0.9);
                 border-left: 1px solid #080;
                 padding: 15px;
                 overflow-y: auto;
-                max-height: 400px;
+                max-height: 100vh;
+                display: block !important;
+                visibility: visible !important;
+            }
+            .map-editor-properties[style*="display: none"] {
+                display: none !important;
             }
             .properties-header {
                 color: #0f0;
@@ -1986,9 +1992,14 @@ export class MapEditor {
         const content = this.container.querySelector("#properties-content") as HTMLElement;
 
         if (this.selectedObjectId || this.selectedTriggerId) {
-            if (panel) panel.style.display = "block";
+            if (panel) {
+                panel.style.setProperty('display', 'block', 'important');
+                panel.style.setProperty('visibility', 'visible', 'important');
+            }
             if (content) {
-                content.innerHTML = this.generatePropertiesPanel();
+                const html = this.generatePropertiesPanel();
+                console.log("[MapEditor] Updating properties panel, HTML length:", html.length);
+                content.innerHTML = html;
                 if (this.selectedObjectId) {
                     this.setupPropertiesListeners();
                 } else if (this.selectedTriggerId) {
@@ -1996,7 +2007,10 @@ export class MapEditor {
                 }
             }
         } else {
-            if (panel) panel.style.display = "none";
+            if (panel) {
+                panel.style.setProperty('display', 'none', 'important');
+                panel.style.setProperty('visibility', 'hidden', 'important');
+            }
         }
     }
 
