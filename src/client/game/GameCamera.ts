@@ -962,6 +962,15 @@ export class GameCamera {
             return false;
         }
 
+        // Игнорируем вражеские танки и сетевых игроков
+        if (mesh.metadata) {
+            if (mesh.metadata.type === "enemyTank" || 
+                mesh.metadata.type === "networkPlayer" ||
+                mesh.metadata.type === "playerTank") {
+                return false;
+            }
+        }
+
         const name = mesh.name.toLowerCase();
 
         // ВАЖНО: Террейн и земля должны блокировать камеру даже если isPickable = false
@@ -973,7 +982,10 @@ export class GameCamera {
             name.startsWith("chunk_") ||
             name.includes("platform") ||
             name.includes("ramp") ||
-            name.includes("ruin");
+            name.includes("ruin") ||
+            name.includes("sand") ||
+            name.includes("dirt") ||
+            name.includes("grass");
 
         // Структуры: стены гаража, здания, объекты карты
         const isStructure = name.startsWith("garage") ||
@@ -983,7 +995,9 @@ export class GameCamera {
             name.includes("roof") ||
             name.includes("door") ||
             name.includes("perimeter") ||
-            name.includes("cover");
+            name.includes("cover") ||
+            name.includes("fence") ||
+            name.includes("barrier");
 
         // Объекты из редактора карт (здания, деревья, камни)
         const isMapObject = name.includes("mapeditor") ||
