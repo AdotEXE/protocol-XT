@@ -593,9 +593,17 @@ export class MapEditor {
                 font-family: 'Consolas', 'Monaco', monospace;
             }
             .properties-content {
-                display: flex;
+                display: flex !important;
                 flex-direction: column;
                 gap: 12px;
+                min-height: 200px;
+            }
+            .properties-section {
+                margin-bottom: 20px;
+                padding: 10px;
+                background: rgba(0, 15, 0, 0.5);
+                border: 1px solid rgba(0, 255, 0, 0.3);
+                border-radius: 4px;
             }
             .property-group {
                 display: flex;
