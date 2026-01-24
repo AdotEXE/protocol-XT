@@ -129,13 +129,13 @@ export class AdminPanel {
         const trajectoryCheckbox = document.getElementById('admin-projectile-trajectory') as HTMLInputElement;
         if (trajectoryCheckbox) {
             // Инициализация: синхронизируем с текущим состоянием танка
-            trajectoryCheckbox.checked = this.game.tankController?.showProjectileTrajectory ?? true;
+            trajectoryCheckbox.checked = this.game.tank?.showProjectileTrajectory ?? true;
             
             trajectoryCheckbox.addEventListener('change', () => {
-                if (this.game.tankController) {
-                    this.game.tankController.showProjectileTrajectory = trajectoryCheckbox.checked;
+                if (this.game.tank) {
+                    this.game.tank.showProjectileTrajectory = trajectoryCheckbox.checked;
                     if (!trajectoryCheckbox.checked) {
-                        this.game.tankController.clearTrajectoryLines();
+                        this.game.tank.clearTrajectoryLines();
                     }
                     logger.log(`[AdminPanel] Projectile trajectory: ${trajectoryCheckbox.checked ? 'ON' : 'OFF'}`);
                 }
@@ -224,8 +224,8 @@ export class AdminPanel {
 
         // Синхронизируем checkbox траектории с текущим состоянием танка
         const trajectoryCheckbox = document.getElementById('admin-projectile-trajectory') as HTMLInputElement;
-        if (trajectoryCheckbox && this.game.tankController) {
-            trajectoryCheckbox.checked = this.game.tankController.showProjectileTrajectory;
+        if (trajectoryCheckbox && this.game.tank) {
+            trajectoryCheckbox.checked = this.game.tank.showProjectileTrajectory;
         }
     }
 
