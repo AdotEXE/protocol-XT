@@ -111,6 +111,12 @@ export class GameCamera {
     private _aimCameraStartPos: Vector3 | null = null;
     private _aimCameraStartTarget: Vector3 | null = null;
 
+    // Collision detection
+    private collisionRay: Ray = new Ray(Vector3.Zero(), Vector3.Zero(), 100);
+    private currentCollisionRadius = 12; // Adjusted radius after collision
+    private collisionSmoothSpeed = 0.2; // Smoothing factor for collision adjustment
+    private cameraCollisionOffset = 0.5; // Offset from wall to keep camera slightly away
+
     // Cache for performance
     private _updateTick = 0;
     private _cachedBarrelHeight = 2.5;
@@ -123,6 +129,19 @@ export class GameCamera {
     private _cachedBarrelWorldDirFrame = -1;
     private _cachedBarrelWorldPos = Vector3.Zero();
     private _cachedBarrelWorldPosFrame = -1;
+    
+    // ОПТИМИЗАЦИЯ: Кэш для computeWorldMatrix
+    private _cachedWorldMatrix: Matrix | null = null;
+    private _worldMatrixCacheFrame = -1;
+    
+    // ОПТИМИЗАЦИЯ: Кэш для raycast камеры
+    private _lastRaycastResult: { hit: boolean, distance: number, frame: number } | null = null;
+    private _lastRaycastPos: Vector3 = Vector3.Zero();
+    private _raycastCacheDistance = 0.5;
+    
+    // ОПТИМИЗАЦИЯ: Расширенный кэш позиций
+    private _cachedBarrelPos: Vector3 = Vector3.Zero();
+    private _cachedPositionsFrame = -1;
 
     // Ссылки на системы
     protected scene: Scene | undefined;
@@ -549,7 +568,8 @@ export class GameCamera {
 
         if (!this.tank || !this.tank.chassis) return;
 
-        const tankPos = this.tank.chassis.absolutePosition;
+        // ОПТИМИЗАЦИЯ: Используем кэшированную позицию танка
+        const tankPos = this.tank.getCachedChassisPosition ? this.tank.getCachedChassisPosition() : this.tank.chassis.absolutePosition;
 
         // Обновляем тряску камеры
         this.updateCameraShake();
@@ -588,12 +608,135 @@ export class GameCamera {
         this.camera.alpha = this.currentCameraAlpha;
         this.camera.beta = this.cameraBeta;
 
+        // ОПТИМИЗАЦИЯ: Расширенное кэширование позиций башни и ствола
+        if (this._updateTick !== this._cachedPositionsFrame && this.tank) {
+            if (this.tank.turret && !this.tank.turret.isDisposed()) {
+                this._cachedTurretPos.copyFrom(this.tank.turret.absolutePosition);
+            }
+            if (this.tank.barrel && !this.tank.barrel.isDisposed()) {
+                this._cachedBarrelPos.copyFrom(this.tank.barrel.absolutePosition);
+            }
+            this._cachedPositionsFrame = this._updateTick;
+        }
+
         // Режим прицеливания
         if (this.isAiming) {
             this.updateAimingMode();
         } else {
             this.updateNormalMode();
         }
+
+        // --- CAMERA COLLISION LOGIC ---
+        // Apply collision detection AFTER setting initial target/alpha/beta/radius
+        // but BEFORE rendering mechanism uses it (ArcRotateCamera updates on frame render)
+
+        // 1. Determine the "ideal" target position (tank center + shake)
+        // This is already 'targetPos' calculated above.
+
+        // 2. Determine ideal direction from Target to Camera
+        // We can calculate this from alpha/beta
+        const cameraDirection = new Vector3(
+            Math.cos(this.camera.alpha) * Math.cos(this.camera.beta),
+            Math.sin(this.camera.beta),
+            Math.sin(this.camera.alpha) * Math.cos(this.camera.beta)
+        );
+
+        // 3. Cast ray from Target towards Camera
+        const origin = targetPos; // Start from tank
+
+        // Direction is simple: from target to camera. 
+        // But ArcRotateCamera coordinates are spherical. 
+        // Let's use the camera's computed position from the previous frame or compute it manually.
+        // Better: Use the math to find direction vector based on Alpha/Beta.
+        // Actually, ArcRotateCamera.position is automatically updated based on alpha/beta/radius.
+        // But we want to check collision BEFORE setting the final radius.
+
+        // Let's use the INTENDED radius (this.normalRadius or this.aimRadius interpolated)
+        // 'this.camera.radius' currently holds the smoothed "requested" radius from updateNormalMode/updateAimingMode
+        const requestedRadius = this.camera.radius;
+
+        // Calculate direction vector manually to be safe or use camera.position.subtract(targetPos).normalize() if reliable.
+        // Using Alpha/Beta is more robust as it doesn't depend on previous frame's collision:
+        // Alpha is rotation around Y (horizontal), Beta is rotation around X (vertical)
+        // Careful with Babylon coordinates: 
+        // X = radius * cos(alpha) * cos(beta)
+        // Y = radius * sin(beta)
+        // Z = radius * sin(alpha) * cos(beta)
+        // ...Wait, Babylon's ArcRotateCamera formulas are:
+        // x = radius * cos(alpha) * cos(beta)
+        // y = radius * sin(beta)
+        // z = radius * sin(alpha) * cos(beta)
+        // (Assuming Y is up, but actually Beta is angle from UP usually in Babylon? 
+        // No, in Babylon Beta is 0 at top, PI at bottom. Alpha is longitude.
+
+        // ОПТИМИЗАЦИЯ: Кэширование computeWorldMatrix
+        if (this._updateTick !== this._worldMatrixCacheFrame) {
+            this.camera.computeWorldMatrix();
+            this._cachedWorldMatrix = this.camera.getWorldMatrix();
+            this._worldMatrixCacheFrame = this._updateTick;
+        }
+
+        // Correct vector calculation for Babylon ArcRotateCamera (Y-up):
+        // x = r * sin(beta) * cos(alpha)
+        // z = r * sin(beta) * sin(alpha)
+        // y = r * cos(beta)
+        const direction = new Vector3(
+            Math.sin(this.camera.beta) * Math.cos(this.camera.alpha),
+            Math.cos(this.camera.beta),
+            Math.sin(this.camera.beta) * Math.sin(this.camera.alpha)
+        );
+
+        // ОПТИМИЗАЦИЯ: Кэширование raycast
+        const minDistance = this.isAiming ? 1.5 : 2.0;
+        let finalRadius = requestedRadius;
+        
+        // Вычисляем текущую позицию камеры для проверки движения
+        const currentCameraPos = new Vector3(
+            targetPos.x + requestedRadius * Math.sin(this.camera.beta) * Math.cos(this.camera.alpha),
+            targetPos.y + requestedRadius * Math.cos(this.camera.beta),
+            targetPos.z + requestedRadius * Math.sin(this.camera.beta) * Math.sin(this.camera.alpha)
+        );
+        
+        const cameraMoved = currentCameraPos.subtract(this._lastRaycastPos).lengthSquared() > 
+            this._raycastCacheDistance * this._raycastCacheDistance;
+        
+        if (!cameraMoved && this._lastRaycastResult && 
+            this._lastRaycastResult.frame === this._updateTick - 1) {
+            // Использовать кэшированный результат
+            if (this._lastRaycastResult.hit && this._lastRaycastResult.distance < requestedRadius) {
+                let limit = this._lastRaycastResult.distance - this.cameraCollisionOffset;
+                if (limit < minDistance) limit = minDistance;
+                finalRadius = limit;
+            }
+        } else {
+            // Выполнить новый raycast
+            this.collisionRay.origin = origin;
+            this.collisionRay.direction = direction;
+            this.collisionRay.length = requestedRadius + 1;
+            
+            const hit = this.scene.pickWithRay(this.collisionRay, (mesh) => this.cameraCollisionMeshFilter(mesh));
+            
+            // Сохранить результат в кэш
+            this._lastRaycastResult = {
+                hit: hit?.hit || false,
+                distance: hit?.distance || requestedRadius,
+                frame: this._updateTick
+            };
+            this._lastRaycastPos.copyFrom(currentCameraPos);
+            
+            if (hit && hit.hit && hit.distance < requestedRadius) {
+                let limit = hit.distance - this.cameraCollisionOffset;
+                if (limit < minDistance) limit = minDistance;
+                finalRadius = limit;
+            }
+        }
+        
+        // Применяем сглаживание для плавного изменения радиуса
+        const smoothingFactor = this.isAiming ? 0.9 : 0.7;
+        this.currentCollisionRadius = this.currentCollisionRadius + (finalRadius - this.currentCollisionRadius) * smoothingFactor;
+
+        // Apply to camera (используем сглаженное значение)
+        this.camera.radius = this.currentCollisionRadius;
     }
 
     /**
@@ -800,14 +943,22 @@ export class GameCamera {
     /**
      * Фильтр мешей для raycast коллизий камеры
      * Возвращает true если меш должен блокировать камеру
+     * УЛУЧШЕНО: Включает все объекты карты (здания, деревья, камни из редактора)
      */
     private cameraCollisionMeshFilter(mesh: any): boolean {
-        if (!mesh || !mesh.isEnabled()) return false;
+        if (!mesh || !mesh.isEnabled() || !mesh.isVisible) return false;
 
         // Игнорируем части танка игрока
         if (mesh === this.tank?.chassis ||
             mesh === this.tank?.turret ||
             mesh === this.tank?.barrel) {
+            return false;
+        }
+
+        // Игнорируем дочерние элементы танка
+        if (mesh.parent === this.tank?.chassis || 
+            mesh.parent === this.tank?.turret || 
+            mesh.parent === this.tank?.barrel) {
             return false;
         }
 
@@ -819,22 +970,63 @@ export class GameCamera {
             name.includes("terrain") ||
             name.includes("mountain") ||
             name.includes("hill") ||
-            name.includes("rock") ||
-            name.startsWith("chunk_");
+            name.startsWith("chunk_") ||
+            name.includes("platform") ||
+            name.includes("ramp") ||
+            name.includes("ruin");
 
-        // Также включаем стены гаража и зданий
+        // Структуры: стены гаража, здания, объекты карты
         const isStructure = name.startsWith("garage") ||
             name.includes("wall") ||
             name.includes("building") ||
             name.includes("floor") ||
             name.includes("roof") ||
-            name.includes("door");
+            name.includes("door") ||
+            name.includes("perimeter") ||
+            name.includes("cover");
 
-        // Если это террейн или структура - блокируем камеру независимо от isPickable
-        if (isTerrain || isStructure) {
+        // Объекты из редактора карт (здания, деревья, камни)
+        const isMapObject = name.includes("mapeditor") ||
+            name.includes("placedobject") ||
+            (mesh.metadata && (
+                mesh.metadata.mapEditorObject === true ||
+                mesh.metadata.objectType === "building" ||
+                mesh.metadata.objectType === "tree" ||
+                mesh.metadata.objectType === "rock" ||
+                mesh.metadata.objectType === "spawn" ||
+                mesh.metadata.objectType === "garage" ||
+                mesh.metadata.objectType === "custom"
+            ));
+
+        // Если это террейн, структура или объект карты - блокируем камеру независимо от isPickable
+        if (isTerrain || isStructure || isMapObject) {
             // Но игнорируем прозрачные (visibility < 0.3 для ворот гаража которые 0.5)
             if (mesh.visibility !== undefined && mesh.visibility < 0.3) return false;
             return true;
+        }
+
+        // Проверяем метаданные для объектов карты
+        const meta = mesh.metadata;
+        if (meta) {
+            // Игнорируем пули, расходники, танки
+            if (meta.type === "bullet" || 
+                meta.type === "consumable" ||
+                meta.type === "playerTank" || 
+                meta.type === "enemyTank" ||
+                meta.type === "networkPlayer") {
+                return false;
+            }
+
+            // Блокируем объекты карты (даже если они не в имени)
+            if (meta.mapEditorObject === true || 
+                meta.objectType === "building" ||
+                meta.objectType === "tree" ||
+                meta.objectType === "rock" ||
+                meta.objectType === "custom") {
+                // Но игнорируем прозрачные
+                if (mesh.visibility !== undefined && mesh.visibility < 0.3) return false;
+                return true;
+            }
         }
 
         // Для остальных объектов проверяем isPickable
@@ -851,15 +1043,9 @@ export class GameCamera {
             name.includes("smoke") || name.includes("fire") ||
             name.includes("billboard") || name.includes("hp") ||
             name.includes("label") || name.includes("indicator") ||
-            name.includes("debug") || name.includes("gizmo")) {
-            return false;
-        }
-
-        // Игнорируем вражеские танки и сетевых игроков (их меши)
-        const meta = mesh.metadata;
-        if (meta && (meta.type === "bullet" || meta.type === "consumable" ||
-            meta.type === "playerTank" || meta.type === "enemyTank" ||
-            meta.type === "networkPlayer")) {
+            name.includes("debug") || name.includes("gizmo") ||
+            name.includes("trigger") || name.includes("checkpoint") ||
+            name.includes("skybox") || name.includes("sky")) {
             return false;
         }
 
@@ -926,23 +1112,29 @@ export class GameCamera {
 
     /**
      * Проверка коллизий камеры в режиме прицеливания
-     * Вызывается из updateAimingMode
+     * УЛУЧШЕНО: Использует улучшенный фильтр мешей для всех объектов карты
+     * Вызывается из updateAimingMode и game.ts
      */
     checkAimingCameraCollision(targetCamPos: Vector3): Vector3 {
         if (!this.scene || !this.tank || !this.tank.chassis) return targetCamPos;
 
-        const tankPos = this.tank.chassis.getAbsolutePosition();
-        const rayOrigin = tankPos.add(new Vector3(0, 1.5, 0));
+        // ОПТИМИЗАЦИЯ: Используем кэшированную позицию танка
+        const tankPos = this.tank.getCachedChassisPosition ? this.tank.getCachedChassisPosition() : this.tank.chassis.absolutePosition;
+        const rayOrigin = tankPos.add(new Vector3(0, 1.5, 0)); // Start slightly above tank center
 
         // Направление от танка к целевой позиции камеры
         const direction = targetCamPos.subtract(rayOrigin);
         const targetDistance = direction.length();
+        
+        // Если расстояние слишком маленькое, пропускаем
+        if (targetDistance < 0.5) return targetCamPos;
+        
         direction.normalize();
 
         const minDistance = 1.5;
         const wallBuffer = 0.5;
 
-        // Проверяем коллизию
+        // Проверяем коллизию с улучшенным фильтром (включает все объекты карты)
         const ray = new Ray(rayOrigin, direction, targetDistance + 1);
         const hit = this.scene.pickWithRay(ray, (mesh) => this.cameraCollisionMeshFilter(mesh));
 

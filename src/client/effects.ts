@@ -27,6 +27,10 @@ export class EffectsManager {
     // УЛУЧШЕНО: Флаги для дыма и пыли (по умолчанию выключены)
     private enableSmoke: boolean = false;
     private enableDust: boolean = false;
+    
+    // ОПТИМИЗАЦИЯ: Ограничение активных эффектов для предотвращения деградации производительности
+    private readonly MAX_ACTIVE_EFFECTS = 50;
+    private activeEffects: Set<Mesh> = new Set();
 
     constructor(scene: Scene, useParticles: boolean = true) {
         this.scene = scene;
@@ -137,6 +141,8 @@ export class EffectsManager {
             if (scale < maxScale) {
                 setTimeout(animate, 30);
             } else {
+                this.activeEffects.delete(ring);
+                this.activeEffects.delete(ring2);
                 ring.dispose();
                 ring2.dispose();
                 ringMat.dispose();
@@ -178,6 +184,7 @@ export class EffectsManager {
                 if (t < 1) {
                     setTimeout(moveParticle, 30);
                 } else {
+                    this.activeEffects.delete(particle);
                     particle.dispose();
                     particleMat.dispose();
                 }
@@ -226,6 +233,7 @@ export class EffectsManager {
             if (flashFrame < flashTotalFrames) {
                 setTimeout(flashAnimate, 30);
             } else {
+                this.activeEffects.delete(flash);
                 flash.dispose();
                 flashMat.dispose();
             }
@@ -294,6 +302,7 @@ export class EffectsManager {
             particle.position = position.clone();
             particle.position.y = 1;
             particle.material = ringMat;
+            this.activeEffects.add(particle); // Добавить в отслеживание
 
             const angle = (Math.PI * 2 * i) / 12;
             const speed = 0.5;
@@ -352,8 +361,18 @@ export class EffectsManager {
             }
         }
 
+        // ОПТИМИЗАЦИЯ: Проверка лимита активных эффектов
+        if (this.activeEffects.size >= this.MAX_ACTIVE_EFFECTS) {
+            const oldest = Array.from(this.activeEffects)[0];
+            if (oldest && !oldest.isDisposed()) {
+                oldest.dispose();
+                this.activeEffects.delete(oldest);
+            }
+        }
+        
         const flash = MeshBuilder.CreateBox("flash", { width: flashSize, height: flashSize, depth: 0.3 }, this.scene);
         flash.position = position.add(direction.scale(0.5));
+        this.activeEffects.add(flash); // Добавить в отслеживание
 
         const flashMat = new StandardMaterial("flashMat", this.scene);
         flashMat.diffuseColor = flashColor;
@@ -379,6 +398,7 @@ export class EffectsManager {
                 const progress = (frame - flashConfig.appearFrames) / flashConfig.fadeFrames;
                 flashMat.alpha = flashConfig.alpha.max * (1 - progress);
             } else {
+                this.activeEffects.delete(flash);
                 flash.dispose();
                 flashMat.dispose();
                 return;
@@ -388,8 +408,17 @@ export class EffectsManager {
         animate();
     }
 
-    // УЛУЧШЕНО: Enhanced explosion - более эффектные взрывы
+        // УЛУЧШЕНО: Enhanced explosion - более эффектные взрывы
     createExplosion(position: Vector3, scale: number = 1.0): void {
+        // ОПТИМИЗАЦИЯ: Проверка лимита активных эффектов
+        if (this.activeEffects.size >= this.MAX_ACTIVE_EFFECTS) {
+            const oldest = Array.from(this.activeEffects)[0];
+            if (oldest && !oldest.isDisposed()) {
+                oldest.dispose();
+                this.activeEffects.delete(oldest);
+            }
+        }
+        
         // УЛУЧШЕНО: Используем улучшенную систему частиц если доступна
         if (this.particleEffects) {
             this.particleEffects.createExplosion(position, scale);
@@ -399,6 +428,7 @@ export class EffectsManager {
         // Main explosion box (expanding) - replaced sphere with box
         const explosion = MeshBuilder.CreateBox("explosion", { width: 0.7 * scale, height: 0.7 * scale, depth: 0.7 * scale }, this.scene);
         explosion.position = position.clone();
+        this.activeEffects.add(explosion); // Добавить в отслеживание
 
         // УЛУЧШЕНО: Создаём новый материал для каждого взрыва (чтобы можно было менять alpha)
         const explosionMat = new StandardMaterial("explosionMatInstance", this.scene);
@@ -424,6 +454,7 @@ export class EffectsManager {
             explosionMat.alpha = Math.max(0, Math.min(1, alphaValue));
 
             if (frame >= totalFrames) {
+                this.activeEffects.delete(explosion);
                 explosion.dispose();
                 explosionMat.dispose();
                 return;
@@ -435,6 +466,15 @@ export class EffectsManager {
         // УЛУЧШЕНО: Secondary explosion rings с alpha анимацией
         for (let ring = 0; ring < 2; ring++) {
             setTimeout(() => {
+                // ОПТИМИЗАЦИЯ: Проверка лимита перед созданием кольца
+                if (this.activeEffects.size >= this.MAX_ACTIVE_EFFECTS) {
+                    const oldest = Array.from(this.activeEffects)[0];
+                    if (oldest && !oldest.isDisposed()) {
+                        oldest.dispose();
+                        this.activeEffects.delete(oldest);
+                    }
+                }
+                
                 const ringMesh = MeshBuilder.CreateBox("explosionRing", {
                     width: 0.3 * scale,
                     height: 0.1 * scale,
@@ -442,6 +482,7 @@ export class EffectsManager {
                 }, this.scene);
                 ringMesh.position = position.clone();
                 ringMesh.position.y += ring * 0.5;
+                this.activeEffects.add(ringMesh); // Добавить в отслеживание
 
                 // УЛУЧШЕНО: Создаём отдельный материал для кольца
                 const ringMat = new StandardMaterial("explosionRingMat", this.scene);
@@ -463,6 +504,7 @@ export class EffectsManager {
                     ringMat.alpha = Math.max(0, Math.min(1, ringAlpha));
 
                     if (ringFrame >= ringTotalFrames) {
+                        this.activeEffects.delete(ringMesh);
                         ringMesh.dispose();
                         ringMat.dispose();
                         return;
@@ -479,6 +521,7 @@ export class EffectsManager {
             const debrisSize = (0.2 + Math.random() * 0.3) * scale;
             const debris = MeshBuilder.CreateBox("debris", { size: debrisSize }, this.scene);
             debris.position = position.clone();
+            this.activeEffects.add(debris); // Добавить в отслеживание
 
             // УЛУЧШЕНО: Создаём отдельный материал для обломка
             const debrisMat = new StandardMaterial("debrisMat", this.scene);
@@ -514,6 +557,7 @@ export class EffectsManager {
                 debrisMat.alpha = Math.max(0, Math.min(1, debrisAlpha));
 
                 if (t > maxT || debris.position.y < 0) {
+                    this.activeEffects.delete(debris);
                     debris.dispose();
                     debrisMat.dispose();
                     return;
@@ -867,47 +911,62 @@ export class EffectsManager {
         // name: name of the trail mesh
         // new TrailMesh(name, generator, scene, diameter, length, autoStart)
         try {
-            const trail = new TrailMesh("bulletTrail", bullet, this.scene, 0.15, 20, true);
+            // NEW STRATEGY: Do not even create the TrailMesh until we are SURE the bullet is not at (0,0,0).
+            // The FPS drop comes from the TrailMesh trying to draw a 1000-unit line in one frame.
 
-            // Material setup
-            const trailMat = new StandardMaterial("trailMat", this.scene);
-            trailMat.diffuseColor = trailColor;
-            trailMat.emissiveColor = trailColor.scale(0.8);
-            trailMat.specularColor = Color3.Black();
-            trailMat.disableLighting = true;
-            trailMat.alpha = 1.0;
+            const createTrailSafe = () => {
+                // Double check matrix
+                bullet.computeWorldMatrix(true);
 
-            trail.material = trailMat;
+                // Create and start immediately now that we are safe
+                const trail = new TrailMesh("bulletTrail", bullet, this.scene, 0.15, 20, true);
 
-            // Auto-dispose logic
-            // TrailMesh automatically follows the generator.
-            // When generator (projectile) is disposed, we need to handle trail disposal.
-            // But TrailMesh doesn't automatically die when generator dies, it stops updating.
-            // We want it to fade out smoothly.
+                // Material setup
+                const trailMat = new StandardMaterial("trailMat", this.scene);
+                trailMat.diffuseColor = trailColor;
+                trailMat.emissiveColor = trailColor.scale(0.8);
+                trailMat.specularColor = Color3.Black();
+                trailMat.disableLighting = true;
+                trailMat.alpha = 1.0;
+                trail.material = trailMat;
 
-            const checkDisposal = () => {
-                if (bullet.isDisposed()) {
-                    // Projectile died, start fading out the trail
-                    let alpha = 1.0;
-                    const fadeOut = () => {
-                        alpha -= 0.1;
-                        if (trailMat) trailMat.alpha = alpha;
-
-                        if (alpha <= 0) {
-                            if (!trail.isDisposed()) trail.dispose();
-                            if (!trailMat.isDisposed) trailMat.dispose();
-                        } else {
-                            setTimeout(fadeOut, 30);
-                        }
-                    };
-                    fadeOut();
-                } else {
-                    // Check again in a bit
-                    setTimeout(checkDisposal, 100);
-                }
+                // Auto-dispose logic
+                const checkDisposal = () => {
+                    if (bullet.isDisposed()) {
+                        let alpha = 1.0;
+                        const fadeOut = () => {
+                            alpha -= 0.1;
+                            if (trailMat) trailMat.alpha = alpha;
+                            if (alpha <= 0) {
+                                trail.dispose();
+                                this.scene.onBeforeRenderObservable.removeCallback(fadeOut);
+                            }
+                        };
+                        this.scene.onBeforeRenderObservable.add(fadeOut);
+                        this.scene.onBeforeRenderObservable.removeCallback(checkDisposal);
+                    }
+                };
+                this.scene.onBeforeRenderObservable.add(checkDisposal);
             };
 
-            checkDisposal();
+            // Check if we are safe to create immediately
+            if (bullet.absolutePosition.lengthSquared() > 0.1) {
+                createTrailSafe();
+            } else {
+                // Wait for position to update
+                const safetyObserver = this.scene.onBeforeRenderObservable.add(() => {
+                    if (bullet.isDisposed()) {
+                        this.scene.onBeforeRenderObservable.remove(safetyObserver);
+                        return;
+                    }
+                    // Only create if moved from origin
+                    if (bullet.absolutePosition.lengthSquared() > 0.1) {
+                        createTrailSafe();
+                        this.scene.onBeforeRenderObservable.remove(safetyObserver);
+                    }
+                });
+            }
+
 
         } catch (e) {
             console.warn("Failed to create TrailMesh:", e);

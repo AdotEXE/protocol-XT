@@ -4,7 +4,7 @@
 
 import { logger } from "../utils/logger";
 import type { Engine, Scene, Vector3 } from "@babylonjs/core";
-import { Vector3 as Vector3Impl } from "@babylonjs/core";
+import { Vector3 as Vector3Impl, PhysicsMotionType } from "@babylonjs/core";
 import type { TankController } from "../tankController";
 import type { HUD } from "../hud";
 import type { EnemyManager } from "../enemy";
@@ -48,12 +48,12 @@ export class GameUpdate {
     // ОПТИМИЗАЦИЯ: Адаптивные интервалы обновления на основе FPS
     // Базовые интервалы увеличены для стабильного 60+ FPS
     private _adaptiveIntervals = {
-        chunkSystem: 12,      // Увеличено с 8 для оптимизации
-        enemyManager: 5,
-        turrets: 10,
-        garage: 2,
-        multiplayer: 1, // ИСПРАВЛЕНО: Было 2, теперь 1 - мультиплеер обновляется КАЖДЫЙ кадр для точной синхронизации
-        consumables: 10
+        chunkSystem: 16,      // Увеличено с 12 для оптимизации
+        enemyManager: 6,      // Увеличено с 5
+        turrets: 15,          // Увеличено с 10
+        garage: 3,            // Увеличено с 2
+        multiplayer: 1,       // Мультиплеер обновляется КАЖДЫЙ кадр для точной синхронизации
+        consumables: 15       // Увеличено с 10
     };
     private _lastFPS = 60;
     private _fpsUpdateCounter = 0;
@@ -303,8 +303,8 @@ export class GameUpdate {
             this.onCheckSpectatorMode();
         }
 
-        // ОПТИМИЗАЦИЯ: Обновление HUD каждые 4 кадра (не каждый кадр) для производительности
-        if (this._updateTick % 4 === 0 && this.onUpdateHUD) {
+        // ОПТИМИЗАЦИЯ: Обновление HUD каждые 6 кадров (не каждый кадр) для производительности
+        if (this._updateTick % 6 === 0 && this.onUpdateHUD) {
             this.onUpdateHUD();
         }
 
@@ -360,7 +360,8 @@ export class GameUpdate {
     private updateEnemiesOptimized(): void {
         if (!this.enemyTanks || !this.tank || !this.tank.chassis) return;
 
-        const playerPos = this.tank.chassis.position;
+        // ОПТИМИЗАЦИЯ: Используем кэшированную позицию игрока
+        const playerPos = this.tank.getCachedChassisPosition ? this.tank.getCachedChassisPosition() : this.tank.chassis.position;
         const enemyCount = this.enemyTanks.length;
 
         if (enemyCount === 0) return;
@@ -399,6 +400,10 @@ export class GameUpdate {
             // Обновляем только если пришло время для этого врага
             if (this._updateTick % updateInterval === 0) {
                 try {
+                    // ОПТИМИЗАЦИЯ: LOD для врагов - отключаем детали на расстоянии > 150м
+                    const distance = Math.sqrt(distSq);
+                    this.updateEnemyLOD(enemy, distance);
+                    
                     enemy.update();
                     updatedThisFrame++;
                     // ИСПРАВЛЕНО: Убран break - обновляем нескольких врагов за кадр
@@ -412,15 +417,17 @@ export class GameUpdate {
     /**
      * ИСПРАВЛЕНО: Обновление физики врагов
      * Обновляет физику для всех ближних врагов каждый кадр
+     * ОПТИМИЗАЦИЯ: Отключает физику для далёких врагов (> 100м)
      */
     private updateEnemiesPhysicsOptimized(): void {
         if (!this.enemyTanks || !this.tank || !this.tank.chassis) return;
 
-        const playerPos = this.tank.chassis.position;
+        // ОПТИМИЗАЦИЯ: Используем кэшированную позицию игрока
+        const playerPos = this.tank.getCachedChassisPosition ? this.tank.getCachedChassisPosition() : this.tank.chassis.position;
         const enemyCount = this.enemyTanks.length;
 
-        // ИСПРАВЛЕНО: Увеличена дистанция и количество обновляемых врагов
-        const MAX_PHYSICS_DISTANCE_SQ = 250000; // 500м в квадрате
+        // ОПТИМИЗАЦИЯ: Уменьшена дистанция для физики до 100м (было 500м)
+        const MAX_PHYSICS_DISTANCE_SQ = 10000; // 100м в квадрате
         const MAX_PHYSICS_ENEMIES_PER_FRAME = 15; // Максимум 15 врагов за кадр
 
         let updatedThisFrame = 0;
@@ -435,6 +442,25 @@ export class GameUpdate {
             const dx = enemy.chassis.position.x - playerPos.x;
             const dz = enemy.chassis.position.z - playerPos.z;
             const distSq = dx * dx + dz * dz;
+            const distance = Math.sqrt(distSq);
+
+            // ОПТИМИЗАЦИЯ: Отключаем физику для далёких врагов
+            const physicsBody = (enemy.chassis as any).physicsBody;
+            if (distance > 100 && physicsBody) {
+                // Переключаем на ANIMATED режим для далёких врагов
+                try {
+                    physicsBody.setMotionType(PhysicsMotionType.ANIMATED);
+                } catch (e) {
+                    // Игнорируем ошибки при переключении режима
+                }
+            } else if (distance <= 100 && physicsBody) {
+                // Включаем физику для близких врагов
+                try {
+                    physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+                } catch (e) {
+                    // Игнорируем ошибки при переключении режима
+                }
+            }
 
             // Обновляем физику для врагов в радиусе видимости
             if (distSq <= MAX_PHYSICS_DISTANCE_SQ) {
@@ -445,6 +471,35 @@ export class GameUpdate {
                     logger.warn(`[GameUpdate] Error updating enemy physics ${i}:`, e);
                 }
             }
+        }
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: LOD для врагов - отключает детали на расстоянии > 150м
+     */
+    private updateEnemyLOD(enemy: any, distance: number): void {
+        if (!enemy || !enemy.chassis || enemy.chassis.isDisposed()) return;
+        
+        const lodDistance = 150;
+        const childMeshes = enemy.chassis.getChildMeshes(false);
+        
+        if (distance > lodDistance) {
+            // Отключить детали на расстоянии > 150м
+            childMeshes.forEach((child: any) => {
+                if (!child || child.isDisposed()) return;
+                const name = child.name.toLowerCase();
+                if (name.includes("track") || name.includes("detail") || name.includes("wheel") || 
+                    name.includes("small") || name.includes("part")) {
+                    child.setEnabled(false);
+                }
+            });
+        } else {
+            // Включить все детали
+            childMeshes.forEach((child: any) => {
+                if (child && !child.isDisposed()) {
+                    child.setEnabled(true);
+                }
+            });
         }
     }
 
@@ -743,52 +798,52 @@ export class GameUpdate {
         if (fps >= 60) {
             // Идеальный FPS - оптимальные интервалы для 60+ FPS
             this._adaptiveIntervals = {
-                chunkSystem: 12,      // Увеличено с 8 для стабильности
-                enemyManager: 5,
-                turrets: 10,
-                garage: 2,
-                multiplayer: 1, // КРИТИЧНО: Всегда каждый кадр для мультиплеера
-                consumables: 10
+                chunkSystem: 16,      // Увеличено с 12 для оптимизации
+                enemyManager: 6,       // Увеличено с 5
+                turrets: 15,          // Увеличено с 10
+                garage: 3,            // Увеличено с 2
+                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера
+                consumables: 15       // Увеличено с 10
             };
         } else if (fps >= 55) {
             // FPS < 55: увеличиваем интервалы в 1.5x
             this._adaptiveIntervals = {
-                chunkSystem: 18,      // 12 * 1.5
-                enemyManager: 8,      // 5 * 1.5 (округлено)
-                turrets: 15,          // 10 * 1.5
-                garage: 3,            // 2 * 1.5 (округлено)
-                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера
-                consumables: 15       // 10 * 1.5
+                chunkSystem: 24,      // 16 * 1.5
+                enemyManager: 9,      // 6 * 1.5
+                turrets: 23,          // 15 * 1.5 (округлено)
+                garage: 5,           // 3 * 1.5 (округлено)
+                multiplayer: 1,      // КРИТИЧНО: Всегда каждый кадр для мультиплеера
+                consumables: 23       // 15 * 1.5 (округлено)
             };
         } else if (fps >= 45) {
             // FPS < 45: увеличиваем интервалы в 2x, пропускаем обновления врагов
             this._adaptiveIntervals = {
-                chunkSystem: 24,      // 12 * 2
-                enemyManager: 10,     // 5 * 2
-                turrets: 20,          // 10 * 2
-                garage: 4,            // 2 * 2
-                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера
-                consumables: 20       // 10 * 2
+                chunkSystem: 32,      // 16 * 2
+                enemyManager: 12,     // 6 * 2
+                turrets: 30,          // 15 * 2
+                garage: 6,            // 3 * 2
+                multiplayer: 1,      // КРИТИЧНО: Всегда каждый кадр для мультиплеера
+                consumables: 30       // 15 * 2
             };
         } else if (fps >= 35) {
             // FPS < 35: увеличиваем интервалы в 3x, отключаем некритичные системы
             this._adaptiveIntervals = {
-                chunkSystem: 36,      // 12 * 3
-                enemyManager: 15,     // 5 * 3
-                turrets: 30,          // 10 * 3
-                garage: 6,            // 2 * 3
-                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера
-                consumables: 30       // 10 * 3
+                chunkSystem: 48,      // 16 * 3
+                enemyManager: 18,    // 6 * 3
+                turrets: 45,         // 15 * 3
+                garage: 9,           // 3 * 3
+                multiplayer: 1,     // КРИТИЧНО: Всегда каждый кадр для мультиплеера
+                consumables: 45      // 15 * 3
             };
         } else if (fps >= 25) {
             // FPS < 25: увеличиваем интервалы в 4x, обновляем только критичные системы
             this._adaptiveIntervals = {
-                chunkSystem: 48,      // 12 * 4
-                enemyManager: 20,     // 5 * 4
-                turrets: 40,          // 10 * 4
-                garage: 8,            // 2 * 4
-                multiplayer: 1,       // КРИТИЧНО: Всегда каждый кадр для мультиплеера
-                consumables: 40       // 10 * 4
+                chunkSystem: 64,      // 16 * 4
+                enemyManager: 24,    // 6 * 4
+                turrets: 60,         // 15 * 4
+                garage: 12,         // 3 * 4
+                multiplayer: 1,     // КРИТИЧНО: Всегда каждый кадр для мультиплеера
+                consumables: 60      // 15 * 4
             };
         } else {
             // FPS < 15: ЭКСТРЕННЫЙ РЕЖИМ - только рендеринг и физика игрока
