@@ -4933,7 +4933,11 @@ export class MapEditor {
     minimize(): void {
         if (!this.container) return;
 
-        this.container.style.display = 'none';
+        // ИСПРАВЛЕНО: Используем !important для гарантированного скрытия
+        this.container.style.setProperty('display', 'none', 'important');
+        this.container.style.setProperty('visibility', 'hidden', 'important');
+        this.container.style.setProperty('opacity', '0', 'important');
+        this.container.style.setProperty('pointer-events', 'none', 'important');
 
         // Создаем кнопку восстановления, если её нет
         let restoreBtn = document.getElementById("map-editor-restore-btn");
@@ -4953,7 +4957,7 @@ export class MapEditor {
                 color: #0f0;
                 cursor: pointer;
                 font-family: 'Consolas', 'Monaco', monospace;
-                z-index: 10000;
+                z-index: 10002;
                 font-size: 20px;
                 border-radius: 50%;
                 width: 40px;
@@ -4969,8 +4973,13 @@ export class MapEditor {
             document.body.appendChild(restoreBtn);
         }
 
-        restoreBtn.style.display = 'flex';
+        restoreBtn.style.setProperty('display', 'flex', 'important');
+        restoreBtn.style.setProperty('visibility', 'visible', 'important');
+        restoreBtn.style.setProperty('opacity', '1', 'important');
+        restoreBtn.style.setProperty('pointer-events', 'auto', 'important');
+        
         this.showNotification("Редактор свернут");
+        console.log("[MapEditor] Editor minimized");
     }
 
     /**
@@ -4979,12 +4988,20 @@ export class MapEditor {
     restore(): void {
         if (!this.container) return;
 
-        this.container.style.display = 'flex'; // map-editor-overlay uses flex
+        // ИСПРАВЛЕНО: Используем !important для гарантированного показа
+        this.container.style.setProperty('display', 'flex', 'important');
+        this.container.style.setProperty('visibility', 'visible', 'important');
+        this.container.style.setProperty('opacity', '1', 'important');
+        this.container.style.setProperty('pointer-events', 'auto', 'important');
 
         const restoreBtn = document.getElementById("map-editor-restore-btn");
         if (restoreBtn) {
-            restoreBtn.style.display = 'none';
+            restoreBtn.style.setProperty('display', 'none', 'important');
+            restoreBtn.style.setProperty('visibility', 'hidden', 'important');
         }
+        
+        this.showNotification("Редактор развернут");
+        console.log("[MapEditor] Editor restored");
     }
 
     /**

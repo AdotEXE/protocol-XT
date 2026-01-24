@@ -4040,26 +4040,44 @@ export class HUD {
         editorBtn.onPointerClickObservable.add(() => {
             const game = (window as any).gameInstance;
             if (game && game.mapEditor) {
-                // Если редактор свернут, разворачиваем его
+                // Проверяем состояние редактора
                 const restoreBtn = document.getElementById("map-editor-restore-btn");
-                if (restoreBtn && restoreBtn.style.display !== 'none') {
+                const isRestoreBtnVisible = restoreBtn && 
+                    restoreBtn.style.display !== 'none' && 
+                    restoreBtn.style.visibility !== 'hidden' &&
+                    window.getComputedStyle(restoreBtn).display !== 'none';
+                
+                const isEditorActive = game.mapEditor.isEditorActive && game.mapEditor.isEditorActive();
+                const editorContainer = game.mapEditor.container;
+                const isEditorVisible = editorContainer && 
+                    editorContainer.style.display !== 'none' && 
+                    editorContainer.style.visibility !== 'hidden' &&
+                    window.getComputedStyle(editorContainer).display !== 'none';
+                
+                console.log("[HUD] Editor state:", { isRestoreBtnVisible, isEditorActive, isEditorVisible });
+                
+                if (isRestoreBtnVisible || (!isEditorVisible && isEditorActive)) {
                     // Редактор свернут - разворачиваем
+                    console.log("[HUD] Restoring editor");
                     if (typeof game.mapEditor.restore === "function") {
                         game.mapEditor.restore();
                     }
-                } else if (game.mapEditor.isEditorActive && game.mapEditor.isEditorActive()) {
+                } else if (isEditorVisible && isEditorActive) {
                     // Редактор открыт - сворачиваем
+                    console.log("[HUD] Minimizing editor");
                     if (typeof game.mapEditor.minimize === "function") {
                         game.mapEditor.minimize();
                     }
                 } else {
                     // Редактор закрыт - открываем
+                    console.log("[HUD] Opening editor");
                     if (typeof game.mapEditor.open === "function") {
                         game.mapEditor.open();
                     }
                 }
             } else if (game) {
                 // Редактор не создан - открываем через game
+                console.log("[HUD] Opening editor via game");
                 game.openMapEditorInternal();
             }
         });
