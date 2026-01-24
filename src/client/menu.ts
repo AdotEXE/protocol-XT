@@ -5,7 +5,6 @@
 // Импорты для скил-дерева перенесены в menu/skillTreeUI.ts
 import { createSkillsPanelHTML, updateSkillTreeDisplay, saveSkillTreeCameraPosition, type PlayerStats, type SkillTreeCallbacks } from "./menu/skillTreeUI";
 import { Scene, Engine } from "@babylonjs/core";
-import { VoxelEditor } from "./voxelEditor/VoxelEditor";
 import { VoxelEditor } from "./voxelEditor/VoxelEditor"; // Integrated Voxel Editor
 // Garage is lazy loaded - imported dynamically when needed
 import { CurrencyManager } from "./currencyManager";
@@ -145,6 +144,9 @@ export class MainMenu {
     private voxelEditor: VoxelEditor | null = null;
     private editorContainer: HTMLElement | null = null;
     private expandEditorBtn: HTMLButtonElement | null = null;
+
+    // Game reference for editor integration
+    private game: any = null;
 
 
     private canvasObserver: MutationObserver | null = null;
@@ -715,8 +717,11 @@ export class MainMenu {
 
                 <div class="menu-footer">
                     <div class="controls-panel">
-                        <div class="controls-title">${L.controls}</div>
-                        <div class="controls-grid">
+                        <div class="controls-title" id="controls-title">
+                            <span>${L.controls}</span>
+                            <button class="controls-toggle-btn" id="controls-toggle-btn" title="Развернуть/Свернуть">▼</button>
+                        </div>
+                        <div class="controls-grid" id="controls-grid" style="display: none;">
                             <div class="control-category">
                                 <div class="category-header">🎮 ${L.movement}</div>
                                 <div class="control-item">
@@ -1562,6 +1567,30 @@ export class MainMenu {
                 text-align: center;
                 margin-bottom: 15px;
                 text-shadow: 0 0 5px #0f0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                gap: 10px;
+                cursor: pointer;
+            }
+
+            .controls-toggle-btn {
+                background: rgba(0, 255, 0, 0.2);
+                border: 1px solid #0f0;
+                color: #0f0;
+                font-size: 10px;
+                padding: 2px 6px;
+                cursor: pointer;
+                border-radius: 3px;
+                transition: all 0.2s;
+            }
+
+            .controls-toggle-btn:hover {
+                background: rgba(0, 255, 0, 0.4);
+            }
+
+            .controls-grid.collapsed {
+                display: none !important;
             }
 
             .controls-grid {
@@ -4946,6 +4975,54 @@ export class MainMenu {
         (this.container as any)._menuMouseMoveHandler = handleMouseMove;
         (this.container as any)._menuMouseDownHandler = handleMouseDown;
         (this.container as any)._menuMouseUpHandler = handleMouseUp;
+
+        // Инициализация панели управления (сворачивание/разворачивание)
+        this.setupControlsPanel();
+    }
+
+    private setupControlsPanel(): void {
+        const controlsTitle = document.getElementById("controls-title");
+        const controlsToggleBtn = document.getElementById("controls-toggle-btn");
+        const controlsGrid = document.getElementById("controls-grid");
+
+        if (!controlsTitle || !controlsToggleBtn || !controlsGrid) {
+            // ИСПРАВЛЕНИЕ: Если элементы не найдены, пробуем через небольшой таймаут
+            setTimeout(() => this.setupControlsPanel(), 100);
+            return;
+        }
+
+        // Загружаем состояние из localStorage (по умолчанию свернуто)
+        const isExpanded = localStorage.getItem("controls-panel-expanded") === "true";
+        
+        // Устанавливаем начальное состояние
+        if (!isExpanded) {
+            controlsGrid.style.display = "none";
+            controlsToggleBtn.textContent = "▶";
+        } else {
+            controlsGrid.style.display = "";
+            controlsToggleBtn.textContent = "▼";
+        }
+
+        // Обработчик клика на заголовок или кнопку
+        const toggleControls = () => {
+            const isCurrentlyExpanded = controlsGrid.style.display !== "none";
+            
+            if (isCurrentlyExpanded) {
+                controlsGrid.style.display = "none";
+                controlsToggleBtn.textContent = "▶";
+                localStorage.setItem("controls-panel-expanded", "false");
+            } else {
+                controlsGrid.style.display = "";
+                controlsToggleBtn.textContent = "▼";
+                localStorage.setItem("controls-panel-expanded", "true");
+            }
+        };
+
+        controlsTitle.addEventListener("click", toggleControls);
+        controlsToggleBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            toggleControls();
+        });
     }
 
     private updatePlayerInfo(immediate: boolean = false): void {
@@ -5051,7 +5128,7 @@ export class MainMenu {
 
         // Listen for settings changes from the component
         this.settingsPanel.addEventListener('settingsChanged', (e) => {
-            const customEvent = e;
+            const customEvent = e as CustomEvent;
             if (customEvent.detail) {
                 this.settings = customEvent.detail;
                 // Settings are already saved by the component
@@ -5154,7 +5231,7 @@ export class MainMenu {
             c.classList.remove("active");
         });
 
-        const contentId = `progress - ${tab} -content`;
+        const contentId = `progress-${tab}-content`;
         const contentEl = document.getElementById(contentId);
         if (contentEl) {
             contentEl.classList.add("active");
@@ -5625,7 +5702,8 @@ export class MainMenu {
         // Try both containers (panel and play window)
         const containers = [
             document.getElementById("custom-maps-grid"),
-            document.getElementById("custom-maps-list-play-window")
+            document.getElementById("custom-maps-list-play-window"),
+            document.getElementById("mp-create-room-custom-maps-grid")
         ];
 
         const maps = getCustomMapsList();
@@ -5678,8 +5756,20 @@ export class MainMenu {
 
                 // Select handler
                 card.addEventListener("click", () => {
-                    // If in Play Window, we might need a different flow?
-                    // Current flow: Load map -> Start Game immediately
+                    // Check if we are in multiplayer create room context
+                    if (container.id === "mp-create-room-custom-maps-grid") {
+                        // Load map data first to ensure it's selected
+                        if (loadCustomMap(mapName)) {
+                            // Call the existing selection function but with 'custom' type
+                            // We pass the card element to visualize selection
+                            (window as any).selectMpCreateRoomMap('custom', card);
+                        } else {
+                            alert("Ошибка загрузки карты!");
+                        }
+                        return;
+                    }
+
+                    // Standard single player flow: Load map -> Start Game immediately
                     if (loadCustomMap(mapName)) {
                         this.hide();
                         this.hideMapSelection();
@@ -5857,7 +5947,7 @@ export class MainMenu {
                     <div style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.95) 0%, rgba(30, 30, 40, 0.95) 100%); border: 2px solid #667eea; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); position: relative; z-index: 100006;" >
                         <div style="font-size: 18px; font-weight: bold; margin-bottom: 20px; color: #fff;" > Присоединиться к комнате </div>
                             <div style="margin-bottom: 20px;" >
-                                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 8px;" > ID комнаты: </label>
+                                <label for="mp-room-id-input" style="display: block; font-size: 12px; color: #aaa; margin-bottom: 8px;" > ID комнаты: </label>
                                     <input type="text" id="mp-room-id-input" placeholder="Введите ID комнаты" style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.4); border: 1px solid #444; border-radius: 6px; color: #fff; font-family: monospace; font-size: 14px; outline: none; transition: border-color 0.2s;" />
                                         <div id="mp-room-id-error" style="display: none; color: #ef4444; font-size: 11px; margin-top: 6px;" > </div>
                                             </div>
@@ -6301,6 +6391,15 @@ export class MainMenu {
                                                                                                                                                                                                                                                                                                                                                             <span class="map-card-name" > ${L.tartariaMap || "Тартария"} </span>
                                                                                                                                                                                                                                                                                                                                                                 </div>
                                                                                                                                                                                                                                                                                                                                                                 </div>
+                                                                                                                                                                                                                                                                                                                                                                 
+                                                                                                                                                                                                                                                                                                                                                                 <!-- CUSTOM MAPS SECTION FOR MULTIPLAYER -->
+                                                                                                                                                                                                                                                                                                                                                                 <div class="panel-section-title" style="margin-top: 25px; color: #fbbf24; border-bottom: 1px solid rgba(251, 191, 36, 0.3); padding-bottom: 8px; margin-bottom: 15px; font-weight: bold; font-family: 'Press Start 2P'; font-size: 12px;">ПОЛЬЗОВАТЕЛЬСКИЕ КАРТЫ</div>
+                                                                                                                                                                                                                                                                                                                                                                 <div class="map-grid" id="mp-create-room-custom-maps-grid">
+                                                                                                                                                                                                                                                                                                                                                                     <!-- Custom maps will be populated here -->
+                                                                                                                                                                                                                                                                                                                                                                     <div style="grid-column: 1 / -1; text-align: center; color: #888; font-size: 11px; padding: 20px; background: rgba(0,0,0,0.2); border-radius: 4px; border: 1px dashed #444;">
+                                                                                                                                                                                                                                                                                                                                                                         <div>Нет сохраненных карт</div>
+                                                                                                                                                                                                                                                                                                                                                                     </div>
+                                                                                                                                                                                                                                                                                                                                                                 </div>
 
                                                                                                                                                                                                                                                                                                                                                                 <!--Настройки ботов-->
                                                                                                                                                                                                                                                                                                                                                                     <div class="bot-settings" style="margin-top: 15px; padding: 12px; background: rgba(0, 0, 0, 0.3); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1);" >
@@ -6311,7 +6410,7 @@ export class MainMenu {
                                                                                                                                                                                                                                                                                                                                                                                         </label>
                                                                                                                                                                                                                                                                                                                                                                                         </div>
                                                                                                                                                                                                                                                                                                                                                                                         <div id="mp-bot-count-wrapper" style="display: none; margin-top: 10px;" >
-                                                                                                                                                                                                                                                                                                                                                                                            <label style="color: #aaa; font-size: 12px; display: block; margin-bottom: 5px;" > Количество ботов: </label>
+                                                                                                                                                                                                                                                                                                                                                                                            <label for="mp-bot-count" style="color: #aaa; font-size: 12px; display: block; margin-bottom: 5px;" > Количество ботов: </label>
                                                                                                                                                                                                                                                                                                                                                                                                 <div style="display: flex; align-items: center; gap: 10px;" >
                                                                                                                                                                                                                                                                                                                                                                                                     <input type="range" id="mp-bot-count" min="1" max="16" value="4" style="flex: 1; cursor: pointer;" >
                                                                                                                                                                                                                                                                                                                                                                                                         <span id="mp-bot-count-value" style="color: #4ade80; font-weight: bold; min-width: 30px; text-align: center;" > 4 </span>
@@ -6472,7 +6571,7 @@ transition: all 0.2s;
         <!--Максимальное количество игроков-->
             <div style="margin-bottom: 15px;" >
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;" >
-                    <label style="font-size: 12px; color: #aaa;" > Максимум игроков: </label>
+                    <label for="mp-room-panel-max-players" style="font-size: 12px; color: #aaa;" > Максимум игроков: </label>
                         <span id="mp-room-panel-max-players-value" style="font-size: 14px; color: #4ade80; font-weight: bold;" > 32 </span>
                             </div>
                             <input type="range" id="mp-room-panel-max-players" min="2" max="32" value="32" step="1" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
@@ -6485,7 +6584,7 @@ transition: all 0.2s;
                                     <!--Время раунда-->
                                         <div style="margin-bottom: 15px;" >
                                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;" >
-                                                <label style="font-size: 12px; color: #aaa;" > Время раунда(мин): </label>
+                                                <label for="mp-room-panel-round-time" style="font-size: 12px; color: #aaa;" > Время раунда(мин): </label>
                                                     <span id="mp-room-panel-round-time-value" style="font-size: 14px; color: #4ade80; font-weight: bold;" > 10 </span>
                                                         </div>
                                                         <input type="range" id="mp-room-panel-round-time" min="5" max="60" value="10" step="5" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
@@ -6498,7 +6597,7 @@ transition: all 0.2s;
                                                                 <!--Лимит убийств / очков-->
                                                                     <div style="margin-bottom: 15px;" >
                                                                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;" >
-                                                                            <label style="font-size: 12px; color: #aaa;" > Лимит убийств для победы: </label>
+                                                                            <label for="mp-room-panel-kill-limit" style="font-size: 12px; color: #aaa;" > Лимит убийств для победы: </label>
                                                                                 <span id="mp-room-panel-kill-limit-value" style="font-size: 14px; color: #4ade80; font-weight: bold;" > 50 </span>
                                                                                     </div>
                                                                                     <input type="range" id="mp-room-panel-kill-limit" min="10" max="200" value="50" step="10" style="width: 100%; height: 6px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
@@ -6514,8 +6613,8 @@ transition: all 0.2s;
 
                                                                                                         <!--Разрешенные танки-->
                                                                                                             <div style="margin-bottom: 10px;" >
-                                                                                                                <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;" > Разрешенные классы танков: </label>
-                                                                                                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;" >
+                                                                                                                <label id="label-tank-classes" style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;" > Разрешенные классы танков: </label>
+                                                                                                                    <div role="group" aria-labelledby="label-tank-classes" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;" >
                                                                                                                         <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
                                                                                                                             <input type="checkbox" id="mp-room-panel-allow-light" checked style="cursor: pointer;" >
                                                                                                                                 <span>⚡ Легкие </span>
@@ -6537,8 +6636,8 @@ transition: all 0.2s;
 
                                                                                                                                                                         <!--Разрешенное оружие-->
                                                                                                                                                                             <div style="margin-bottom: 10px;" >
-                                                                                                                                                                                <label style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;" > Разрешенные типы оружия: </label>
-                                                                                                                                                                                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;" >
+                                                                                                                                                                                <label id="label-weapon-types" style="font-size: 11px; color: #aaa; display: block; margin-bottom: 6px;" > Разрешенные типы оружия: </label>
+                                                                                                                                                                                    <div role="group" aria-labelledby="label-weapon-types" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;" >
                                                                                                                                                                                         <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #aaa; cursor: pointer;" >
                                                                                                                                                                                             <input type="checkbox" id="mp-room-panel-allow-standard" checked style="cursor: pointer;" >
                                                                                                                                                                                                 <span>🔫 Стандартные </span>
@@ -6806,9 +6905,9 @@ transition: all 0.2s;
             const button = document.getElementById(`play-btn-map-${map}`);
 
             button?.addEventListener("click", () => {
-                // Очищаем выбранную пользовательскую карту при выборе стандартной
-                localStorage.removeItem("selectedCustomMapData");
-                localStorage.removeItem("selectedCustomMapIndex");
+                // ИСПРАВЛЕНИЕ: Не очищаем данные пользовательской карты автоматически
+                // localStorage.removeItem("selectedCustomMapData");
+                // localStorage.removeItem("selectedCustomMapIndex");
                 this.selectMap(map as MapType);
             });
         });
@@ -8056,11 +8155,11 @@ transition: all 0.2s;
     private async createMultiplayerRoom(mode: string, mapType?: string): Promise<void> {
         debugLog("[Menu] Creating multiplayer room for mode:", mode, "mapType:", mapType);
 
-        // КРИТИЧНО: Очищаем custom map данные при создании мультиплеер комнаты
-        // Это гарантирует, что все игроки увидят одинаковую карту с сервера
-        localStorage.removeItem("selectedCustomMapData");
-        localStorage.removeItem("selectedCustomMapIndex");
-        debugLog("[Menu] 🗺️ Очищены данные custom карты при создании мультиплеер комнаты");
+        // КРИТИЧНО: НЕ очищаем custom map данные при создании мультиплеер комнаты
+        // Это позволит использовать кастомные карты
+        // localStorage.removeItem("selectedCustomMapData");
+        // localStorage.removeItem("selectedCustomMapIndex");
+        debugLog("[Menu] 🗺️ Custom map data preserved for multiplayer (createMultiplayerRoom)");
 
         const game = (window as any).gameInstance as any;
         if (!game) {
@@ -8186,8 +8285,24 @@ transition: all 0.2s;
 
         // Используем прямой вызов метода multiplayerManager для большей надежности
         try {
-            // Вызываем createRoom напрямую с mapType
-            const success = multiplayerManager.createRoom(mode as any, 32, false, mapType);
+            // Если выбрана custom карта, загружаем её данные из localStorage
+            let customMapData = null;
+            if (mapType === 'custom') {
+                try {
+                    const savedMapData = localStorage.getItem("selectedCustomMapData");
+                    if (savedMapData) {
+                        customMapData = JSON.parse(savedMapData);
+                        debugLog(`[Menu] 📦 Loaded custom map data. Name: ${customMapData.name}, Objects: ${customMapData.placedObjects?.length}, Triggers: ${customMapData.triggers?.length}`);
+                    } else {
+                        debugWarn("[Menu] ⚠️ Custom map selected but no data found in localStorage!");
+                    }
+                } catch (e) {
+                    debugError("[Menu] Failed to parse custom map data:", e);
+                }
+            }
+
+            // Вызываем createRoom напрямую с mapType и данными карты
+            const success = multiplayerManager.createRoom(mode as any, 32, false, mapType, false, 0, customMapData);
             if (success) {
                 debugLog("[Menu] Room creation request sent for mode:", mode, "mapType:", mapType);
             } else {
@@ -8319,7 +8434,7 @@ transition: all 0.2s;
 padding: 10px;
 background: rgba(0, 0, 0, 0.3);
 border: 1px solid rgba(102, 126, 234, 0.3);
-border - radius: 6px;
+border-radius: 6px;
 cursor: pointer;
 transition: all 0.2s;
 `;
@@ -8350,21 +8465,21 @@ transition: all 0.2s;
             const mapType = room.mapType || "normal";
 
             roomItem.innerHTML = `
-    < div style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
-        <div style="font-weight: bold; color: #fff; font-size: 13px;" > Комната ${room.id} </div>
-            < div style = "font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;" > ${statusText} </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-weight: bold; color: #fff; font-size: 13px;">Комната ${room.id}</div>
+                    <div style="font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;">${statusText}</div>
                 </div>
-                < div style = "display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;" >
-                    <span>Режим: <span style="color: #fff;" > ${room.mode.toUpperCase()} </span></span >
-                        <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};" > ${room.players} /${room.maxPlayers}</span > </span>
-                            </div>
-                            < div style = "font-size: 11px; color: #aaa;" >
-                                <span>Карта: <span style="color: #fbbf24;" > ${mapType} </span></span >
-                                    </div>
-                                    < div style = "margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;" >
-                                        Клик — детали • Двойной клик — войти
-                                            </div>
-                                                `;
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;">
+                    <span>Режим: <span style="color: #fff;">${room.mode.toUpperCase()}</span></span>
+                    <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};">${room.players}/${room.maxPlayers}</span></span>
+                </div>
+                <div style="font-size: 11px; color: #aaa;">
+                    <span>Карта: <span style="color: #fbbf24;">${mapType}</span></span>
+                </div>
+                <div style="margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;">
+                    Клик — детали • Двойной клик — войти
+                </div>
+            `;
 
             roomsContainer.appendChild(roomItem);
         });
@@ -10446,11 +10561,10 @@ transition: all 0.2s;
      * Присоединение к комнате
      */
     joinRoom(roomId: string): void {
-        // КРИТИЧНО: Очищаем custom map данные при входе в мультиплеер
-        // Это гарантирует, что все игроки увидят одинаковую карту с сервера
-        localStorage.removeItem("selectedCustomMapData");
-        localStorage.removeItem("selectedCustomMapIndex");
-        debugLog("[Menu] 🗺️ Очищены данные custom карты при входе в мультиплеер (joinRoom)");
+        // КРИТИЧНО: НЕ очищаем custom map данные при входе в мультиплеер, если хотим их использовать
+        // localStorage.removeItem("selectedCustomMapData");
+        // localStorage.removeItem("selectedCustomMapIndex");
+        debugLog("[Menu] 🗺️ Custom map data preserved for multiplayer (joinRoom)");
 
         const game = (window as any).gameInstance as any;
         const multiplayerManager = game?.multiplayerManager;
@@ -12166,7 +12280,9 @@ transition: all 0.2s;
         this.selectedMapType = map;
         debugLog("[Menu] Selected map:", map);
 
-        // Если выбрана стандартная карта, очищаем данные пользовательской карты
+        // ИСПРАВЛЕНИЕ: Не очищаем данные пользовательской карты автоматически
+        // Теперь game.ts сам проверяет соответствие типа карты перед загрузкой
+        /*
         const customMapData = localStorage.getItem("selectedCustomMapData");
         if (customMapData && map !== "custom") {
             try {
@@ -12180,6 +12296,7 @@ transition: all 0.2s;
                 // Игнорируем ошибки парсинга
             }
         }
+        */
 
         // Обновляем визуал стандартных карт
         document.querySelectorAll("[data-map]").forEach(btn => {
@@ -14099,6 +14216,74 @@ transition: all 0.2s;
 
         // Добавляем обработчик на window для перехвата ESC
         window.addEventListener("keydown", escHandler, true); // Используем capture phase для приоритета
+        
+        // НАВИГАЦИЯ КЛАВИАТУРОЙ: Стрелки, Tab, Enter
+        this.setupKeyboardNavigation();
+    }
+    
+    /**
+     * Настройка навигации клавиатурой для всех меню
+     */
+    private setupKeyboardNavigation(): void {
+        const keyHandler = (e: KeyboardEvent) => {
+            if (!this.isVisible()) return;
+            
+            // Получаем все фокусируемые элементы
+            const focusableElements = this.container.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            );
+            
+            if (focusableElements.length === 0) return;
+            
+            const currentIndex = Array.from(focusableElements).findIndex(el => el === document.activeElement);
+            
+            // Стрелки вверх/вниз для навигации
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                let nextIndex: number;
+                if (e.key === "ArrowDown") {
+                    nextIndex = currentIndex < focusableElements.length - 1 ? currentIndex + 1 : 0;
+                } else {
+                    nextIndex = currentIndex > 0 ? currentIndex - 1 : focusableElements.length - 1;
+                }
+                
+                const nextElement = focusableElements[nextIndex];
+                if (nextElement) {
+                    nextElement.focus();
+                    // Прокручиваем в видимую область
+                    nextElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }
+                return;
+            }
+            
+            // Tab для навигации (стандартное поведение, но с обработкой)
+            if (e.key === "Tab") {
+                // Разрешаем стандартное поведение Tab, но добавляем визуальную индикацию
+                const activeEl = document.activeElement as HTMLElement;
+                if (activeEl && activeEl.classList) {
+                    activeEl.classList.add("keyboard-focused");
+                    setTimeout(() => activeEl.classList.remove("keyboard-focused"), 200);
+                }
+                return;
+            }
+            
+            // Enter для активации кнопок
+            if (e.key === "Enter" && document.activeElement instanceof HTMLElement) {
+                const activeEl = document.activeElement;
+                if (activeEl.tagName === "BUTTON" || activeEl.getAttribute("role") === "button") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    activeEl.click();
+                }
+            }
+        };
+        
+        window.addEventListener("keydown", keyHandler, true);
+        
+        // Сохраняем ссылку для очистки
+        (this.container as any)._keyboardNavHandler = keyHandler;
     }
 
     hide(): void {
@@ -14372,7 +14557,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // Создаем комнату через multiplayerManager напрямую с mapType и настройками ботов
         try {
-            const success = multiplayerManager.createRoom(mode as any, 32, false, mapType, enableBots, botCount);
+            // Если выбрана custom карта, загружаем её данные из localStorage
+            let customMapData = null;
+            if (mapType === 'custom') {
+                try {
+                    const savedMapData = localStorage.getItem("selectedCustomMapData");
+                    if (savedMapData) {
+                        customMapData = JSON.parse(savedMapData);
+                        console.log("[Menu] 📦 Loaded custom map data for multiplayer room:", customMapData.name);
+                    } else {
+                        console.warn("[Menu] ⚠️ Custom map selected but no data found in localStorage!");
+                    }
+                } catch (e) {
+                    console.error("[Menu] Failed to parse custom map data:", e);
+                }
+            }
+
+            const success = multiplayerManager.createRoom(mode as any, 32, false, mapType, enableBots, botCount, customMapData);
             if (!success) {
                 console.error("[Menu] Failed to create room");
                 alert("Не удалось создать комнату. Проверьте подключение.");
