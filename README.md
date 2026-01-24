@@ -35,8 +35,22 @@ The game features realistic hover-tank physics, a robust client-server architect
 | **🦾 Physics & Core** | • **Havok Physics Engine**: Realistic collisions and interactions.<br>• **Hover Mechanics**: Advanced suspension system for smooth terrain traversal.<br>• **Anisotropic Friction**: Drifting and precise movement control. |
 | **🌍 World Generation** | • **8+ Map Generators**: Procedural maps including Urban, Wasteland, Canyon, and more.<br>• **Dynamic Chunks**: Infinite world potential with optimized loading.<br>• **Destructible Environment**: Breakable objects and changing cover. |
 | **⚔️ Combat & Gameplay** | • **Ballistic System**: Realistic projectile trajectories with gravity and travel time.<br>• **Smart AI**: Enemy bots with patrolling, pursuing, and tactical behaviors.<br>• **Progression**: Exp system, levels, skills, and tank upgrades. |
-| **🛠️ Tech Stack** | • **WebGPU / WebGL2**: Cutting-edge rendering support.<br>• **WebSocket Multiplayer**: Custom binary protocol for efficient data sync.<br>• **Modular Architecture**: Component-based design for scalability. |
+| **🛠️ Tech Stack** | • **WebGPU / WebGL2**: Cutting-edge rendering support with optimized performance.<br>• **WebSocket Multiplayer**: Custom binary protocol for efficient data sync.<br>• **Modular Architecture**: Component-based design for scalability.<br>• **Performance Optimized**: Advanced caching, LOD, and adaptive update systems for 60 FPS gameplay. |
 | **🎨 PolyGen Studio** | • **AI Map Editor**: Generate terrain, cities, and bases using **Gemini AI** prompts.<br>• **Real-World Import**: One-click import of real cities via **OpenStreetMap**.<br>• **Live Preview**: See physics and lighting exactly as they appear in-game. |
+
+### 🚀 Performance Optimizations
+
+Protocol TX implements advanced performance optimizations to ensure smooth 60 FPS gameplay:
+
+- **Adaptive Update Intervals**: Systems update at different frequencies based on priority (camera every frame, HUD every 6 frames, chunk system every 16 frames)
+- **Position Caching**: Expensive `getAbsolutePosition()` and `computeWorldMatrix()` calls are cached per frame, reducing calculations by 80-90%
+- **LOD System**: Level-of-detail management for distant objects - enemy details are disabled beyond 150m
+- **Material Pooling**: Shared materials reduce memory usage and improve rendering performance
+- **Physics Optimization**: Distant objects use simplified physics (ANIMATED mode) to reduce CPU load
+- **Effect Limits**: Maximum 50 active effects prevent performance degradation during intense combat
+- **Raycast Caching**: Camera collision raycasts are cached when camera position hasn't changed significantly
+
+For detailed performance tuning, see the [Performance Guide](docs/PERFORMANCE.md).
 
 ## 🚀 Getting Started
 
@@ -115,6 +129,7 @@ We maintain extensive documentation for developers:
 
 *   [**Architecture & Design**](docs/ARCHITECTURE.md) - System deep dive.
 *   [**Features List**](docs/FEATURES.md) - Detailed breakdown of game mechanics.
+*   [**Performance Guide**](docs/PERFORMANCE.md) - Performance optimizations and tuning.
 *   [**Contributing Guide**](docs/CONTRIBUTING.md) - How to get involved.
 *   [**API Reference**](docs/API.md) - Internal API documentation.
 

@@ -137,7 +137,7 @@ mesh.computeWorldMatrix(true); // Дорогая операция
 ### Кэширование вычислений
 
 ```typescript
-// ✅ Хорошо - кэширование
+// ✅ Хорошо - кэширование позиций
 private _cachedPosition: Vector3 | null = null;
 private _cacheFrame = 0;
 
@@ -152,6 +152,59 @@ getPosition(): Vector3 {
 // ❌ Плохо - вычисление каждый раз
 getPosition(): Vector3 {
     return this.chassis.getAbsolutePosition(); // Дорого каждый раз
+}
+```
+
+### Кэширование матриц
+
+```typescript
+// ✅ Хорошо - кэширование computeWorldMatrix
+private _cachedWorldMatrix: Matrix | null = null;
+private _worldMatrixCacheFrame = -1;
+
+getWorldMatrix(): Matrix {
+    if (this._updateTick !== this._worldMatrixCacheFrame) {
+        this.mesh.computeWorldMatrix(true);
+        this._cachedWorldMatrix = this.mesh.getWorldMatrix();
+        this._worldMatrixCacheFrame = this._updateTick;
+    }
+    return this._cachedWorldMatrix!;
+}
+
+// ❌ Плохо - вычисление каждый раз
+getWorldMatrix(): Matrix {
+    this.mesh.computeWorldMatrix(true); // Дорогая операция каждый кадр
+    return this.mesh.getWorldMatrix();
+}
+```
+
+### Кэширование результатов raycast
+
+```typescript
+// ✅ Хорошо - кэширование raycast
+private _lastRaycastResult: { hit: boolean, distance: number, frame: number } | null = null;
+private _lastRaycastPos: Vector3 = Vector3.Zero();
+private _raycastCacheDistance = 0.5;
+
+checkCollision(): boolean {
+    const cameraMoved = this.camera.position.subtract(this._lastRaycastPos).lengthSquared() > 
+        this._raycastCacheDistance * this._raycastCacheDistance;
+    
+    if (!cameraMoved && this._lastRaycastResult && 
+        this._lastRaycastResult.frame === this._updateTick - 1) {
+        // Использовать кэшированный результат
+        return this._lastRaycastResult.hit;
+    }
+    
+    // Выполнить новый raycast
+    const hit = this.scene.pickWithRay(this.ray, this.filter);
+    this._lastRaycastResult = {
+        hit: hit?.hit || false,
+        distance: hit?.distance || 0,
+        frame: this._updateTick
+    };
+    this._lastRaycastPos.copyFrom(this.camera.position);
+    return this._lastRaycastResult.hit;
 }
 ```
 
