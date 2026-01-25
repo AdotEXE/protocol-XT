@@ -213,6 +213,33 @@ export class PerformanceOptimizer {
     }
 }
 
-// Глобальный экземпляр
-export const performanceOptimizer = new PerformanceOptimizer();
+// ============================================
+// СИНГЛТОН (LAZY INITIALIZATION)
+// ============================================
+
+let _performanceOptimizerInstance: PerformanceOptimizer | null = null;
+
+export function getPerformanceOptimizer(): PerformanceOptimizer {
+    if (!_performanceOptimizerInstance) {
+        _performanceOptimizerInstance = new PerformanceOptimizer();
+    }
+    return _performanceOptimizerInstance;
+}
+
+/** Глобальный экземпляр (lazy proxy) */
+export const performanceOptimizer: PerformanceOptimizer = new Proxy({} as PerformanceOptimizer, {
+    get(_target, prop) {
+        const instance = getPerformanceOptimizer();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getPerformanceOptimizer();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 

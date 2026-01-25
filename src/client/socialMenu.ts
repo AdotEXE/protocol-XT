@@ -846,6 +846,33 @@ export class SocialMenu {
     }
 }
 
-// Создаем единственный экземпляр
-export const socialMenu = new SocialMenu();
+// ============================================
+// СИНГЛТОН (LAZY INITIALIZATION)
+// ============================================
+
+let _socialMenuInstance: SocialMenu | null = null;
+
+export function getSocialMenu(): SocialMenu {
+    if (!_socialMenuInstance) {
+        _socialMenuInstance = new SocialMenu();
+    }
+    return _socialMenuInstance;
+}
+
+/** Глобальный экземпляр (lazy proxy) */
+export const socialMenu: SocialMenu = new Proxy({} as SocialMenu, {
+    get(_target, prop) {
+        const instance = getSocialMenu();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getSocialMenu();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 

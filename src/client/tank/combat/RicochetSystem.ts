@@ -409,6 +409,29 @@ export class RicochetSystem {
     }
 }
 
-// Экспорт синглтона для глобального использования
-export const ricochetSystem = new RicochetSystem();
+// LAZY SINGLETON
+let _ricochetSystemInstance: RicochetSystem | null = null;
+
+export function getRicochetSystem(): RicochetSystem {
+    if (!_ricochetSystemInstance) {
+        _ricochetSystemInstance = new RicochetSystem();
+    }
+    return _ricochetSystemInstance;
+}
+
+export const ricochetSystem: RicochetSystem = new Proxy({} as RicochetSystem, {
+    get(_target, prop) {
+        const instance = getRicochetSystem();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getRicochetSystem();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 

@@ -47,8 +47,8 @@ export {
 } from './UpgradeConfig';
 
 // Менеджер
-export { UpgradeManager, upgradeManager } from './UpgradeManager';
+export { UpgradeManager, upgradeManager, getUpgradeManager } from './UpgradeManager';
 
 // UI
-export { UpgradeUI, upgradeUI } from './UpgradeUI';
+export { UpgradeUI, upgradeUI, getUpgradeUI } from './UpgradeUI';
 

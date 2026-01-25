@@ -1106,6 +1106,29 @@ export class AuthUI {
     }
 }
 
-// Singleton instance
-export const authUI = new AuthUI();
+// LAZY SINGLETON
+let _authUIInstance: AuthUI | null = null;
+
+export function getAuthUI(): AuthUI {
+    if (!_authUIInstance) {
+        _authUIInstance = new AuthUI();
+    }
+    return _authUIInstance;
+}
+
+export const authUI: AuthUI = new Proxy({} as AuthUI, {
+    get(_target, prop) {
+        const instance = getAuthUI();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getAuthUI();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 

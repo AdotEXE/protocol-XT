@@ -537,9 +537,37 @@ export class UpgradeManager {
 }
 
 // ============================================
-// СИНГЛТОН
+// СИНГЛТОН (LAZY INITIALIZATION)
 // ============================================
 
-/** Глобальный экземпляр менеджера прокачки */
-export const upgradeManager = new UpgradeManager();
+/** Приватный экземпляр менеджера прокачки */
+let _upgradeManagerInstance: UpgradeManager | null = null;
+
+/** Получить глобальный экземпляр менеджера прокачки */
+export function getUpgradeManager(): UpgradeManager {
+    if (!_upgradeManagerInstance) {
+        _upgradeManagerInstance = new UpgradeManager();
+    }
+    return _upgradeManagerInstance;
+}
+
+/** 
+ * Глобальный экземпляр менеджера прокачки (lazy proxy)
+ * Использует Proxy для прозрачного доступа к lazy-initialized инстансу
+ */
+export const upgradeManager: UpgradeManager = new Proxy({} as UpgradeManager, {
+    get(_target, prop) {
+        const instance = getUpgradeManager();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getUpgradeManager();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 

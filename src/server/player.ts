@@ -24,8 +24,9 @@ export class ServerPlayer {
     // Customization
     chassisType: string = "medium";
     cannonType: string = "standard";
-    tankColor: string = "#1E90FF";
-    turretColor: string = "#1E90FF";
+    trackType: string = "standard";
+    tankColor: string = "#00ff00"; // Default green (matches medium chassis)
+    turretColor: string = "#00ff00";
 
     // Chassis dimensions for hit detection (set based on chassisType)
     chassisHalfWidth: number = 1.1;  // Half of chassis width
@@ -101,6 +102,7 @@ export class ServerPlayer {
             // Tank customization
             chassisType: this.chassisType,
             cannonType: this.cannonType,
+            trackType: this.trackType,
             tankColor: this.tankColor,
             turretColor: this.turretColor,
             // Velocity data for dead reckoning

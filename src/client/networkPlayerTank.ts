@@ -114,8 +114,8 @@ export class NetworkPlayerTank {
         // Get tank types from network player or use defaults
         this.chassisType = getChassisById(networkPlayer.chassisType || "medium");
         this.cannonType = getCannonById(networkPlayer.cannonType || "standard");
-        // FIX: Add track type support (default to standard if not in network player yet)
-        this.trackType = getTrackById((networkPlayer as any).trackType || "standard");
+        // Track type from network player
+        this.trackType = getTrackById(networkPlayer.trackType || "standard");
 
         // Create tank visuals using REAL detailed models
         this.chassis = this.createDetailedChassis();
@@ -266,7 +266,7 @@ export class NetworkPlayerTank {
         }
 
         // Check track type change (if supported in future)
-        const newTrackType = getTrackById((this.networkPlayer as any).trackType || "standard");
+        const newTrackType = getTrackById(this.networkPlayer.trackType || "standard");
         if (newTrackType.id !== this.trackType.id) {
             this.trackType = newTrackType;
             
@@ -309,7 +309,7 @@ export class NetworkPlayerTank {
 
         this.chassisType = getChassisById(this.networkPlayer.chassisType || "medium");
         this.cannonType = getCannonById(this.networkPlayer.cannonType || "standard");
-        this.trackType = getTrackById((this.networkPlayer as any).trackType || "standard");
+        this.trackType = getTrackById(this.networkPlayer.trackType || "standard");
 
         this.chassis = this.createDetailedChassis();
         this.turret = this.createDetailedTurret();

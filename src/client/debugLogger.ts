@@ -102,15 +102,44 @@ class DebugLogger {
     }
 }
 
-export const debugLogger = new DebugLogger();
+// ============================================
+// СИНГЛТОН (LAZY INITIALIZATION)
+// ============================================
 
-// Enable logging via console if needed: debugLogger['isEnabled'] = true
-// Expose stats via console: console.log(debugLogger.getStats())
+let _debugLoggerInstance: DebugLogger | null = null;
+let _beforeUnloadRegistered = false;
 
-// Flush on page unload
-if (typeof window !== 'undefined') {
-    window.addEventListener('beforeunload', () => {
-        debugLogger.forceFlush();
-    });
+export function getDebugLogger(): DebugLogger {
+    if (!_debugLoggerInstance) {
+        _debugLoggerInstance = new DebugLogger();
+        // Register beforeunload handler once
+        if (typeof window !== 'undefined' && !_beforeUnloadRegistered) {
+            _beforeUnloadRegistered = true;
+            window.addEventListener('beforeunload', () => {
+                _debugLoggerInstance?.forceFlush();
+            });
+        }
+    }
+    return _debugLoggerInstance;
 }
+
+/** Глобальный экземпляр (lazy proxy) */
+export const debugLogger: DebugLogger = new Proxy({} as DebugLogger, {
+    get(_target, prop) {
+        const instance = getDebugLogger();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getDebugLogger();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
+
+// Enable logging via console if needed: getDebugLogger()['isEnabled'] = true
+// Expose stats via console: console.log(getDebugLogger().getStats())
 

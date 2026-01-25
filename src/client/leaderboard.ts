@@ -96,5 +96,29 @@ export class Leaderboard {
     }
 }
 
-export const leaderboard = new Leaderboard();
+// LAZY SINGLETON
+let _leaderboardInstance: Leaderboard | null = null;
+
+export function getLeaderboard(): Leaderboard {
+    if (!_leaderboardInstance) {
+        _leaderboardInstance = new Leaderboard();
+    }
+    return _leaderboardInstance;
+}
+
+export const leaderboard: Leaderboard = new Proxy({} as Leaderboard, {
+    get(_target, prop) {
+        const instance = getLeaderboard();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getLeaderboard();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 

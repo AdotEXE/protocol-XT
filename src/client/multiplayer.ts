@@ -211,6 +211,7 @@ export interface NetworkPlayer {
     // Tank customization
     chassisType?: string;
     cannonType?: string;
+    trackType?: string;
     tankColor?: string;
     turretColor?: string;
     // For interpolation (linear)
@@ -2446,6 +2447,7 @@ export class MultiplayerManager {
             // Tank customization
             chassisType: playerData.chassisType,
             cannonType: playerData.cannonType,
+            trackType: playerData.trackType,
             tankColor: playerData.tankColor,
             turretColor: playerData.turretColor,
             // Linear interpolation (backward compatibility)
@@ -2663,6 +2665,7 @@ export class MultiplayerManager {
         // Update customization (only if changed)
         if (playerData.chassisType !== undefined) networkPlayer.chassisType = playerData.chassisType;
         if (playerData.cannonType !== undefined) networkPlayer.cannonType = playerData.cannonType;
+        if (playerData.trackType !== undefined) networkPlayer.trackType = playerData.trackType;
         if (playerData.tankColor !== undefined) networkPlayer.tankColor = playerData.tankColor;
         if (playerData.turretColor !== undefined) networkPlayer.turretColor = playerData.turretColor;
 
@@ -3165,6 +3168,7 @@ export class MultiplayerManager {
         // Получаем настройки кастомизации из localStorage
         const chassisType = localStorage.getItem("selectedChassis") || "medium";
         const cannonType = localStorage.getItem("selectedCannon") || "standard";
+        const trackType = localStorage.getItem("selectedTrack") || "standard";
         const skinId = localStorage.getItem("selectedTankSkin") || "default";
 
         // Получаем цвета из скина
@@ -3172,7 +3176,7 @@ export class MultiplayerManager {
         const tankColor = skin.chassisColor;
         const turretColor = skin.turretColor;
 
-        logger.log(`[Multiplayer] Creating room with customization: ${chassisType}/${cannonType}, skin=${skinId}`);
+        logger.log(`[Multiplayer] Creating room with customization: ${chassisType}/${cannonType}/${trackType}, skin=${skinId}`);
         if (mapType === 'custom') {
             logger.log(`[Multiplayer] 🔍 DEBUG: createRoom called with mapType='custom'. Has data: ${!!customMapData}`);
             if (customMapData) {
@@ -3192,6 +3196,7 @@ export class MultiplayerManager {
             // Кастомизация
             chassisType,
             cannonType,
+            trackType,
             tankColor,
             turretColor,
             // Данные карты
@@ -3210,6 +3215,7 @@ export class MultiplayerManager {
         // Получаем настройки кастомизации из localStorage
         const chassisType = localStorage.getItem("selectedChassis") || "medium";
         const cannonType = localStorage.getItem("selectedCannon") || "standard";
+        const trackType = localStorage.getItem("selectedTrack") || "standard";
         const skinId = localStorage.getItem("selectedTankSkin") || "default";
 
         // Получаем цвета из скина
@@ -3217,13 +3223,14 @@ export class MultiplayerManager {
         const tankColor = skin.chassisColor;
         const turretColor = skin.turretColor;
 
-        logger.log(`[Multiplayer] Joining room with customization: ${chassisType}/${cannonType}, skin=${skinId}`);
+        logger.log(`[Multiplayer] Joining room with customization: ${chassisType}/${cannonType}/${trackType}, skin=${skinId}`);
 
         this.send(createClientMessage(ClientMessageType.JOIN_ROOM, {
             roomId,
             // Кастомизация
             chassisType,
             cannonType,
+            trackType,
             tankColor,
             turretColor
         }));

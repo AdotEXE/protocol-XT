@@ -30,6 +30,7 @@ export interface PlayerData {
     // Tank customization
     chassisType?: string; // Chassis ID (e.g., "light", "heavy")
     cannonType?: string; // Cannon ID (e.g., "standard", "rapid")
+    trackType?: string; // Track ID (e.g., "standard", "light")
     tankColor?: string; // Hex color for tank body
     turretColor?: string; // Hex color for turret
     // Velocity data for dead reckoning (extrapolation)

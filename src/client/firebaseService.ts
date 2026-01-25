@@ -1599,6 +1599,33 @@ export class FirebaseService {
     }
 }
 
-// Singleton instance
-export const firebaseService = new FirebaseService();
+// ============================================
+// СИНГЛТОН (LAZY INITIALIZATION)
+// ============================================
+
+let _firebaseServiceInstance: FirebaseService | null = null;
+
+export function getFirebaseService(): FirebaseService {
+    if (!_firebaseServiceInstance) {
+        _firebaseServiceInstance = new FirebaseService();
+    }
+    return _firebaseServiceInstance;
+}
+
+/** Глобальный экземпляр (lazy proxy) */
+export const firebaseService: FirebaseService = new Proxy({} as FirebaseService, {
+    get(_target, prop) {
+        const instance = getFirebaseService();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getFirebaseService();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 

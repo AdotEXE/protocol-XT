@@ -216,6 +216,29 @@ export class ThemeManager {
     }
 }
 
-// Глобальный экземпляр
-export const themeManager = new ThemeManager();
+// LAZY SINGLETON
+let _themeManagerInstance: ThemeManager | null = null;
+
+export function getThemeManager(): ThemeManager {
+    if (!_themeManagerInstance) {
+        _themeManagerInstance = new ThemeManager();
+    }
+    return _themeManagerInstance;
+}
+
+export const themeManager: ThemeManager = new Proxy({} as ThemeManager, {
+    get(_target, prop) {
+        const instance = getThemeManager();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getThemeManager();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 

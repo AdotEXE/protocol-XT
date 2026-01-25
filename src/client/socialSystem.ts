@@ -595,5 +595,33 @@ export class SocialSystem {
     }
 }
 
-export const socialSystem = new SocialSystem();
+// ============================================
+// СИНГЛТОН (LAZY INITIALIZATION)
+// ============================================
+
+let _socialSystemInstance: SocialSystem | null = null;
+
+export function getSocialSystem(): SocialSystem {
+    if (!_socialSystemInstance) {
+        _socialSystemInstance = new SocialSystem();
+    }
+    return _socialSystemInstance;
+}
+
+/** Глобальный экземпляр (lazy proxy) */
+export const socialSystem: SocialSystem = new Proxy({} as SocialSystem, {
+    get(_target, prop) {
+        const instance = getSocialSystem();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getSocialSystem();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 

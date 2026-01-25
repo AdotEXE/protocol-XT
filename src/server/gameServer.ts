@@ -532,7 +532,7 @@ export class GameServer {
 
     private handleCreateRoom(player: ServerPlayer, data: any): void {
         const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType, enableBots, botCount, customMapData } = data;
-        const { chassisType, cannonType, tankColor, turretColor, playerName } = data; // Extract customization
+        const { chassisType, cannonType, trackType, tankColor, turretColor, playerName } = data; // Extract customization
 
         // Update player name if provided
         if (playerName) player.name = playerName;
@@ -540,6 +540,7 @@ export class GameServer {
         // Save customization to player
         if (chassisType) player.chassisType = chassisType;
         if (cannonType) player.cannonType = cannonType;
+        if (trackType) player.trackType = trackType;
         if (tankColor) player.tankColor = tankColor;
         if (turretColor) player.turretColor = turretColor;
 
@@ -598,7 +599,7 @@ export class GameServer {
 
     private handleJoinRoom(player: ServerPlayer, data: any): void {
         const { roomId, password } = data;
-        const { chassisType, cannonType, tankColor, turretColor, playerName } = data; // Extract customization
+        const { chassisType, cannonType, trackType, tankColor, turretColor, playerName } = data; // Extract customization
 
         // Update player name if provided
         if (playerName) player.name = playerName;
@@ -606,6 +607,7 @@ export class GameServer {
         // Save customization to player
         if (chassisType) player.chassisType = chassisType;
         if (cannonType) player.cannonType = cannonType;
+        if (trackType) player.trackType = trackType;
         if (tankColor) player.tankColor = tankColor;
         if (turretColor) player.turretColor = turretColor;
         serverLogger.log(`[Server] 🔍 JOIN_ROOM запрос от ${player.id} (${player.name}): roomId=${roomId}`);

@@ -649,9 +649,36 @@ export class UpgradeUI {
 }
 
 // ============================================
-// СИНГЛТОН
+// СИНГЛТОН (LAZY INITIALIZATION)
 // ============================================
 
-/** Глобальный экземпляр UI прокачки */
-export const upgradeUI = new UpgradeUI();
+/** Приватный экземпляр UI прокачки */
+let _upgradeUIInstance: UpgradeUI | null = null;
+
+/** Получить глобальный экземпляр UI прокачки */
+export function getUpgradeUI(): UpgradeUI {
+    if (!_upgradeUIInstance) {
+        _upgradeUIInstance = new UpgradeUI();
+    }
+    return _upgradeUIInstance;
+}
+
+/** 
+ * Глобальный экземпляр UI прокачки (lazy proxy)
+ */
+export const upgradeUI: UpgradeUI = new Proxy({} as UpgradeUI, {
+    get(_target, prop) {
+        const instance = getUpgradeUI();
+        const value = (instance as any)[prop];
+        if (typeof value === 'function') {
+            return value.bind(instance);
+        }
+        return value;
+    },
+    set(_target, prop, value) {
+        const instance = getUpgradeUI();
+        (instance as any)[prop] = value;
+        return true;
+    }
+});
 
