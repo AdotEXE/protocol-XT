@@ -2357,32 +2357,34 @@ export class TankController {
         trackMat.specularColor = Color3.Black();
         trackMat.freeze();
 
-        // Используем размеры из выбранного типа гусениц
-        const trackWidth = this.trackType.width;
-        const trackHeight = this.trackType.height;
-        const trackDepth = this.trackType.depth;
-
-        // Позиционирование относительно корпуса
+        // Размеры корпуса
         const w = this.chassisType.width;
         const h = this.chassisType.height;
+        const d = this.chassisType.depth;
 
-        // Left track - позиционирование ближе к корпусу для избежания глитчей
+        // КРИТИЧНО: Масштабируем размеры гусениц пропорционально корпусу
+        // Гусеницы должны быть видимыми и пропорциональными
+        const trackWidth = this.trackType.width;  // Ширина гусениц фиксирована
+        const trackHeight = this.trackType.height; // Высота гусениц фиксирована
+        const trackDepth = d * 0.95; // Гусеницы почти на всю длину корпуса
+
+        // Left track
         this.leftTrack = MeshBuilder.CreateBox("leftTrack", {
             width: trackWidth,
             height: trackHeight,
             depth: trackDepth
         }, this.scene);
-        this.leftTrack.position = new Vector3(-w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
+        this.leftTrack.position = new Vector3(-w * 0.55, -h * 0.25, 0);
         this.leftTrack.parent = this.chassis;
         this.leftTrack.material = trackMat;
 
-        // Right track - позиционирование ближе к корпусу для избежания глитчей
+        // Right track
         this.rightTrack = MeshBuilder.CreateBox("rightTrack", {
             width: trackWidth,
             height: trackHeight,
             depth: trackDepth
         }, this.scene);
-        this.rightTrack.position = new Vector3(w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
+        this.rightTrack.position = new Vector3(w * 0.55, -h * 0.25, 0);
         this.rightTrack.parent = this.chassis;
         this.rightTrack.material = trackMat;
 

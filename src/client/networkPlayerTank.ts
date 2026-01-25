@@ -556,14 +556,16 @@ export class NetworkPlayerTank {
         trackMat.specularColor = Color3.Black();
         trackMat.freeze();
 
-        // Используем размеры из выбранного типа гусениц
-        const trackWidth = this.trackType.width;
-        const trackHeight = this.trackType.height;
-        const trackDepth = this.trackType.depth;
-
-        // Позиционирование относительно корпуса
+        // Размеры корпуса
         const w = this.chassisType.width;
         const h = this.chassisType.height;
+        const d = this.chassisType.depth;
+
+        // КРИТИЧНО: Масштабируем размеры гусениц пропорционально корпусу
+        // Гусеницы должны быть видимыми и пропорциональными
+        const trackWidth = this.trackType.width;  // Ширина гусениц фиксирована
+        const trackHeight = this.trackType.height; // Высота гусениц фиксирована
+        const trackDepth = d * 0.95; // Гусеницы почти на всю длину корпуса
 
         // Left track
         this.leftTrack = MeshBuilder.CreateBox(`netLeftTrack_${this.uniqueId}`, {
@@ -571,9 +573,11 @@ export class NetworkPlayerTank {
             height: trackHeight,
             depth: trackDepth
         }, this.scene);
-        this.leftTrack.position = new Vector3(-w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
+        this.leftTrack.position = new Vector3(-w * 0.55, -h * 0.25, 0);
         this.leftTrack.parent = this.chassis;
         this.leftTrack.material = trackMat;
+        this.leftTrack.isVisible = true;
+        this.leftTrack.setEnabled(true);
 
         // Right track
         this.rightTrack = MeshBuilder.CreateBox(`netRightTrack_${this.uniqueId}`, {
@@ -581,9 +585,13 @@ export class NetworkPlayerTank {
             height: trackHeight,
             depth: trackDepth
         }, this.scene);
-        this.rightTrack.position = new Vector3(w * 0.55, -h * 0.25, 0); // Ближе к центру и ниже
+        this.rightTrack.position = new Vector3(w * 0.55, -h * 0.25, 0);
         this.rightTrack.parent = this.chassis;
         this.rightTrack.material = trackMat;
+        this.rightTrack.isVisible = true;
+        this.rightTrack.setEnabled(true);
+
+        console.log(`[NetworkPlayerTank] 🛤️ Tracks created for ${this.playerId}: trackType=${this.trackType.id}, size=${trackWidth}x${trackHeight}x${trackDepth}`);
     }
 
     /**
