@@ -111,6 +111,7 @@ export class Garage {
     private currentSkinId: string = loadSelectedSkin() || "default";
     private selectedItemIndex: number = 0;
     private filteredItems: (TankPart | TankUpgrade)[] = [];
+    private lastNavigationTime: number = 0; // Время последнего нажатия стрелки для определения скорости
     private tankEditor: TankEditor | null = null; // Редактор танков
     private savedTankConfigurations: TankConfiguration[] = []; // Сохраненные конфигурации
 
@@ -360,10 +361,10 @@ export class Garage {
                 to { transform: translateY(0); opacity: 1; }
             }
             .garage-container {
-                width: min(85vw, 900px);
-                height: min(80vh, 580px);
-                max-width: min(900px, 90vw);
-                max-height: min(580px, 85vh);
+                width: min(90vw, 1400px);
+                height: min(85vh, 900px);
+                max-width: 90vw;
+                max-height: 85vh;
                 background: rgba(5, 15, 5, 0.98);
                 cursor: default;
                 border: clamp(1px, 0.15vw, 2px) solid #0f0;
@@ -1131,7 +1132,20 @@ export class Garage {
             // ignore
         }
 
-        // 7. ВЫЗЫВАЕМ CALLBACK В САМОМ КОНЦЕ (после всей очистки)
+        // 7. Снимаем паузу игры, если она была поставлена
+        try {
+            const game = (window as any).gameInstance;
+            if (game && game.gameStarted && game.gamePaused) {
+                if (typeof game.togglePause === 'function') {
+                    game.togglePause();
+                    console.log("[Garage] Game unpaused after closing garage");
+                }
+            }
+        } catch (error) {
+            console.error("[Garage] Error unpausing game:", error);
+        }
+
+        // 8. ВЫЗЫВАЕМ CALLBACK В САМОМ КОНЦЕ (после всей очистки)
         try {
             if (this.onCloseCallback) {
                 const callback = this.onCloseCallback;
@@ -4432,6 +4446,9 @@ export class Garage {
         // Update currency
         const currencyEl = this.overlay?.querySelector('.garage-currency');
         if (currencyEl) currencyEl.textContent = `CR: ${this.currencyManager.getCurrency()}`;
+
+        // Прокрутить к выбранному элементу, чтобы он был всегда виден
+        this.scrollToSelectedItem();
     }
 
     private updatePreview(item: TankPart | TankUpgrade): void {
@@ -4893,14 +4910,43 @@ export class Garage {
                 }
             }
 
+            // Навигация по вкладкам стрелками влево/вправо
+            if (e.code === 'ArrowLeft') {
+                e.preventDefault();
+                const currentIndex = cats.indexOf(this.currentCategory);
+                const prevIndex = currentIndex > 0 ? currentIndex - 1 : cats.length - 1; // Циклическая навигация
+                const prevCat = cats[prevIndex];
+                if (prevCat) this.switchCategory(prevCat);
+                return;
+            } else if (e.code === 'ArrowRight') {
+                e.preventDefault();
+                const currentIndex = cats.indexOf(this.currentCategory);
+                const nextIndex = currentIndex < cats.length - 1 ? currentIndex + 1 : 0; // Циклическая навигация
+                const nextCat = cats[nextIndex];
+                if (nextCat) this.switchCategory(nextCat);
+                return;
+            }
+
             if (e.code === 'ArrowUp') {
                 e.preventDefault();
+                // Определяем скорость нажатий ДО изменения индекса
+                const timeSinceLastNav = Date.now() - this.lastNavigationTime;
+                const isFastNavigation = timeSinceLastNav < 200;
+                this.lastNavigationTime = Date.now(); // Обновляем время перед навигацией
+
                 this.selectedItemIndex = Math.max(0, this.selectedItemIndex - 1);
                 this.refreshItemList();
+                this.scrollToSelectedItem(isFastNavigation);
             } else if (e.code === 'ArrowDown') {
                 e.preventDefault();
+                // Определяем скорость нажатий ДО изменения индекса
+                const timeSinceLastNav = Date.now() - this.lastNavigationTime;
+                const isFastNavigation = timeSinceLastNav < 200;
+                this.lastNavigationTime = Date.now(); // Обновляем время перед навигацией
+
                 this.selectedItemIndex = Math.min(this.filteredItems.length - 1, this.selectedItemIndex + 1);
                 this.refreshItemList();
+                this.scrollToSelectedItem(isFastNavigation);
             }
 
             if ((e.code === 'Enter' || e.code === 'Space')) {
@@ -4957,6 +5003,31 @@ export class Garage {
                 this.stopPreviewTurretAnimationIfNeeded();
             }
         });
+    }
+
+    /**
+     * Прокручивает список к выбранному элементу, чтобы он всегда был виден
+     * При быстром нажатии стрелок использует мгновенную прокрутку для лучшей отзывчивости
+     * @param isFastNavigation - true если нажатие было быстрым (менее 200ms с предыдущего)
+     */
+    private scrollToSelectedItem(isFastNavigation: boolean = false): void {
+        // Небольшая задержка, чтобы DOM успел обновиться после refreshItemList()
+        setTimeout(() => {
+            const container = this.overlay?.querySelector('#garage-items-list');
+            if (!container) return;
+
+            // Находим выбранный элемент по data-index
+            const selectedElement = container.querySelector(`.garage-item[data-index="${this.selectedItemIndex}"]`) as HTMLElement;
+
+            if (selectedElement) {
+                // При быстром нажатии используем мгновенную прокрутку, иначе плавную
+                selectedElement.scrollIntoView({
+                    behavior: isFastNavigation ? 'auto' : 'smooth', // Мгновенная при быстром нажатии
+                    block: 'nearest', // Элемент будет виден, но не обязательно по центру
+                    inline: 'nearest'
+                });
+            }
+        }, isFastNavigation ? 0 : 10); // При быстрой навигации без задержки для мгновенной реакции
     }
 
     /**

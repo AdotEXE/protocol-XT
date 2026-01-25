@@ -250,14 +250,14 @@ export class NetworkPlayerTank {
 
         if (cannonChanged) {
             this.cannonType = newCannonType;
-            
+
             // Эффект переодевания пушки: золотистое свечение ствола
             if (this.effectsManager && this.barrel) {
                 const effectPos = this.barrel.position.clone();
                 // Эффект телепорта для золотистого свечения ствола
                 this.effectsManager.createTeleportEffect(effectPos);
             }
-            
+
             // If only cannon changed, we could try to just replace the barrel, 
             // but 'createDetailedBarrel' assumes it attaches to 'this.turret'.
             // Safest to just rebuild turret + barrel or the whole tank.
@@ -269,7 +269,7 @@ export class NetworkPlayerTank {
         const newTrackType = getTrackById(this.networkPlayer.trackType || "standard");
         if (newTrackType.id !== this.trackType.id) {
             this.trackType = newTrackType;
-            
+
             // Эффект переодевания гусениц: искры от гусениц
             if (this.effectsManager && this.chassis) {
                 const leftPos = this.chassis.position.clone();
@@ -280,7 +280,7 @@ export class NetworkPlayerTank {
                 this.effectsManager.createExplosion(leftPos, 0.3);
                 this.effectsManager.createExplosion(rightPos, 0.3);
             }
-            
+
             this.rebuildTank();
             return;
         }
@@ -288,6 +288,9 @@ export class NetworkPlayerTank {
 
     private rebuildTank(): void {
         console.log(`[NetworkPlayerTank] 🔄 Rebuilding tank visual for ${this.playerId}`);
+
+        // Update unique ID to ensure fresh mesh names (prevents caching issues)
+        this.uniqueId = `net_${this.playerId}_${Date.now()}`;
 
         // Save state
         const pos = this.chassis.position.clone();
@@ -970,24 +973,24 @@ export class NetworkPlayerTank {
         if (this.chassis) {
             this.chassis.isVisible = shouldBeVisible;
             this.chassis.setEnabled(shouldBeVisible);
-            
+
             // LOD оптимизация - отключаем детали на расстоянии > 100м
             const camera = this.scene.activeCamera;
             if (camera && shouldBeVisible) {
                 const distance = Vector3.Distance(this.chassis.position, camera.position);
                 const isNear = distance < 100;
-                
+
                 // Дочерние детализированные меши отключаем на расстоянии
                 this.chassis.getChildMeshes().forEach(child => {
                     // Пропускаем основные части (башня, ствол, гусеницы)
-                    if (child === this.turret || child === this.barrel || 
+                    if (child === this.turret || child === this.barrel ||
                         child === this.leftTrack || child === this.rightTrack) {
                         return;
                     }
                     // Мелкие детали скрываем на большом расстоянии
                     child.isVisible = isNear && shouldBeVisible;
                 });
-                
+
                 // Замораживаем world matrix для далёких танков (оптимизация)
                 if (!isNear) {
                     this.chassis.freezeWorldMatrix();
@@ -1033,6 +1036,24 @@ export class NetworkPlayerTank {
 
         if (position && this.chassis) {
             this.chassis.position.copyFrom(position);
+
+            // FIX: Также обновляем позицию в networkPlayer, чтобы update() не телепортировал танк обратно
+            if (this.networkPlayer) {
+                if (this.networkPlayer.position instanceof Vector3) {
+                    this.networkPlayer.position.set(position.x, position.y, position.z);
+                } else {
+                    (this.networkPlayer.position as any) = new Vector3(position.x, position.y, position.z);
+                }
+
+                // Сбрасываем буфер интерполяции с новой позицией
+                this.positionBuffer = [{
+                    x: position.x,
+                    y: position.y,
+                    z: position.z,
+                    rotation: this.networkPlayer.rotation || 0,
+                    time: Date.now()
+                }];
+            }
         }
 
         if (this.chassis) {

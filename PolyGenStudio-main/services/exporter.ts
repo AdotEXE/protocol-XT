@@ -277,6 +277,7 @@ interface TXMapData {
         description?: string;
         isPreset?: boolean;
         mapSize?: number;
+        requireGarage?: boolean;
     };
 }
 
@@ -453,10 +454,10 @@ const extractMapData = (cubes: CubeElement[]) => {
             });
         } else {
             // For spawn points, recalculate Y position to ensure tank spawns above surface
-            const isSpawnPoint = cube.properties?.txType === 'spawn' || 
-                                 determineTXObjectType(cube) === 'spawn' ||
-                                 cube.name.toLowerCase().includes('spawn');
-            
+            const isSpawnPoint = cube.properties?.txType === 'spawn' ||
+                determineTXObjectType(cube) === 'spawn' ||
+                cube.name.toLowerCase().includes('spawn');
+
             if (isSpawnPoint) {
                 // Recalculate surface height for spawn point
                 const surfaceHeight = getSurfaceHeightForExport(
@@ -470,17 +471,17 @@ const extractMapData = (cubes: CubeElement[]) => {
                 const tankHeight = 2; // Approximate tank height
                 const tankBottom = surfaceHeight;
                 const tankCenter = tankBottom + (tankHeight / 2);
-                
+
                 // Additional check: ensure tank doesn't spawn inside other objects
                 // Check if there are any objects at tank center height that would block spawn
                 let hasCollision = false;
                 for (const otherCube of cubes) {
                     if (!otherCube.visible || otherCube.id === cube.id) continue;
                     if (otherCube.properties?.txType === 'spawn') continue; // Ignore other spawn points
-                    
+
                     const otherMinY = otherCube.position.y - (otherCube.size.y / 2);
                     const otherMaxY = otherCube.position.y + (otherCube.size.y / 2);
-                    
+
                     // Check if tank center would be inside this object vertically
                     if (tankCenter >= otherMinY && tankCenter <= otherMaxY) {
                         const otherHalfX = otherCube.size.x / 2;
@@ -489,7 +490,7 @@ const extractMapData = (cubes: CubeElement[]) => {
                         const otherMaxX = otherCube.position.x + otherHalfX;
                         const otherMinZ = otherCube.position.z - otherHalfZ;
                         const otherMaxZ = otherCube.position.z + otherHalfZ;
-                        
+
                         // Check horizontal overlap (tank footprint ~2x2)
                         const tankRadius = 1; // Tank radius
                         if (position.x + tankRadius >= otherMinX && position.x - tankRadius <= otherMaxX &&
@@ -501,11 +502,11 @@ const extractMapData = (cubes: CubeElement[]) => {
                         }
                     }
                 }
-                
+
                 if (!hasCollision) {
                     position.y = tankCenter;
                 }
-                
+
                 console.log(`[Exporter] Spawn point "${cube.name}" adjusted: Y=${position.y.toFixed(2)} (surface=${surfaceHeight.toFixed(2)})${hasCollision ? ' [collision avoided]' : ''}`);
             }
 
@@ -833,12 +834,12 @@ export const clearRespawnEffect = (): void => {
                 { type: 'RESET_SCREEN_EFFECTS' },
                 { type: 'CLEAR_ALL_EFFECTS' }
             ];
-            
+
             // Send all message types immediately
             messages.forEach(msg => {
                 window.parent.postMessage(msg, '*');
             });
-            
+
             // Also send with delays to catch late respawns
             [100, 200, 500, 1000, 2000, 3000].forEach(delay => {
                 setTimeout(() => {
@@ -847,7 +848,7 @@ export const clearRespawnEffect = (): void => {
                     });
                 }, delay);
             });
-            
+
             console.log('[Exporter] Sent CLEAR_RESPAWN_EFFECT messages to game (multiple types, multiple times)');
         } catch (e) {
             console.error("[Exporter] Failed to send CLEAR_RESPAWN_EFFECT:", e);
@@ -868,7 +869,7 @@ export const setLowHealthEffect = (healthPercent: number, maxDarkness: number = 
             // Calculate darkness based on health (more darkness when health is lower)
             // When health is 0, use maxDarkness (25%), when health is 1, use 0
             const darkness = Math.max(0, maxDarkness * (1 - healthPercent));
-            
+
             window.parent.postMessage({
                 type: 'SET_LOW_HEALTH_EFFECT',
                 healthPercent: healthPercent,
@@ -876,7 +877,7 @@ export const setLowHealthEffect = (healthPercent: number, maxDarkness: number = 
                 maxDarkness: maxDarkness,
                 effectType: 'heartbeat' // Perimeter to center gradient
             }, '*');
-            
+
             console.log(`[Exporter] Sent SET_LOW_HEALTH_EFFECT: health=${(healthPercent * 100).toFixed(0)}%, darkness=${(darkness * 100).toFixed(0)}%`);
         } catch (e) {
             console.error("[Exporter] Failed to send SET_LOW_HEALTH_EFFECT:", e);

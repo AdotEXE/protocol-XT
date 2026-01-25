@@ -456,8 +456,9 @@ export class GameRoom {
 
                 // КРИТИЧНО: Используем OBB (Oriented Bounding Box) для точного определения попадания
                 // OBB учитывает rotation танка в отличие от AABB
+                // Проверяем оба хитбокса: корпус и башня
 
-                // Получаем размеры хитбокса
+                // Получаем размеры хитбокса корпуса
                 const dims = CHASSIS_DIMENSIONS[player.chassisType] || CHASSIS_DIMENSIONS.medium || { halfWidth: 1.1, halfDepth: 1.75, halfHeight: 0.4 };
                 const halfW = dims.halfWidth;
                 const halfD = dims.halfDepth;
@@ -467,8 +468,23 @@ export class GameRoom {
                 // We need to raise it to the physical center of the box.
                 const tankCenterInfo = targetPos.clone().add(new Vector3(0, halfH, 0));
 
-                // Проверка попадания в OBB с учётом rotation
+                // Проверка попадания в корпус (chassis) OBB с учётом rotation
                 let isHit = this.checkOBBHit(projectile.position, tankCenterInfo, player.rotation, halfW, halfD, halfH, 0.5); // 0.5 radius tolerance
+
+                // Если не попали в корпус, проверяем башню (turret)
+                if (!isHit) {
+                    // Размеры башни (как на клиенте: 0.75 высоты, 0.65 ширины, 0.6 глубины)
+                    const turretHalfH = halfH * 0.75; // 75% высоты корпуса
+                    const turretHalfW = halfW * 0.65; // 65% ширины корпуса
+                    const turretHalfD = halfD * 0.6;  // 60% глубины корпуса
+                    
+                    // Позиция башни: выше корпуса на (высота корпуса / 2) + (высота башни / 2)
+                    const turretY = targetPos.y + halfH + turretHalfH;
+                    const turretCenter = new Vector3(targetPos.x, turretY, targetPos.z);
+                    
+                    // Проверка попадания в башню (используем turretRotation вместо rotation танка)
+                    isHit = this.checkOBBHit(projectile.position, turretCenter, player.turretRotation, turretHalfW, turretHalfD, turretHalfH, 0.5);
+                }
 
                 // DEBUG LOGGING
                 if (!isHit && Math.random() < 0.01) {

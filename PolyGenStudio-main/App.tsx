@@ -483,51 +483,51 @@ export const App = () => {
                             // Just let user know? Or ignore.
                             // setEditorMode('map') would be better but it's derived from URL.
                         }
-            } else {
-                addLog('Imported map has no objects', 'warning');
+                    } else {
+                        addLog('Imported map has no objects', 'warning');
+                    }
+                } catch (err) {
+                    addLog('Failed to import map data', 'error');
+                    console.error(err);
+                }
+            } else if (e.data?.type === 'PLAYER_RESPAWNED' || e.data?.type === 'RESPAWN_COMPLETE' || e.data?.type === 'RESPAWN' || e.data?.type === 'SPAWN') {
+                // Clear respawn effect when player respawns - aggressive clearing
+                clearRespawnEffect();
+                setTimeout(() => clearRespawnEffect(), 50);
+                setTimeout(() => clearRespawnEffect(), 100);
+                setTimeout(() => clearRespawnEffect(), 200);
+                setTimeout(() => clearRespawnEffect(), 500);
+                setTimeout(() => clearRespawnEffect(), 1000);
+                setTimeout(() => clearRespawnEffect(), 2000);
+                console.log('[App] Player respawned - cleared respawn effect (aggressive clearing)');
+            } else if (e.data?.type === 'PLAYER_HEALTH_CHANGED' || e.data?.type === 'HEALTH_UPDATE') {
+                // Update low health effect based on health percentage
+                const healthPercent = e.data.healthPercent ?? e.data.health ?? 1;
+                if (healthPercent < 0.3) {
+                    // Low health - show heartbeat effect with gradient from perimeter to center
+                    // Max 25% darkness at edges, fading to 0% at center
+                    setLowHealthEffect(healthPercent, 0.25);
+                } else {
+                    // Health is good - clear effect
+                    clearLowHealthEffect();
+                }
+            } else if (e.data?.type === 'PLAYER_DIED' || e.data?.type === 'DEATH') {
+                // Player died - clear low health effect (will be replaced by death effect)
+                clearLowHealthEffect();
+            } else if (e.data?.type === 'MAP_LOADED' || e.data?.type === 'GAME_READY') {
+                // Game is ready - clear any lingering effects
+                clearRespawnEffect();
+                clearLowHealthEffect();
             }
-        } catch (err) {
-            addLog('Failed to import map data', 'error');
-            console.error(err);
-        }
-    } else if (e.data?.type === 'PLAYER_RESPAWNED' || e.data?.type === 'RESPAWN_COMPLETE' || e.data?.type === 'RESPAWN' || e.data?.type === 'SPAWN') {
-        // Clear respawn effect when player respawns - aggressive clearing
-        clearRespawnEffect();
-        setTimeout(() => clearRespawnEffect(), 50);
-        setTimeout(() => clearRespawnEffect(), 100);
-        setTimeout(() => clearRespawnEffect(), 200);
-        setTimeout(() => clearRespawnEffect(), 500);
-        setTimeout(() => clearRespawnEffect(), 1000);
-        setTimeout(() => clearRespawnEffect(), 2000);
-        console.log('[App] Player respawned - cleared respawn effect (aggressive clearing)');
-    } else if (e.data?.type === 'PLAYER_HEALTH_CHANGED' || e.data?.type === 'HEALTH_UPDATE') {
-        // Update low health effect based on health percentage
-        const healthPercent = e.data.healthPercent ?? e.data.health ?? 1;
-        if (healthPercent < 0.3) {
-            // Low health - show heartbeat effect with gradient from perimeter to center
-            // Max 25% darkness at edges, fading to 0% at center
-            setLowHealthEffect(healthPercent, 0.25);
-        } else {
-            // Health is good - clear effect
-            clearLowHealthEffect();
-        }
-    } else if (e.data?.type === 'PLAYER_DIED' || e.data?.type === 'DEATH') {
-        // Player died - clear low health effect (will be replaced by death effect)
-        clearLowHealthEffect();
-    } else if (e.data?.type === 'MAP_LOADED' || e.data?.type === 'GAME_READY') {
-        // Game is ready - clear any lingering effects
-        clearRespawnEffect();
-        clearLowHealthEffect();
-    }
-};
-window.addEventListener('message', handler);
-return () => window.removeEventListener('message', handler);
-}, [editorMode, addLog, pushHistory]);
+        };
+        window.addEventListener('message', handler);
+        return () => window.removeEventListener('message', handler);
+    }, [editorMode, addLog, pushHistory]);
 
     // Periodic check to clear dark screen effect (in case game doesn't send respawn event)
     useEffect(() => {
         if (!isInTXIframe() && editorMode !== 'tank') return;
-        
+
         // Check every 2 seconds if we need to clear effects (fallback mechanism)
         const interval = setInterval(() => {
             // Only clear occasionally to reduce spam (10% chance)
@@ -535,7 +535,7 @@ return () => window.removeEventListener('message', handler);
                 clearRespawnEffect();
             }
         }, 2000);
-        
+
         return () => clearInterval(interval);
     }, [editorMode]);
 
@@ -570,17 +570,17 @@ return () => window.removeEventListener('message', handler);
     const multiplayerSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     useEffect(() => {
         if (!isConnected) return;
-        
+
         // Clear previous timeout
         if (multiplayerSyncTimeoutRef.current) {
             clearTimeout(multiplayerSyncTimeoutRef.current);
         }
-        
+
         // Debounce multiplayer sync by 400ms
         multiplayerSyncTimeoutRef.current = setTimeout(() => {
             multiplayer.sendUpdate(cubes);
         }, 400);
-        
+
         return () => {
             if (multiplayerSyncTimeoutRef.current) {
                 clearTimeout(multiplayerSyncTimeoutRef.current);
@@ -1526,7 +1526,38 @@ return () => window.removeEventListener('message', handler);
             <div className="h-12 bg-gray-950 border-b border-gray-800 flex items-center justify-between px-3 z-50 shrink-0 shadow-2xl gap-2 relative pointer-events-auto">
                 {/* Left: Title + History */}
                 <div className="flex items-center gap-3 shrink-0">
-                    <span className={`font-black tracking-tighter text-sm ${editorMode === 'tank' ? 'text-orange-500' : editorMode === 'map' ? 'text-green-500' : 'text-accent-500'}`}>{modeConfig.title}</span>
+                    <span className={`font-black tracking-tighter text-sm ${editorMode === 'tank' ? 'text-orange-500' : editorMode === 'map' ? 'text-green-500' : 'text-accent-500'}`}>
+                        {modeConfig.title}
+                    </span>
+
+                    {/* MODE SWITCHER */}
+                    <div className="flex items-center bg-gray-900 rounded-lg p-0.5 border border-gray-800">
+                        <button
+                            onClick={() => {
+                                const url = new URL(window.location.href);
+                                url.searchParams.set('mode', 'map');
+                                window.history.pushState({}, '', url.toString());
+                                window.location.reload();
+                            }}
+                            className={`px-2 py-1 rounded text-[9px] font-bold uppercase transition-all ${editorMode === 'map' ? 'bg-green-900/50 text-green-400 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                            title="Map Editor Mode"
+                        >
+                            🗺 MAP
+                        </button>
+                        <button
+                            onClick={() => {
+                                const url = new URL(window.location.href);
+                                url.searchParams.set('mode', 'tank');
+                                window.history.pushState({}, '', url.toString());
+                                window.location.reload();
+                            }}
+                            className={`px-2 py-1 rounded text-[9px] font-bold uppercase transition-all ${editorMode === 'tank' ? 'bg-orange-900/50 text-orange-400 shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}
+                            title="Tank Workshop Mode"
+                        >
+                            🛡 TANK
+                        </button>
+                    </div>
+
                     <div className="flex gap-0.5">
                         <button onClick={handleUndo} disabled={historyIndex <= 0} className="w-7 h-7 flex items-center justify-center rounded text-gray-500 hover:text-white disabled:opacity-20 transition-all hover:bg-gray-800"><Icons.Undo /></button>
                         <button onClick={handleRedo} disabled={historyIndex >= historyStack.length - 1} className="w-7 h-7 flex items-center justify-center rounded text-gray-500 hover:text-white disabled:opacity-20 transition-all hover:bg-gray-800"><Icons.Redo /></button>
@@ -1562,6 +1593,22 @@ return () => window.removeEventListener('message', handler);
 
                 {/* Right: File Ops + Settings + Exit */}
                 <div className="flex items-center gap-1 shrink-0">
+                    {/* WORKSHOP SHORTCUT BUTTON - Visible in Map Mode */}
+                    {editorMode === 'map' && (
+                        <button
+                            onClick={() => {
+                                const url = new URL(window.location.href);
+                                url.searchParams.set('mode', 'tank');
+                                window.history.pushState({}, '', url.toString());
+                                window.location.reload();
+                            }}
+                            className="h-8 px-2 mr-1 rounded bg-orange-900/40 text-orange-400 hover:text-white hover:bg-orange-600 border border-orange-900/60 text-[10px] uppercase font-bold flex gap-1 items-center transition-all shadow-sm"
+                            title="Open Tank Workshop"
+                        >
+                            🛡 WORKSHOP
+                        </button>
+                    )}
+
                     {/* Import Menu */}
                     <div className="relative">
                         <button onClick={() => setShowImportMenu(!showImportMenu)} className="h-8 px-2 rounded text-gray-400 hover:text-white text-[10px] uppercase font-bold hover:bg-gray-800 flex gap-1 items-center"><Icons.Import /> Import</button>
@@ -1712,7 +1759,7 @@ return () => window.removeEventListener('message', handler);
                             <div className="flex items-center justify-between text-[10px] text-gray-400 font-bold uppercase"><label htmlFor="setting-stats">Stats Overlay</label><input id="setting-stats" name="setting-stats" type="checkbox" checked={showStats} onChange={e => setShowStats(e.target.checked)} className="accent-accent-500" /></div>
                         </div>
                         <div className="border-t border-gray-800 pt-4">
-                            <button 
+                            <button
                                 onClick={() => {
                                     setShowSettingsMenu(false);
                                     setShowSessionModal(true);
@@ -2082,13 +2129,13 @@ return () => window.removeEventListener('message', handler);
                 >
                     <Scene
                         cubes={filteredCubes}
-                        selectedIds={selectedIds} 
-                        onSelect={handleSceneSelect} 
+                        selectedIds={selectedIds}
+                        onSelect={handleSceneSelect}
                         onTransform={handleSceneTransform}
                         onBatchTransform={handleSceneBatchTransform}
-                        onTransformEnd={handleSceneTransformEnd} 
-                        toolMode={toolMode} 
-                        snapGrid={snapEnabled ? 0.25 : null} 
+                        onTransformEnd={handleSceneTransformEnd}
+                        toolMode={toolMode}
+                        snapGrid={snapEnabled ? 0.25 : null}
                         snapAngle={snapEnabled ? 15 : null}
                         backgroundColor={viewportColor} gridColor="#1a1a20" sectionColor="#2a2a35" showGrid={showGrid} showWireframe={showWireframe} showAxes={showAxes}
                         cameraMode={cameraMode}
@@ -2265,7 +2312,7 @@ return () => window.removeEventListener('message', handler);
                                         const firstCube = newCubes[0];
                                         // Find the minimum Y offset among all cubes to get the bottom of the object
                                         const minY = Math.min(...newCubes.map(c => c.position.y - c.size.y / 2));
-                                        
+
                                         // Calculate surface height at the object's X, Z position
                                         // Use the largest footprint dimension for better collision detection
                                         const maxSizeX = Math.max(...newCubes.map(c => c.size.x));
@@ -2275,11 +2322,11 @@ return () => window.removeEventListener('message', handler);
                                             firstCube.position.z,
                                             { x: maxSizeX, y: 0, z: maxSizeZ }
                                         );
-                                        
+
                                         // Calculate offset to place object bottom on surface
                                         // minY is the bottom of the lowest cube, surfaceHeight is where we want the bottom
                                         const yOffset = surfaceHeight - minY;
-                                        
+
                                         // Adjust Y position for all cubes in the object
                                         const adjustedCubes = newCubes.map(cube => ({
                                             ...cube,
@@ -2288,7 +2335,7 @@ return () => window.removeEventListener('message', handler);
                                                 y: cube.position.y + yOffset
                                             }
                                         }));
-                                        
+
                                         const next = [...cubes, ...adjustedCubes];
                                         setCubes(next);
                                         pushHistory(next);
@@ -2645,27 +2692,27 @@ return () => window.removeEventListener('message', handler);
             {showPauseMenu && (editorMode === 'tank' || isInTXIframe()) && (
                 <div className="fixed inset-0 z-[10000] flex items-center justify-center pointer-events-auto">
                     {/* Transparent backdrop - only visible where there are menu elements */}
-                    <div 
+                    <div
                         className="absolute inset-0 bg-transparent"
                         onClick={() => setShowPauseMenu(false)}
                     />
-                    
+
                     {/* Menu Content - visible with solid background */}
-                    <div 
+                    <div
                         className="relative bg-gray-900/95 backdrop-blur-xl border border-gray-700 rounded-2xl shadow-2xl p-8 min-w-[320px] max-w-[500px] animate-in zoom-in-95 duration-200"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="flex flex-col gap-4">
                             <div className="flex justify-between items-center border-b border-gray-800 pb-4">
                                 <h2 className="text-xl font-black text-white uppercase tracking-wider">Game Menu</h2>
-                                <button 
+                                <button
                                     onClick={() => setShowPauseMenu(false)}
                                     className="text-gray-500 hover:text-white transition-colors"
                                 >
                                     <Icons.Close />
                                 </button>
                             </div>
-                            
+
                             <div className="flex flex-col gap-2">
                                 <button
                                     onClick={() => {
@@ -2678,7 +2725,7 @@ return () => window.removeEventListener('message', handler);
                                 >
                                     Resume
                                 </button>
-                                
+
                                 <button
                                     onClick={() => {
                                         // Force clear dark screen effect
@@ -2690,7 +2737,7 @@ return () => window.removeEventListener('message', handler);
                                 >
                                     Clear Dark Screen
                                 </button>
-                                
+
                                 <button
                                     onClick={() => {
                                         setShowSettingsModal(true);
@@ -2700,7 +2747,7 @@ return () => window.removeEventListener('message', handler);
                                 >
                                     Settings
                                 </button>
-                                
+
                                 <button
                                     onClick={() => {
                                         setShowHelpModal(true);
@@ -2710,7 +2757,7 @@ return () => window.removeEventListener('message', handler);
                                 >
                                     Help
                                 </button>
-                                
+
                                 {isInTXIframe() && (
                                     <button
                                         onClick={() => {
@@ -2729,11 +2776,11 @@ return () => window.removeEventListener('message', handler);
 
             {/* Session/Multiplayer Modal */}
             {showSessionModal && (
-                <div 
+                <div
                     className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
                     onClick={() => setShowSessionModal(false)}
                 >
-                    <div 
+                    <div
                         className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md p-6"
                         onClick={(e) => e.stopPropagation()}
                     >
@@ -2741,14 +2788,14 @@ return () => window.removeEventListener('message', handler);
                             <h2 className="text-lg font-bold text-white flex items-center gap-2">
                                 🔗 Управление сессией
                             </h2>
-                            <button 
+                            <button
                                 onClick={() => setShowSessionModal(false)}
                                 className="text-gray-400 hover:text-white transition-colors"
                             >
                                 <Icons.Close />
                             </button>
                         </div>
-                        
+
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-bold text-gray-400 mb-2 uppercase">
@@ -2762,7 +2809,7 @@ return () => window.removeEventListener('message', handler);
                                     placeholder="Введите ID комнаты"
                                 />
                             </div>
-                            
+
                             <div className="flex items-center justify-between p-3 bg-gray-950 rounded-lg border border-gray-800">
                                 <div>
                                     <div className="text-sm font-bold text-gray-300">Статус подключения</div>
@@ -2772,7 +2819,7 @@ return () => window.removeEventListener('message', handler);
                                 </div>
                                 <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-600'}`} />
                             </div>
-                            
+
                             <div className="flex gap-2">
                                 {!isConnected ? (
                                     <button
@@ -2798,7 +2845,7 @@ return () => window.removeEventListener('message', handler);
                                     </button>
                                 )}
                             </div>
-                            
+
                             {isConnected && (
                                 <div className="p-3 bg-gray-950 rounded-lg border border-gray-800">
                                     <div className="text-xs text-gray-400 mb-2">Информация о сессии:</div>

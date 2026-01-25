@@ -28,6 +28,9 @@ export class DebugDashboard {
 
     private visible = false; // Hidden by default
     private embedded = false;
+    
+    // Переключатели метрик (состояние сохраняется в localStorage)
+    private metricToggles: Map<string, boolean> = new Map();
 
     constructor(engine: Engine, scene: Scene, embedded: boolean = false) {
         this.engine = engine;
@@ -82,22 +85,34 @@ export class DebugDashboard {
                 <div class="debug-row"><span>Draw Calls:</span><span id="dbg-drawcalls">-</span></div>
                 <div class="debug-row"><span>CPU Usage:</span><span id="dbg-cpu-usage">-</span></div>
                 <canvas id="fps-graph" width="150" height="30"></canvas>
+                </div>
             </div>
-            <div class="debug-section">
-                <div class="debug-label">SCENE</div>
+            <div class="debug-section" data-section="scene">
+                <div class="debug-label" style="cursor: pointer; user-select: none;">
+                    <input type="checkbox" id="toggle-scene" checked style="margin-right: 4px;"> SCENE
+                </div>
+                <div class="debug-section-content" id="content-scene">
                 <div class="debug-row"><span>Total Meshes:</span><span id="dbg-totalmesh">-</span></div>
                 <div class="debug-row"><span>Active Meshes:</span><span id="dbg-activemesh">-</span></div>
                 <div class="debug-row"><span>Vertices:</span><span id="dbg-vertices">-</span></div>
                 <div class="debug-row"><span>Triangles:</span><span id="dbg-faces">-</span></div>
+                </div>
             </div>
-            <div class="debug-section">
-                <div class="debug-label">ENEMIES</div>
+            <div class="debug-section" data-section="entities">
+                <div class="debug-label" style="cursor: pointer; user-select: none;">
+                    <input type="checkbox" id="toggle-entities" checked style="margin-right: 4px;"> ENTITIES
+                </div>
+                <div class="debug-section-content" id="content-entities">
                 <div class="debug-row"><span>Count:</span><span id="dbg-enemy-count">-</span></div>
                 <div class="debug-row"><span>Active:</span><span id="dbg-enemy-active">-</span></div>
                 <div class="debug-row"><span>Spawned:</span><span id="dbg-enemy-spawned">-</span></div>
+                </div>
             </div>
-            <div class="debug-section">
-                <div class="debug-label">TANK PHYSICS</div>
+            <div class="debug-section" data-section="network">
+                <div class="debug-label" style="cursor: pointer; user-select: none;">
+                    <input type="checkbox" id="toggle-network" style="margin-right: 4px;"> NETWORK
+                </div>
+                <div class="debug-section-content" id="content-network" style="display: none;">
                 <div class="debug-row"><span>Speed:</span><span id="dbg-tank-speed">-</span></div>
                 <div class="debug-row"><span>Hover:</span><span id="dbg-tank-hover">-</span></div>
                 <div class="debug-row"><span>Upright:</span><span id="dbg-tank-upright">-</span></div>
@@ -275,6 +290,48 @@ export class DebugDashboard {
     }
 
     private setupEventListeners(): void {
+        // Загружаем состояние переключателей из localStorage
+        this.loadToggleStates();
+        
+        // Настраиваем переключатели для каждой секции
+        const sections = ['performance', 'scene', 'entities', 'network', 'memory', 'physics'];
+        sections.forEach(section => {
+            const checkbox = document.getElementById(`toggle-${section}`) as HTMLInputElement;
+            const content = document.getElementById(`content-${section}`);
+            if (checkbox && content) {
+                const isEnabled = this.metricToggles.get(section) ?? (section === 'performance' || section === 'entities');
+                checkbox.checked = isEnabled;
+                content.style.display = isEnabled ? '' : 'none';
+                
+                checkbox.addEventListener('change', () => {
+                    const enabled = checkbox.checked;
+                    content.style.display = enabled ? '' : 'none';
+                    this.metricToggles.set(section, enabled);
+                    this.saveToggleStates();
+                });
+            }
+        });
+        
+        // Toggle All
+        document.getElementById("dbg-toggle-all")?.addEventListener("click", () => {
+            const allEnabled = Array.from(this.metricToggles.values()).every(v => v);
+            sections.forEach(section => {
+                const checkbox = document.getElementById(`toggle-${section}`) as HTMLInputElement;
+                const content = document.getElementById(`content-${section}`);
+                if (checkbox && content) {
+                    checkbox.checked = !allEnabled;
+                    content.style.display = !allEnabled ? '' : 'none';
+                    this.metricToggles.set(section, !allEnabled);
+                }
+            });
+            this.saveToggleStates();
+        });
+        
+        // Export Data
+        document.getElementById("dbg-export-data")?.addEventListener("click", () => {
+            this.metricsExporter?.exportToCSV();
+        });
+
         document.getElementById("dbg-export-csv")?.addEventListener("click", () => {
             this.metricsExporter?.exportToCSV();
         });
@@ -292,6 +349,28 @@ export class DebugDashboard {
                 btn.textContent = chartsVisible ? "📊 Скрыть графики" : "📊 Графики";
             }
         });
+    }
+    
+    private loadToggleStates(): void {
+        const saved = localStorage.getItem('debug-metric-toggles');
+        if (saved) {
+            try {
+                const states = JSON.parse(saved);
+                Object.entries(states).forEach(([key, value]) => {
+                    this.metricToggles.set(key, value as boolean);
+                });
+            } catch (e) {
+                console.warn('[DebugDashboard] Failed to load toggle states:', e);
+            }
+        }
+    }
+    
+    private saveToggleStates(): void {
+        const states: Record<string, boolean> = {};
+        this.metricToggles.forEach((value, key) => {
+            states[key] = value;
+        });
+        localStorage.setItem('debug-metric-toggles', JSON.stringify(states));
     }
 
     // FPS indicator removed - using HUD FPS only

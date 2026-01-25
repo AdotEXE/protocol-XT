@@ -65,9 +65,9 @@ export class GameCamera {
     normalFOV = 0.8;
     aimFOV = 0.4;
 
-    // Mouse control for aiming (УЛУЧШЕНА ПЛАВНОСТЬ)
-    aimMouseSensitivity = 0.00015;
-    aimMouseSensitivityVertical = 0.00015;
+    // Mouse control for aiming (УЛУЧШЕНА ЧУВСТВИТЕЛЬНОСТЬ)
+    aimMouseSensitivity = 0.0004; // УВЕЛИЧЕНО с 0.00015 для более отзывчивого управления башней
+    aimMouseSensitivityVertical = 0.0015; // УВЕЛИЧЕНО с 0.00015 для быстрой вертикальной наводки
     aimMaxMouseSpeed = 25;
     aimPitchSmoothing = 0.70; // INCREASED for sensitivity sharpness (was 0.08)
     aimYawSmoothing = 0.70;   // INCREASED for sensitivity sharpness (was 0.10)
@@ -115,7 +115,7 @@ export class GameCamera {
     private collisionRay: Ray = new Ray(Vector3.Zero(), Vector3.Zero(), 100);
     private currentCollisionRadius = 12; // Adjusted radius after collision
     private collisionSmoothSpeed = 0.2; // Smoothing factor for collision adjustment
-    private cameraCollisionOffset = 0.5; // Offset from wall to keep camera slightly away
+    private cameraCollisionOffset = 1.5; // УВЕЛИЧЕНО: Offset от стены для более надёжного предотвращения клиппинга (было 0.5)
 
     // Cache for performance
     private _updateTick = 0;
@@ -129,16 +129,16 @@ export class GameCamera {
     private _cachedBarrelWorldDirFrame = -1;
     private _cachedBarrelWorldPos = Vector3.Zero();
     private _cachedBarrelWorldPosFrame = -1;
-    
+
     // ОПТИМИЗАЦИЯ: Кэш для computeWorldMatrix
     private _cachedWorldMatrix: Matrix | null = null;
     private _worldMatrixCacheFrame = -1;
-    
+
     // ОПТИМИЗАЦИЯ: Кэш для raycast камеры
     private _lastRaycastResult: { hit: boolean, distance: number, frame: number } | null = null;
     private _lastRaycastPos: Vector3 = Vector3.Zero();
-    private _raycastCacheDistance = 0.5;
-    
+    private _raycastCacheDistance = 0.1; // УМЕНЬШЕНО: Чаще обновляем raycast для предотвращения проникновения сквозь стены (было 0.5)
+
     // ОПТИМИЗАЦИЯ: Расширенный кэш позиций
     private _cachedBarrelPos: Vector3 = Vector3.Zero();
     private _cachedPositionsFrame = -1;
@@ -687,20 +687,20 @@ export class GameCamera {
         );
 
         // ОПТИМИЗАЦИЯ: Кэширование raycast
-        const minDistance = this.isAiming ? 1.5 : 2.0;
+        const minDistance = this.isAiming ? 2.0 : 3.0; // УВЕЛИЧЕНО: Минимальная дистанция для предотвращения клиппинга (было 1.5/2.0)
         let finalRadius = requestedRadius;
-        
+
         // Вычисляем текущую позицию камеры для проверки движения
         const currentCameraPos = new Vector3(
             targetPos.x + requestedRadius * Math.sin(this.camera.beta) * Math.cos(this.camera.alpha),
             targetPos.y + requestedRadius * Math.cos(this.camera.beta),
             targetPos.z + requestedRadius * Math.sin(this.camera.beta) * Math.sin(this.camera.alpha)
         );
-        
-        const cameraMoved = currentCameraPos.subtract(this._lastRaycastPos).lengthSquared() > 
+
+        const cameraMoved = currentCameraPos.subtract(this._lastRaycastPos).lengthSquared() >
             this._raycastCacheDistance * this._raycastCacheDistance;
-        
-        if (!cameraMoved && this._lastRaycastResult && 
+
+        if (!cameraMoved && this._lastRaycastResult &&
             this._lastRaycastResult.frame === this._updateTick - 1) {
             // Использовать кэшированный результат
             if (this._lastRaycastResult.hit && this._lastRaycastResult.distance < requestedRadius) {
@@ -713,9 +713,9 @@ export class GameCamera {
             this.collisionRay.origin = origin;
             this.collisionRay.direction = direction;
             this.collisionRay.length = requestedRadius + 1;
-            
+
             const hit = this.scene.pickWithRay(this.collisionRay, (mesh) => this.cameraCollisionMeshFilter(mesh));
-            
+
             // Сохранить результат в кэш
             this._lastRaycastResult = {
                 hit: hit?.hit || false,
@@ -723,17 +723,33 @@ export class GameCamera {
                 frame: this._updateTick
             };
             this._lastRaycastPos.copyFrom(currentCameraPos);
-            
+
             if (hit && hit.hit && hit.distance < requestedRadius) {
                 let limit = hit.distance - this.cameraCollisionOffset;
                 if (limit < minDistance) limit = minDistance;
                 finalRadius = limit;
             }
         }
-        
+
         // Применяем сглаживание для плавного изменения радиуса
-        const smoothingFactor = this.isAiming ? 0.9 : 0.7;
-        this.currentCollisionRadius = this.currentCollisionRadius + (finalRadius - this.currentCollisionRadius) * smoothingFactor;
+        // КРИТИЧНО: Быстрое сглаживание (0.95) для мгновенной реакции на коллизии
+        const smoothingFactor = this.isAiming ? 0.98 : 0.95; // УВЕЛИЧЕНО с 0.9/0.7 для предотвращения проникновения
+
+        // КРИТИЧНО: Если камера вот-вот проникнет сквозь объект (finalRadius сильно меньше текущего),
+        // применяем МГНОВЕННОЕ ограничение без сглаживания!
+        const radiusDifference = this.currentCollisionRadius - finalRadius;
+        if (radiusDifference > 1.0) {
+            // Камера вот-вот пролетит сквозь объект - мгновенно ограничиваем радиус
+            this.currentCollisionRadius = finalRadius;
+        } else {
+            // Плавное сглаживание для комфортного движения
+            this.currentCollisionRadius = this.currentCollisionRadius + (finalRadius - this.currentCollisionRadius) * smoothingFactor;
+        }
+
+        // Дополнительная защита: никогда не позволяем радиусу быть больше расчётного
+        if (this.currentCollisionRadius > finalRadius) {
+            this.currentCollisionRadius = finalRadius;
+        }
 
         // Apply to camera (используем сглаженное значение)
         this.camera.radius = this.currentCollisionRadius;
@@ -956,15 +972,15 @@ export class GameCamera {
         }
 
         // Игнорируем дочерние элементы танка
-        if (mesh.parent === this.tank?.chassis || 
-            mesh.parent === this.tank?.turret || 
+        if (mesh.parent === this.tank?.chassis ||
+            mesh.parent === this.tank?.turret ||
             mesh.parent === this.tank?.barrel) {
             return false;
         }
 
         // Игнорируем вражеские танки и сетевых игроков
         if (mesh.metadata) {
-            if (mesh.metadata.type === "enemyTank" || 
+            if (mesh.metadata.type === "enemyTank" ||
                 mesh.metadata.type === "networkPlayer" ||
                 mesh.metadata.type === "playerTank") {
                 return false;
@@ -1023,16 +1039,16 @@ export class GameCamera {
         const meta = mesh.metadata;
         if (meta) {
             // Игнорируем пули, расходники, танки
-            if (meta.type === "bullet" || 
+            if (meta.type === "bullet" ||
                 meta.type === "consumable" ||
-                meta.type === "playerTank" || 
+                meta.type === "playerTank" ||
                 meta.type === "enemyTank" ||
                 meta.type === "networkPlayer") {
                 return false;
             }
 
             // Блокируем объекты карты (даже если они не в имени)
-            if (meta.mapEditorObject === true || 
+            if (meta.mapEditorObject === true ||
                 meta.objectType === "building" ||
                 meta.objectType === "tree" ||
                 meta.objectType === "rock" ||
@@ -1116,7 +1132,7 @@ export class GameCamera {
             if (this.camera.radius < minDistance) {
                 this.camera.radius = minDistance;
             }
-            
+
             // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если камера все еще слишком близко, принудительно отодвигаем
             const actualDistance = Vector3.Distance(rayOrigin, this.camera.position);
             if (actualDistance < safeDistance) {
@@ -1145,10 +1161,10 @@ export class GameCamera {
         // Направление от танка к целевой позиции камеры
         const direction = targetCamPos.subtract(rayOrigin);
         const targetDistance = direction.length();
-        
+
         // Если расстояние слишком маленькое, пропускаем
         if (targetDistance < 0.5) return targetCamPos;
-        
+
         const directionNormalized = direction.normalize();
 
         const minDistance = 1.5;
@@ -1162,17 +1178,17 @@ export class GameCamera {
             // Есть коллизия - возвращаем безопасную позицию с увеличенным буфером
             const safeDistance = Math.max(minDistance, hit.distance - wallBuffer);
             const safePos = rayOrigin.add(directionNormalized.scale(safeDistance));
-            
+
             // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Проверяем еще раз с новой позиции
             const checkRay = new Ray(rayOrigin, directionNormalized, safeDistance + 1);
             const checkHit = this.scene.pickWithRay(checkRay, (mesh) => this.cameraCollisionMeshFilter(mesh));
-            
+
             if (checkHit && checkHit.hit && checkHit.distance !== null && checkHit.distance < safeDistance) {
                 // Если все еще есть коллизия, отодвигаем еще дальше
                 const extraSafeDistance = Math.max(minDistance, checkHit.distance - wallBuffer);
                 return rayOrigin.add(directionNormalized.scale(extraSafeDistance));
             }
-            
+
             return safePos;
         }
 

@@ -49,16 +49,17 @@ export class EnemyTank {
     // === Physics (SAME AS PLAYER!) ===
     physicsBody!: PhysicsBody;
 
-    // Physics Config (HEAVY & RESPONSIVE - синхронизировано с TankController)
-    private mass = PHYSICS_CONFIG.enemyTank.basic.mass; // HEAVY & RESPONSIVE: Масса бота из конфига
+    // Physics Config (SCALED BY CHASSIS SIZE)
+    private mass: number = PHYSICS_CONFIG.enemyTank.basic.mass; // Масса масштабируется по размеру корпуса
     private hoverHeight = PHYSICS_CONFIG.enemyTank.basic.hoverHeight;
-    private hoverStiffness = PHYSICS_CONFIG.enemyTank.stability.hoverStiffness; // HEAVY & RESPONSIVE: Жесткость подвески
-    private hoverDamping = PHYSICS_CONFIG.enemyTank.stability.hoverDamping; // HEAVY & RESPONSIVE: Демпфирование подвески
+    private hoverStiffness: number = PHYSICS_CONFIG.enemyTank.stability.hoverStiffness; // Жесткость подвески (масштабируется)
+    private hoverDamping: number = PHYSICS_CONFIG.enemyTank.stability.hoverDamping; // Демпфирование подвески (масштабируется)
 
-    // Movement (HEAVY TANK - из конфига)
-    private moveSpeed = PHYSICS_CONFIG.enemyTank.basic.moveSpeed; // Из конфига (11 м/с)
-    private turnSpeed = PHYSICS_CONFIG.enemyTank.basic.turnSpeed; // Из конфига (2.3 рад/с)
-    private acceleration = PHYSICS_CONFIG.enemyTank.basic.acceleration; // Из конфига (58000 Н)
+    // Movement (SCALED BY CHASSIS SIZE)
+    private moveSpeed: number = PHYSICS_CONFIG.enemyTank.basic.moveSpeed; // Скорость нормализована относительно массы
+    private turnSpeed: number = PHYSICS_CONFIG.enemyTank.basic.turnSpeed; // Скорость поворота нормализована относительно массы
+    private acceleration: number = PHYSICS_CONFIG.enemyTank.basic.acceleration; // Ускорение масштабируется по массе
+    private maxAngularVelocity: number = 10.0; // Максимальная угловая скорость (ограничение для маленьких танков)
 
     // СИСТЕМА "СКРУГЛЁННЫЕ ГУСЕНИЦЫ" - СИНХРОНИЗИРОВАНО С ИГРОКОМ из PHYSICS_CONFIG
     private climbAssistForce = PHYSICS_CONFIG.enemyTank.climbing.climbAssistForce;
@@ -374,7 +375,7 @@ export class EnemyTank {
     private _cachedWorldMatrix?: Matrix;
     private _tmpRight: Vector3 = new Vector3();
     private _tmpUp: Vector3 = new Vector3();
-    
+
     // ОПТИМИЗАЦИЯ: Расширенный пул переиспользуемых Vector3
     private _tmpVec1: Vector3 = new Vector3();
     private _tmpVec2: Vector3 = new Vector3();
@@ -462,6 +463,9 @@ export class EnemyTank {
 
         // Применяем настройки сложности (теперь только AI-параметры, параметры из снаряжения применяются внутри)
         this.applyDifficultySettings();
+
+        // МАСШТАБИРОВАНИЕ ФИЗИКИ ПО РАЗМЕРУ КОРПУСА (после applyDifficultySettings, чтобы использовать правильные значения)
+        this.scalePhysicsByChassis();
 
         // Share bullet material
         if (!EnemyTank.sharedBulletMat) {
@@ -622,6 +626,58 @@ export class EnemyTank {
         logger.log(`[EnemyTank ${this.id}] Created at ${position.x.toFixed(0)}, ${position.z.toFixed(0)} with difficulty: ${difficulty}`);
     }
 
+    /**
+     * Масштабирует физические параметры по размеру корпуса
+     * Маленькие корпуса (scout, racer) получают меньшую массу и ограниченную угловую скорость
+     */
+    private scalePhysicsByChassis(): void {
+        // Базовые значения из конфига
+        const baseMass = PHYSICS_CONFIG.enemyTank.basic.mass;
+        const baseMoveSpeed = PHYSICS_CONFIG.enemyTank.basic.moveSpeed;
+        const baseTurnSpeed = PHYSICS_CONFIG.enemyTank.basic.turnSpeed;
+        const baseAcceleration = PHYSICS_CONFIG.enemyTank.basic.acceleration;
+        const baseHoverStiffness = PHYSICS_CONFIG.enemyTank.stability.hoverStiffness;
+        const baseHoverDamping = PHYSICS_CONFIG.enemyTank.stability.hoverDamping;
+
+        // Используем массу из типа корпуса (если доступна)
+        const chassisMass = this.chassisType.mass || baseMass;
+
+        // Масштабируем массу: маленькие корпуса имеют меньшую массу
+        // Масса корпуса уже учитывает размер, используем её напрямую
+        this.mass = chassisMass;
+
+        // Масштабируем скорость движения относительно массы
+        // Маленькие танки должны двигаться быстрее относительно массы
+        const massRatio = chassisMass / baseMass;
+        const sizeFactor = Math.sqrt(massRatio); // Квадратный корень для более плавного масштабирования
+
+        // Используем moveSpeed из типа корпуса, но нормализуем относительно базовой
+        this.moveSpeed = this.chassisType.moveSpeed || (baseMoveSpeed * sizeFactor);
+
+        // Используем turnSpeed из типа корпуса, но нормализуем относительно базовой
+        this.turnSpeed = this.chassisType.turnSpeed || (baseTurnSpeed * sizeFactor);
+
+        // Ускорение масштабируется линейно с массой
+        this.acceleration = this.chassisType.acceleration || (baseAcceleration * massRatio);
+
+        // Жесткость и демпфирование масштабируются по массе
+        this.hoverStiffness = baseHoverStiffness * massRatio;
+        this.hoverDamping = baseHoverDamping * massRatio;
+
+        // Ограничение угловой скорости для маленьких танков (предотвращает хаотичное вращение)
+        const smallChassisIds = ["scout", "racer", "light", "stealth"];
+        if (smallChassisIds.includes(this.chassisType.id)) {
+            // Маленькие танки: более строгое ограничение
+            this.maxAngularVelocity = 6.0;
+        } else if (massRatio < 0.5) {
+            // Средние танки: умеренное ограничение
+            this.maxAngularVelocity = 8.0;
+        } else {
+            // Большие танки: стандартное ограничение
+            this.maxAngularVelocity = 10.0;
+        }
+    }
+
     private applyDifficultySettings() {
         // КРИТИЧНО: Параметры из снаряжения применяются ПЕРВЫМИ (не зависят от сложности!)
         // Применяем параметры из выбранного корпуса
@@ -720,9 +776,9 @@ export class EnemyTank {
 
         // === КОРРЕКТИРОВКА СКОРОСТИ ДЛЯ МАЛЕНЬКИХ КОРПУСОВ ===
         // Предотвращаем слишком быстрое движение легких танков (scout, racer)
-        const isSmallChassis = this.chassisType.mass < 3000 || 
-                               this.chassisType.id === "scout" || 
-                               this.chassisType.id === "racer";
+        const isSmallChassis = this.chassisType.mass < 3000 ||
+            this.chassisType.id === "scout" ||
+            this.chassisType.id === "racer";
         if (isSmallChassis) {
             // Ограничиваем скорость движения для предотвращения хаотичного поведения
             this.moveSpeed = Math.min(this.moveSpeed, 18); // Максимум 18 м/с для маленьких
@@ -997,23 +1053,58 @@ export class EnemyTank {
 
         const chassisLowering = -realHeight * 0.1;
 
-        // 1. КОРПУС (центральный BOX) - ОДИН В ОДИН с визуальным размером
-        const chassisBox = new PhysicsShape({
+        // ═══════════════════════════════════════════════════════════════════════
+        // УЛУЧШЕННЫЙ ХИТБОКС: 5 форм для более реалистичной коллизии танка
+        // ═══════════════════════════════════════════════════════════════════════
+
+        // 1. ОСНОВНОЙ КОРПУС (центральный BOX) - 70% глубины
+        const mainHullDepth = finalDepth * 0.7;
+        const mainHullBox = new PhysicsShape({
             type: PhysicsShapeType.BOX,
             parameters: {
                 center: new Vector3(0, chassisLowering, 0),
                 rotation: Quaternion.Identity(),
-                extents: new Vector3(finalWidth, realHeight, finalDepth) // ИСПРАВЛЕНИЕ: убрали * 0.95
+                extents: new Vector3(finalWidth, realHeight, mainHullDepth)
             }
         }, this.scene);
-        chassisBox.material = { friction: 0, restitution: 0.0 };
-        chassisShape.addChildFromParent(this.chassis, chassisBox, this.chassis);
+        mainHullBox.material = { friction: 0, restitution: 0.0 };
+        chassisShape.addChildFromParent(this.chassis, mainHullBox, this.chassis);
 
-        // 2. БАШНЯ (TURRET BOX) - ОДИН В ОДИН с визуальным размером
-        // Используем точные размеры башни из визуальной модели (как у игрока)
-        const turretHitboxHeight = this.chassisType.height * 0.75; // Как в визуальной модели
-        const turretHitboxWidth = this.chassisType.width * 0.65; // Как в визуальной модели
-        const turretHitboxDepth = this.chassisType.depth * 0.6; // Как в визуальной модели
+        // 2. ПЕРЕДНИЙ СКОС (наклонная броня)
+        const frontSlopeHeight = realHeight * 0.6;
+        const frontSlopeDepth = finalDepth * 0.2;
+        const frontSlopeZ = (mainHullDepth / 2) + (frontSlopeDepth / 2);
+        const frontSlopeY = chassisLowering - (realHeight * 0.2);
+        const frontSlopeBox = new PhysicsShape({
+            type: PhysicsShapeType.BOX,
+            parameters: {
+                center: new Vector3(0, frontSlopeY, frontSlopeZ),
+                rotation: Quaternion.Identity(),
+                extents: new Vector3(finalWidth * 0.85, frontSlopeHeight, frontSlopeDepth)
+            }
+        }, this.scene);
+        frontSlopeBox.material = { friction: 0.1, restitution: 0 };
+        chassisShape.addChildFromParent(this.chassis, frontSlopeBox, this.chassis);
+
+        // 3. ЗАДНЯЯ ЧАСТЬ (моторный отсек)
+        const rearSlopeHeight = realHeight * 0.8;
+        const rearSlopeDepth = finalDepth * 0.15;
+        const rearSlopeZ = -(mainHullDepth / 2) - (rearSlopeDepth / 2);
+        const rearSlopeBox = new PhysicsShape({
+            type: PhysicsShapeType.BOX,
+            parameters: {
+                center: new Vector3(0, chassisLowering, rearSlopeZ),
+                rotation: Quaternion.Identity(),
+                extents: new Vector3(finalWidth * 0.9, rearSlopeHeight, rearSlopeDepth)
+            }
+        }, this.scene);
+        rearSlopeBox.material = { friction: 0.1, restitution: 0 };
+        chassisShape.addChildFromParent(this.chassis, rearSlopeBox, this.chassis);
+
+        // 4. БАШНЯ (TURRET)
+        const turretHitboxHeight = this.chassisType.height * 0.75;
+        const turretHitboxWidth = this.chassisType.width * 0.65;
+        const turretHitboxDepth = this.chassisType.depth * 0.6;
         const turretY = chassisLowering + (realHeight * 0.5) + (turretHitboxHeight * 0.5);
 
         const turretBox = new PhysicsShape({
@@ -1026,6 +1117,22 @@ export class EnemyTank {
         }, this.scene);
         turretBox.material = { friction: 0.1, restitution: 0 };
         chassisShape.addChildFromParent(this.chassis, turretBox, this.chassis);
+
+        // 5. МАСКА ПУШКИ (gun mantlet)
+        const mantletWidth = turretHitboxWidth * 0.4;
+        const mantletHeight = turretHitboxHeight * 0.5;
+        const mantletDepth = turretHitboxDepth * 0.3;
+        const mantletZ = (turretHitboxDepth / 2) + (mantletDepth / 2);
+        const mantletBox = new PhysicsShape({
+            type: PhysicsShapeType.BOX,
+            parameters: {
+                center: new Vector3(0, turretY, mantletZ),
+                rotation: Quaternion.Identity(),
+                extents: new Vector3(mantletWidth, mantletHeight, mantletDepth)
+            }
+        }, this.scene);
+        mantletBox.material = { friction: 0.1, restitution: 0 };
+        chassisShape.addChildFromParent(this.chassis, mantletBox, this.chassis);
 
         // Настройки фильтрации столкновений
         chassisShape.filterMembershipMask = 8;
@@ -1217,18 +1324,20 @@ export class EnemyTank {
             const maxLinearSpeed = 50;
             // Для маленьких корпусов (scout, racer) ограничиваем angular velocity сильнее
             // чтобы они не вращались хаотично
-            const isSmallChassis = this.chassisType.mass < 3000 || 
-                                   this.chassisType.id === "scout" || 
-                                   this.chassisType.id === "racer";
+            const isSmallChassis = this.chassisType.mass < 3000 ||
+                this.chassisType.id === "scout" ||
+                this.chassisType.id === "racer";
             const maxAngularSpeed = isSmallChassis ? 4 : 8; // Меньше для маленьких корпусов
-            
+
             if (vel.length() > maxLinearSpeed) {
                 body.setLinearVelocity(vel.normalize().scale(maxLinearSpeed));
             }
             if (angVel.length() > maxAngularSpeed) {
-                body.setAngularVelocity(angVel.normalize().scale(maxAngularSpeed));
+                // Используем масштабированное ограничение угловой скорости
+                const maxAngVel = this.maxAngularVelocity;
+                body.setAngularVelocity(angVel.normalize().scale(Math.min(maxAngularSpeed, maxAngVel)));
             }
-            
+
             // Дополнительное ограничение для X и Z осей (предотвращение опрокидывания)
             if (isSmallChassis) {
                 const clampedAngVel = angVel.clone();
@@ -4017,6 +4126,12 @@ export class EnemyTank {
 
     private fire(): void {
         if (!this.isAlive) return;
+
+        // КРИТИЧНО: Не стреляем если нет прямой видимости к цели!
+        // Это предотвращает стрельбу в стены когда игрок за укрытием
+        if (!this.canShootAtTarget()) {
+            return; // Цель не видна - не стреляем
+        }
 
         // ИСПРАВЛЕНО: Не стреляем если башня не наведена на цель!
         if (!this.isAimedAtTarget()) {

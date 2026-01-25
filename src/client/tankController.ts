@@ -339,8 +339,8 @@ export class TankController {
     private _barrelRotationXSmoothing = 0.15; // Коэффициент сглаживания для rotation.x ствола
     private barrelPitchAcceleration = 0; // Прогрессивный разгон наклона ствола (0-1, за 1 секунду)
     private barrelPitchAccelStartTime = 0; // Время начала ускорения наклона ствола
-    baseBarrelPitchSpeed = 0.007; // Настроено: 15° за 3 секунды при 60 FPS (компенсирует ускорение и lerp)
-    barrelPitchLerpSpeed = 0.2; // УМЕНЬШЕНО с 0.5: Более плавная интерполяция наклона ствола
+    baseBarrelPitchSpeed = 0.002; // УВЕЛИЧЕНО с 0.00035 для быстрой вертикальной наводки (~6x быстрее)
+    barrelPitchLerpSpeed = 0.35; // УВЕЛИЧЕНО с 0.2: Более отзывчивая интерполяция наклона ствола
 
     // Aiming pitch (vertical angle for aiming) - set from game.ts
     aimPitch = 0;
@@ -1155,25 +1155,32 @@ export class TankController {
 
         const chassisLowering = -realHeight * 0.1;
 
-        // 1. КОРПУС (центральный BOX) - ОДИН В ОДИН с визуальным размером
-        // Используем точные размеры корпуса без уменьшения
-        const chassisBox = new PhysicsShape({
+        // ═══════════════════════════════════════════════════════════════════════
+        // УПРОЩЕННЫЙ ХИТБОКС: Строго 2 формы (Корпус + Башня)
+        // ═══════════════════════════════════════════════════════════════════════
+
+        // 1. ОСНОВНОЙ КОРПУС (Hull)
+        // Центр бокса должен быть на высоте realHeight/2, если pivot в 0
+        const hullCenterY = realHeight * 0.5;
+
+        const mainHullBox = new PhysicsShape({
             type: PhysicsShapeType.BOX,
             parameters: {
-                center: new Vector3(0, chassisLowering, 0),
+                center: new Vector3(0, hullCenterY, 0),
                 rotation: Quaternion.Identity(),
-                extents: new Vector3(finalWidth, realHeight, finalDepth) // ИСПРАВЛЕНИЕ: убрали * 0.95
+                extents: new Vector3(finalWidth, realHeight, finalDepth) // Полный размер корпуса
             }
         }, scene);
-        chassisBox.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxRestitution };
-        chassisShape.addChildFromParent(this.chassis, chassisBox, this.chassis);
+        mainHullBox.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxRestitution };
+        chassisShape.addChildFromParent(this.chassis, mainHullBox, this.chassis);
 
-        // 2. БАШНЯ (TURRET BOX) - ОДИН В ОДИН с визуальным размером
-        // Используем точные размеры башни из визуальной модели
-        const turretHitboxHeight = this.chassisType.height * 0.75; // Как в визуальной модели
-        const turretHitboxWidth = this.chassisType.width * 0.65; // Как в визуальной модели
-        const turretHitboxDepth = this.chassisType.depth * 0.6; // Как в визуальной модели
-        const turretY = chassisLowering + (realHeight * 0.5) + (turretHitboxHeight * 0.5);
+        // 2. БАШНЯ (Turret)
+        const turretHitboxHeight = this.chassisType.height * 0.75;
+        const turretHitboxWidth = this.chassisType.width * 0.65;
+        const turretHitboxDepth = this.chassisType.depth * 0.6;
+
+        // Башня стоит НАД корпусом. Y = высота корпуса + половина высоты башни
+        const turretY = realHeight + (turretHitboxHeight * 0.5);
 
         const turretBox = new PhysicsShape({
             type: PhysicsShapeType.BOX,
@@ -1275,54 +1282,57 @@ export class TankController {
     respawn(position?: Vector3): void {
         const game = (window as any).gameInstance;
 
-        // 1. Определяем базовую позицию
-        let basePos = position ? position.clone() : (this.chassis ? this.chassis.position.clone() : new Vector3(0, 5, 0));
+        // КРИТИЧНО: Если позиция передана от сервера (мультиплеер), доверяем серверу!
+        // НЕ пересчитываем "безопасную" позицию — сервер уже её валидировал.
+        let respawnPos: Vector3;
 
-        // 2. ИСПРАВЛЕНО: Используем findSafeSpawnPositionAt для поиска безопасной позиции над верхней поверхностью
-        // Это предотвращает застревание в текстурах объектов
-        let safePos: Vector3;
-        if (game && typeof game.findSafeSpawnPositionAt === 'function') {
-            const tankHeight = this.chassisType?.height || 2.0;
-            const minOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
-            const foundSafePos = game.findSafeSpawnPositionAt(basePos.x, basePos.z, minOffset, 10);
-            
-            if (foundSafePos) {
-                safePos = foundSafePos;
-                logger.log(`[TankController] Found safe respawn position at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)})`);
+        if (position) {
+            // Мультиплеер: сервер указал точную позицию — используем её
+            respawnPos = position.clone();
+            console.log(`[TankController] Respawning at SERVER position (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)})`);
+        } else {
+            // Одиночная игра: ищем безопасную позицию локально
+            let basePos = this.chassis ? this.chassis.position.clone() : new Vector3(0, 5, 0);
+
+            if (game && typeof game.findSafeSpawnPositionAt === 'function') {
+                const tankHeight = this.chassisType?.height || 2.0;
+                const minOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
+                const foundSafePos = game.findSafeSpawnPositionAt(basePos.x, basePos.z, minOffset, 10);
+                respawnPos = foundSafePos || basePos;
             } else {
-                // Fallback: используем базовую позицию с проверкой высоты
-                if (game && typeof game.getTopSurfaceHeight === 'function') {
-                    const surfaceY = game.getTopSurfaceHeight(basePos.x, basePos.z);
-                    safePos = new Vector3(basePos.x, surfaceY + minOffset, basePos.z);
-                    logger.warn(`[TankController] Using fallback respawn position at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)})`);
-                } else {
-                    safePos = basePos;
+                respawnPos = basePos;
+                if (respawnPos.y < -2.0) {
+                    respawnPos.y = 5.0;
                 }
             }
-        } else {
-            // Fallback если game не доступен
-            safePos = basePos;
-            if (safePos.y < -2.0) {
-                safePos.y = 5.0;
-            }
+            console.log(`[TankController] Respawning at LOCAL position (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)})`);
         }
 
-        // 3. Проверяем изменения конфигурации и пересоздаём если нужно
-        // Используем проверенную безопасную позицию для пересоздания
+        // Проверяем изменения конфигурации и пересоздаём если нужно
         if (this.checkForConfigurationChanges()) {
             logger.log("[TankController] Configuration change detected. Rebuilding tank visuals...");
-            this.rebuildTankVisuals(safePos);
+            this.rebuildTankVisuals(respawnPos);
         }
-
-        // 4. Восстанавливаем физику используя БЕЗОПАСНУЮ ПОЗИЦИЮ
-        const respawnPos = safePos;
-        console.log(`[TankController] Respawning at safe position (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)})`);
 
         this.isAlive = true;
         this.isMovementEnabled = true;
 
-        // Восстанавливаем физику и позицию
+        // КРИТИЧНО: Прямой телепорт ПЕРЕД восстановлением физики
+        if (this.chassis) {
+            this.chassis.position.copyFrom(respawnPos);
+            this.chassis.rotationQuaternion = Quaternion.Identity();
+            this.chassis.computeWorldMatrix(true);
+        }
+
+        // Восстанавливаем физику (теперь chassis уже в правильной позиции)
         this.healthModule.restoreTankPhysics(respawnPos);
+
+        // КРИТИЧНО: Принудительный мгновенный телепорт физики
+        if (this.physicsBody) {
+            this.physicsBody.disablePreStep = false;
+            this.physicsBody.setLinearVelocity(Vector3.Zero());
+            this.physicsBody.setAngularVelocity(Vector3.Zero());
+        }
 
         // Восстанавливаем здоровье
         this.setHealth(this.maxHealth, this.maxHealth);
@@ -1330,7 +1340,7 @@ export class TankController {
         // Включаем защиту
         this.healthModule.activateInvulnerability();
 
-        // Скрываем экран смерти на всякий случай
+        // Скрываем экран смерти
         if (this.hud) {
             this.hud.hideDeathScreen();
         }
@@ -1655,7 +1665,7 @@ export class TankController {
             const multipliers = CHASSIS_SIZE_MULTIPLIERS[this.chassisType.id] ?? CHASSIS_SIZE_MULTIPLIERS["medium"]!;
             const tankHeight = this.chassisType.height * multipliers.height;
             const safeOffset = Math.max(3.0, tankHeight * 0.5 + 1.0); // Минимум 3м, или половина высоты + 1м
-            
+
             if (game && typeof game.findSafeSpawnPositionAt === 'function') {
                 const safePos = game.findSafeSpawnPositionAt(targetX, targetZ, safeOffset, 5);
                 if (safePos) {
@@ -1686,7 +1696,7 @@ export class TankController {
                 const multipliers = CHASSIS_SIZE_MULTIPLIERS[this.chassisType.id] ?? CHASSIS_SIZE_MULTIPLIERS["medium"]!;
                 const tankHeight = this.chassisType.height * multipliers.height;
                 const safeOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
-                
+
                 if (game && typeof game.getTopSurfaceHeight === 'function') {
                     const surfaceHeight = game.getTopSurfaceHeight(targetX, targetZ);
                     targetY = surfaceHeight + safeOffset;
@@ -1711,7 +1721,7 @@ export class TankController {
         if (this.chassis) {
             // 1. Устанавливаем позицию С ПРАВИЛЬНОЙ ВЫСОТОЙ
             this.chassis.position.set(targetX, targetY, targetZ);
-            
+
             // ИСПРАВЛЕНИЕ: Проверяем коллизии после установки позиции и выталкиваем танк если застрял
             if (game && typeof game.ejectTankFromCollision === 'function') {
                 game.ejectTankFromCollision();
@@ -1809,37 +1819,37 @@ export class TankController {
 
                 const chassisLowering = -this.chassisType.height * 0.1;
 
-            // 1. КОРПУС (центральный BOX) - ОДИН В ОДИН с визуальным размером
-            const multipliers = CHASSIS_SIZE_MULTIPLIERS[this.chassisType.id] ?? CHASSIS_SIZE_MULTIPLIERS["medium"]!;
-            const realWidth = this.chassisType.width * multipliers!.width;
-            const realHeight = this.chassisType.height * multipliers!.height;
-            const realDepth = this.chassisType.depth * multipliers!.depth;
+                // 1. КОРПУС (центральный BOX) - ОДИН В ОДИН с визуальным размером
+                const multipliers = CHASSIS_SIZE_MULTIPLIERS[this.chassisType.id] ?? CHASSIS_SIZE_MULTIPLIERS["medium"]!;
+                const realWidth = this.chassisType.width * multipliers!.width;
+                const realHeight = this.chassisType.height * multipliers!.height;
+                const realDepth = this.chassisType.depth * multipliers!.depth;
 
-            let finalWidth = realWidth;
-            let finalDepth = realDepth;
-            if (this.chassisType.id === "hover" || this.chassisType.id === "shield") {
-                const maxSize = Math.max(this.chassisType.width, this.chassisType.depth) * multipliers!.width;
-                finalWidth = maxSize;
-                finalDepth = maxSize;
-            }
-
-            const chassisBox = new PhysicsShape({
-                type: PhysicsShapeType.BOX,
-                parameters: {
-                    center: new Vector3(0, chassisLowering, 0),
-                    rotation: Quaternion.Identity(),
-                    extents: new Vector3(finalWidth, realHeight, finalDepth) // ИСПРАВЛЕНИЕ: убрали * 0.95
+                let finalWidth = realWidth;
+                let finalDepth = realDepth;
+                if (this.chassisType.id === "hover" || this.chassisType.id === "shield") {
+                    const maxSize = Math.max(this.chassisType.width, this.chassisType.depth) * multipliers!.width;
+                    finalWidth = maxSize;
+                    finalDepth = maxSize;
                 }
-            }, this.scene);
-            chassisBox.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxRestitution };
-            chassisShape.addChildFromParent(this.chassis, chassisBox, this.chassis);
 
-            // 2. БАШНЯ (TURRET BOX) - ОДИН В ОДИН с визуальным размером
-            const turretHeight = this.chassisType.height * 0.75; // Как в визуальной модели
-            const turretWidth = this.chassisType.width * 0.65; // Как в визуальной модели
-            const turretDepth = this.chassisType.depth * 0.6; // Как в визуальной модели
-            // Calculate Y position: Top of chassis + half turret height
-            const turretY = chassisLowering + (realHeight * 0.5) + (turretHeight * 0.5);
+                const chassisBox = new PhysicsShape({
+                    type: PhysicsShapeType.BOX,
+                    parameters: {
+                        center: new Vector3(0, chassisLowering, 0),
+                        rotation: Quaternion.Identity(),
+                        extents: new Vector3(finalWidth, realHeight, finalDepth) // ИСПРАВЛЕНИЕ: убрали * 0.95
+                    }
+                }, this.scene);
+                chassisBox.material = { friction: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxFriction, restitution: PHYSICS_CONFIG.tank.collisionMaterials.centerBoxRestitution };
+                chassisShape.addChildFromParent(this.chassis, chassisBox, this.chassis);
+
+                // 2. БАШНЯ (TURRET BOX) - ОДИН В ОДИН с визуальным размером
+                const turretHeight = this.chassisType.height * 0.75; // Как в визуальной модели
+                const turretWidth = this.chassisType.width * 0.65; // Как в визуальной модели
+                const turretDepth = this.chassisType.depth * 0.6; // Как в визуальной модели
+                // Calculate Y position: Top of chassis + half turret height
+                const turretY = chassisLowering + (realHeight * 0.5) + (turretHeight * 0.5);
 
                 const turretBox = new PhysicsShape({
                     type: PhysicsShapeType.BOX,
@@ -4348,7 +4358,7 @@ export class TankController {
                     this.manualProjectiles.splice(idx, 1);
                 }
             }, 5000);
-            
+
             // ИСПРАВЛЕНИЕ: Сохраняем intervalId и timeoutId для очистки
             const projIdx = this.manualProjectiles.findIndex(p => p.mesh === tracer);
             if (projIdx !== -1) {
@@ -4392,11 +4402,11 @@ export class TankController {
     // ОПТИМИЗАЦИЯ: Ручное обновление движения снарядов (вместо тяжелой физики)
     // ИСПРАВЛЕНИЕ: Ограничение на количество снарядов для предотвращения утечек памяти
     private readonly MAX_MANUAL_PROJECTILES = 100;
-    
+
     private updateProjectiles(dt: number) {
         // Инкремент счётчика кадров для оптимизации траектории
         this.trajectoryFrameCounter++;
-        
+
         // ИСПРАВЛЕНИЕ: Очищаем старые снаряды если их слишком много
         if (this.manualProjectiles.length > this.MAX_MANUAL_PROJECTILES) {
             const toRemove = this.manualProjectiles.length - this.MAX_MANUAL_PROJECTILES;
@@ -4415,7 +4425,7 @@ export class TankController {
             }
             this.manualProjectiles.splice(0, toRemove);
         }
-        
+
         for (let i = this.manualProjectiles.length - 1; i >= 0; i--) {
             const proj = this.manualProjectiles[i];
             if (!proj) continue;
@@ -4452,7 +4462,7 @@ export class TankController {
                 trajectoryLine.color = this._cachedRedColor; // Используем кэшированный цвет
                 trajectoryLine.isPickable = false;
                 this.trajectoryLines.push(trajectoryLine);
-                
+
                 // Удаляем старые линии траектории (максимум 100 для производительности)
                 while (this.trajectoryLines.length > 100) {
                     const toRemove = this.trajectoryLines.shift();
@@ -4460,7 +4470,7 @@ export class TankController {
                         toRemove.dispose();
                     }
                 }
-                
+
                 // Автоматическое удаление линии через 3 секунды
                 const timeoutId = window.setTimeout(() => {
                     // Удаляем ID из массива
@@ -4502,7 +4512,7 @@ export class TankController {
             window.clearTimeout(timeoutId);
         }
         this.trajectoryTimeoutIds = [];
-        
+
         // Удаляем все линии
         for (const line of this.trajectoryLines) {
             if (line && !line.isDisposed()) {
@@ -7229,7 +7239,7 @@ export class TankController {
             // Вычисляем абсолютную позицию для физики
             this.module9Platform.computeWorldMatrix(true);
             const worldPos = this.module9Platform.getAbsolutePosition();
-            
+
             this.module9PlatformPhysics.setTargetTransform(
                 worldPos,
                 Quaternion.FromEulerAngles(0, chassisRot, 0)
@@ -8516,3 +8526,4 @@ export class TankController {
         requestAnimationFrame(animate);
     }
 }
+

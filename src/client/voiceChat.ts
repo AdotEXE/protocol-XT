@@ -39,16 +39,23 @@ export class VoiceChatManager {
     private playerId: string | null = null;
 
     constructor() {
-        // Listen for keyboard events
-        window.addEventListener("keydown", (e) => {
-            this.inputMap.set(e.code, true);
-            this.updateTalkingState();
-        });
+        // Keyboard events are now handled by HotkeyManager
+        // window.addEventListener("keydown", (e) => {
+        //     this.inputMap.set(e.code, true);
+        //     this.updateTalkingState();
+        // });
 
-        window.addEventListener("keyup", (e) => {
-            this.inputMap.set(e.code, false);
+        // window.addEventListener("keyup", (e) => {
+        //     this.inputMap.set(e.code, false);
+        //     this.updateTalkingState();
+        // });
+    }
+
+    public setPushToTalkActive(active: boolean): void {
+        if (this.config.pushToTalk) {
+            this.inputMap.set(this.config.pushToTalkKey, active);
             this.updateTalkingState();
-        });
+        }
     }
 
     /**

@@ -178,6 +178,37 @@ export class ChunkSystem {
         return this.roadNetwork;
     }
 
+    /**
+     * Получить точки спавна игрока с карты (гаражи)
+     * НОВОЕ: Публичный API для доступа к spawn точкам из Game класса
+     * @returns массив Vector3 позиций для спавна
+     */
+    public getPlayerSpawnPoints(): Vector3[] {
+        // Приоритет 1: Позиции гаражей (всегда есть)
+        if (this.garagePositions.length > 0) {
+            return this.garagePositions.map(pos => pos.clone());
+        }
+
+        // Приоритет 2: POI респавн-точки (если игрок захватил)
+        if (this.poiSystem) {
+            const poiPoints = this.poiSystem.getPlayerRespawnPoints();
+            if (poiPoints.length > 0) {
+                return poiPoints;
+            }
+        }
+
+        // Fallback: пустой массив (будет использоваться random spawn)
+        return [];
+    }
+
+    /**
+     * Получить количество доступных точек спавна
+     */
+    public getSpawnPointCount(): number {
+        return this.garagePositions.length + (this.poiSystem?.getPlayerRespawnPoints().length || 0);
+    }
+
+
     // Terrain generator for heightmap (public for external access)
     public terrainGenerator: TerrainGenerator | null = null;
 
@@ -1154,9 +1185,9 @@ export class ChunkSystem {
         // ОПТИМИЗАЦИЯ: Обновляем чанки только при смене чанка или раз в N кадров
         const now = performance.now();
         const timeSinceLastUpdate = now - (this as any)._lastChunkUpdateTime || 0;
-        const shouldUpdate = cx !== this.lastPlayerChunk.x || cz !== this.lastPlayerChunk.z || 
-                            (this.progressiveLoadingEnabled && timeSinceLastUpdate > 100); // Обновляем раз в 100мс при прогрессивной загрузке
-        
+        const shouldUpdate = cx !== this.lastPlayerChunk.x || cz !== this.lastPlayerChunk.z ||
+            (this.progressiveLoadingEnabled && timeSinceLastUpdate > 100); // Обновляем раз в 100мс при прогрессивной загрузке
+
         if (shouldUpdate) {
             this.lastPlayerChunk = { x: cx, z: cz };
             (this as any)._lastChunkUpdateTime = now;

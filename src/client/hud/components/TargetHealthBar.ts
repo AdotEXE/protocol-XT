@@ -25,14 +25,14 @@ export class TargetHealthBar {
     private bracketLeft: TextBlock;
     private bracketRight: TextBlock;
     private scanlineOverlay: Rectangle;
-    
+
     private currentTarget: TargetInfo | null = null;
     private displayedHealth = 0;
     private fadeAlpha = 0;
     private lastTargetTime = 0;
     private readonly FADE_DURATION = 500; // мс
-    private readonly HOLD_DURATION = 3000; // держать после потери цели
-    
+    private readonly HOLD_DURATION = 4000; // УВЕЛИЧЕНО с 3000 до 4000 мс - держать 4 сек после потери цели
+
     constructor(parent: AdvancedDynamicTexture) {
         // === ГЛАВНЫЙ КОНТЕЙНЕР (под компасом) ===
         // Компас: top: 10px, height: 35px, так что полоска должна быть на ~50px
@@ -47,7 +47,7 @@ export class TargetHealthBar {
         this.container.alpha = 0; // СКРЫТ по умолчанию - показывать только при точном прицеливании
         this.container.isVisible = false; // ГАРАНТИРОВАННО скрыт
         parent.addControl(this.container);
-        
+
         // === НАЗВАНИЕ ЦЕЛИ ===
         this.nameText = new TextBlock("targetName");
         this.nameText.text = "< ВРАГ >";
@@ -61,7 +61,7 @@ export class TargetHealthBar {
         this.nameText.shadowColor = "#000";
         this.nameText.shadowBlur = 4;
         this.container.addControl(this.nameText);
-        
+
         // === КВАДРАТНЫЕ СКОБКИ (ТАКТИЧЕСКИЙ СТИЛЬ) ===
         this.bracketLeft = new TextBlock("bracketLeft");
         this.bracketLeft.text = "[";
@@ -74,7 +74,7 @@ export class TargetHealthBar {
         this.bracketLeft.left = "10px";
         this.bracketLeft.top = "6px";
         this.container.addControl(this.bracketLeft);
-        
+
         this.bracketRight = new TextBlock("bracketRight");
         this.bracketRight.text = "]";
         this.bracketRight.color = HUD_COLORS.DANGER;
@@ -86,7 +86,7 @@ export class TargetHealthBar {
         this.bracketRight.left = "-10px";
         this.bracketRight.top = "6px";
         this.container.addControl(this.bracketRight);
-        
+
         // === ПОЛОСА ЗДОРОВЬЯ (ФОН) ===
         this.backgroundBar = new Rectangle("targetHealthBg");
         this.backgroundBar.width = "250px";
@@ -99,7 +99,7 @@ export class TargetHealthBar {
         this.backgroundBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.backgroundBar.top = "8px";
         this.container.addControl(this.backgroundBar);
-        
+
         // === СВЕЧЕНИЕ ЗДОРОВЬЯ ===
         this.healthGlow = new Rectangle("targetHealthGlow");
         this.healthGlow.width = "100%";
@@ -109,7 +109,7 @@ export class TargetHealthBar {
         this.healthGlow.alpha = 0.3;
         this.healthGlow.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.backgroundBar.addControl(this.healthGlow);
-        
+
         // === ЗАПОЛНЕНИЕ ЗДОРОВЬЯ ===
         this.healthFill = new Rectangle("targetHealthFill");
         this.healthFill.width = "100%";
@@ -118,7 +118,7 @@ export class TargetHealthBar {
         this.healthFill.background = HUD_COLORS.DANGER;
         this.healthFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.backgroundBar.addControl(this.healthFill);
-        
+
         // === СКАНЛАЙНЫ (ВОЕННЫЙ СТИЛЬ) ===
         this.scanlineOverlay = new Rectangle("targetScanlines");
         this.scanlineOverlay.width = "100%";
@@ -127,7 +127,7 @@ export class TargetHealthBar {
         this.scanlineOverlay.alpha = 0.15;
         // CSS-подобный эффект через паттерн
         this.backgroundBar.addControl(this.scanlineOverlay);
-        
+
         // === ТЕКСТ ЗДОРОВЬЯ ===
         this.healthText = new TextBlock("targetHealthText");
         this.healthText.text = "100/100";
@@ -140,19 +140,22 @@ export class TargetHealthBar {
         this.healthText.shadowColor = "#000";
         this.healthText.shadowBlur = 3;
         this.backgroundBar.addControl(this.healthText);
-        
+
         // === ДИСТАНЦИЯ ===
         this.distanceText = new TextBlock("targetDistance");
         this.distanceText.text = "DIST: 45m";
         this.distanceText.color = HUD_COLORS.WARNING;
-        this.distanceText.fontSize = "10px";
+        this.distanceText.fontSize = "11px"; // Увеличено с 10px для лучшей читаемости
         this.distanceText.fontFamily = "'Consolas', monospace";
+        this.distanceText.fontWeight = "bold"; // Добавлено для лучшей видимости
         this.distanceText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.distanceText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.distanceText.top = "-2px";
+        this.distanceText.top = "0px"; // ИСПРАВЛЕНО: было -2px что скрывало текст за пределами контейнера
+        this.distanceText.shadowColor = "#000";
+        this.distanceText.shadowBlur = 4;
         this.container.addControl(this.distanceText);
     }
-    
+
     /**
      * Установить текущую цель
      */
@@ -163,16 +166,16 @@ export class TargetHealthBar {
             this.container.isVisible = true; // Показываем контейнер
             this.fadeAlpha = 1; // Сразу показываем (без fade-in)
             this.container.alpha = 1;
-            
+
             // Обновляем название
             const typePrefix = target.type === "boss" ? "⚠ BOSS" : target.type === "player" ? "ИГРОК" : "ВРАГ";
             this.nameText.text = `< ${typePrefix}: ${target.name} >`;
-            
+
             // Цвет в зависимости от типа
-            const color = target.type === "boss" ? HUD_COLORS.WARNING : 
-                         target.type === "player" ? HUD_COLORS.PRIMARY : HUD_COLORS.DANGER;
+            const color = target.type === "boss" ? HUD_COLORS.WARNING :
+                target.type === "player" ? HUD_COLORS.PRIMARY : HUD_COLORS.DANGER;
             this.updateColors(color);
-            
+
             // Обновляем дистанцию
             this.distanceText.text = `DIST: ${Math.round(target.distance)}m`;
         } else {
@@ -184,7 +187,7 @@ export class TargetHealthBar {
             this.container.isVisible = false; // ГАРАНТИРОВАННО скрыть
         }
     }
-    
+
     /**
      * Обновить цвета элементов
      */
@@ -196,13 +199,13 @@ export class TargetHealthBar {
         this.healthFill.background = color;
         this.healthGlow.background = color;
     }
-    
+
     /**
      * Обновление анимации (вызывать каждый кадр)
      */
     update(deltaTime: number): void {
         const now = Date.now();
-        
+
         // Рассчитываем целевую прозрачность
         let targetAlpha = 0;
         if (this.currentTarget) {
@@ -215,29 +218,29 @@ export class TargetHealthBar {
                 this.currentTarget = null;
             }
         }
-        
+
         // Плавная интерполяция прозрачности
         const alphaSpeed = 8.0;
         this.fadeAlpha += (targetAlpha - this.fadeAlpha) * alphaSpeed * deltaTime;
         this.container.alpha = this.fadeAlpha;
-        
+
         // ИСПРАВЛЕНО: Управление видимостью - показываем только когда alpha > 0
         this.container.isVisible = this.fadeAlpha > 0.01;
-        
+
         // Обновляем полосу здоровья с плавной анимацией
         if (this.currentTarget) {
-            const healthPercent = Math.max(0, Math.min(100, 
+            const healthPercent = Math.max(0, Math.min(100,
                 (this.currentTarget.health / this.currentTarget.maxHealth) * 100));
-            
+
             // Плавное изменение отображаемого здоровья
             const healthSpeed = 5.0;
             this.displayedHealth += (healthPercent - this.displayedHealth) * healthSpeed * deltaTime;
-            
+
             // Обновляем визуал
             this.healthFill.width = `${this.displayedHealth}%`;
             this.healthGlow.width = `${this.displayedHealth}%`;
             this.healthText.text = `${Math.round(this.currentTarget.health)}/${this.currentTarget.maxHealth}`;
-            
+
             // Мигание при низком здоровье
             if (healthPercent < 25) {
                 const blink = Math.sin(now * 0.01) * 0.3 + 0.7;
@@ -249,7 +252,7 @@ export class TargetHealthBar {
                 this.bracketLeft.alpha = 1;
                 this.bracketRight.alpha = 1;
             }
-            
+
             // Цвет здоровья в зависимости от процента
             let healthColor: string;
             if (healthPercent > 60) {
@@ -262,7 +265,7 @@ export class TargetHealthBar {
             this.healthFill.background = healthColor;
         }
     }
-    
+
     /**
      * Показать/скрыть
      */
@@ -274,14 +277,14 @@ export class TargetHealthBar {
             this.container.isVisible = false; // ГАРАНТИРОВАННО скрыть
         }
     }
-    
+
     /**
      * Есть ли активная цель
      */
     hasTarget(): boolean {
         return this.currentTarget !== null && this.fadeAlpha > 0.1;
     }
-    
+
     /**
      * Очистка
      */

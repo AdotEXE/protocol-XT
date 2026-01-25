@@ -1321,8 +1321,8 @@ export class GameServer {
         // If target died, broadcast PLAYER_KILLED
         if (died) {
             this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_KILLED, {
-                playerId: target.id,
-                playerName: target.name,
+                victimId: target.id,
+                victimName: target.name,
                 killerId: attacker.id,
                 killerName: attacker.name
             }));

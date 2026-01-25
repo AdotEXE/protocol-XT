@@ -5,7 +5,6 @@
 // Импорты для скил-дерева перенесены в menu/skillTreeUI.ts
 import { createSkillsPanelHTML, updateSkillTreeDisplay, saveSkillTreeCameraPosition, type PlayerStats, type SkillTreeCallbacks } from "./menu/skillTreeUI";
 import { Scene, Engine } from "@babylonjs/core";
-import { VoxelEditor } from "./voxelEditor/VoxelEditor"; // Integrated Voxel Editor
 // Garage is lazy loaded - imported dynamically when needed
 import { CurrencyManager } from "./currencyManager";
 import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
@@ -15,6 +14,7 @@ import { firebaseService } from "./firebaseService";
 import { PlayerProgressionSystem, PLAYER_ACHIEVEMENTS, PLAYER_TITLES, getLevelBonuses, MAX_PLAYER_LEVEL, PLAYER_LEVEL_EXP, type PlayerAchievement, type DailyQuest } from "./playerProgression";
 import { initCustomMapBridge, type TXMapData, loadCustomMap, getCustomMapsList, getCustomMapData, deleteCustomMap } from "./maps/custom";
 import { ALL_MAPS, type MapId } from "./maps";
+import { ProgressPanelModule, type IProgressPanelHost } from "./menu/modules/ProgressPanel";
 
 // Version tracking
 // Версия генерируется во время сборки и одинакова для всех пользователей
@@ -140,11 +140,11 @@ export class MainMenu {
     private garageScene: Scene | null = null; // Minimal scene for garage (if created in menu)
     private garageCurrencyManager: CurrencyManager | null = null; // Currency manager for garage
     private returnToPlayMenuAfterGarage = false;
-    
+
     // ОПТИМИЗАЦИЯ: AbortController для управления слушателями событий
     private abortController: AbortController = new AbortController();
 
-    private voxelEditor: VoxelEditor | null = null;
+    private voxelEditor: any | null = null; // VoxelEditor removed - using any for compatibility
     private editorContainer: HTMLElement | null = null;
     private expandEditorBtn: HTMLButtonElement | null = null;
 
@@ -183,6 +183,9 @@ export class MainMenu {
     private _lastLobbyPlayersCount: number = 0;
 
     // Лобби - фильтрация комнат (используем общий allRooms)
+
+    // МОДУЛИ (рефакторинг)
+    private progressPanelModule: ProgressPanelModule | null = null;
 
     constructor() {
 
@@ -594,7 +597,7 @@ export class MainMenu {
             <div class="menu-content">
                 <div class="menu-header">
                     <div class="logo-text logo-hoverable">
-                        PROTOCOL <span class="accent">TX</span>
+                        PROTOCOL <span class="accent">329</span>
                         <div class="logo-construction-overlay">
                             <span class="logo-construction-text">UNDER CONSTRUCTION</span>
                         </div>
@@ -727,7 +730,7 @@ export class MainMenu {
                             <span>${L.controls}</span>
                             <button class="controls-toggle-btn" id="controls-toggle-btn" title="Развернуть/Свернуть">▼</button>
                         </div>
-                        <div class="controls-grid" id="controls-grid" style="display: none;">
+                        <div class="controls-grid collapsed" id="controls-grid">
                             <div class="control-category">
                                 <div class="category-header">🎮 ${L.movement}</div>
                                 <div class="control-item">
@@ -866,18 +869,6 @@ export class MainMenu {
                                     <span class="control-desc">Debug Dashboard</span>
                                 </div>
                                 <div class="control-item">
-                                    <span class="key">F4 / Ctrl+4</span>
-                                    <span class="control-desc">Physics Panel</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="key">F5 / Ctrl+5</span>
-                                    <span class="control-desc">System Terminal</span>
-                                </div>
-                                <div class="control-item">
-                                    <span class="key">F6 / Ctrl+6</span>
-                                    <span class="control-desc">Session Settings</span>
-                                </div>
-                                <div class="control-item">
                                     <span class="key">F7 / Ctrl+7</span>
                                     <span class="control-desc">Cheat Menu</span>
                                 </div>
@@ -985,6 +976,43 @@ export class MainMenu {
                     </div>
                 </div>
             </div>
+
+            <!-- Правый блок для баннера -->
+            <div class="banner-panel" id="banner-panel">
+                <div class="banner-header" style="display: none;">
+                    <span class="banner-title">📢 БАННЕР</span>
+                    <span class="banner-collapsed-icon" id="banner-collapsed-icon">📢</span>
+                </div>
+                <div class="banner-content">
+                    <div class="banner-placeholder" id="banner-placeholder">
+                        <div class="under-construction" id="banner-construction">
+                            <div class="construction-icon">🚧</div>
+                            <div class="construction-text">UNDER CONSTRUCTION</div>
+                            <div class="construction-subtext">Скоро здесь будет баннер</div>
+                            <div class="construction-animation">
+                                <span class="construction-dot">.</span>
+                                <span class="construction-dot">.</span>
+                                <span class="construction-dot">.</span>
+                            </div>
+                        </div>
+                        <div class="banner-image-container" id="banner-image-container" style="display: none;">
+                            <img id="banner-image" class="banner-image" alt="Баннер" />
+                            <div class="banner-hover-controls">
+                                <button class="banner-control-btn banner-toggle-btn" id="banner-toggle-btn" title="Свернуть/Развернуть">◀</button>
+                                <button class="banner-control-btn banner-close-btn" id="banner-close-btn" title="Закрыть">×</button>
+                                <button class="banner-control-btn banner-upload-hover-btn" id="banner-upload-hover-btn" title="Добавить баннер">📤</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="banner-controls" style="display: none;">
+                        <input type="file" id="banner-file-input" accept="image/*" style="display: none;" />
+                        <button class="banner-upload-btn" id="banner-upload-btn">
+                            <span class="btn-icon">📤</span>
+                            <span class="btn-label">ДОБАВИТЬ БАННЕР</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
         `;
 
         // Add Google Pixel Font
@@ -1085,7 +1113,10 @@ export class MainMenu {
             }
 
             .menu-content {
-                position: relative;
+                position: absolute !important;
+                top: 50% !important;
+                left: 50% !important;
+                transform: translate(-50%, -50%) !important;
                 text-align: center;
                 z-index: 100000 !important;
                 width: 90%;
@@ -1097,13 +1128,22 @@ export class MainMenu {
                 gap: clamp(8px, 1.5vh, 15px);
                 overflow: hidden;
                 pointer-events: auto !important;
-                margin: 0 auto;
+                margin: 0 !important;
                 transition: transform 0.3s ease;
             }
 
             /* Смещение меню когда лобби развернуто */
             .menu-content.lobby-open {
-                transform: translateX(180px);
+                transform: translate(calc(-50% + 180px), -50%);
+            }
+            
+            /* Смещение меню когда баннер развернуто (баннер справа) */
+            .menu-content.banner-open {
+                transform: translate(calc(-50% - 180px), -50%);
+            }
+            
+            .menu-content.lobby-open.banner-open {
+                transform: translate(calc(-50% - 0px), -50%);
             }
 
             /* Scrollable область: от блока опыта до блока управления */
@@ -1167,7 +1207,7 @@ export class MainMenu {
                 color: #0f0;
                 letter-spacing: clamp(2px, 0.3vw, 4px);
                 margin-bottom: clamp(4px, 0.8vh, 8px);
-                text-shadow: 0 0 6px #0f0, 0 0 10px #0f0;
+                text-shadow: 0 0 4px #0f0, 0 0 7px #0f0;
             }
 
             .logo-text .accent {
@@ -1211,7 +1251,7 @@ export class MainMenu {
             }
 
             .logo-hoverable:hover {
-                text-shadow: 0 0 15px #ffcc00, 0 0 25px #ffcc00;
+                text-shadow: 0 0 10px #ffcc00, 0 0 18px #ffcc00;
                 color: #ffcc00;
             }
 
@@ -1431,12 +1471,34 @@ export class MainMenu {
                 -moz-user-select: none;
                 -ms-user-select: none;
                 z-index: 100000 !important;
+                outline: none;
             }
 
-            .menu-btn:hover {
+            .menu-btn:hover,
+            .menu-btn:focus {
                 background: #0f0;
                 color: #000;
                 box-shadow: 0 0 20px #0f0;
+            }
+
+            /* Визуальная индикация для навигации клавиатурой */
+            .menu-btn.keyboard-focused {
+                background: rgba(0, 255, 0, 0.3) !important;
+                color: #0f0 !important;
+                border-color: #0f0 !important;
+                box-shadow: 0 0 25px rgba(0, 255, 0, 0.6), inset 0 0 15px rgba(0, 255, 0, 0.2) !important;
+                transform: scale(1.02);
+            }
+
+            .menu-btn.keyboard-activated {
+                background: #0f0 !important;
+                color: #000 !important;
+                transform: scale(0.98);
+                box-shadow: 0 0 30px #0f0 !important;
+            }
+
+            .menu-btn {
+                outline: none;
             }
 
             /* === UNDER CONSTRUCTION ANIMATION === */
@@ -1719,6 +1781,397 @@ export class MainMenu {
 
             .lobby-panel.collapsed .lobby-collapsed-icon {
                 display: block !important;
+            }
+
+            /* === BANNER PANEL (Правый блок) === */
+            .banner-panel {
+                position: fixed !important;
+                top: 20px !important;
+                right: 20px !important;
+                left: auto !important;
+                width: 360px;
+                max-width: calc(100vw - 40px);
+                height: calc(100vh - 40px);
+                max-height: calc(100vh - 40px);
+                background: rgba(0, 30, 0, 0.8);
+                border: 2px solid #0f0;
+                border-radius: 5px;
+                padding: 10px;
+                z-index: 100001;
+                display: flex;
+                flex-direction: column;
+                box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
+                font-family: 'Press Start 2P', monospace;
+                pointer-events: auto !important;
+                overflow: hidden;
+                box-sizing: border-box;
+                transition: width 0.3s ease, height 0.3s ease;
+            }
+
+            .banner-panel.collapsed {
+                width: 48px;
+                height: 48px;
+                min-height: 48px;
+                padding: 0;
+                cursor: pointer;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+
+            .banner-panel.collapsed .banner-content,
+            .banner-panel.collapsed .banner-title,
+            .banner-panel.collapsed .banner-header {
+                display: none !important;
+            }
+            
+            .banner-panel.collapsed .banner-hover-controls {
+                display: none !important;
+            }
+            
+            /* Кнопка разворачивания видна всегда когда баннер свернут */
+            .banner-panel.collapsed .banner-toggle-btn {
+                display: flex !important;
+                position: absolute !important;
+                top: 50% !important;
+                left: 50% !important;
+                transform: translate(-50%, -50%) !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+                z-index: 100002 !important;
+            }
+
+            .banner-panel.collapsed .banner-header {
+                margin: 0;
+                padding: 0;
+                border: none;
+                width: 100%;
+                height: 100%;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                position: relative;
+            }
+
+            .banner-collapsed-icon {
+                display: none;
+                font-size: 24px;
+                color: #0f0;
+                text-shadow: 0 0 12px #0f0;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            
+            .banner-collapsed-icon:hover {
+                transform: scale(1.2);
+                text-shadow: 0 0 15px #0f0;
+            }
+
+            .banner-panel.collapsed .banner-collapsed-icon {
+                display: block !important;
+            }
+
+            .banner-header {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                margin-bottom: 8px;
+                padding-bottom: 6px;
+                border-bottom: 1px solid rgba(0, 255, 0, 0.3);
+                flex-shrink: 0;
+                padding-top: 8px;
+            }
+
+            .banner-title {
+                color: #0f0;
+                font-size: 11px;
+                text-shadow: 0 0 5px #0f0;
+            }
+
+            .banner-toggle-btn {
+                position: absolute;
+                top: 5px;
+                left: 5px;
+                background: rgba(0, 30, 0, 0.9);
+                border: 1px solid rgba(0, 255, 0, 0.5);
+                color: #0f0;
+                font-size: 12px;
+                padding: 4px 8px;
+                cursor: pointer;
+                border-radius: 3px;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+                z-index: 10;
+                width: 28px;
+                height: 28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .banner-toggle-btn:hover {
+                background: rgba(0, 255, 0, 0.3);
+                border-color: #0f0;
+                box-shadow: 0 0 8px rgba(0, 255, 0, 0.6);
+            }
+
+            .banner-content {
+                flex: 1;
+                overflow: hidden;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+                height: 100%;
+                gap: 0;
+            }
+            
+            .banner-header {
+                display: none !important;
+            }
+            
+            .banner-controls {
+                display: none !important;
+            }
+
+            .banner-placeholder {
+                width: 100%;
+                height: 100%;
+                flex: 1;
+                display: flex;
+                align-items: stretch;
+                justify-content: stretch;
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                position: relative;
+                min-height: 0;
+            }
+            
+            #banner-construction {
+                width: 100%;
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .banner-image-container {
+                width: 100%;
+                flex: 1;
+                display: flex;
+                align-items: stretch;
+                justify-content: stretch;
+                position: relative;
+                min-height: 0;
+                overflow: hidden;
+            }
+
+            .banner-image {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                border-radius: 0;
+                display: block;
+            }
+
+            .banner-hover-controls {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                left: auto;
+                display: flex;
+                flex-direction: row;
+                gap: 8px;
+                opacity: 0;
+                transition: opacity 0.3s ease;
+                z-index: 20;
+                pointer-events: none;
+            }
+
+            .banner-image-container:hover .banner-hover-controls {
+                opacity: 1;
+                pointer-events: auto;
+            }
+
+            .banner-control-btn {
+                width: 32px;
+                height: 32px;
+                background: rgba(0, 0, 0, 0.8);
+                border: 2px solid #0f0;
+                color: #0f0;
+                font-size: 14px;
+                font-weight: bold;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+                border-radius: 3px;
+                text-shadow: 0 0 5px #0f0;
+            }
+
+            .banner-control-btn:hover {
+                background: rgba(0, 255, 0, 0.3);
+                box-shadow: 0 0 10px rgba(0, 255, 0, 0.6);
+                transform: scale(1.1);
+            }
+
+            .banner-close-btn {
+                border-color: #f00;
+                color: #f00;
+                text-shadow: 0 0 5px #f00;
+            }
+
+            .banner-close-btn:hover {
+                background: rgba(255, 0, 0, 0.3);
+                box-shadow: 0 0 10px rgba(255, 0, 0, 0.6);
+            }
+
+            .banner-upload-hover-btn {
+                border-color: #0ff;
+                color: #0ff;
+                text-shadow: 0 0 5px #0ff;
+            }
+
+            .banner-upload-hover-btn:hover {
+                background: rgba(0, 255, 255, 0.3);
+                box-shadow: 0 0 10px rgba(0, 255, 255, 0.6);
+            }
+
+            .banner-controls {
+                margin-top: 10px;
+                display: flex;
+                justify-content: center;
+                flex-shrink: 0;
+                padding-bottom: 10px;
+            }
+
+            .banner-upload-btn {
+                padding: 8px 16px;
+                font-family: 'Press Start 2P', monospace;
+                font-size: 9px;
+                background: rgba(0, 30, 0, 0.8);
+                color: #0f0;
+                border: 2px solid #0f0;
+                cursor: pointer;
+                border-radius: 3px;
+                transition: all 0.2s;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .banner-upload-btn:hover {
+                background: rgba(0, 255, 0, 0.2);
+                box-shadow: 0 0 10px rgba(0, 255, 0, 0.4);
+                transform: translateY(-1px);
+            }
+
+            .banner-upload-btn:active {
+                transform: translateY(0);
+            }
+
+            .banner-upload-btn .btn-icon {
+                font-size: 12px;
+            }
+
+            .banner-upload-btn .btn-label {
+                font-size: 9px;
+            }
+
+            .under-construction {
+                text-align: center;
+                padding: 40px 20px;
+                animation: constructionPulse 2s ease-in-out infinite;
+            }
+
+            .construction-icon {
+                font-size: 48px;
+                margin-bottom: 20px;
+                animation: constructionBounce 1.5s ease-in-out infinite;
+            }
+
+            .construction-text {
+                color: #ff0;
+                font-size: 14px;
+                text-shadow: 0 0 10px #ff0, 0 0 20px #ff0;
+                margin-bottom: 10px;
+                letter-spacing: 2px;
+                animation: constructionGlow 2s ease-in-out infinite;
+            }
+
+            .construction-subtext {
+                color: #0f0;
+                font-size: 9px;
+                text-shadow: 0 0 5px #0f0;
+                margin-bottom: 20px;
+                opacity: 0.8;
+            }
+
+            .construction-animation {
+                display: flex;
+                justify-content: center;
+                gap: 8px;
+                margin-top: 20px;
+            }
+
+            .construction-dot {
+                color: #0f0;
+                font-size: 24px;
+                animation: constructionDot 1.4s ease-in-out infinite;
+            }
+
+            .construction-dot:nth-child(1) {
+                animation-delay: 0s;
+            }
+
+            .construction-dot:nth-child(2) {
+                animation-delay: 0.2s;
+            }
+
+            .construction-dot:nth-child(3) {
+                animation-delay: 0.4s;
+            }
+
+            @keyframes constructionPulse {
+                0%, 100% {
+                    opacity: 1;
+                }
+                50% {
+                    opacity: 0.7;
+                }
+            }
+
+            @keyframes constructionBounce {
+                0%, 100% {
+                    transform: translateY(0);
+                }
+                50% {
+                    transform: translateY(-10px);
+                }
+            }
+
+            @keyframes constructionGlow {
+                0%, 100% {
+                    text-shadow: 0 0 10px #ff0, 0 0 20px #ff0;
+                }
+                50% {
+                    text-shadow: 0 0 20px #ff0, 0 0 30px #ff0, 0 0 40px #ff0;
+                }
+            }
+
+            @keyframes constructionDot {
+                0%, 100% {
+                    opacity: 0.3;
+                    transform: scale(1);
+                }
+                50% {
+                    opacity: 1;
+                    transform: scale(1.2);
+                }
             }
 
             .lobby-header {
@@ -5001,36 +5454,54 @@ export class MainMenu {
 
         // Загружаем состояние из localStorage (по умолчанию свернуто)
         const isExpanded = localStorage.getItem("controls-panel-expanded") === "true";
-        
+
         // Устанавливаем начальное состояние
         if (!isExpanded) {
+            controlsGrid.classList.add("collapsed");
             controlsGrid.style.display = "none";
             controlsToggleBtn.textContent = "▶";
         } else {
-            controlsGrid.style.display = "";
+            controlsGrid.classList.remove("collapsed");
+            controlsGrid.style.display = "grid";
             controlsToggleBtn.textContent = "▼";
         }
 
         // Обработчик клика на заголовок или кнопку
-        const toggleControls = () => {
-            const isCurrentlyExpanded = controlsGrid.style.display !== "none";
-            
+        const toggleControls = (e: Event) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Получаем актуальные элементы
+            const grid = document.getElementById("controls-grid");
+            const btn = document.getElementById("controls-toggle-btn");
+
+            if (!grid || !btn) return;
+
+            const isCurrentlyExpanded = !grid.classList.contains("collapsed");
+
             if (isCurrentlyExpanded) {
-                controlsGrid.style.display = "none";
-                controlsToggleBtn.textContent = "▶";
+                grid.classList.add("collapsed");
+                grid.style.display = "none";
+                btn.textContent = "▶";
                 localStorage.setItem("controls-panel-expanded", "false");
+                debugLog("[Menu] Панель управления свернута");
             } else {
-                controlsGrid.style.display = "";
-                controlsToggleBtn.textContent = "▼";
+                grid.classList.remove("collapsed");
+                grid.style.display = "grid";
+                btn.textContent = "▼";
                 localStorage.setItem("controls-panel-expanded", "true");
+                debugLog("[Menu] Панель управления развернута");
             }
         };
 
-        controlsTitle.addEventListener("click", toggleControls);
-        controlsToggleBtn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            toggleControls();
-        });
+        // Удаляем старые обработчики если они есть (используя AbortController)
+        const abortController = new AbortController();
+
+        controlsTitle.addEventListener("click", toggleControls, { signal: abortController.signal });
+        controlsToggleBtn.addEventListener("click", toggleControls, { signal: abortController.signal });
+
+        // Сохраняем ссылку на controller для возможной очистки
+        (controlsTitle as any)._controlsAbortController = abortController;
     }
 
     private updatePlayerInfo(immediate: boolean = false): void {
@@ -5182,381 +5653,41 @@ export class MainMenu {
         this.setupPanelCloseOnBackground(this.skillsPanel, () => this.hideSkills());
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // PROGRESS PANEL — ДЕЛЕГИРОВАНИЕ В МОДУЛЬ (ProgressPanelModule)
+    // ═══════════════════════════════════════════════════════════════════════════
+
     private createProgressPanel(): void {
-        this.progressPanel = document.createElement("div");
-        this.progressPanel.className = "panel-overlay";
-        this.progressPanel.id = "progress-panel";
-        this.progressPanel.innerHTML = `
-            <div class="panel" style="width: min(90vw, 700px); max-height: min(85vh, 700px);">
-                <div class="panel-header">
-                    <div class="panel-title">ПРОГРЕСС ИГРОКА</div>
-                    <button class="panel-close" id="progress-close">×</button>
-                </div>
-                <div class="progress-tabs">
-                    <button class="progress-tab active" data-tab="level">[1] УРОВЕНЬ</button>
-                    <button class="progress-tab" data-tab="achievements">[2] ДОСТИЖЕНИЯ</button>
-                    <button class="progress-tab" data-tab="quests">[3] ЗАДАНИЯ</button>
-                </div>
-                <div class="progress-content">
-                    <div class="progress-tab-content active" id="progress-level-content">
-                        <!--Level tab content will be rendered dynamically-->
-                    </div>
-                    <div class="progress-tab-content" id="progress-achievements-content">
-                        <!--Achievements tab content will be rendered dynamically-->
-                    </div>
-                    <div class="progress-tab-content" id="progress-quests-content">
-                        <!--Quests tab content will be rendered dynamically-->
-                    </div>
-                </div>
-            </div>
-        `;
-
-        document.body.appendChild(this.progressPanel);
-
-        // Setup close button
-        this.setupCloseButton("progress-close", () => this.hideProgress());
-        this.setupPanelCloseOnBackground(this.progressPanel, () => this.hideProgress());
-
-        // Setup tab switching
-        this.progressPanel.querySelectorAll(".progress-tab").forEach(tab => {
-            tab.addEventListener("click", () => {
-                const tabName = (tab as HTMLElement).dataset.tab as "level" | "achievements" | "quests";
-                this.switchProgressTab(tabName);
-            });
-        });
+        // Создаём модуль если его нет
+        if (!this.progressPanelModule) {
+            this.progressPanelModule = new ProgressPanelModule(this as unknown as IProgressPanelHost);
+        }
+        this.progressPanel = this.progressPanelModule.create();
     }
 
     private switchProgressTab(tab: "level" | "achievements" | "quests"): void {
         this.progressCurrentTab = tab;
-
-        // Update tab buttons
-        this.progressPanel.querySelectorAll(".progress-tab").forEach(t => {
-            t.classList.toggle("active", (t as HTMLElement).dataset.tab === tab);
-        });
-
-        // Update content
-        this.progressPanel.querySelectorAll(".progress-tab-content").forEach(c => {
-            c.classList.remove("active");
-        });
-
-        const contentId = `progress-${tab}-content`;
-        const contentEl = document.getElementById(contentId);
-        if (contentEl) {
-            contentEl.classList.add("active");
-        }
-
-        // Render content based on tab
-        switch (tab) {
-            case "level":
-                this.renderLevelTab();
-                break;
-            case "achievements":
-                this.renderAchievementsTab();
-                break;
-            case "quests":
-                this.renderQuestsTab();
-                break;
+        if (this.progressPanelModule) {
+            this.progressPanelModule.switchTab(tab);
         }
     }
 
     private showProgress(): void {
         debugLog("[Menu] showProgress() called");
-        if (this.progressPanel) {
-            this.progressPanel.classList.add("visible");
-            this.progressPanel.style.setProperty("display", "flex", "important");
-            this.progressPanel.style.setProperty("visibility", "visible", "important");
-            this.progressPanel.style.setProperty("opacity", "1", "important");
-            this.progressPanel.style.setProperty("z-index", "100002", "important");
-
-            // Add in-battle class if game is running
-            const game = (window as any).gameInstance;
-            if (game && game.gameStarted) {
-                this.progressPanel.classList.add("in-battle");
-            } else {
-                this.progressPanel.classList.remove("in-battle");
-            }
-
-            // Render current tab
-            this.switchProgressTab(this.progressCurrentTab);
-            this.enforceCanvasPointerEvents();
+        if (this.progressPanelModule) {
+            this.progressPanelModule.show();
         }
     }
 
     private hideProgress(): void {
         debugLog("[Menu] hideProgress() called");
-        if (this.progressPanel) {
-            this.progressPanel.classList.remove("visible");
-            this.progressPanel.style.setProperty("display", "none", "important");
-            this.progressPanel.style.setProperty("visibility", "hidden", "important");
-            this.enforceCanvasPointerEvents();
+        if (this.progressPanelModule) {
+            this.progressPanelModule.hide();
         }
     }
 
-    private renderLevelTab(): void {
-        const content = document.getElementById("progress-level-content");
-        if (!content || !this.playerProgression) return;
-
-        const stats = this.playerProgression.getStats();
-        const xpProgress = this.playerProgression.getExperienceProgress();
-        const realTimeStats = this.playerProgression.getRealTimeXpStats();
-        const bonuses = getLevelBonuses(stats.level);
-
-        // Get current title
-        let currentTitle: { title: string; icon: string; color: string } = { title: "Новобранец", icon: "🪖", color: "#888888" };
-        for (let lvl = stats.level; lvl >= 1; lvl--) {
-            const titleData = PLAYER_TITLES[lvl];
-            if (titleData) {
-                currentTitle = titleData;
-                break;
-            }
-        }
-
-        // Get next title
-        let nextTitle = null;
-        for (let lvl = stats.level + 1; lvl <= MAX_PLAYER_LEVEL; lvl++) {
-            if (PLAYER_TITLES[lvl]) {
-                nextTitle = { level: lvl, ...PLAYER_TITLES[lvl] };
-                break;
-            }
-        }
-
-        // Format prestige
-        const prestigeText = stats.prestigeLevel > 0
-            ? `Престиж ${stats.prestigeLevel} (+${(stats.prestigeLevel * 10)}%)`
-            : "Нет престижа";
-
-        // Calculate XP per minute display
-        const xpPerMin = Math.round(realTimeStats.experiencePerMinute);
-        const xpPerMinText = xpPerMin > 0 ? `+ ${xpPerMin} XP / мин` : "—";
-
-        content.innerHTML = `
-            <div class="progress-level-section" >
-                <div class="progress-level-badge" >
-                    <div class="progress-level-number" > ${stats.level} </div>
-                        </div>
-                        <div class="progress-title" style="color: ${currentTitle.color}" >
-                            <span class="progress-title-icon" > ${currentTitle.icon} </span>
-                    ${currentTitle.title}
-        </div>
-            </div>
-
-            <div class="progress-xp-bar-container" >
-                <div class="progress-xp-bar-bg" >
-                    <div class="progress-xp-bar-fill" style="width: ${xpProgress.percent}%" > </div>
-                        </div>
-                        <div class="progress-xp-text" >
-                            ${xpProgress.current.toLocaleString()} / ${xpProgress.required.toLocaleString()} XP
-                                <span class="progress-xp-percent" > (${xpProgress.percent.toFixed(1)}%)</span>
-                                    </div>
-                                    </div>
-
-                                    <div class="progress-stats-grid" >
-                                        <div class="progress-stat-card" >
-                                            <div class="progress-stat-value" > ${stats.totalExperience.toLocaleString()} </div>
-                                                <div class="progress-stat-label" > ОБЩИЙ ОПЫТ </div>
-                                                    </div>
-                                                    <div class="progress-stat-card" >
-                                                        <div class="progress-stat-value" > ${xpPerMinText} </div>
-                                                            <div class="progress-stat-label" > СКОРОСТЬ НАБОРА </div>
-                                                                </div>
-                                                                <div class="progress-stat-card" >
-                                                                    <div class="progress-stat-value" > ${prestigeText} </div>
-                                                                        <div class="progress-stat-label" > ПРЕСТИЖ </div>
-                                                                            </div>
-                                                                            <div class="progress-stat-card" >
-                                                                                <div class="progress-stat-value" > ${this.playerProgression.getPlayTimeFormatted()} </div>
-                                                                                    <div class="progress-stat-label" > ВРЕМЯ В ИГРЕ </div>
-                                                                                        </div>
-                                                                                        </div>
-
-                                                                                        <div class="progress-bonuses-grid" >
-                                                                                            <div class="progress-bonus-item" >
-                                                                                                <div class="progress-bonus-value" > +${bonuses.healthBonus} </div>
-                                                                                                    <div class="progress-bonus-label" > ЗДОРОВЬЕ </div>
-                                                                                                        </div>
-                                                                                                        <div class="progress-bonus-item" >
-                                                                                                            <div class="progress-bonus-value" > +${bonuses.damageBonus} </div>
-                                                                                                                <div class="progress-bonus-label" > УРОН </div>
-                                                                                                                    </div>
-                                                                                                                    <div class="progress-bonus-item" >
-                                                                                                                        <div class="progress-bonus-value" > +${bonuses.speedBonus.toFixed(1)} </div>
-                                                                                                                            <div class="progress-bonus-label" > СКОРОСТЬ </div>
-                                                                                                                                </div>
-                                                                                                                                <div class="progress-bonus-item" >
-                                                                                                                                    <div class="progress-bonus-value" > +${((bonuses.creditBonus - 1) * 100).toFixed(0)}% </div>
-                                                                                                                                        <div class="progress-bonus-label" > КРЕДИТЫ </div>
-                                                                                                                                            </div>
-                                                                                                                                            </div>
-
-            ${nextTitle ? `
-            <div class="progress-next-level">
-                <div class="progress-next-level-title">СЛЕДУЮЩИЙ РАНГ: УРОВЕНЬ ${nextTitle.level}</div>
-                <div class="progress-next-level-rewards">
-                    <span class="progress-reward" style="color: ${nextTitle.color}">
-                        <span class="progress-reward-icon">${nextTitle.icon}</span>
-                        ${nextTitle.title}
-                    </span>
-                    <span class="progress-reward">
-                        <span class="progress-reward-icon">⭐</span>
-                        +1 Очко навыков
-                    </span>
-                </div>
-            </div>
-            ` : `
-            <div class="progress-next-level">
-                <div class="progress-next-level-title" style="color: #ffd700">МАКСИМАЛЬНЫЙ УРОВЕНЬ ДОСТИГНУТ!</div>
-            </div>
-            `}
-        `;
-    }
-
-    private achievementCategoryFilter: "all" | "combat" | "survival" | "progression" | "special" = "all";
-
-    private renderAchievementsTab(): void {
-        const content = document.getElementById("progress-achievements-content");
-        if (!content || !this.playerProgression) return;
-
-        const { unlocked, locked } = this.playerProgression.getAchievements();
-        const allAchievements = [...unlocked, ...locked];
-
-        // Filter by category
-        const filtered = this.achievementCategoryFilter === "all"
-            ? allAchievements
-            : allAchievements.filter(a => a.category === this.achievementCategoryFilter);
-
-        // Category counts
-        const categoryCounts = {
-            all: allAchievements.length,
-            combat: allAchievements.filter(a => a.category === "combat").length,
-            survival: allAchievements.filter(a => a.category === "survival").length,
-            progression: allAchievements.filter(a => a.category === "progression").length,
-            special: allAchievements.filter(a => a.category === "special").length
-        };
-
-        const unlockedCount = unlocked.length;
-        const totalCount = allAchievements.length;
-
-        content.innerHTML = `
-            <div style="margin-bottom: 15px; text-align: center; color: #0f0; font-size: 11px;" >
-                Разблокировано: ${unlockedCount} / ${totalCount}
-                    </div>
-
-                    <div class="achievements-category-tabs" >
-                        <button class="achievement-category-btn ${this.achievementCategoryFilter === 'all' ? 'active' : ''}" data-category="all" >
-                            ВСЕ(${categoryCounts.all})
-                            </button>
-                            <button class="achievement-category-btn ${this.achievementCategoryFilter === 'combat' ? 'active' : ''}" data-category="combat" >
-                    ⚔ БОЙ(${categoryCounts.combat})
-            </button>
-            <button class="achievement-category-btn ${this.achievementCategoryFilter === 'survival' ? 'active' : ''}" data-category="survival" >
-                    🛡 ВЫЖИВАНИЕ(${categoryCounts.survival})
-            </button>
-            <button class="achievement-category-btn ${this.achievementCategoryFilter === 'progression' ? 'active' : ''}" data-category="progression" >
-                    📈 ПРОГРЕСС(${categoryCounts.progression})
-            </button>
-            <button class="achievement-category-btn ${this.achievementCategoryFilter === 'special' ? 'active' : ''}" data-category="special" >
-                    ⭐ ОСОБЫЕ(${categoryCounts.special})
-            </button>
-            </div>
-
-            <div class="achievements-grid" >
-                ${filtered.map(achievement => {
-            const isUnlocked = unlocked.some((u: PlayerAchievement) => u.id === achievement.id);
-            return `
-                        <div class="achievement-card ${isUnlocked ? 'unlocked' : 'locked'} tier-${achievement.tier}">
-                            <div class="achievement-header">
-                                <span class="achievement-icon">${achievement.icon}</span>
-                                <span class="achievement-name">${achievement.name}</span>
-                                <span class="achievement-tier ${achievement.tier}">${achievement.tier.toUpperCase()}</span>
-                            </div>
-                            <div class="achievement-description">${achievement.description}</div>
-                            <div class="achievement-reward">
-                                <span>💰 ${achievement.reward.credits}</span>
-                                <span>⭐ ${achievement.reward.exp} XP</span>
-                                ${achievement.reward.skillPoints ? `<span>🔧 +${achievement.reward.skillPoints} SP</span>` : ''}
-                            </div>
-                            <span class="achievement-status">${isUnlocked ? '✅' : '🔒'}</span>
-                        </div>
-                    `;
-        }).join('')
-            }
-        </div>
-            `;
-
-        // Setup category filter buttons
-        content.querySelectorAll(".achievement-category-btn").forEach(btn => {
-            btn.addEventListener("click", () => {
-                this.achievementCategoryFilter = (btn as HTMLElement).dataset.category as any;
-                this.renderAchievementsTab();
-            });
-        });
-    }
-
-    private renderQuestsTab(): void {
-        const content = document.getElementById("progress-quests-content");
-        if (!content || !this.playerProgression) return;
-
-        const stats = this.playerProgression.getStats();
-        const dailyQuests: DailyQuest[] = stats.dailyQuests || [];
-
-        // Calculate time until daily reset (assumes reset at midnight)
-        const now = new Date();
-        const tomorrow = new Date(now);
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(0, 0, 0, 0);
-        const timeUntilReset = tomorrow.getTime() - now.getTime();
-        const hoursLeft = Math.floor(timeUntilReset / (1000 * 60 * 60));
-        const minutesLeft = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
-
-        if (dailyQuests.length === 0) {
-            content.innerHTML = `
-            <div class="quests-header" >
-                <div class="quests-title" > ЕЖЕДНЕВНЫЕ ЗАДАНИЯ </div>
-                    <div class="quests-reset-timer" > Обновление через: ${hoursLeft}ч ${minutesLeft} м </div>
-                        </div>
-                        <div class="no-quests-message" >
-                            Нет активных заданий.<br>
-                    Задания обновляются ежедневно в полночь.
-                </div>
-                `;
-            return;
-        }
-
-        const completedCount = dailyQuests.filter(q => q.completed).length;
-
-        content.innerHTML = `
-            <div class="quests-header" >
-                <div class="quests-title" > ЕЖЕДНЕВНЫЕ ЗАДАНИЯ(${completedCount} / ${dailyQuests.length}) </div>
-                    <div class="quests-reset-timer" > Обновление через: ${hoursLeft}ч ${minutesLeft} м </div>
-                        </div>
-
-            ${dailyQuests.map(quest => {
-            const progressPercent = Math.min(100, (quest.progress / quest.target) * 100);
-            return `
-                    <div class="quest-card ${quest.completed ? 'completed' : ''}">
-                        <div class="quest-header">
-                            <span class="quest-name">${quest.name}</span>
-                            <span class="quest-status-icon">${quest.completed ? '✅' : '⏳'}</span>
-                        </div>
-                        <div class="quest-description">${quest.description}</div>
-                        <div class="quest-progress-bar-bg">
-                            <div class="quest-progress-bar-fill" style="width: ${progressPercent}%"></div>
-                            <span class="quest-progress-text">${quest.progress} / ${quest.target}</span>
-                        </div>
-                        <div class="quest-rewards">
-                            <span class="quest-reward">
-                                <span class="quest-reward-icon">💰</span>${quest.reward.credits}
-                            </span>
-                            <span class="quest-reward">
-                                <span class="quest-reward-icon">⭐</span>${quest.reward.exp} XP
-                            </span>
-                        </div>
-                    </div>
-                `;
-        }).join('')
-            }
-        `;
-    }
+    // NOTE: renderLevelTab, renderAchievementsTab, renderQuestsTab теперь в ProgressPanelModule
+    // Старый код удалён (375 строк → 30 строк)
 
     private createMapSelectionPanel(): void {
         this.mapSelectionPanel = document.createElement("div");
@@ -5786,7 +5917,13 @@ export class MainMenu {
                         if (playMenu) playMenu.classList.remove("visible");
 
                         if (this.onStartGame && typeof this.onStartGame === 'function') {
-                            this.onStartGame('custom');
+                            const mapData = getCustomMapData(mapName);
+                            if (mapData) {
+                                this.onStartGame('custom', mapData);
+                            } else {
+                                console.error("Could not retrieve map data for", mapName);
+                                this.onStartGame('custom'); // Fallback
+                            }
                         }
                     } else {
                         alert("Ошибка загрузки карты!");
@@ -10694,6 +10831,10 @@ transition: all 0.2s;
 
         // Настройка чата
         this.setupLobbyChat();
+
+        // Настройка правого блока (баннер)
+        this.setupBannerToggle();
+        this.setupBannerUpload();
     }
 
     /**
@@ -10839,6 +10980,376 @@ transition: all 0.2s;
             localStorage.setItem("lobbyCollapsed", "true");
             debugLog("[Menu] Лобби свернуто");
         }
+    }
+
+    /**
+     * Настройка кнопки сворачивания правого блока (баннер)
+     */
+    private setupBannerToggle(): void {
+        const bannerPanel = document.getElementById("banner-panel");
+
+        if (!bannerPanel) {
+            debugWarn("[Menu] Не найден элемент banner-panel");
+            return;
+        }
+
+        // Кнопка может быть не найдена, если баннер еще не загружен - это нормально
+        const toggleBtn = document.getElementById("banner-toggle-btn");
+
+        const menuContent = document.querySelector(".menu-content");
+
+        // Загружаем состояние из localStorage (по умолчанию - открыто)
+        const savedState = localStorage.getItem("bannerCollapsed");
+        const isCollapsed = savedState === "true";
+
+        // Отключаем анимацию при первой загрузке
+        bannerPanel.style.transition = "none";
+        if (menuContent) (menuContent as HTMLElement).style.transition = "none";
+
+        if (isCollapsed) {
+            bannerPanel.classList.add("collapsed");
+            if (menuContent) menuContent.classList.remove("banner-open");
+        } else {
+            bannerPanel.classList.remove("collapsed");
+            if (menuContent) menuContent.classList.add("banner-open");
+        }
+
+        // Включаем анимацию обратно после отрисовки
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                bannerPanel.style.transition = "";
+                if (menuContent) (menuContent as HTMLElement).style.transition = "";
+            });
+        });
+
+        // Включаем анимацию обратно после отрисовки
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                bannerPanel.style.transition = "";
+            });
+        });
+
+        // Обработчик клика на кнопку сворачивания (в hover controls)
+        const hoverToggleBtn = document.getElementById("banner-toggle-btn");
+        if (hoverToggleBtn) {
+            // Удаляем старые обработчики если есть
+            const newToggleBtn = hoverToggleBtn.cloneNode(true);
+            hoverToggleBtn.parentNode?.replaceChild(newToggleBtn, hoverToggleBtn);
+
+            newToggleBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log("[Menu] Banner toggle button clicked");
+                this.toggleBannerPanel();
+            });
+        }
+
+        // Обработчик клика на иконку когда свернуто
+        const collapsedIcon = document.getElementById("banner-collapsed-icon");
+        if (collapsedIcon) {
+            // Удаляем старые обработчики если есть
+            const newIcon = collapsedIcon.cloneNode(true);
+            collapsedIcon.parentNode?.replaceChild(newIcon, collapsedIcon);
+
+            newIcon.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log("[Menu] Banner collapsed icon clicked");
+                this.toggleBannerPanel();
+            });
+        }
+
+        // КРИТИЧНО: Также добавляем обработчик на весь панель когда свернуто
+        bannerPanel.addEventListener("click", (e) => {
+            if (bannerPanel.classList.contains("collapsed")) {
+                const target = e.target as HTMLElement;
+                // Если клик не на кнопку или иконку, разворачиваем
+                if (!target.closest(".banner-toggle-btn") && !target.closest("#banner-collapsed-icon")) {
+                    console.log("[Menu] Banner panel clicked (collapsed), expanding");
+                    this.toggleBannerPanel();
+                }
+            }
+        });
+    }
+
+    /**
+     * Переключение состояния панели баннера
+     */
+    private toggleBannerPanel(): void {
+        const panel = document.getElementById("banner-panel");
+        const toggleBtn = document.getElementById("banner-toggle-btn");
+        const menuContent = document.querySelector(".menu-content");
+        if (!panel) return;
+
+        const isCollapsed = panel.classList.contains("collapsed");
+
+        if (isCollapsed) {
+            panel.classList.remove("collapsed");
+            if (menuContent) menuContent.classList.add("banner-open");
+            localStorage.setItem("bannerCollapsed", "false");
+            debugLog("[Menu] Баннер развернут");
+        } else {
+            panel.classList.add("collapsed");
+            if (menuContent) menuContent.classList.remove("banner-open");
+            localStorage.setItem("bannerCollapsed", "true");
+            debugLog("[Menu] Баннер свернут");
+        }
+    }
+
+    /**
+     * Настройка загрузки баннера
+     */
+    private setupBannerUpload(): void {
+        const uploadBtn = document.getElementById("banner-upload-btn");
+        const fileInput = document.getElementById("banner-file-input") as HTMLInputElement;
+        const bannerImage = document.getElementById("banner-image") as HTMLImageElement;
+        const bannerImageContainer = document.getElementById("banner-image-container");
+        const bannerConstruction = document.getElementById("banner-construction");
+        const bannerRemoveBtn = document.getElementById("banner-remove-btn");
+
+        if (!uploadBtn || !fileInput || !bannerImage || !bannerImageContainer || !bannerConstruction) {
+            debugWarn("[Menu] Не найдены элементы для загрузки баннера");
+            return;
+        }
+
+        // Загружаем сохраненный баннер из кэша
+        this.loadBannerFromCache().then((savedBanner) => {
+            if (savedBanner) {
+                this.displayBanner(savedBanner);
+            }
+        }).catch((error) => {
+            debugWarn("[Menu] Ошибка загрузки баннера из кэша:", error);
+        });
+
+        // Обработчик клика на кнопку загрузки
+        uploadBtn.addEventListener("click", () => {
+            fileInput.click();
+        });
+
+        // Обработчик выбора файла
+        fileInput.addEventListener("change", (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+
+            // Проверяем тип файла
+            if (!file.type.startsWith("image/")) {
+                alert("Пожалуйста, выберите изображение!");
+                return;
+            }
+
+            // Проверяем размер файла (макс 5MB)
+            if (file.size > 5 * 1024 * 1024) {
+                alert("Размер файла не должен превышать 5MB!");
+                return;
+            }
+
+            // Оптимизируем и сохраняем изображение
+            this.optimizeAndSaveBanner(file);
+        });
+
+        // Обработчик удаления баннера (кнопка закрыть)
+        const bannerCloseBtn = document.getElementById("banner-close-btn");
+        if (bannerCloseBtn) {
+            bannerCloseBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.removeBanner();
+            });
+        }
+
+        // Обработчик загрузки баннера при наведении
+        const bannerUploadHoverBtn = document.getElementById("banner-upload-hover-btn");
+        if (bannerUploadHoverBtn) {
+            bannerUploadHoverBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fileInput.click();
+            });
+        }
+    }
+
+    /**
+     * Отображение баннера
+     */
+    private displayBanner(base64: string): void {
+        const bannerImage = document.getElementById("banner-image") as HTMLImageElement;
+        const bannerImageContainer = document.getElementById("banner-image-container");
+        const bannerConstruction = document.getElementById("banner-construction");
+
+        if (!bannerImage || !bannerImageContainer || !bannerConstruction) return;
+
+        bannerImage.src = base64;
+        bannerConstruction.style.display = "none";
+        bannerImageContainer.style.display = "flex";
+    }
+
+    /**
+     * Оптимизация и сохранение баннера
+     */
+    private async optimizeAndSaveBanner(file: File): Promise<void> {
+        try {
+            // Создаем изображение для оптимизации
+            const img = new Image();
+            const reader = new FileReader();
+
+            reader.onload = async (event) => {
+                const base64 = event.target?.result as string;
+                if (!base64) return;
+
+                img.onload = async () => {
+                    // Создаем canvas для оптимизации
+                    const canvas = document.createElement("canvas");
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) return;
+
+                    // Максимальные размеры для баннера (оптимизация)
+                    const maxWidth = 800;
+                    const maxHeight = 1200;
+                    let width = img.width;
+                    let height = img.height;
+
+                    // Масштабируем если нужно
+                    if (width > maxWidth || height > maxHeight) {
+                        const ratio = Math.min(maxWidth / width, maxHeight / height);
+                        width = width * ratio;
+                        height = height * ratio;
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    // Рисуем изображение на canvas
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Конвертируем в base64 с оптимизацией качества
+                    const optimizedBase64 = canvas.toDataURL("image/jpeg", 0.85);
+
+                    // Сохраняем в localStorage
+                    try {
+                        localStorage.setItem("customBanner", optimizedBase64);
+                        localStorage.setItem("customBannerTimestamp", Date.now().toString());
+
+                        // Также сохраняем в Cache API для более эффективного кэширования
+                        if ('caches' in window) {
+                            try {
+                                const cache = await caches.open('banner-cache-v1');
+                                const blob = await fetch(optimizedBase64).then(r => r.blob());
+                                await cache.put('custom-banner', new Response(blob, {
+                                    headers: { 'Content-Type': 'image/jpeg' }
+                                }));
+                            } catch (cacheError) {
+                                debugWarn("[Menu] Не удалось сохранить в Cache API:", cacheError);
+                            }
+                        }
+
+                        // Отображаем баннер
+                        this.displayBanner(optimizedBase64);
+                        debugLog("[Menu] Баннер оптимизирован, загружен и сохранен в кэш");
+                    } catch (storageError) {
+                        // Если localStorage переполнен, пробуем очистить старые данные
+                        if (storageError instanceof DOMException && storageError.code === 22) {
+                            alert("Недостаточно места в хранилище. Попробуйте удалить старый баннер или использовать изображение меньшего размера.");
+                        } else {
+                            alert("Ошибка при сохранении баннера!");
+                        }
+                        debugWarn("[Menu] Ошибка сохранения баннера:", storageError);
+                    }
+                };
+
+                img.onerror = () => {
+                    alert("Ошибка при загрузке изображения!");
+                };
+
+                img.src = base64;
+            };
+
+            reader.onerror = () => {
+                alert("Ошибка при чтении файла!");
+            };
+
+            reader.readAsDataURL(file);
+        } catch (error) {
+            debugWarn("[Menu] Ошибка при оптимизации баннера:", error);
+            alert("Ошибка при обработке изображения!");
+        }
+    }
+
+    /**
+     * Загрузка баннера из кэша
+     */
+    private async loadBannerFromCache(): Promise<string | null> {
+        // Сначала пробуем загрузить из Cache API
+        if ('caches' in window) {
+            try {
+                const cache = await caches.open('banner-cache-v1');
+                const cachedResponse = await cache.match('custom-banner');
+                if (cachedResponse) {
+                    const blob = await cachedResponse.blob();
+                    const base64 = await new Promise<string>((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result as string);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
+                    });
+                    debugLog("[Menu] Баннер загружен из Cache API");
+                    return base64;
+                }
+            } catch (error) {
+                debugWarn("[Menu] Ошибка загрузки из Cache API:", error);
+            }
+        }
+
+        // Если нет в Cache API, загружаем из localStorage
+        const savedBanner = localStorage.getItem("customBanner");
+        if (savedBanner) {
+            debugLog("[Menu] Баннер загружен из localStorage");
+            return savedBanner;
+        }
+
+        return null;
+    }
+
+    /**
+     * Удаление баннера
+     */
+    private async removeBanner(): Promise<void> {
+        const bannerImageContainer = document.getElementById("banner-image-container");
+        const bannerConstruction = document.getElementById("banner-construction");
+        const fileInput = document.getElementById("banner-file-input") as HTMLInputElement;
+
+        if (!bannerImageContainer || !bannerConstruction) return;
+
+        // Удаляем из localStorage
+        localStorage.removeItem("customBanner");
+        localStorage.removeItem("customBannerTimestamp");
+
+        // Удаляем из Cache API
+        if ('caches' in window) {
+            try {
+                const cache = await caches.open('banner-cache-v1');
+                await cache.delete('custom-banner');
+                debugLog("[Menu] Баннер удален из Cache API");
+            } catch (error) {
+                debugWarn("[Menu] Ошибка удаления из Cache API:", error);
+            }
+        }
+
+        // Скрываем изображение, показываем "Under Construction"
+        bannerImageContainer.style.display = "none";
+        bannerConstruction.style.display = "block";
+
+        // Показываем кнопку "Добавить баннер"
+        const bannerControls = document.querySelector(".banner-controls");
+        if (bannerControls) {
+            (bannerControls as HTMLElement).style.display = "flex";
+        }
+
+        // Очищаем input
+        if (fileInput) {
+            fileInput.value = "";
+        }
+
+        debugLog("[Menu] Баннер удален из всех хранилищ");
     }
 
     /**
@@ -13358,7 +13869,7 @@ transition: all 0.2s;
                     // Hide menu
                     console.log('[Menu] 🎮 Hiding menu...');
                     this.container.classList.add('hidden');
-                    
+
                     // ИСПРАВЛЕНИЕ: Удаляем ВСЕ существующие экраны загрузки перед запуском игры
                     // Это предотвращает появление множественных экранов загрузки
                     const existingLoadingScreens = document.querySelectorAll('#loading-screen, .loading-screen');
@@ -13366,7 +13877,7 @@ transition: all 0.2s;
                         console.log('[Menu] 🧹 Removing existing loading screen');
                         screen.remove();
                     });
-                    
+
                     // Start game - проверяем, уже ли игра инициализирована
                     if (this.game.gameInitialized && this.game.gameStarted) {
                         // Игра уже запущена - просто перезагружаем карту
@@ -13608,24 +14119,24 @@ transition: all 0.2s;
      */
     public dispose(): void {
         debugLog("[Menu] dispose() called - cleaning up event listeners");
-        
+
         // Отменяем все слушатели событий, зарегистрированные с signal
         this.abortController.abort();
-        
+
         // Создаём новый контроллер на случай если меню будет переинициализировано
         this.abortController = new AbortController();
-        
+
         // Очищаем интервал проверки canvas
         if (this.canvasPointerEventsCheckInterval) {
             clearInterval(this.canvasPointerEventsCheckInterval);
             this.canvasPointerEventsCheckInterval = null;
         }
-        
+
         // Очищаем подписку на прогресс
         if (this.experienceSubscription) {
             this.experienceSubscription = null;
         }
-        
+
         debugLog("[Menu] dispose() completed");
     }
 
@@ -13969,6 +14480,18 @@ transition: all 0.2s;
 
         // Немедленное обновление при показе меню (без анимации для первой загрузки)
         this.updatePlayerInfo(true);
+
+        // Автофокус первого элемента для навигации клавиатурой
+        setTimeout(() => {
+            const focusableElements = this.container.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            );
+            if (focusableElements.length > 0) {
+                const firstElement = focusableElements[0] as HTMLElement;
+                firstElement.focus();
+            }
+        }, 100);
+
         // Также обновляем через небольшую задержку для гарантии
         setTimeout(() => {
             this.updatePlayerInfo(true);
@@ -14274,48 +14797,114 @@ transition: all 0.2s;
         // Добавляем обработчик на window для перехвата ESC
         // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки
         window.addEventListener("keydown", escHandler, { capture: true, signal: this.abortController.signal });
-        
+
         // НАВИГАЦИЯ КЛАВИАТУРОЙ: Стрелки, Tab, Enter
         this.setupKeyboardNavigation();
     }
-    
+
     /**
      * Настройка навигации клавиатурой для всех меню
      */
     private setupKeyboardNavigation(): void {
         const keyHandler = (e: KeyboardEvent) => {
             if (!this.isVisible()) return;
-            
-            // Получаем все фокусируемые элементы
-            const focusableElements = this.container.querySelectorAll<HTMLElement>(
+
+            // Игнорируем если пользователь вводит текст
+            const activeEl = document.activeElement;
+            if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || (activeEl as HTMLElement).isContentEditable)) {
+                // Разрешаем стандартное поведение для полей ввода
+                if (e.key === "Escape") {
+                    (activeEl as HTMLElement).blur();
+                }
+                return;
+            }
+
+            // Получаем все видимые фокусируемые элементы (игнорируем скрытые)
+            const allElements = this.container.querySelectorAll<HTMLElement>(
                 'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
             );
-            
+
+            // Фильтруем только видимые элементы
+            const focusableElements = Array.from(allElements).filter(el => {
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    style.opacity !== '0' &&
+                    !el.closest('[style*="display: none"]') &&
+                    !el.closest('.hidden');
+            });
+
             if (focusableElements.length === 0) return;
-            
-            const currentIndex = Array.from(focusableElements).findIndex(el => el === document.activeElement);
-            
+
+            const currentIndex = focusableElements.findIndex(el => el === document.activeElement);
+            const hasFocus = currentIndex >= 0 || document.activeElement === document.body;
+
+            // Если нет фокуса, фокусируем первый элемент при нажатии стрелок
+            if (!hasFocus && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                e.preventDefault();
+                e.stopPropagation();
+                const firstElement = focusableElements[0] as HTMLElement;
+                if (firstElement) {
+                    firstElement.focus();
+                    firstElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                    // Добавляем визуальную индикацию
+                    firstElement.classList.add("keyboard-focused");
+                    setTimeout(() => firstElement.classList.remove("keyboard-focused"), 300);
+                }
+                return;
+            }
+
             // Стрелки вверх/вниз для навигации
             if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
                 e.stopPropagation();
-                
+
                 let nextIndex: number;
                 if (e.key === "ArrowDown") {
                     nextIndex = currentIndex < focusableElements.length - 1 ? currentIndex + 1 : 0;
                 } else {
                     nextIndex = currentIndex > 0 ? currentIndex - 1 : focusableElements.length - 1;
                 }
-                
-                const nextElement = focusableElements[nextIndex];
+
+                const nextElement = focusableElements[nextIndex] as HTMLElement;
                 if (nextElement) {
                     nextElement.focus();
                     // Прокручиваем в видимую область
                     nextElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                    // Добавляем визуальную индикацию
+                    nextElement.classList.add("keyboard-focused");
+                    setTimeout(() => nextElement.classList.remove("keyboard-focused"), 300);
                 }
                 return;
             }
-            
+
+            // Стрелки влево/вправо для навигации по вкладкам/табам
+            if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                const tabs = this.container.querySelectorAll<HTMLElement>('.tab, .menu-tab, [role="tab"]');
+                if (tabs.length > 0) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const activeTab = Array.from(tabs).findIndex(tab =>
+                        tab.classList.contains('active') || tab.getAttribute('aria-selected') === 'true'
+                    );
+
+                    let nextTabIndex: number;
+                    if (e.key === "ArrowRight") {
+                        nextTabIndex = activeTab < tabs.length - 1 ? activeTab + 1 : 0;
+                    } else {
+                        nextTabIndex = activeTab > 0 ? activeTab - 1 : tabs.length - 1;
+                    }
+
+                    const nextTab = tabs[nextTabIndex] as HTMLElement;
+                    if (nextTab) {
+                        nextTab.click();
+                        nextTab.focus();
+                    }
+                }
+                return;
+            }
+
             // Tab для навигации (стандартное поведение, но с обработкой)
             if (e.key === "Tab") {
                 // Разрешаем стандартное поведение Tab, но добавляем визуальную индикацию
@@ -14326,21 +14915,37 @@ transition: all 0.2s;
                 }
                 return;
             }
-            
+
             // Enter для активации кнопок
             if (e.key === "Enter" && document.activeElement instanceof HTMLElement) {
+                const activeEl = document.activeElement;
+                if (activeEl.tagName === "BUTTON" || activeEl.getAttribute("role") === "button" || activeEl.classList.contains("clickable")) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Визуальная обратная связь
+                    activeEl.classList.add("keyboard-activated");
+                    setTimeout(() => activeEl.classList.remove("keyboard-activated"), 200);
+                    activeEl.click();
+                }
+            }
+
+            // Space для активации кнопок (только если не в поле ввода)
+            if (e.key === " " && document.activeElement instanceof HTMLElement) {
                 const activeEl = document.activeElement;
                 if (activeEl.tagName === "BUTTON" || activeEl.getAttribute("role") === "button") {
                     e.preventDefault();
                     e.stopPropagation();
+                    // Визуальная обратная связь
+                    activeEl.classList.add("keyboard-activated");
+                    setTimeout(() => activeEl.classList.remove("keyboard-activated"), 200);
                     activeEl.click();
                 }
             }
         };
-        
+
         // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки
         window.addEventListener("keydown", keyHandler, { capture: true, signal: this.abortController.signal });
-        
+
         // Сохраняем ссылку для очистки
         (this.container as any)._keyboardNavHandler = keyHandler;
     }

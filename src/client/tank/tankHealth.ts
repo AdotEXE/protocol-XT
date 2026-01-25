@@ -687,7 +687,7 @@ export class TankHealthModule {
 
         const hits = this.tank.scene.multiPickWithRay(ray, (mesh) => {
             if (!mesh || !mesh.isEnabled()) return false;
-            
+
             // ИСПРАВЛЕНО: Улучшенный фильтр - исключаем только явно служебные объекты
             const name = mesh.name.toLowerCase();
 
@@ -721,7 +721,7 @@ export class TankHealthModule {
                     }
                 }
             }
-            
+
             // ИСПРАВЛЕНО: Проверка валидности результата
             if (maxHeight > -Infinity && maxHeight >= -10 && maxHeight <= 500) {
                 return maxHeight;
@@ -1206,11 +1206,14 @@ export class TankHealthModule {
             const spawnOffset = 1.5; // Поднимаем танк над землёй
             const adjustedSpawnPos = new Vector3(respawnPos.x, respawnPos.y + spawnOffset, respawnPos.z);
 
+            // ПРЯМОЙ телепорт позиции (без интерполяции)
             tank.chassis.position.copyFrom(adjustedSpawnPos);
             tank.chassis.rotationQuaternion = Quaternion.Identity();
             tank.chassis.computeWorldMatrix(true);
 
-            tank.physicsBody.setTargetTransform(adjustedSpawnPos, Quaternion.Identity());
+            // КРИТИЧНО: disablePreStep = false заставляет физику синхронизироваться с mesh мгновенно
+            // Это заменяет setTargetTransform который вызывал интерполяцию!
+            tank.physicsBody.disablePreStep = false;
             tank.physicsBody.setLinearVelocity(Vector3.Zero());
             tank.physicsBody.setAngularVelocity(Vector3.Zero());
         }

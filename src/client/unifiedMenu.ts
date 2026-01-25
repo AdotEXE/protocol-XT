@@ -114,6 +114,20 @@ export class UnifiedMenu {
                 this.game.togglePause();
             }
         }
+        
+        // Автофокус первого элемента для навигации клавиатурой
+        setTimeout(() => {
+            const focusableElements = this.container.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"]), .sidebar-item'
+            );
+            if (focusableElements.length > 0) {
+                const firstElement = focusableElements[0] as HTMLElement;
+                if (firstElement.classList.contains('sidebar-item')) {
+                    firstElement.setAttribute('tabindex', '0');
+                }
+                firstElement.focus();
+            }
+        }, 100);
     }
 
     hide(): void {
@@ -622,13 +636,98 @@ export class UnifiedMenu {
             }
         });
 
-        // Закрытие по ESC
+        // Навигация клавиатурой и закрытие по ESC
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (this.isVisible && e.code === "Escape") {
+            if (!this.isVisible) return;
+            
+            // Закрытие по ESC
+            if (e.code === "Escape") {
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
                 this.hide();
+                return;
+            }
+            
+            // Игнорируем если пользователь вводит текст
+            const activeEl = document.activeElement;
+            if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || (activeEl as HTMLElement).isContentEditable)) {
+                return;
+            }
+            
+            // Навигация по категориям в sidebar стрелками вверх/вниз
+            if ((e.key === "ArrowDown" || e.key === "ArrowUp") && this.sidebarElement) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const sidebarItems = Array.from(this.sidebarElement.querySelectorAll<HTMLElement>('.sidebar-item'));
+                if (sidebarItems.length === 0) return;
+                
+                const currentIndex = sidebarItems.findIndex(item => item.classList.contains('active') || item === document.activeElement);
+                let nextIndex: number;
+                
+                if (e.key === "ArrowDown") {
+                    nextIndex = currentIndex < sidebarItems.length - 1 ? currentIndex + 1 : 0;
+                } else {
+                    nextIndex = currentIndex > 0 ? currentIndex - 1 : sidebarItems.length - 1;
+                }
+                
+                const nextItem = sidebarItems[nextIndex];
+                if (nextItem) {
+                    nextItem.setAttribute('tabindex', '0');
+                    nextItem.focus();
+                    nextItem.click(); // Автоматически открываем категорию
+                    nextItem.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }
+                return;
+            }
+            
+            // Навигация по вкладкам стрелками влево/вправо
+            if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && this.tabBarElement) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const tabItems = Array.from(this.tabBarElement.querySelectorAll<HTMLElement>('.tab-item'));
+                if (tabItems.length === 0) return;
+                
+                const activeTabIndex = tabItems.findIndex(tab => tab.classList.contains('active'));
+                if (activeTabIndex < 0) return;
+                
+                let nextTabIndex: number;
+                if (e.key === "ArrowRight") {
+                    nextTabIndex = activeTabIndex < tabItems.length - 1 ? activeTabIndex + 1 : 0;
+                } else {
+                    nextTabIndex = activeTabIndex > 0 ? activeTabIndex - 1 : tabItems.length - 1;
+                }
+                
+                const nextTab = tabItems[nextTabIndex];
+                if (nextTab) {
+                    const tabId = nextTab.getAttribute('data-tab');
+                    if (tabId) {
+                        this.openTab(tabId);
+                        nextTab.focus();
+                    }
+                }
+                return;
+            }
+            
+            // Навигация по элементам внутри контента
+            const focusableElements = this.container.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            );
+            
+            if (focusableElements.length === 0) return;
+            
+            const currentIndex = Array.from(focusableElements).findIndex(el => el === document.activeElement);
+            
+            // Enter для активации кнопок
+            if (e.key === "Enter" && document.activeElement instanceof HTMLElement) {
+                const activeEl = document.activeElement;
+                if (activeEl.tagName === "BUTTON" || activeEl.getAttribute("role") === "button") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    activeEl.click();
+                }
             }
         };
         window.addEventListener("keydown", handleKeyDown);

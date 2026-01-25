@@ -106,7 +106,16 @@ export class CustomMapGenerator extends BaseMapGenerator {
         this.config.mapData = mapData;
         this.config.mapSize = mapData.mapSize || 200;
         this.objectsGenerated.clear();
-        console.log(`[CustomMapGenerator] Loaded map: ${mapData.name} with ${mapData.placedObjects.length} objects`);
+
+        // Save to localStorage for game restarts/reloads
+        try {
+            // We only save the data needed for the generator
+            // Ideally we should use the same key game.ts uses: 'selectedCustomMapData'
+            localStorage.setItem("selectedCustomMapData", JSON.stringify(mapData));
+            console.log(`[CustomMapGenerator] Loaded and saved map: ${mapData.name} with ${mapData.placedObjects.length} objects`);
+        } catch (e) {
+            console.error("[CustomMapGenerator] Failed to save map data to localStorage:", e);
+        }
     }
 
     /**

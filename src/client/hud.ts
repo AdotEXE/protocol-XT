@@ -585,7 +585,7 @@ export class HUD {
         // Low HP visual effect
         this.isLowHp = this.currentHealth < this.maxHealth * 0.4 && this.currentHealth > 0;
         // Виньетка низкого здоровья обновляется в методе update() каждый кадр с deltaTime
-        
+
         // КРИТИЧНО: Отключаем legacy компонент полностью
         if (this.lowHpVignette) {
             this.lowHpVignette.isVisible = false;
@@ -616,7 +616,7 @@ export class HUD {
         if (this.lowHpVignetteComponent) {
             this.lowHpVignetteComponent.update(this.currentHealth, this.maxHealth, deltaTime);
         }
-        
+
         // КРИТИЧНО: Отключаем legacy компонент полностью
         if (this.lowHpVignette) {
             this.lowHpVignette.isVisible = false;
@@ -723,25 +723,25 @@ export class HUD {
                 // Используем правильные методы PlayerProgressionSystem
                 const xpProgress = playerProgression.getExperienceProgress?.();
                 // КРИТИЧНО: Используем несколько методов для получения уровня (fallback)
-                const level = playerProgression.getLevel?.() ?? 
-                              playerProgression.getCurrentLevel?.() ?? 
-                              (playerProgression.getStats?.()?.level) ?? 1;
-                
+                const level = playerProgression.getLevel?.() ??
+                    playerProgression.getCurrentLevel?.() ??
+                    (playerProgression.getStats?.()?.level) ?? 1;
+
                 console.log(`[HUD] setPlayerProgression: level=${level}, xpProgress=`, xpProgress);
-                
+
                 // КРИТИЧНО: Обновляем немедленно
                 if (xpProgress) {
                     this.updateCentralXp(xpProgress.current, xpProgress.required, level);
                 } else {
                     this.updateCentralXp(0, 100, level);
                 }
-                
+
                 // КРИТИЧНО: Также обновляем с задержкой на случай, если элементы ещё не созданы
                 setTimeout(() => {
                     const xpProgressDelayed = playerProgression.getExperienceProgress?.();
-                    const levelDelayed = playerProgression.getLevel?.() ?? 
-                                        playerProgression.getCurrentLevel?.() ?? 
-                                        (playerProgression.getStats?.()?.level) ?? 1;
+                    const levelDelayed = playerProgression.getLevel?.() ??
+                        playerProgression.getCurrentLevel?.() ??
+                        (playerProgression.getStats?.()?.level) ?? 1;
                     if (xpProgressDelayed) {
                         console.log(`[HUD] Delayed update: level=${levelDelayed}`);
                         this.updateCentralXp(xpProgressDelayed.current, xpProgressDelayed.required, levelDelayed);
@@ -768,15 +768,15 @@ export class HUD {
                 // Experience changed event received
                 this.updateCentralXp(data.current, data.required, data.level);
             });
-            
+
             // ИСПРАВЛЕНО: Принудительно уведомляем об изменении опыта при установке, чтобы обновить XP BAR
             // Это гарантирует что XP BAR обновится даже если событие не было отправлено ранее
             try {
                 const xpProgress = playerProgression.getExperienceProgress?.();
                 // КРИТИЧНО: Используем несколько методов для получения уровня (fallback)
-                const level = playerProgression.getLevel?.() ?? 
-                              playerProgression.getCurrentLevel?.() ?? 
-                              (playerProgression.getStats?.()?.level) ?? 1;
+                const level = playerProgression.getLevel?.() ??
+                    playerProgression.getCurrentLevel?.() ??
+                    (playerProgression.getStats?.()?.level) ?? 1;
                 if (xpProgress) {
                     // Отправляем событие об изменении опыта для обновления XP BAR
                     playerProgression.onExperienceChanged.notifyObservers({
@@ -4103,20 +4103,20 @@ export class HUD {
             if (game && game.mapEditor) {
                 // Проверяем состояние редактора
                 const restoreBtn = document.getElementById("map-editor-restore-btn");
-                const isRestoreBtnVisible = restoreBtn && 
-                    restoreBtn.style.display !== 'none' && 
+                const isRestoreBtnVisible = restoreBtn &&
+                    restoreBtn.style.display !== 'none' &&
                     restoreBtn.style.visibility !== 'hidden' &&
                     window.getComputedStyle(restoreBtn).display !== 'none';
-                
+
                 const isEditorActive = game.mapEditor.isEditorActive && game.mapEditor.isEditorActive();
                 const editorContainer = game.mapEditor.container;
-                const isEditorVisible = editorContainer && 
-                    editorContainer.style.display !== 'none' && 
+                const isEditorVisible = editorContainer &&
+                    editorContainer.style.display !== 'none' &&
                     editorContainer.style.visibility !== 'hidden' &&
                     window.getComputedStyle(editorContainer).display !== 'none';
-                
+
                 console.log("[HUD] Editor state:", { isRestoreBtnVisible, isEditorActive, isEditorVisible });
-                
+
                 if (isRestoreBtnVisible || (!isEditorVisible && isEditorActive)) {
                     // Редактор свернут - разворачиваем
                     console.log("[HUD] Restoring editor");
@@ -4315,14 +4315,14 @@ export class HUD {
         // Low HP vignette effect (< 30%)
         // КРИТИЧНО: Отключаем эффект при смерти (health = 0) или при полном здоровье
         this.isLowHp = percent < 30 && percent > 0 && this.currentHealth > 0;
-        
+
         // КРИТИЧНО: Отключаем legacy компонент полностью - используем только новый
         if (this.lowHpVignette) {
             this.lowHpVignette.isVisible = false;
             this.lowHpVignette.background = "transparent";
             this.lowHpVignette.alpha = 0;
         }
-        
+
         // Обновляем только новый компонент
         if (this.lowHpVignetteComponent) {
             this.lowHpVignetteComponent.update(this.currentHealth, this.maxHealth, 0.016);
@@ -4820,7 +4820,7 @@ export class HUD {
             this.lowHpVignette.background = "transparent";
             this.lowHpVignette.alpha = 0;
         }
-        
+
         // Обновление эффекта теперь происходит через update() метод HUD
         // который вызывает lowHpVignetteComponent.update() с deltaTime
     }
@@ -5126,22 +5126,20 @@ export class HUD {
         if (this.minimapContainer) {
             const barrelAngleValue = (this.minimapContainer as any)._barrelAngleValue as TextBlock;
             if (barrelAngleValue) {
-                // Конвертируем градусы в радианы для отображения в тысячных единицах
-                const angleRadians = (angleDegrees * Math.PI) / 180;
-                // Форматируем в тысячные единицы (0.001) с тремя знаками после запятой
-                const formattedAngle = Math.abs(angleRadians).toFixed(3);
+                // Форматируем угол в градусах с точностью до 0.01° (два знака после запятой)
+                const formattedAngle = Math.abs(angleDegrees).toFixed(2);
                 // Выбираем символ в зависимости от направления: + для вверх, - для вниз
                 const sign = angleDegrees >= 0 ? "+" : "-";
-                barrelAngleValue.text = `${sign}${formattedAngle}`;
+                barrelAngleValue.text = `${sign}${formattedAngle}°`;
 
-                // Цвет в зависимости от угла (пороги в радианах: 10° ≈ 0.175 рад, 5° ≈ 0.087 рад)
-                const absAngleRad = Math.abs(angleRadians);
-                if (absAngleRad >= 0.175) { // ≥ 10°
+                // Цветовая индикация в зависимости от угла (в градусах)
+                const absAngle = Math.abs(angleDegrees);
+                if (absAngle >= 10) { // ≥ 10°
                     barrelAngleValue.color = "#ff4444"; // Красный
-                } else if (absAngleRad >= 0.087) { // 5°-10°
+                } else if (absAngle >= 5) { // 5° ≤ |угол| < 10°
                     barrelAngleValue.color = "#ffaa00"; // Оранжевый
-                } else {
-                    barrelAngleValue.color = "#00ff00"; // Зелёный для углов < 5°
+                } else { // |угол| < 5°
+                    barrelAngleValue.color = "#00ff00"; // Зелёный
                 }
             }
         }
@@ -5585,7 +5583,7 @@ export class HUD {
             // Устанавливаем здоровье в 0 для скрытия эффекта
             this.lowHpVignetteComponent.update(0, this.maxHealth, 0.016);
         }
-        
+
         this.showMessage("DESTROYED! RESPAWN IN 3...", "#f00");
         this.onRespawnStartCallback = onRespawnStart || null;
         console.log(`[HUD] showDeathMessage called, callback provided: ${!!onRespawnStart}, stored: ${!!this.onRespawnStartCallback}`);
@@ -5761,7 +5759,7 @@ export class HUD {
             // Обновляем компонент с текущим здоровьем (должно быть полное после респавна)
             this.lowHpVignetteComponent.update(this.currentHealth, this.maxHealth, 0.016);
         }
-        
+
         if (this.deathScreen) {
             this.deathScreen.isVisible = false;
         }
@@ -6462,7 +6460,8 @@ export class HUD {
     updateTankState(tankPos: Vector3, speed: number, _isReloading: boolean, _reloadProgress: number) {
         this.setSpeed(speed);
         this.setPosition(tankPos.x, tankPos.z, tankPos.y);
-        this.updateReload();
+        // NOTE: updateReload() был удален - метод не существовал
+        // Индикатор перезарядки отображается через прицел (crosshair)
         this.updateGameTime();
     }
 
@@ -6862,12 +6861,12 @@ export class HUD {
             console.log(`[HUD] ⚠️ createCentralXpBar called but elements already exist! Skipping recreation.`);
             return;
         }
-        
+
         console.log(`[HUD] 🔨 createCentralXpBar: Creating new XP bar elements`);
-        
+
         // Сохраняем текущий текст, если элементы уже были созданы
         const savedText = this.centralXpText?.text || "RANK 1 | XP: 0/100";
-        
+
         // Вычисляем ширину XP бара - максимум 800px, но не больше 60% экрана
         const maxWidth = Math.min(800, window.innerWidth * 0.6);
 
@@ -6934,9 +6933,9 @@ export class HUD {
             try {
                 const xpProgress = this._playerProgression.getExperienceProgress?.();
                 // КРИТИЧНО: Используем getLevel() или getCurrentLevel() для получения уровня
-                const level = this._playerProgression.getLevel?.() ?? 
-                              this._playerProgression.getCurrentLevel?.() ?? 
-                              (this._playerProgression.getStats?.()?.level) ?? 1;
+                const level = this._playerProgression.getLevel?.() ??
+                    this._playerProgression.getCurrentLevel?.() ??
+                    (this._playerProgression.getStats?.()?.level) ?? 1;
                 if (xpProgress) {
                     this.updateCentralXp(xpProgress.current, xpProgress.required, level);
                 } else {
@@ -7091,6 +7090,14 @@ export class HUD {
         // Обновляем целевую позицию для плавной анимации
         this.xpBarTargetPercent = percent;
 
+        // КРИТИЧНО: Немедленно обновляем визуальную полосу прогресса
+        if (this.centralXpBar) {
+            const widthPercent = `${percent}%`;
+            this.centralXpBar.width = widthPercent;
+            this.xpBarCurrentPercent = percent; // Синхронизируем для анимации
+            console.log(`[HUD] ✅ XP bar width updated to: ${widthPercent}`);
+        }
+
         // Если уровень изменился, сбрасываем анимацию и добавляем эффект
         if (validLevel !== this.xpBarLastLevel) {
             this.xpBarCurrentPercent = 0; // Начинаем с 0 при повышении уровня
@@ -7112,18 +7119,18 @@ export class HUD {
         try {
             // Обновляем текст с правильным форматом (RANK для уровня игрока, чтобы отличать от уровня частей)
             const xpText = `RANK ${validLevel} | XP: ${validCurrentXp}/${validXpToNext}`;
-            
+
             // КРИТИЧНО: Логируем обновление для отладки
             console.log(`[HUD] updateCentralXp: level=${level} -> validLevel=${validLevel}, text="${xpText}"`);
             console.log(`[HUD] centralXpText exists: ${!!this.centralXpText}, text before: "${this.centralXpText?.text}"`);
-            
+
             if (this.centralXpText) {
                 this.centralXpText.text = xpText;
                 console.log(`[HUD] centralXpText.text set to: "${this.centralXpText.text}"`);
             } else {
                 console.warn(`[HUD] ⚠️ centralXpText is null! Cannot update RANK display.`);
             }
-            
+
             // Обновляем обводку тоже
             const xpTextOutline = (this as any).centralXpTextOutline;
             if (xpTextOutline) {
@@ -9981,7 +9988,7 @@ export class HUD {
             this.missionPanel.cornerRadius = 4;
             this.missionPanel.thickness = 2;
             this.missionPanel.color = "#0f0";
-            this.missionPanel.background = "rgba(0, 20, 0, 0.9)";
+            this.missionPanel.background = "rgba(0, 20, 0, 0.6)"; // Полупрозрачный темный фон
             this.missionPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             this.missionPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             this.missionPanel.left = "-10px";
@@ -10176,13 +10183,13 @@ export class HUD {
             item.height = "52px";
             item.cornerRadius = 3;
             item.thickness = 2;
-            // СТИЛЬ ИГРЫ: Более яркие цвета и контраст
-            item.color = mission.completed ? "#0f0" : mission.claimed ? "#0ff" : "#666";
-            item.background = mission.completed 
-                ? "rgba(0, 60, 0, 0.8)" 
-                : mission.claimed 
-                    ? "rgba(0, 40, 40, 0.8)"
-                    : "rgba(20, 20, 20, 0.8)";
+            // СТИЛЬ ИГРЫ: Зеленый/золотой текст, полупрозрачный фон
+            item.color = mission.completed ? "#ffcc00" : mission.claimed ? "#0f0" : "#888"; // Золотой для завершенных, зеленый для активных
+            item.background = mission.completed
+                ? "rgba(40, 30, 0, 0.6)" // Золотистый фон для завершенных
+                : mission.claimed
+                    ? "rgba(0, 40, 0, 0.6)" // Зеленый фон для активных
+                    : "rgba(20, 20, 20, 0.5)"; // Темный для неактивных
             item.top = `${30 + index * 58}px`;
             item.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             this.missionPanel!.addControl(item);
@@ -10201,7 +10208,7 @@ export class HUD {
             nameText.text = mission.name;
             nameText.fontSize = "10px";
             nameText.fontFamily = "monospace";
-            nameText.color = "#fff";
+            nameText.color = mission.completed ? "#ffcc00" : "#0f0"; // Золотой для завершенных, зеленый для активных
             nameText.left = "25px";
             nameText.top = "3px";
             nameText.textWrapping = true;
@@ -10214,7 +10221,7 @@ export class HUD {
             progressText.text = `${Math.floor(mission.current)}/${mission.requirement}`;
             progressText.fontSize = "9px";
             progressText.fontFamily = "monospace";
-            progressText.color = mission.completed ? "#0f0" : "#aaa";
+            progressText.color = mission.completed ? "#ffcc00" : "#0f0"; // Золотой для завершенных, зеленый для активных
             progressText.left = "25px";
             progressText.top = "18px";
             item.addControl(progressText);
@@ -10232,7 +10239,7 @@ export class HUD {
             const progressFill = new Rectangle(`missionFill_${mission.id}`);
             progressFill.width = `${progress}%`;
             progressFill.height = "100%";
-            progressFill.background = mission.completed ? "#0f0" : "#0af";
+            progressFill.background = mission.completed ? "#ffcc00" : "#0f0"; // Золотой для завершенных, зеленый для активных
             progressFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             progressBar.addControl(progressFill);
 
@@ -10241,11 +10248,27 @@ export class HUD {
                 const checkmark = new TextBlock(`missionCheck_${mission.id}`);
                 checkmark.text = "✓";
                 checkmark.fontSize = "16px";
-                checkmark.color = "#0f0";
+                checkmark.color = "#ffcc00"; // Золотой цвет для галочки
                 checkmark.left = "210px";
                 checkmark.top = "10px";
                 item.addControl(checkmark);
             }
+
+            // Анимация появления задания
+            item.alpha = 0;
+            setTimeout(() => {
+                // Проверяем, что элемент не удален (у Babylon.js контролов нет isDisposed, проверяем через parent)
+                if (item && item.parent) {
+                    // Плавное появление
+                    const fadeIn = () => {
+                        if (item && item.parent && item.alpha < 1.0) {
+                            item.alpha = Math.min(1.0, item.alpha + 0.1);
+                            setTimeout(fadeIn, 16); // ~60 FPS
+                        }
+                    };
+                    fadeIn();
+                }
+            }, index * 100); // Задержка для каждого задания
 
             // КНОПКА CLAIM для завершённых миссий
             if (mission.completed && !mission.claimed) {

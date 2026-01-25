@@ -275,6 +275,79 @@ export class NetworkMenu {
             }
         });
 
+        // Навигация клавиатурой и закрытие по ESC
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!this.isVisible()) return;
+            
+            // Закрытие по ESC
+            if (e.code === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                this.hide();
+                return;
+            }
+            
+            // Игнорируем если пользователь вводит текст
+            const activeEl = document.activeElement;
+            if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || (activeEl as HTMLElement).isContentEditable)) {
+                return;
+            }
+            
+            // Получаем все фокусируемые элементы
+            const focusableElements = this.container.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            );
+            
+            if (focusableElements.length === 0) return;
+            
+            const currentIndex = Array.from(focusableElements).findIndex(el => el === document.activeElement);
+            const hasFocus = currentIndex >= 0 || document.activeElement === document.body;
+            
+            // Если нет фокуса, фокусируем первый элемент при нажатии стрелок
+            if (!hasFocus && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                e.preventDefault();
+                e.stopPropagation();
+                const firstElement = focusableElements[0] as HTMLElement;
+                if (firstElement) {
+                    firstElement.focus();
+                    firstElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }
+                return;
+            }
+            
+            // Стрелки вверх/вниз для навигации
+            if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                let nextIndex: number;
+                if (e.key === "ArrowDown") {
+                    nextIndex = currentIndex < focusableElements.length - 1 ? currentIndex + 1 : 0;
+                } else {
+                    nextIndex = currentIndex > 0 ? currentIndex - 1 : focusableElements.length - 1;
+                }
+                
+                const nextElement = focusableElements[nextIndex] as HTMLElement;
+                if (nextElement) {
+                    nextElement.focus();
+                    nextElement.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                }
+                return;
+            }
+            
+            // Enter для активации кнопок
+            if (e.key === "Enter" && document.activeElement instanceof HTMLElement) {
+                const activeEl = document.activeElement;
+                if (activeEl.tagName === "BUTTON" || activeEl.getAttribute("role") === "button") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    activeEl.click();
+                }
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+
         // Чекбоксы - автоматическое применение настроек
         document.getElementById("network-multiplayer-enabled")?.addEventListener("change", (e) => {
             this.settings.multiplayerEnabled = (e.target as HTMLInputElement).checked;
@@ -764,6 +837,17 @@ export class NetworkMenu {
                 }
             }
         }, 500);
+        
+        // Автофокус первого элемента для навигации клавиатурой
+        setTimeout(() => {
+            const focusableElements = this.container.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+            );
+            if (focusableElements.length > 0) {
+                const firstElement = focusableElements[0] as HTMLElement;
+                firstElement.focus();
+            }
+        }, 100);
     }
 
     hide(): void {

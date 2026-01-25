@@ -43,10 +43,10 @@ export function injectGarageStyles(): void {
             to { transform: translateY(0); opacity: 1; }
         }
         .garage-container {
-            width: min(85vw, 900px);
-            height: min(80vh, 580px);
-            max-width: min(900px, 90vw);
-            max-height: min(580px, 85vh);
+            width: min(90vw, 1400px);
+            height: min(85vh, 900px);
+            max-width: 90vw;
+            max-height: 85vh;
             background: rgba(5, 15, 5, 0.98);
             cursor: default;
             border: clamp(1px, 0.15vw, 2px) solid #0f0;

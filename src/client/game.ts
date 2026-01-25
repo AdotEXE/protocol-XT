@@ -42,6 +42,8 @@ import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
 import { ConsumablesManager, CONSUMABLE_TYPES } from "./consumables";
 import { ChatSystem } from "./chatSystem";
+import { getHotkeyManager } from "./hotkeyManager";
+import { getVoiceChatManager } from "./voiceChat";
 import { ExperienceSystem } from "./experienceSystem";
 import { PlayerProgressionSystem } from "./playerProgression";
 import { AimingSystem } from "./aimingSystem";
@@ -233,6 +235,9 @@ export class Game {
     // Spectator mode
     isSpectating: boolean = false;
     spectatingPlayerId: string | null = null;
+
+    // Voice Chat
+    private voiceChatInitialized: boolean = false;
 
     // Game modules - lazy initialization to prevent initialization order issues
     private _gameGarage: GameGarage | undefined;
@@ -771,6 +776,36 @@ export class Game {
             }
         }, true); // CAPTURE PHASE - срабатывает ПЕРВЫМ!
 
+        // F8: Physics Editor - Редактор физики в реальном времени
+        window.addEventListener("keydown", async (e) => {
+            if (e.code === "F8" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                try {
+                    logger.log("[Game] Toggling physics editor (F8)...");
+                    const { getPhysicsEditor } = await import("./physicsEditor");
+                    const physicsEditor = getPhysicsEditor();
+
+                    // Передаём ссылки на tanк и game если ещё не переданы
+                    if (this.tank) {
+                        physicsEditor.setTank(this.tank);
+                    }
+                    physicsEditor.setGame(this);
+
+                    physicsEditor.toggle();
+                    logger.log("[Game] Physics editor toggled (F8)");
+                } catch (error) {
+                    logger.error("[Game] Failed to load physics editor:", error);
+                    if (this.hud) {
+                        this.hud.showMessage("❌ Ошибка загрузки редактора физики", "#f00", 2000);
+                    }
+                }
+                return;
+            }
+        }, true);
+
         // F2: Скриншот
         window.addEventListener("keydown", async (e) => {
             if (e.code === "F2" && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -1033,11 +1068,20 @@ export class Game {
                         if (isCurrentlyOpen) {
                             this.garage.close();
                             logger.log("✓ Garage menu CLOSED");
+                            // НЕ меняем состояние паузы при закрытии гаража
                         } else {
                             // Закрываем карту при открытии гаража
                             if (this.hud && this.hud.isFullMapVisible()) {
                                 this.hud.toggleFullMap();
                             }
+
+                            // Скрываем главное меню/меню паузы при открытии гаража
+                            // Кнопка B должна открывать ТОЛЬКО гараж, без меню паузы
+                            if (this.mainMenu && this.mainMenu.isVisible()) {
+                                this.mainMenu.hide();
+                            }
+
+                            // НЕ ставим игру на паузу при открытии гаража - гараж открывается независимо
 
                             this.garage.open();
                             logger.log("✓ Garage menu OPENED");
@@ -1202,6 +1246,10 @@ export class Game {
                     e.stopPropagation();
                     e.stopImmediatePropagation();
                     this.garage.close();
+                    // Снимаем паузу после закрытия гаража, если игра была на паузе
+                    if (this.gameStarted && this.gamePaused) {
+                        this.togglePause();
+                    }
                     return;
                 }
 
@@ -1625,7 +1673,7 @@ export class Game {
             }
             this.loadingScreen = null;
         }
-        
+
         // ИСПРАВЛЕНИЕ: Также проверяем и удаляем ВСЕ экраны загрузки по ID (на случай если они созданы в других местах)
         // Это включает экраны, созданные через класс LoadingScreen или другими способами
         const existingScreens = document.querySelectorAll("#loading-screen");
@@ -1642,7 +1690,7 @@ export class Game {
                 console.error(`[Game] Error removing loading screen ${index + 1}:`, e);
             }
         });
-        
+
         // Дополнительная проверка: удаляем все элементы с классом loading-screen (если есть)
         const screensByClass = document.querySelectorAll(".loading-screen");
         screensByClass.forEach((screen) => {
@@ -2946,7 +2994,7 @@ export class Game {
             light.specular = Color3.Black(); // No specular reflections!
             light.diffuse = new Color3(0.9, 0.9, 0.85); // Slightly warm
             light.groundColor = new Color3(0.25, 0.25, 0.28); // Ambient from below
-            
+
             // Проверяем что свет действительно создан
             if (!this.scene.lights || this.scene.lights.length === 0) {
                 logger.error("[Game] CRITICAL: No lights in scene after creation!");
@@ -3153,8 +3201,13 @@ export class Game {
             this.camera.minZ = 0.1; // Минимальное расстояние до камеры (предотвращает заход за текстуры)
             this.camera.maxZ = 10000; // Максимальное расстояние отсечения
             this.camera.inputs.clear();
+
+            // КРИТИЧЕСКИ ВАЖНО: Включаем встроенные коллизии BabylonJS
+            this.camera.checkCollisions = true;
+            this.camera.collisionRadius = new Vector3(0.5, 0.5, 0.5);
+
             this.setupCameraInput();
-            
+
             // КРИТИЧНО: Заменяем временную камеру на основную
             if (this.scene.activeCamera && this.scene.activeCamera.name === "tempCamera") {
                 // Удаляем временную камеру
@@ -3184,18 +3237,18 @@ export class Game {
             // КРИТИЧНО: Устанавливаем камеру как активную СРАЗУ и проверяем
             this.scene.activeCamera = this.camera;
             // Контролы уже настроены через setupCameraInput(), не нужно вызывать attachControls
-            
+
             // Дополнительная проверка: убеждаемся что камера действительно активна
             if (this.scene.activeCamera !== this.camera) {
                 logger.error("[Game] CRITICAL: Failed to set camera as active!");
                 this.scene.activeCamera = this.camera; // Повторная попытка
             }
-            
+
             // Проверяем что камера имеет правильные настройки
             if (this.camera.minZ === 0 || this.camera.maxZ === 0) {
                 logger.warn("[Game] Camera clipping planes may be incorrect!");
             }
-            
+
             logger.log(`[Game] Camera created and set as active: ${this.camera.name}, minZ=${this.camera.minZ}, maxZ=${this.camera.maxZ}`);
 
             // Инициализация постпроцессинга (bloom, motion blur и др.)
@@ -3364,6 +3417,11 @@ export class Game {
                 this.chatSystem.setSoundManager(this.soundManager);
             }
 
+            // Initialize Hotkey Manager
+            const hotkeyManager = getHotkeyManager();
+            hotkeyManager.initialize(this.chatSystem);
+            hotkeyManager.setGameActive(true);
+
             // Create Experience System
             this.experienceSystem = new ExperienceSystem();
             this.experienceSystem.setChatSystem(this.chatSystem);
@@ -3466,6 +3524,23 @@ export class Game {
                 // Также подключаем experienceSystem для комбо-индикатора
                 if (this.experienceSystem) {
                     this.hud.setExperienceSystem(this.experienceSystem);
+                }
+
+                // ИСПРАВЛЕНИЕ: Принудительно обновляем HUD с текущими значениями прогрессии
+                // Это исправляет баг, когда полоска XP показывала 0/100 (Rank 1) при старте
+                if (this.playerProgression) {
+                    const currentLevel = this.playerProgression.getLevel();
+                    const xpProgress = this.playerProgression.getExperienceProgress();
+                    const currentXP = xpProgress.current;
+                    const requiredXP = xpProgress.required;
+
+                    logger.log(`[Game] Force updating HUD with progression: Level ${currentLevel}, XP ${currentXP}/${requiredXP}`);
+                    (this.hud as any).updateCentralXp?.(currentXP, requiredXP, currentLevel);
+
+                    // Если есть метод updatePlayerStats, вызываем и его
+                    if (typeof (this.hud as any).updatePlayerStats === 'function') {
+                        (this.hud as any).updatePlayerStats(currentLevel, currentXP, requiredXP);
+                    }
                 }
             }
 
@@ -3721,21 +3796,46 @@ export class Game {
                     // В одиночной игре СОХРАНЯЕМ custom как тип карты
                     // ChunkSystem должен обрабатывать "custom" тип напрямую
                     try {
-                        const customMapDataStr = localStorage.getItem("selectedCustomMapData");
+                        // КРИТИЧНО: Проверяем несколько источников для custom карт
+                        let customMapDataStr = localStorage.getItem("selectedCustomMapData");
+                        if (!customMapDataStr) {
+                            // Пробуем найти в других ключах
+                            const customMaps = localStorage.getItem("customMaps");
+                            if (customMaps) {
+                                try {
+                                    const maps = JSON.parse(customMaps);
+                                    // Ищем последнюю выбранную карту
+                                    const lastSelected = localStorage.getItem("lastSelectedCustomMap");
+                                    if (lastSelected && maps[lastSelected]) {
+                                        customMapDataStr = JSON.stringify(maps[lastSelected]);
+                                        console.log(`[Game] 🔍 Found custom map in customMaps: ${lastSelected}`);
+                                    }
+                                } catch (e) {
+                                    console.warn(`[Game] Failed to parse customMaps:`, e);
+                                }
+                            }
+                        }
+
                         console.log(`[Game] 🔍 DEBUG: selectedCustomMapData exists: ${!!customMapDataStr}, length: ${customMapDataStr?.length || 0}`);
 
                         if (customMapDataStr) {
-                            // Нормализуем данные к единому формату
-                            const rawData = JSON.parse(customMapDataStr);
-                            const customMapData = this.normalizeMapDataForGame(rawData);
-                            if (customMapData && customMapData.mapType && customMapData.mapType !== "custom") {
-                                logger.log(`[Game] Custom map has base type: ${customMapData.mapType}, using it for terrain generation (normalized from version ${rawData.version || 'legacy'})`);
-                                mapType = customMapData.mapType;
-                                this.currentMapType = customMapData.mapType as any; // Sync currentMapType
-                            } else {
-                                // Custom карта есть - оставляем custom
-                                logger.log(`[Game] Custom map - keeping mapType as "custom" (was: ${mapType})`);
-                                // НЕ меняем mapType - он уже "custom"
+                            try {
+                                // Нормализуем данные к единому формату
+                                const rawData = JSON.parse(customMapDataStr);
+                                const customMapData = this.normalizeMapDataForGame(rawData);
+                                if (customMapData && customMapData.mapType && customMapData.mapType !== "custom") {
+                                    logger.log(`[Game] Custom map has base type: ${customMapData.mapType}, using it for terrain generation (normalized from version ${rawData.version || 'legacy'})`);
+                                    mapType = customMapData.mapType;
+                                    this.currentMapType = customMapData.mapType as any; // Sync currentMapType
+                                } else {
+                                    // Custom карта есть - оставляем custom
+                                    logger.log(`[Game] Custom map - keeping mapType as "custom" (was: ${mapType})`);
+                                    // НЕ меняем mapType - он уже "custom"
+                                }
+                            } catch (parseError) {
+                                logger.error(`[Game] Failed to parse custom map data:`, parseError);
+                                mapType = "sandbox";
+                                this.currentMapType = "sandbox";
                             }
                         } else {
                             // КРИТИЧНО: Нет данных custom карты - синхронизируем ОБА типа
@@ -4024,6 +4124,24 @@ export class Game {
                     // КРИТИЧНО: Проверяем подключение к комнате, а не только isMultiplayer флаг
                     // Это гарантирует обновление сетевых игроков даже если isMultiplayer=false из-за бага
                     const isConnectedToRoom = this.multiplayerManager?.isConnected() && this.multiplayerManager?.getRoomId();
+
+                    // Initialize Voice Chat if connected to a room
+                    if (isConnectedToRoom && this.multiplayerManager && !this.voiceChatInitialized) {
+                        const roomId = this.multiplayerManager.getRoomId();
+                        const playerId = this.multiplayerManager.getPlayerId();
+                        if (roomId && playerId) {
+                            this.voiceChatInitialized = true;
+                            getVoiceChatManager().initialize(roomId, playerId).then(success => {
+                                if (success) {
+                                    logger.log("[Game] Voice Chat initialized");
+                                    if (this.hud) {
+                                        this.hud.showNotification("Voice Chat Enabled (Hold V to talk)", "info");
+                                    }
+                                }
+                            });
+                        }
+                    }
+
                     if ((this.isMultiplayer || isConnectedToRoom) && this.multiplayerManager) {
                         // КРИТИЧНО: Если подключены к комнате, но isMultiplayer=false - исправляем флаг
                         if (isConnectedToRoom && !this.isMultiplayer) {
@@ -4785,7 +4903,7 @@ export class Game {
         // multiPickWithRay возвращает ВСЕ пересечения
         const hits = this.scene.multiPickWithRay(ray, (mesh) => {
             if (!mesh || !mesh.isEnabled()) return false;
-            
+
             // ИСПРАВЛЕНО: Улучшенный фильтр - исключаем только явно служебные объекты
             // Разрешаем все видимые меши, даже если isPickable = false (для объектов карты)
             const name = mesh.name.toLowerCase();
@@ -4858,7 +4976,24 @@ export class Game {
      * @returns безопасная позиция Vector3
      */
     findSafeSpawnPosition(centerX: number = 0, centerZ: number = 0, minRadius: number = 20, maxRadius: number = 200, maxAttempts: number = 20): Vector3 {
-        // Пытаемся найти безопасную позицию в радиусе
+        // ПРИОРИТЕТ 1: Используем точки спавна с карты (гаражи, POI)
+        if (this.chunkSystem) {
+            const mapSpawnPoints = this.chunkSystem.getPlayerSpawnPoints();
+            if (mapSpawnPoints.length > 0) {
+                // Выбираем случайную точку спавна с карты
+                const randomIndex = Math.floor(Math.random() * mapSpawnPoints.length);
+                const spawnPoint = mapSpawnPoints[randomIndex]!;
+
+                // Проверяем и валидируем позицию
+                const safePos = this.findSafeSpawnPositionAt(spawnPoint.x, spawnPoint.z, 2.0, 5);
+                if (safePos) {
+                    logger.log(`[Game] findSafeSpawnPosition: Using map spawn point at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)})`);
+                    return safePos;
+                }
+            }
+        }
+
+        // ПРИОРИТЕТ 2: Пытаемся найти безопасную позицию в случайном радиусе
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             // Генерируем случайную позицию в кольце между minRadius и maxRadius
             const angle = Math.random() * Math.PI * 2;
@@ -4868,7 +5003,7 @@ export class Game {
 
             // Используем новую универсальную функцию для поиска безопасной позиции
             const safePos = this.findSafeSpawnPositionAt(x, z, 2.0, 3);
-            
+
             if (safePos) {
                 logger.log(`[Game] findSafeSpawnPosition: Found safe position at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)}) after ${attempt + 1} attempts`);
                 return safePos;
@@ -4888,7 +5023,8 @@ export class Game {
 
     /**
      * Валидация позиции спавна
-     * Проверяет, что позиция находится в разумных пределах и над поверхностью
+     * Проверяет, что позиция находится в разумных пределах, над поверхностью,
+     * И НЕ ВНУТРИ геометрии (стены, здания)
      * @param pos позиция для проверки
      * @returns true если позиция валидна
      */
@@ -4915,6 +5051,35 @@ export class Game {
                 logger.warn(`[Game] validateSpawnPosition: Position too far from surface (diff: ${heightDiff.toFixed(2)}m)`);
                 return false;
             }
+
+            // ИСПРАВЛЕНИЕ: Проверка на наличие препятствий вокруг точки спавна
+            // Танк имеет примерно 3-4м в ширину, проверяем радиус 2.5м
+            const checkRadius = 2.5;
+            const checkHeight = pos.y + 1.0; // Проверяем на высоте центра танка
+            const directions = [
+                new Vector3(1, 0, 0),   // Восток
+                new Vector3(-1, 0, 0),  // Запад
+                new Vector3(0, 0, 1),   // Север
+                new Vector3(0, 0, -1),  // Юг
+            ];
+
+            for (const dir of directions) {
+                const ray = new Ray(new Vector3(pos.x, checkHeight, pos.z), dir, checkRadius);
+                const hit = this.scene.pickWithRay(ray, (mesh) => {
+                    // Игнорируем terrain, ground, и невидимые меши
+                    if (!mesh.isVisible) return false;
+                    const name = mesh.name.toLowerCase();
+                    if (name.includes("terrain") || name.includes("ground") || name.includes("floor")) return false;
+                    if (name.includes("tank") || name.includes("player") || name.includes("enemy")) return false;
+                    // Проверяем только статичные объекты (здания, стены)
+                    return true;
+                });
+
+                if (hit && hit.hit && hit.distance < checkRadius) {
+                    logger.warn(`[Game] validateSpawnPosition: Obstacle detected at distance ${hit.distance.toFixed(2)}m in direction (${dir.x}, ${dir.z})`);
+                    return false;
+                }
+            }
         }
 
         return true;
@@ -4932,12 +5097,12 @@ export class Game {
     findSafeSpawnPositionAt(x: number, z: number, minOffset: number = 2.0, maxAttempts: number = 5): Vector3 | null {
         // Попытка 1: основная позиция
         let surfaceHeight = this.getTopSurfaceHeight(x, z);
-        
+
         // Проверка валидности высоты
         if (surfaceHeight >= -10 && surfaceHeight <= 500) {
             const spawnY = surfaceHeight + minOffset;
             const pos = new Vector3(x, spawnY, z);
-            
+
             // Валидация позиции
             if (this.validateSpawnPosition(pos)) {
                 logger.log(`[Game] findSafeSpawnPositionAt: Found safe position at (${x.toFixed(1)}, ${spawnY.toFixed(1)}, ${z.toFixed(1)})`);
@@ -4948,22 +5113,22 @@ export class Game {
         // Попытки 2-N: соседние позиции с увеличивающимся радиусом
         const radii = [5, 10, 15, 20, 25];
         const angles = [0, Math.PI / 2, Math.PI, 3 * Math.PI / 2, Math.PI / 4, 3 * Math.PI / 4, 5 * Math.PI / 4, 7 * Math.PI / 4];
-        
+
         for (let attempt = 0; attempt < Math.min(maxAttempts, radii.length * angles.length); attempt++) {
             const radiusIndex = Math.floor(attempt / angles.length);
             const radius = radii[radiusIndex] ?? radii[radii.length - 1] ?? 5; // Fallback на последний радиус или 5
             const angleIndex = attempt % angles.length;
             const angle = angles[angleIndex] ?? 0; // Fallback на 0
-            
+
             const checkX = x + Math.cos(angle) * radius;
             const checkZ = z + Math.sin(angle) * radius;
-            
+
             surfaceHeight = this.getTopSurfaceHeight(checkX, checkZ);
-            
+
             if (surfaceHeight >= -10 && surfaceHeight <= 500) {
                 const spawnY = surfaceHeight + minOffset;
                 const pos = new Vector3(checkX, spawnY, checkZ);
-                
+
                 if (this.validateSpawnPosition(pos)) {
                     logger.log(`[Game] findSafeSpawnPositionAt: Found safe position at (${checkX.toFixed(1)}, ${spawnY.toFixed(1)}, ${checkZ.toFixed(1)}) after ${attempt + 1} attempts`);
                     return pos;
@@ -5001,11 +5166,11 @@ export class Game {
         // ИСПРАВЛЕНИЕ: Проверяем коллизии со ВСЕМИ объектами, не только customObj
         const collisionFilter = (mesh: any) => {
             if (!mesh || !mesh.isEnabled()) return false;
-            
+
             // Исключаем сам танк и его части
             if (mesh === this.tank?.chassis || mesh === this.tank?.turret || mesh === this.tank?.barrel) return false;
             if (mesh.parent === this.tank?.chassis || mesh.parent === this.tank?.turret) return false;
-            
+
             // Исключаем служебные объекты
             const name = mesh.name.toLowerCase();
             if (name.includes("trigger") ||
@@ -5020,13 +5185,13 @@ export class Game {
                 name.includes("hud")) {
                 return false;
             }
-            
+
             // Проверяем метаданные
             const meta = mesh.metadata;
             if (meta && (meta.type === "playerTank" || meta.type === "bullet" || meta.type === "consumable")) {
                 return false;
             }
-            
+
             // Разрешаем все остальные меши (террейн, здания, объекты карты)
             return true;
         };
@@ -5034,11 +5199,11 @@ export class Game {
         // Проверка 1: Raycast вниз - проверяем, не застряли ли мы внутри объекта снизу
         const downRay = new Ray(tankPos, Vector3.Down(), tankHeight + 2);
         const downHit = this.scene.pickWithRay(downRay, collisionFilter);
-        
+
         // Проверка 2: Raycast вверх - проверяем, не застряли ли мы внутри объекта сверху
         const upRay = new Ray(tankPos, Vector3.Up(), tankHeight + 2);
         const upHit = this.scene.pickWithRay(upRay, collisionFilter);
-        
+
         // Проверка 3: Raycast по горизонтали во всех направлениях
         const directions = [
             new Vector3(1, 0, 0),   // Right
@@ -5058,7 +5223,7 @@ export class Game {
             needsVerticalEject = true;
             logger.warn(`[Game] ⚠️ Tank stuck below geometry! Distance: ${downHit.distance.toFixed(2)}m`);
         }
-        
+
         if (upHit?.hit && upHit.distance < tankHeight * 0.5) {
             isInsideGeometry = true;
             needsVerticalEject = true;
@@ -5080,7 +5245,7 @@ export class Game {
 
         if (isInsideGeometry) {
             let newPos = tankPos.clone();
-            
+
             // ИСПРАВЛЕНИЕ: Если застряли вертикально - поднимаем танк выше
             if (needsVerticalEject) {
                 const surfaceY = this.getTopSurfaceHeight(tankPos.x, tankPos.z);
@@ -5091,7 +5256,7 @@ export class Game {
                 // Выталкиваем танк в свободном направлении
                 const ejectDistance = checkRadius + 5;
                 newPos = tankPos.add(escapeDirection.scale(ejectDistance));
-                
+
                 // Корректируем высоту относительно поверхности
                 const surfaceY = this.getTopSurfaceHeight(newPos.x, newPos.z);
                 const safeOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
@@ -5437,10 +5602,10 @@ export class Game {
                 const centerZ = 0;
                 const tankHeight = this.tank?.chassisType?.height || 2.0;
                 const minOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
-                
+
                 // Используем findSafeSpawnPositionAt для поиска позиции над самым верхним объектом в центре
                 const safeSpawnPos = this.findSafeSpawnPositionAt(centerX, centerZ, minOffset, 10);
-                
+
                 if (safeSpawnPos) {
                     logger.log(`[Game] 📍 Center spawn at: (${safeSpawnPos.x.toFixed(1)}, ${safeSpawnPos.y.toFixed(1)}, ${safeSpawnPos.z.toFixed(1)})`);
                     this.tank.chassis.position.copyFrom(safeSpawnPos);
@@ -5492,7 +5657,7 @@ export class Game {
         const tankHeight = this.tank?.chassisType?.height || 2.0;
         const minOffset = Math.max(3.0, tankHeight * 0.5 + 1.0);
         const safeSpawnPos = this.findSafeSpawnPositionAt(selectedGarage.x, selectedGarage.z, minOffset, 5);
-        
+
         let finalSpawnPos: Vector3;
         if (safeSpawnPos) {
             finalSpawnPos = safeSpawnPos;
@@ -8743,19 +8908,19 @@ export class Game {
                 customMapData.mapType = this.currentMapType;
             }
 
-        // КРИТИЧНО: В мультиплеере используем тип карты с сервера
-        if (isInMultiplayerRoom && this.currentMapType) {
-            logger.log(`[Game] 🗺️ Мультиплеер: используем тип карты с сервера '${this.currentMapType}' вместо '${customMapData.mapType}' из данных карты`);
-            customMapData.mapType = this.currentMapType;
-        }
+            // КРИТИЧНО: В мультиплеере используем тип карты с сервера
+            if (isInMultiplayerRoom && this.currentMapType) {
+                logger.log(`[Game] 🗺️ Мультиплеер: используем тип карты с сервера '${this.currentMapType}' вместо '${customMapData.mapType}' из данных карты`);
+                customMapData.mapType = this.currentMapType;
+            }
 
-        logger.log(`[Game] ===== Loading custom map =====`);
-        logger.log(`[Game] Map name: ${customMapData.name}`);
-        logger.log(`[Game] Map type: ${customMapData.mapType}`);
-        logger.log(`[Game] Map version: ${customMapData.version || 'legacy'}`);
-        logger.log(`[Game] Objects: ${customMapData.placedObjects?.length || 0}`);
-        logger.log(`[Game] Triggers: ${customMapData.triggers?.length || 0}`);
-        logger.log(`[Game] Terrain edits: ${customMapData.terrainEdits?.length || 0}`);
+            logger.log(`[Game] ===== Loading custom map =====`);
+            logger.log(`[Game] Map name: ${customMapData.name}`);
+            logger.log(`[Game] Map type: ${customMapData.mapType}`);
+            logger.log(`[Game] Map version: ${customMapData.version || 'legacy'}`);
+            logger.log(`[Game] Objects: ${customMapData.placedObjects?.length || 0}`);
+            logger.log(`[Game] Triggers: ${customMapData.triggers?.length || 0}`);
+            logger.log(`[Game] Terrain edits: ${customMapData.terrainEdits?.length || 0}`);
 
             // Проверяем, что chunkSystem готов
             if (!this.chunkSystem) {
@@ -8928,7 +9093,7 @@ export class Game {
                 console.log("[Game] Waiting for chunkSystem initialization...");
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 console.log("[Game] ✅ Game started");
-                
+
                 // ИСПРАВЛЕНИЕ: Скрываем экран загрузки после запуска игры для редактора
                 this.hideLoadingScreen();
             }

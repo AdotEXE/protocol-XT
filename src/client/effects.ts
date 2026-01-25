@@ -922,6 +922,7 @@ export class EffectsManager {
                 bullet.computeWorldMatrix(true);
 
                 // Create and start immediately now that we are safe
+                // Синхронизированные параметры: диаметр 0.15, длина 20 (эквивалент ~12 сегментов)
                 const trail = new TrailMesh("bulletTrail", bullet, this.scene, 0.15, 20, true);
 
                 // Material setup
@@ -930,7 +931,7 @@ export class EffectsManager {
                 trailMat.emissiveColor = trailColor.scale(0.8);
                 trailMat.specularColor = Color3.Black();
                 trailMat.disableLighting = true;
-                trailMat.alpha = 1.0;
+                trailMat.alpha = 0.7; // Синхронизированная прозрачность (было 1.0)
                 trail.material = trailMat;
 
                 // Auto-dispose logic
