@@ -722,13 +722,20 @@ export class HUD {
             try {
                 // Используем правильные методы PlayerProgressionSystem
                 const xpProgress = playerProgression.getExperienceProgress?.();
-                const level = playerProgression.getLevel?.() ?? 1;
+                // КРИТИЧНО: Используем несколько методов для получения уровня (fallback)
+                const level = playerProgression.getLevel?.() ?? 
+                              playerProgression.getCurrentLevel?.() ?? 
+                              (playerProgression.getStats?.()?.level) ?? 1;
+                
+                console.log(`[HUD] setPlayerProgression: level=${level}, xpProgress=`, xpProgress);
+                
                 if (xpProgress) {
                     this.updateCentralXp(xpProgress.current, xpProgress.required, level);
                 } else {
                     this.updateCentralXp(0, 100, level);
                 }
             } catch (e) {
+                console.error("[HUD] Error getting initial XP data:", e);
                 // Ошибка при получении начальных XP данных - используем 0
                 this.updateCentralXp(0, 100, 1);
             }
@@ -751,7 +758,10 @@ export class HUD {
             // Это гарантирует что XP BAR обновится даже если событие не было отправлено ранее
             try {
                 const xpProgress = playerProgression.getExperienceProgress?.();
-                const level = playerProgression.getLevel?.() ?? 1;
+                // КРИТИЧНО: Используем несколько методов для получения уровня (fallback)
+                const level = playerProgression.getLevel?.() ?? 
+                              playerProgression.getCurrentLevel?.() ?? 
+                              (playerProgression.getStats?.()?.level) ?? 1;
                 if (xpProgress) {
                     // Отправляем событие об изменении опыта для обновления XP BAR
                     playerProgression.onExperienceChanged.notifyObservers({
@@ -762,7 +772,7 @@ export class HUD {
                     });
                 }
             } catch (e) {
-                // Игнорируем ошибки при принудительном обновлении
+                console.warn("[HUD] Error forcing XP update:", e);
             }
         } else {
             // Cannot subscribe to experience changes - playerProgression or onExperienceChanged is null
@@ -6895,12 +6905,18 @@ export class HUD {
         if (this._playerProgression) {
             try {
                 const xpProgress = this._playerProgression.getExperienceProgress?.();
-                const level = this._playerProgression.getLevel?.() ?? 1;
+                // КРИТИЧНО: Используем getLevel() или getCurrentLevel() для получения уровня
+                const level = this._playerProgression.getLevel?.() ?? 
+                              this._playerProgression.getCurrentLevel?.() ?? 
+                              (this._playerProgression.getStats?.()?.level) ?? 1;
                 if (xpProgress) {
                     this.updateCentralXp(xpProgress.current, xpProgress.required, level);
+                } else {
+                    // Если нет прогресса, всё равно обновляем с текущим уровнем
+                    this.updateCentralXp(0, 100, level);
                 }
             } catch (e) {
-                // Игнорируем ошибки при начальном обновлении
+                console.warn("[HUD] Error updating XP bar on creation:", e);
             }
         }
 
