@@ -729,11 +729,26 @@ export class HUD {
                 
                 console.log(`[HUD] setPlayerProgression: level=${level}, xpProgress=`, xpProgress);
                 
+                // КРИТИЧНО: Обновляем немедленно
                 if (xpProgress) {
                     this.updateCentralXp(xpProgress.current, xpProgress.required, level);
                 } else {
                     this.updateCentralXp(0, 100, level);
                 }
+                
+                // КРИТИЧНО: Также обновляем с задержкой на случай, если элементы ещё не созданы
+                setTimeout(() => {
+                    const xpProgressDelayed = playerProgression.getExperienceProgress?.();
+                    const levelDelayed = playerProgression.getLevel?.() ?? 
+                                        playerProgression.getCurrentLevel?.() ?? 
+                                        (playerProgression.getStats?.()?.level) ?? 1;
+                    if (xpProgressDelayed) {
+                        console.log(`[HUD] Delayed update: level=${levelDelayed}`);
+                        this.updateCentralXp(xpProgressDelayed.current, xpProgressDelayed.required, levelDelayed);
+                    } else {
+                        this.updateCentralXp(0, 100, levelDelayed);
+                    }
+                }, 100);
             } catch (e) {
                 console.error("[HUD] Error getting initial XP data:", e);
                 // Ошибка при получении начальных XP данных - используем 0
@@ -7087,13 +7102,25 @@ export class HUD {
         try {
             // Обновляем текст с правильным форматом (RANK для уровня игрока, чтобы отличать от уровня частей)
             const xpText = `RANK ${validLevel} | XP: ${validCurrentXp}/${validXpToNext}`;
+            
+            // КРИТИЧНО: Логируем обновление для отладки
+            console.log(`[HUD] updateCentralXp: level=${level} -> validLevel=${validLevel}, text="${xpText}"`);
+            console.log(`[HUD] centralXpText exists: ${!!this.centralXpText}, text before: "${this.centralXpText?.text}"`);
+            
             if (this.centralXpText) {
                 this.centralXpText.text = xpText;
+                console.log(`[HUD] centralXpText.text set to: "${this.centralXpText.text}"`);
+            } else {
+                console.warn(`[HUD] ⚠️ centralXpText is null! Cannot update RANK display.`);
             }
+            
             // Обновляем обводку тоже
             const xpTextOutline = (this as any).centralXpTextOutline;
             if (xpTextOutline) {
                 xpTextOutline.text = xpText;
+                console.log(`[HUD] xpTextOutline.text set to: "${xpTextOutline.text}"`);
+            } else {
+                console.warn(`[HUD] ⚠️ xpTextOutline is null!`);
             }
 
             // Убеждаемся, что элементы видимы
@@ -7106,7 +7133,7 @@ export class HUD {
             const updateKey = `${validLevel}_${validCurrentXp}_${validXpToNext}`;
             if (this._lastXpUpdateKey !== updateKey) {
                 this._lastXpUpdateKey = updateKey;
-                // XP updated
+                console.log(`[HUD] ✅ XP bar updated: RANK ${validLevel} | XP: ${validCurrentXp}/${validXpToNext}`);
             }
         } catch (e) {
             if (typeof loggingSettings !== 'undefined' && loggingSettings.getLevel() >= LogLevel.DEBUG) {
