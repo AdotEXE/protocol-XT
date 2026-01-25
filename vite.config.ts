@@ -199,9 +199,13 @@ export default defineConfig({
         return false;
       },
       output: {
-        // Code splitting - логическое разделение модулей для лучшей загрузки
+        // Code splitting - УПРОЩЁННОЕ разделение для правильного порядка инициализации
+        // Проблема: слишком агрессивное разделение создаёт циклические зависимости между чанками
+        // Решение: только lazy-loaded модули в отдельных чанках, всё остальное в game-core
         manualChunks(id) {
-          // Внешние библиотеки
+          // ═══════════════════════════════════════════════════════════════
+          // ВНЕШНИЕ БИБЛИОТЕКИ - безопасно разделять, нет взаимных зависимостей
+          // ═══════════════════════════════════════════════════════════════
           if (id.includes('node_modules')) {
             if (id.includes('@babylonjs/core')) {
               return 'babylon-core';
@@ -218,78 +222,62 @@ export default defineConfig({
             if (id.includes('@vercel')) {
               return 'vercel-analytics';
             }
-            // Остальные node_modules
             return 'vendor';
           }
           
-          // Собственные модули - ОПТИМИЗИРОВАННОЕ РАЗДЕЛЕНИЕ
+          // ═══════════════════════════════════════════════════════════════
+          // КЛИЕНТСКИЙ КОД - только lazy-loaded модули отдельно
+          // ═══════════════════════════════════════════════════════════════
           if (id.includes('/src/client/')) {
-                    // КРИТИЧНО: Game modules должны быть в game-core chunk вместе с game.ts
-                    // для правильного порядка инициализации
-                    if (id.includes('/src/client/game/')) {
-                      return 'game-core';
-                    }
-                    
-                    // КРИТИЧНО: Upgrade module импортируется game.ts и tankController.ts
-                    // Должен быть в том же chunk для правильной инициализации
-                    if (id.includes('/upgrade/')) {
-                      return 'game-core';
-                    }
-                    
-                    // Основной код игры + UI
-                    if (id.includes('/game.ts') || id.includes('/tankController.ts') || id.includes('/enemyTank.ts') ||
-                        id.includes('/menu.ts') || id.includes('/garage.ts') || id.includes('/hud.ts') || 
-                        id.includes('/chatSystem.ts')) {
-                      return 'game-core';
-                    }
-            
-            // Генераторы карт (модульная структура)
-            if (id.includes('/maps/')) {
-              return 'game-maps';
+            // ─────────────────────────────────────────────────────────────
+            // LAZY-LOADED: Debug инструменты (F3, F4, F7)
+            // Загружаются только при нажатии клавиш
+            // ─────────────────────────────────────────────────────────────
+            if (id.includes('/debugDashboard.ts') || 
+                id.includes('/physicsPanel.ts') || 
+                id.includes('/physicsEditor.ts') ||
+                id.includes('/cheatMenu.ts')) {
+              return 'lazy-debug';
             }
             
-            // Компоненты танка (модульная структура)
-            if (id.includes('/tank/')) {
-              return 'game-tank';
+            // ─────────────────────────────────────────────────────────────
+            // LAZY-LOADED: Инструменты и редакторы
+            // Загружаются по требованию пользователя
+            // ─────────────────────────────────────────────────────────────
+            if (id.includes('/mapEditor.ts') || 
+                id.includes('/screenshotManager.ts') || 
+                id.includes('/screenshotPanel.ts') || 
+                id.includes('/adminPanel.ts') ||
+                id.includes('/worldGenerationMenu.ts')) {
+              return 'lazy-tools';
             }
             
-            // Tartaria специфичные модули
-            if (id.includes('/tartu')) {
-              return 'game-tartaria';
+            // ─────────────────────────────────────────────────────────────
+            // LAZY-LOADED: Tartaria генератор (большой модуль)
+            // Загружается только при выборе карты Tartaria
+            // ─────────────────────────────────────────────────────────────
+            if (id.includes('/tartuHeightmap.ts') || 
+                id.includes('/tartuBiomes.ts') ||
+                id.includes('/tartuTerrainGenerator.ts')) {
+              return 'lazy-tartaria';
             }
             
-            // Игровые системы
-            if (id.includes('/chunkSystem.ts') || id.includes('/effects.ts') || id.includes('/soundManager.ts') || 
-                id.includes('/consumables.ts') || id.includes('/experienceSystem.ts') || id.includes('/playerProgression.ts') ||
-                id.includes('/achievements.ts') || id.includes('/missionSystem.ts') || id.includes('/playerStats.ts') ||
-                id.includes('/aimingSystem.ts') || id.includes('/destructionSystem.ts') ||
-                id.includes('/coverGenerator.ts') || id.includes('/poiSystem.ts') || id.includes('/roadNetwork.ts') || 
-                id.includes('/terrainGenerator.ts') || id.includes('/garage/') || id.includes('/menu/') ||
-                id.includes('/utils/') || id.includes('/tankTypes.ts') || id.includes('/trackTypes.ts') || 
-                id.includes('/skillTreeConfig.ts') || id.includes('/jsfxr.ts') || id.includes('/hud/')) {
-              return 'game-systems';
+            // ─────────────────────────────────────────────────────────────
+            // LAZY-LOADED: Real World Generator (очень большой модуль)
+            // Загружается только при использовании реальных карт
+            // ─────────────────────────────────────────────────────────────
+            if (id.includes('/services/RealWorldGenerator')) {
+              return 'lazy-realworld';
             }
             
-            // Мультиплеер + Firebase + режимы
-            if (id.includes('/multiplayer.ts') || id.includes('/networkPlayerTank.ts') ||
-                id.includes('/firebaseService.ts') || id.includes('/socialSystem.ts') || id.includes('/leaderboard.ts') ||
-                id.includes('/battleRoyale.ts') || id.includes('/ctfVisualizer.ts') || id.includes('/replaySystem.ts') || 
-                id.includes('/voiceChat.ts')) {
-              return 'game-multiplayer';
-            }
-            
-            // Debug инструменты (lazy loaded)
-            if (id.includes('/debugDashboard.ts') || id.includes('/physicsPanel.ts') || id.includes('/cheatMenu.ts')) {
-              return 'game-debug';
-            }
+            // ─────────────────────────────────────────────────────────────
+            // ВСЁ ОСТАЛЬНОЕ → game-core
+            // Единый чанк гарантирует правильный порядок инициализации
+            // ─────────────────────────────────────────────────────────────
+            return 'game-core';
           }
           
-          // ВСЕ остальные файлы из src/client также идут в game-systems
-          if (id.includes('/src/client/')) {
-            return 'game-systems';
-          }
-          
-          // Остальные файлы (shared, server и т.д.)
+          // shared, server и прочее
           return null;
         },
         // Оптимизация для production
@@ -299,12 +287,12 @@ export default defineConfig({
         chunkFileNames: 'assets/[name]-[hash].js',
         assetFileNames: 'assets/[name]-[hash].[ext]',
       },
-      // Более агрессивное удаление неиспользуемого кода
-      // ВАЖНО: moduleSideEffects должен быть функцией для модулей игры, чтобы сохранить порядок инициализации
+      // Tree shaking с сохранением порядка инициализации
       treeshake: {
         moduleSideEffects(id) {
-          // Сохраняем side effects для модулей игры, чтобы избежать проблем с порядком инициализации
-          if (id.includes('/src/client/game/')) {
+          // Сохраняем side effects для всего клиентского кода
+          // чтобы гарантировать правильный порядок инициализации
+          if (id.includes('/src/client/')) {
             return true;
           }
           return false;
