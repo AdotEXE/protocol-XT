@@ -6857,6 +6857,17 @@ export class HUD {
 
     // XP BAR - Full width at very bottom
     private createCentralXpBar(): void {
+        // КРИТИЧНО: Если элементы уже существуют, не пересоздаём их!
+        if (this.centralXpContainer && this.centralXpText && this.centralXpBar) {
+            console.log(`[HUD] ⚠️ createCentralXpBar called but elements already exist! Skipping recreation.`);
+            return;
+        }
+        
+        console.log(`[HUD] 🔨 createCentralXpBar: Creating new XP bar elements`);
+        
+        // Сохраняем текущий текст, если элементы уже были созданы
+        const savedText = this.centralXpText?.text || "RANK 1 | XP: 0/100";
+        
         // Вычисляем ширину XP бара - максимум 800px, но не больше 60% экрана
         const maxWidth = Math.min(800, window.innerWidth * 0.6);
 
@@ -6885,7 +6896,8 @@ export class HUD {
         // XP text with outline for better visibility
         // Создаем обводку (черный текст с небольшим смещением)
         const xpTextOutline = new TextBlock("centralXpTextOutline");
-        xpTextOutline.text = "RANK 1 | XP: 0/100";
+        // КРИТИЧНО: Используем сохранённый текст, если он был, иначе дефолт
+        xpTextOutline.text = savedText;
         xpTextOutline.color = "#000";
         xpTextOutline.fontSize = this.scaleFontSize(12, 9, 16);
         xpTextOutline.fontFamily = "'Press Start 2P', monospace";
@@ -6898,7 +6910,8 @@ export class HUD {
 
         // Основной текст (темно-синий для контраста с зеленым фоном)
         this.centralXpText = new TextBlock("centralXpText");
-        this.centralXpText.text = "RANK 1 | XP: 0/100";
+        // КРИТИЧНО: Используем сохранённый текст, если он был, иначе дефолт
+        this.centralXpText.text = savedText;
         this.centralXpText.color = "#0066ff";
         this.centralXpText.fontSize = this.scaleFontSize(12, 9, 16);
         this.centralXpText.fontFamily = "'Press Start 2P', monospace";
@@ -7057,15 +7070,12 @@ export class HUD {
 
         // Проверяем, что элементы созданы
         if (!this.centralXpBar || !this.centralXpText || !this.centralXpContainer) {
-            // Если элементы не созданы, пытаемся создать их заново
-            if (!this.centralXpContainer) {
-                // Central XP container not found, recreating
-                this.createCentralXpBar();
-            }
-            if (!this.centralXpBar || !this.centralXpText) {
-                // Central XP bar elements not found
-                return;
-            }
+            // КРИТИЧНО: Не пересоздаём элементы здесь - они должны быть созданы в init()
+            // Если их нет, просто логируем и выходим - они создадутся позже
+            console.warn(`[HUD] ⚠️ updateCentralXp: Elements not ready yet. centralXpContainer=${!!this.centralXpContainer}, centralXpText=${!!this.centralXpText}, centralXpBar=${!!this.centralXpBar}`);
+            // Не создаём элементы здесь - они должны быть созданы в init()
+            // Просто выходим, обновление произойдёт после создания элементов
+            return;
         }
 
         // Убеждаемся, что данные валидны
