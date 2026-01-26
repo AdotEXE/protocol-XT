@@ -10825,5 +10825,43 @@ export class HUD {
             this.mobileControls.updateHUD(health, maxHealth, ammo, maxAmmo, kills);
         }
     }
+    // === PING INDICATOR ===
+    private pingText: TextBlock | null = null;
+
+    public createPingDisplay(): void {
+        if (this.pingText) return;
+
+        // Create separate text block for Ping, positioned next to FPS (assuming FPS is top-left)
+        this.pingText = new TextBlock("pingText");
+        this.pingText.text = "PING: --";
+        this.pingText.color = "#0f0";
+        this.pingText.fontSize = "12px";
+        this.pingText.fontFamily = "Consolas, monospace";
+        this.pingText.fontWeight = "bold";
+        this.pingText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.pingText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.pingText.left = "80px"; // Offset from left (FPS is probably at 10px)
+        this.pingText.top = "10px";
+        this.pingText.resizeToFit = true;
+        this.pingText.outlineWidth = 2;
+        this.pingText.outlineColor = "black";
+
+        // Z-index high to be visible
+        this.pingText.zIndex = 1000;
+
+        this.guiTexture.addControl(this.pingText);
+    }
+
+    public updatePing(rtt: number): void {
+        if (!this.pingText) {
+            this.createPingDisplay();
+        }
+        if (this.pingText) {
+            this.pingText.text = `PING: ${Math.floor(rtt)}ms`;
+            if (rtt < 100) this.pingText.color = "#0f0";
+            else if (rtt < 200) this.pingText.color = "#ff0";
+            else this.pingText.color = "#f00";
+        }
+    }
 }
 

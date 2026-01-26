@@ -156,7 +156,7 @@ export class GameUpdate {
         // Delta time для анимаций
         const deltaTime = this.engine.getDeltaTime() / 1000;
 
-        // === ОБНОВЛЕНИЕ FPS КАЖДЫЙ КАДР ===
+        // === ОБНОВЛЕНИЕ FPS И СЕТЕВОЙ СТАТИСТИКИ ===
         let currentFPS = 60;
         if (this.hud) {
             const deltaTimeMs = this.engine.getDeltaTime();
@@ -170,6 +170,16 @@ export class GameUpdate {
             }
             currentFPS = fps;
             this.hud.updateFPS(fps, deltaTimeMs);
+
+            // Update Ping Indicator
+            if (this.multiplayerManager && this.hud.updatePing) {
+                // Получаем пинг из менеджера (безопасный вызов)
+                const ping = this.multiplayerManager.getPing ? this.multiplayerManager.getPing() : 0;
+                // Обновляем только если есть соединение или пинг > 0
+                if (ping > 0 || (this.multiplayerManager as any).connected) {
+                    this.hud.updatePing(ping);
+                }
+            }
         }
 
         // ОПТИМИЗАЦИЯ: Адаптивные интервалы обновления на основе FPS
@@ -403,7 +413,7 @@ export class GameUpdate {
                     // ОПТИМИЗАЦИЯ: LOD для врагов - отключаем детали на расстоянии > 150м
                     const distance = Math.sqrt(distSq);
                     this.updateEnemyLOD(enemy, distance);
-                    
+
                     enemy.update();
                     updatedThisFrame++;
                     // ИСПРАВЛЕНО: Убран break - обновляем нескольких врагов за кадр
@@ -473,22 +483,22 @@ export class GameUpdate {
             }
         }
     }
-    
+
     /**
      * ОПТИМИЗАЦИЯ: LOD для врагов - отключает детали на расстоянии > 150м
      */
     private updateEnemyLOD(enemy: any, distance: number): void {
         if (!enemy || !enemy.chassis || enemy.chassis.isDisposed()) return;
-        
+
         const lodDistance = 150;
         const childMeshes = enemy.chassis.getChildMeshes(false);
-        
+
         if (distance > lodDistance) {
             // Отключить детали на расстоянии > 150м
             childMeshes.forEach((child: any) => {
                 if (!child || child.isDisposed()) return;
                 const name = child.name.toLowerCase();
-                if (name.includes("track") || name.includes("detail") || name.includes("wheel") || 
+                if (name.includes("track") || name.includes("detail") || name.includes("wheel") ||
                     name.includes("small") || name.includes("part")) {
                     child.setEnabled(false);
                 }
