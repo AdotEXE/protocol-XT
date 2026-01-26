@@ -78,7 +78,7 @@
     "server:dev": "tsx --max-old-space-size=512 src/server/index.ts",
     "server:watch": "tsx --max-old-space-size=512 watch src/server/index.ts",
     "server:start": "pwsh scripts/start-server.ps1",
-    "build:server": "esbuild src/server/index.ts --bundle --platform=node --target=node20 --outfile=dist/server.js --external:fsevents --external:re2 --external:uws --external:blessed --external:blessed-contrib --external:term.js --external:pty.js",
+    "build:server": "esbuild src/server/index.ts --bundle --platform=node --target=node20 --outfile=dist/server.js --external:fsevents --external:re2 --external:uws --external:blessed --external:blessed-contrib --external:term.js --external:pty.js --external:@geckos.io/server --external:node-datachannel",
     "start:server": "node dist/server.js",
     "kill:ports": "pwsh scripts/kill-ports.ps1",
     "monitor": "tsx scripts/start-all.ts",
