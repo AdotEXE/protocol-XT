@@ -15,14 +15,14 @@ const CUBE_SCHEMA = {
       rotation: { type: Type.ARRAY, items: { type: Type.NUMBER }, description: "Rotation degrees [x, y, z]" },
       color: { type: Type.STRING, description: "Hex color" },
       material: {
-          type: Type.OBJECT,
-          properties: {
-              roughness: { type: Type.NUMBER },
-              metalness: { type: Type.NUMBER },
-              emissive: { type: Type.NUMBER },
-              opacity: { type: Type.NUMBER }
-          },
-          nullable: true
+        type: Type.OBJECT,
+        properties: {
+          roughness: { type: Type.NUMBER },
+          metalness: { type: Type.NUMBER },
+          emissive: { type: Type.NUMBER },
+          opacity: { type: Type.NUMBER }
+        },
+        nullable: true
       }
     },
     required: ["name", "position", "size", "rotation", "color"]
@@ -31,15 +31,18 @@ const CUBE_SCHEMA = {
 
 export const generateModel = async (options: GenerationOptions): Promise<{ cubes: CubeElement[], time: number }> => {
   const startTime = performance.now();
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const { 
-    prompt, useThinking, complexity, style, palette, creativity, seed, scale, 
-    avoidZFighting, symmetry, organicness, detailDensity, optimizationLevel, 
-    internalStructure, forceGround, voxelSize, hollow, lightingMode 
+  // Use VITE_GEMINI_API_KEY (Vercel standard) with fallback to others for local dev
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY || '';
+  if (!apiKey) console.warn("Gemini API Key is missing! Generation will fail. Set VITE_GEMINI_API_KEY in Vercel.");
+  const ai = new GoogleGenAI({ apiKey });
+  const {
+    prompt, useThinking, complexity, style, palette, creativity, seed, scale,
+    avoidZFighting, symmetry, organicness, detailDensity, optimizationLevel,
+    internalStructure, forceGround, voxelSize, hollow, lightingMode
   } = options;
 
   const modelName = useThinking ? 'gemini-3-pro-preview' : 'gemini-3-flash-preview';
-  
+
   const systemInstruction = `
     You are a professional 3D Voxel/Low-Poly architect. 
     Output JSON for a block-based model.
@@ -59,7 +62,7 @@ export const generateModel = async (options: GenerationOptions): Promise<{ cubes
       responseSchema: CUBE_SCHEMA,
       temperature: creativity,
     };
-    
+
     if (seed && seed !== 0) config.seed = seed;
     if (useThinking) config.thinkingConfig = { thinkingBudget: 32768 };
 
@@ -67,41 +70,42 @@ export const generateModel = async (options: GenerationOptions): Promise<{ cubes
       Organicness ${organicness}/1, Density ${detailDensity}/10. 
       Optimization: ${optimizationLevel}. Material: ${palette}. Lighting: ${lightingMode}.`;
 
-    const response = await ai.models.generateContent({ 
-        model: modelName, 
-        contents: { parts: [{ text: promptText }] }, 
-        config 
+    const response = await ai.models.generateContent({
+      model: modelName,
+      contents: { parts: [{ text: promptText }] },
+      config
     });
 
     const rawData = JSON.parse(response.text || "[]");
-    return { 
-        cubes: rawData.map((item: any) => ({
-            id: generateId(),
-            name: item.name,
-            type: 'cube',
-            parentId: null,
-            position: { x: item.position[0], y: item.position[1], z: item.position[2] },
-            size: { x: item.size[0], y: item.size[1], z: item.size[2] },
-            rotation: { x: item.rotation[0], y: item.rotation[1], z: item.rotation[2] },
-            color: item.color,
-            material: {
-                roughness: item.material?.roughness ?? 0.7,
-                metalness: item.material?.metalness ?? 0.1,
-                emissive: item.material?.emissive ?? 0,
-                opacity: item.material?.opacity ?? 1,
-                transparent: (item.material?.opacity ?? 1) < 1
-            },
-            visible: true,
-            isLocked: false
-        })), 
-        time: performance.now() - startTime 
+    return {
+      cubes: rawData.map((item: any) => ({
+        id: generateId(),
+        name: item.name,
+        type: 'cube',
+        parentId: null,
+        position: { x: item.position[0], y: item.position[1], z: item.position[2] },
+        size: { x: item.size[0], y: item.size[1], z: item.size[2] },
+        rotation: { x: item.rotation[0], y: item.rotation[1], z: item.rotation[2] },
+        color: item.color,
+        material: {
+          roughness: item.material?.roughness ?? 0.7,
+          metalness: item.material?.metalness ?? 0.1,
+          emissive: item.material?.emissive ?? 0,
+          opacity: item.material?.opacity ?? 1,
+          transparent: (item.material?.opacity ?? 1) < 1
+        },
+        visible: true,
+        isLocked: false
+      })),
+      time: performance.now() - startTime
     };
   } catch (error) { throw error; }
 };
 
 export const repairModelWithAI = async (currentModel: CubeElement[]): Promise<{ cubes: CubeElement[], time: number }> => {
   const startTime = performance.now();
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY || '';
+  const ai = new GoogleGenAI({ apiKey });
   const simplified = currentModel.map(c => ({
     name: c.name,
     position: [c.position.x, c.position.y, c.position.z],
@@ -114,68 +118,69 @@ export const repairModelWithAI = async (currentModel: CubeElement[]): Promise<{ 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Fix overlapping faces and Z-fighting glitch in this model: ${JSON.stringify(simplified)}`,
-      config: { 
-          systemInstruction: "You are a geometry repair tool. Adjust positions/sizes by exactly 0.001 units where they touch perfectly. Return the full corrected JSON.", 
-          responseMimeType: "application/json", 
-          responseSchema: CUBE_SCHEMA 
+      config: {
+        systemInstruction: "You are a geometry repair tool. Adjust positions/sizes by exactly 0.001 units where they touch perfectly. Return the full corrected JSON.",
+        responseMimeType: "application/json",
+        responseSchema: CUBE_SCHEMA
       }
     });
 
     const rawData = JSON.parse(response.text || "[]");
-    return { 
-        cubes: rawData.map((item: any) => ({
-            ...item,
-            id: generateId(),
-            type: 'cube',
-            position: { x: item.position[0], y: item.position[1], z: item.position[2] },
-            size: { x: item.size[0], y: item.size[1], z: item.size[2] },
-            rotation: { x: item.rotation[0], y: item.rotation[1], z: item.rotation[2] },
-            visible: true,
-            isLocked: false
-        })), 
-        time: performance.now() - startTime 
+    return {
+      cubes: rawData.map((item: any) => ({
+        ...item,
+        id: generateId(),
+        type: 'cube',
+        position: { x: item.position[0], y: item.position[1], z: item.position[2] },
+        size: { x: item.size[0], y: item.size[1], z: item.size[2] },
+        rotation: { x: item.rotation[0], y: item.rotation[1], z: item.rotation[2] },
+        visible: true,
+        isLocked: false
+      })),
+      time: performance.now() - startTime
     };
   } catch (error) { throw error; }
 };
 
 export const refineSelectionWithAI = async (selectedCubes: CubeElement[], instruction: string): Promise<{ cubes: CubeElement[], time: number }> => {
-    const startTime = performance.now();
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const simplified = selectedCubes.map(c => ({
-      name: c.name,
-      position: [c.position.x, c.position.y, c.position.z],
-      size: [c.size.x, c.size.y, c.size.z],
-      rotation: [c.rotation.x, c.rotation.y, c.rotation.z],
-      color: c.color
-    }));
+  const startTime = performance.now();
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY || '';
+  const ai = new GoogleGenAI({ apiKey });
+  const simplified = selectedCubes.map(c => ({
+    name: c.name,
+    position: [c.position.x, c.position.y, c.position.z],
+    size: [c.size.x, c.size.y, c.size.z],
+    rotation: [c.rotation.x, c.rotation.y, c.rotation.z],
+    color: c.color
+  }));
 
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: `Refine and improve these specific cubes following this instruction: "${instruction}". Existing cubes: ${JSON.stringify(simplified)}`,
-            config: {
-                systemInstruction: "You are an AI 3D editor. Reconstruct and replace the provided cubes with a more detailed or modified version according to user instructions. Maintain the general spatial context. Return new cubes in JSON.",
-                responseMimeType: "application/json",
-                responseSchema: CUBE_SCHEMA
-            }
-        });
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Refine and improve these specific cubes following this instruction: "${instruction}". Existing cubes: ${JSON.stringify(simplified)}`,
+      config: {
+        systemInstruction: "You are an AI 3D editor. Reconstruct and replace the provided cubes with a more detailed or modified version according to user instructions. Maintain the general spatial context. Return new cubes in JSON.",
+        responseMimeType: "application/json",
+        responseSchema: CUBE_SCHEMA
+      }
+    });
 
-        const rawData = JSON.parse(response.text || "[]");
-        return {
-            cubes: rawData.map((item: any) => ({
-                id: generateId(),
-                name: item.name,
-                type: 'cube',
-                parentId: null,
-                position: { x: item.position[0], y: item.position[1], z: item.position[2] },
-                size: { x: item.size[0], y: item.size[1], z: item.size[2] },
-                rotation: { x: item.rotation[0], y: item.rotation[1], z: item.rotation[2] },
-                color: item.color,
-                material: item.material || { roughness: 0.7, metalness: 0.1, emissive: 0, opacity: 1, transparent: false },
-                visible: true,
-                isLocked: false
-            })),
-            time: performance.now() - startTime
-        };
-    } catch (error) { throw error; }
+    const rawData = JSON.parse(response.text || "[]");
+    return {
+      cubes: rawData.map((item: any) => ({
+        id: generateId(),
+        name: item.name,
+        type: 'cube',
+        parentId: null,
+        position: { x: item.position[0], y: item.position[1], z: item.position[2] },
+        size: { x: item.size[0], y: item.size[1], z: item.size[2] },
+        rotation: { x: item.rotation[0], y: item.rotation[1], z: item.rotation[2] },
+        color: item.color,
+        material: item.material || { roughness: 0.7, metalness: 0.1, emissive: 0, opacity: 1, transparent: false },
+        visible: true,
+        isLocked: false
+      })),
+      time: performance.now() - startTime
+    };
+  } catch (error) { throw error; }
 };

@@ -10,7 +10,7 @@ export interface GeoLocationData {
 }
 
 // Use environment variable or fallback to empty (will fail gracefully)
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
+const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY || '';
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 export const parseLocationSeed = async (locationName: string): Promise<GeoLocationData> => {

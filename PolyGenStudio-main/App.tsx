@@ -1572,7 +1572,7 @@ export const App = () => {
                         { m: ToolMode.ROTATE, i: <Icons.Rotate />, t: 'Rotate (R)' },
                         { m: ToolMode.SCALE, i: <Icons.Scale />, t: 'Scale (S)' },
                     ].map(t => (
-                        <button key={t.m} onClick={() => { console.log('[Toolbar] Clicked:', t.t); setToolMode(t.m); }} className={`w-8 h-8 flex items-center justify-center rounded transition-all ${toolMode === t.m ? 'bg-accent-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-gray-800'}`} title={t.t}>{t.i}</button>
+                        <button key={t.m} onClick={() => { setToolMode(t.m); }} className={`w-8 h-8 flex items-center justify-center rounded transition-all ${toolMode === t.m ? 'bg-accent-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-gray-800'}`} title={t.t}>{t.i}</button>
                     ))}
                     <div className="w-px h-6 bg-gray-700 mx-0.5" />
                     {[
