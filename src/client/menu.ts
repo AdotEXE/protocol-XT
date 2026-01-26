@@ -4932,7 +4932,21 @@ export class MainMenu {
         // Create iframe for PolyGenStudio
         const iframe = document.createElement("iframe");
         iframe.id = "polygen-iframe";
-        iframe.src = "http://127.0.0.1:3000/?mode=tank";
+
+        // Determine Editor URL
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        const envUrl = import.meta.env.VITE_EDITOR_URL;
+        const editorUrl = envUrl || (isLocal ? "http://127.0.0.1:3000" : "/editor-placeholder.html");
+
+        iframe.src = `${editorUrl}/?mode=tank`;
+
+        if (editorUrl === "/editor-placeholder.html") {
+            // Show alert if editor not configured
+            setTimeout(() => {
+                alert("⚠️ Редактор не настроен!\n\nДля работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки");
+            }, 1000);
+        }
+
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
@@ -13751,7 +13765,21 @@ transition: all 0.2s;
         // Create iframe for PolyGenStudio
         const iframe = document.createElement("iframe");
         iframe.id = "polygen-map-iframe";
-        iframe.src = "http://127.0.0.1:3000/?mode=map";
+
+        // Determine Editor URL
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+        const envUrl = import.meta.env.VITE_EDITOR_URL;
+        const editorUrl = envUrl || (isLocal ? "http://127.0.0.1:3000" : "/editor-placeholder.html");
+
+        iframe.src = `${editorUrl}/?mode=map`;
+
+        if (editorUrl === "/editor-placeholder.html") {
+            // Show alert if editor not configured
+            setTimeout(() => {
+                alert("⚠️ Редактор не настроен!\n\nДля работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки");
+            }, 1000);
+        }
+
         iframe.style.cssText = `
             width: 100%;
             height: 100%;
