@@ -1888,39 +1888,7 @@ export class HUD {
      * @param progress 0 to 1 (0 = empty, 1 = full)
      * @param isReloading True if currently reloading
      */
-    public updateReload(progress: number, isReloading: boolean): void {
-        if (!this.reloadBar || !this.reloadText) return;
 
-        if (isReloading) {
-            // Reloading state
-            if (this.reloadFill) {
-                this.reloadFill.width = `${Math.min(100, Math.max(0, progress * 100))}%`;
-                // Red to Yellow gradient could be nice, but simple Red is fine
-                this.reloadFill.background = "#ff3300";
-            }
-            this.reloadText.text = "RELOADING...";
-            this.reloadText.color = "#ff3300";
-
-            // Если есть анимация свечения
-            if ((this.reloadBar as any)._reloadGlow) {
-                (this.reloadBar as any)._reloadGlow.alpha = 0.1;
-            }
-        } else {
-            // Ready state
-            if (this.reloadFill) {
-                this.reloadFill.width = "100%";
-                this.reloadFill.background = "#00ff00";
-            }
-            this.reloadText.text = "READY";
-            this.reloadText.color = "#00ff00";
-
-            // Pulsing glow when ready
-            if ((this.reloadBar as any)._reloadGlow) {
-                const pulse = (Math.sin(Date.now() / 200) + 1) / 2;
-                (this.reloadBar as any)._reloadGlow.alpha = 0.2 + pulse * 0.3;
-            }
-        }
-    }
 
     // Show/hide full crosshair for aiming mode
     setAimMode(aiming: boolean) {
@@ -4949,10 +4917,37 @@ export class HUD {
         }
     }
 
-    updateReload() {
+    updateReload(progress?: number, isReloading?: boolean) {
         // ИСПРАВЛЕНО: Шкала перезарядки теперь работает корректно
         // КРИТИЧНО: Проверяем наличие элементов перед обновлением
         if (!this.reloadFill || !this.reloadBar || !this.reloadText) {
+            return;
+        }
+
+        // Support legacy call with arguments
+        if (progress !== undefined && isReloading !== undefined) {
+            const reloadGlow = (this.reloadBar as any)?._reloadGlow as Rectangle;
+
+            if (isReloading) {
+                this.reloadFill.width = `${Math.min(100, Math.max(0, progress * 100))}%`;
+                this.reloadFill.background = "#ff3300";
+                this.reloadText.text = "RELOADING...";
+                this.reloadText.color = "#ff3300";
+
+                if (reloadGlow) reloadGlow.alpha = 0.1;
+            } else {
+                this.reloadFill.width = "100%";
+                this.reloadFill.background = "#0f0";
+                this.reloadText.text = "READY";
+                this.reloadText.color = "#0f0";
+
+                if (reloadGlow) {
+                    reloadGlow.width = "100%";
+                    reloadGlow.background = "#3f3";
+                    const pulse = (Math.sin(Date.now() / 200) + 1) / 2;
+                    reloadGlow.alpha = 0.2 + pulse * 0.3;
+                }
+            }
             return;
         }
 

@@ -1578,16 +1578,5 @@ export class ChatSystem {
         this.updateMessages();
     }
 
-    // Показать/скрыть System Terminal (Ctrl+5)
-    toggleTerminal(): void {
-        const htmlContainer = (this as any)._htmlContainer as HTMLDivElement;
-        if (!htmlContainer) return;
 
-        const currentDisplay = htmlContainer.style.display;
-        if (currentDisplay === "none") {
-            htmlContainer.style.display = "block";
-        } else {
-            htmlContainer.style.display = "none";
-        }
-    }
 }
