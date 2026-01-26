@@ -198,33 +198,65 @@ export class MainMenu {
         this.loadFriendsList();
 
         // Initialize Custom Map Bridge for interaction with Map Editor
-        // Initialize Custom Map Bridge for interaction with Map Editor
-        initCustomMapBridge((mapData, autoPlay) => {
-            logger.info("Main", `Loaded custom map from editor: ${mapData.name}`);
+        try {
+            initCustomMapBridge((mapData, autoPlay) => {
+                debugLog(`[Menu] Received custom map from editor: ${mapData.name}`);
+                logger.info("Main", `Loaded custom map from editor: ${mapData.name}`);
 
-            // Show notification
-            const notification = document.createElement('div');
-            notification.className = 'menu-notification';
-            notification.textContent = `Map Loaded: ${mapData.name}${autoPlay ? ' (Starting test...)' : ''}`;
-            document.body.appendChild(notification);
-            setTimeout(() => notification.remove(), 5000);
+                // Show notification safely
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 20px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(0, 255, 0, 0.9);
+                    color: black;
+                    padding: 15px 30px;
+                    border-radius: 8px;
+                    font-family: monospace;
+                    font-weight: bold;
+                    z-index: 100000;
+                    box-shadow: 0 0 20px rgba(0,255,0,0.5);
+                    animation: slideDown 0.5s ease-out;
+                `;
+                notification.innerHTML = `
+                    <div style="font-size: 14px">📥 DATA RECEIVED</div>
+                    <div style="font-size: 18px">MAP: ${mapData.name}</div>
+                    <div style="font-size: 12px; opacity: 0.8">Objects: ${mapData.placedObjects.length}</div>
+                    <div style="font-size: 12px; margin-top: 5px">Auto-switching to Custom Map...</div>
+                `;
+                document.body.appendChild(notification);
 
-            // Auto-select custom map
-            this.selectedMapType = 'custom';
-            this.updateCustomMapsUI();
+                // Auto-hide
+                setTimeout(() => notification.remove(), 3000);
 
-            if (autoPlay) {
-                logger.info("Main", "Auto-playing custom map");
+                // Auto-select custom map
+                this.selectedMapType = 'custom';
+                this.updateCustomMapsUI();
 
-                // Collapse editor if it's open (Test Mode)
-                if (this.editorContainer) {
-                    this.collapseMapEditor();
+                if (autoPlay) {
+                    logger.info("Main", "Auto-playing custom map");
+
+                    // Collapse editor if it's open (Test Mode)
+                    if (this.editorContainer) {
+                        this.collapseMapEditor();
+                    }
+
+                    // Small delay to ensure UI updates finish
+                    setTimeout(() => this.onStartGame('custom'), 100);
                 }
+            });
+        } catch (e) {
+            console.error("Failed to init Map Bridge", e);
+        }
+        // Collapse editor if it's open (Test Mode)
+        if (this.editorContainer) {
+            this.collapseMapEditor();
+        }
 
-                // Small delay to ensure UI updates finish
-                setTimeout(() => this.onStartGame('custom'), 100);
-            }
-        });
+
+
 
         // ИСПРАВЛЕНО: Создаём PlayerProgressionSystem сразу при создании меню
         // чтобы данные аккаунта были доступны немедленно
@@ -997,11 +1029,12 @@ export class MainMenu {
                         </div>
                         <div class="banner-image-container" id="banner-image-container" style="display: none;">
                             <img id="banner-image" class="banner-image" alt="Баннер" />
-                            <div class="banner-hover-controls">
-                                <button class="banner-control-btn banner-toggle-btn" id="banner-toggle-btn" title="Свернуть/Развернуть">◀</button>
-                                <button class="banner-control-btn banner-close-btn" id="banner-close-btn" title="Закрыть">×</button>
-                                <button class="banner-control-btn banner-upload-hover-btn" id="banner-upload-hover-btn" title="Добавить баннер">📤</button>
-                            </div>
+                        </div>
+                        <!-- FIX: Controls visible on placeholder hover too -->
+                        <div class="banner-hover-controls">
+                            <button class="banner-control-btn banner-toggle-btn" id="banner-toggle-btn" title="Свернуть/Развернуть">◀</button>
+                            <button class="banner-control-btn banner-close-btn" id="banner-close-btn" title="Закрыть">×</button>
+                            <button class="banner-control-btn banner-upload-hover-btn" id="banner-upload-hover-btn" title="Добавить баннер">📤</button>
                         </div>
                     </div>
                     <div class="banner-controls" style="display: none;">
@@ -1024,6 +1057,33 @@ export class MainMenu {
         const style = document.createElement("style");
         style.textContent = `
             /* === PIXEL HACKER THEME === */
+
+            /* FIX: Banner Hover Controls */
+            .banner-placeholder { position: relative; overflow: hidden; z-index: 100001; width: 100%; height: 100%; }
+            .banner-image-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 100002 !important; }
+            .banner-hover-controls {
+                position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+                background: rgba(0, 0, 0, 0.6);
+                display: flex !important; 
+                flex-direction: row; /* Horizontal */
+                justify-content: flex-end; /* Right */
+                align-items: flex-start; /* Top */
+                padding: 10px; box-sizing: border-box;
+                gap: 10px;
+                opacity: 0; transition: opacity 0.3s ease;
+                pointer-events: none;
+                z-index: 100003 !important;
+            }
+            /* Trigger on placeholder hover (works for both image and construction) */
+            .banner-placeholder:hover .banner-hover-controls { opacity: 1 !important; pointer-events: auto !important; }
+            .banner-control-btn {
+                background: rgba(0, 0, 0, 0.8); border: 2px solid #0f0; color: #0f0;
+                width: 40px; height: 40px;
+                display: flex; align-items: center; justify-content: center;
+                font-size: 20px; cursor: pointer; transition: all 0.2s; border-radius: 5px;
+                margin: 0 !important; padding: 0 !important; line-height: 1 !important;
+            }
+            .banner-control-btn:hover { background: #0f0; color: #000; transform: scale(1.1); }
             #main-menu {
                 position: fixed;
                 top: 0;
@@ -5461,10 +5521,15 @@ export class MainMenu {
         const controlsGrid = document.getElementById("controls-grid");
 
         if (!controlsTitle || !controlsToggleBtn || !controlsGrid) {
-            // ИСПРАВЛЕНИЕ: Если элементы не найдены, пробуем через небольшой таймаут
             setTimeout(() => this.setupControlsPanel(), 100);
             return;
         }
+
+        // ИСПРАВЛЕНИЕ: Ограничиваем высоту панели управления + скролл, 
+        // чтобы главное меню не "прыгало" и оставалось зафиксированным при разворачивании
+        controlsGrid.style.maxHeight = "250px";
+        controlsGrid.style.overflowY = "auto";
+        controlsGrid.style.paddingRight = "5px"; // Для скроллбара
 
         // Загружаем состояние из localStorage (по умолчанию свернуто)
         const isExpanded = localStorage.getItem("controls-panel-expanded") === "true";
@@ -5509,6 +5574,11 @@ export class MainMenu {
         };
 
         // Удаляем старые обработчики если они есть (используя AbortController)
+        if ((controlsTitle as any)._controlsAbortController) {
+            (controlsTitle as any)._controlsAbortController.abort();
+            (controlsTitle as any)._controlsAbortController = null;
+        }
+
         const abortController = new AbortController();
 
         controlsTitle.addEventListener("click", toggleControls, { signal: abortController.signal });
@@ -8451,7 +8521,7 @@ transition: all 0.2s;
                     const savedMapData = localStorage.getItem("selectedCustomMapData");
                     if (savedMapData) {
                         customMapData = JSON.parse(savedMapData);
-                        debugLog(`[Menu] 📦 Loaded custom map data. Name: ${customMapData.name}, Objects: ${customMapData.placedObjects?.length}, Triggers: ${customMapData.triggers?.length}`);
+                        debugLog(`[Menu] 📦 Loaded custom map data.Name: ${customMapData.name}, Objects: ${customMapData.placedObjects?.length}, Triggers: ${customMapData.triggers?.length} `);
                     } else {
                         debugWarn("[Menu] ⚠️ Custom map selected but no data found in localStorage!");
                     }
@@ -8593,7 +8663,7 @@ transition: all 0.2s;
 padding: 10px;
 background: rgba(0, 0, 0, 0.3);
 border: 1px solid rgba(102, 126, 234, 0.3);
-border-radius: 6px;
+border - radius: 6px;
 cursor: pointer;
 transition: all 0.2s;
 `;
@@ -8624,21 +8694,21 @@ transition: all 0.2s;
             const mapType = room.mapType || "normal";
 
             roomItem.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <div style="font-weight: bold; color: #fff; font-size: 13px;">Комната ${room.id}</div>
-                    <div style="font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;">${statusText}</div>
+    < div style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+        <div style="font-weight: bold; color: #fff; font-size: 13px;" > Комната ${room.id} </div>
+            < div style = "font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;" > ${statusText} </div>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;">
-                    <span>Режим: <span style="color: #fff;">${room.mode.toUpperCase()}</span></span>
-                    <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};">${room.players}/${room.maxPlayers}</span></span>
-                </div>
-                <div style="font-size: 11px; color: #aaa;">
-                    <span>Карта: <span style="color: #fbbf24;">${mapType}</span></span>
-                </div>
-                <div style="margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;">
-                    Клик — детали • Двойной клик — войти
-                </div>
-            `;
+                < div style = "display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;" >
+                    <span>Режим: <span style="color: #fff;" > ${room.mode.toUpperCase()} </span></span >
+                        <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};" > ${room.players} /${room.maxPlayers}</span > </span>
+                            </div>
+                            < div style = "font-size: 11px; color: #aaa;" >
+                                <span>Карта: <span style="color: #fbbf24;" > ${mapType} </span></span >
+                                    </div>
+                                    < div style = "margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;" >
+                                        Клик — детали • Двойной клик — войти
+                                            </div>
+                                                `;
 
             roomsContainer.appendChild(roomItem);
         });
@@ -10683,7 +10753,7 @@ transition: all 0.2s;
         }
 
         try {
-            debugLog(`[Menu] Отправка запроса на добавление в друзья игроку ${playerName} (${playerId})`);
+            debugLog(`[Menu] Отправка запроса на добавление в друзья игроку ${playerName}(${playerId})`);
             const success = await socialSystem.sendFriendRequest(playerId, playerName);
 
             if (success) {
@@ -10693,12 +10763,12 @@ transition: all 0.2s;
 
                 // Показываем уведомление
                 if (game?.chatSystem) {
-                    game.chatSystem.addMessage(`⭐ Запрос на добавление в друзья отправлен ${playerName}`, "success", 1);
+                    game.chatSystem.addMessage(`⭐ Запрос на добавление в друзья отправлен ${playerName} `, "success", 1);
                 }
-                alert(`Запрос на добавление в друзья отправлен игроку ${playerName}!`);
+                alert(`Запрос на добавление в друзья отправлен игроку ${playerName} !`);
 
                 // Обновляем кнопку (можно добавить визуальную индикацию)
-                const friendBtn = document.querySelector(`.lobby-friend-btn[data-player-id="${playerId}"]`);
+                const friendBtn = document.querySelector(`.lobby - friend - btn[data - player - id="${playerId}"]`);
                 if (friendBtn) {
                     friendBtn.classList.add("added");
                     (friendBtn as HTMLElement).textContent = "⭐ ОТПРАВЛЕНО";
@@ -10738,7 +10808,7 @@ transition: all 0.2s;
             return;
         }
 
-        debugLog(`[Menu] Присоединение к комнате ${roomId}`);
+        debugLog(`[Menu] Присоединение к комнате ${roomId} `);
 
         // Находим информацию о комнате из списка
         const room = this.allRooms.find(r => r.id === roomId);
@@ -11449,10 +11519,10 @@ transition: all 0.2s;
         const msgEl = document.createElement("div");
         msgEl.className = "lobby-chat-message";
         msgEl.innerHTML = `
-            <span class="lobby-chat-time">${time}</span>
-            <span class="lobby-chat-sender ${isSelf ? "self" : ""}">${this.escapeHtml(playerName)}:</span>
-            <span class="lobby-chat-text">${this.escapeHtml(message)}</span>
-        `;
+    < span class="lobby-chat-time" > ${time} </span>
+        < span class="lobby-chat-sender ${isSelf ? "self" : ""}" > ${this.escapeHtml(playerName)}: </span>
+            < span class="lobby-chat-text" > ${this.escapeHtml(message)} </span>
+                `;
 
         chatMessages.appendChild(msgEl);
 
@@ -11557,18 +11627,18 @@ transition: all 0.2s;
 
         const messageDiv = document.createElement("div");
         messageDiv.style.cssText = `
-            padding: 6px 8px;
-            margin-bottom: 4px;
-            background: ${isOwn ? "rgba(0, 255, 4, 0.1)" : "rgba(0, 0, 0, 0.2)"};
-            border-left: 2px solid ${isOwn ? "#0f0" : "rgba(0, 255, 4, 0.4)"};
-            border-radius: 4px;
-            word-wrap: break-word;
-            line-height: 1.4;
-        `;
+padding: 6px 8px;
+margin - bottom: 4px;
+background: ${isOwn ? "rgba(0, 255, 4, 0.1)" : "rgba(0, 0, 0, 0.2)"};
+border - left: 2px solid ${isOwn ? "#0f0" : "rgba(0, 255, 4, 0.4)"};
+border - radius: 4px;
+word - wrap: break-word;
+line - height: 1.4;
+`;
 
         const nameSpan = document.createElement("span");
-        nameSpan.style.cssText = `color: ${isOwn ? "#0f0" : "#4ade80"}; font-weight: 600; margin-right: 6px;`;
-        nameSpan.textContent = `${playerName}:`;
+        nameSpan.style.cssText = `color: ${isOwn ? "#0f0" : "#4ade80"}; font - weight: 600; margin - right: 6px; `;
+        nameSpan.textContent = `${playerName}: `;
 
         const textSpan = document.createElement("span");
         textSpan.style.cssText = "color: #aaa;";
@@ -11584,7 +11654,7 @@ transition: all 0.2s;
         // Также показываем в System Terminal
         const game = (window as any).gameInstance as any;
         if (game?.chatSystem) {
-            game.chatSystem.addMessage(`${playerName}: ${message}`, "info", 0);
+            game.chatSystem.addMessage(`${playerName}: ${message} `, "info", 0);
         }
     }
 
@@ -11676,7 +11746,7 @@ transition: all 0.2s;
                 } else {
                     // Only log every 5 attempts to reduce spam
                     if (attempts % 5 === 0) {
-                        // debugLog(`[Menu] ⏳ Ожидание подключения... (попытка ${attempts}/${maxAttempts})`);
+                        // debugLog(`[Menu] ⏳ Ожидание подключения... (попытка ${ attempts }/${maxAttempts})`);
                     }
                 }
             }, 500);
@@ -11755,7 +11825,7 @@ transition: all 0.2s;
             }
         }, this.lobbyAutoRefreshIntervalMs);
 
-        // debugLog(`[Menu] ✅ Автообновление лобби запущено (интервал: ${this.lobbyAutoRefreshIntervalMs}ms)`);
+        // debugLog(`[Menu] ✅ Автообновление лобби запущено(интервал: ${ this.lobbyAutoRefreshIntervalMs }ms)`);
     }
 
     /**
@@ -11796,7 +11866,7 @@ transition: all 0.2s;
         if (toggle) {
             if (this.lobbyAutoRefreshEnabled) {
                 toggle.classList.remove("disabled");
-                toggle.title = `Автообновление: ВКЛ (${this.lobbyAutoRefreshIntervalMs / 1000}с)`;
+                toggle.title = `Автообновление: ВКЛ(${this.lobbyAutoRefreshIntervalMs / 1000}с)`;
             } else {
                 toggle.classList.add("disabled");
                 toggle.title = "Автообновление: ВЫКЛ";
@@ -11856,8 +11926,8 @@ transition: all 0.2s;
         if (lastUpdateEl) {
             if (success) {
                 const now = new Date();
-                const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
-                lastUpdateEl.textContent = `Обновлено: ${timeStr}`;
+                const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')} `;
+                lastUpdateEl.textContent = `Обновлено: ${timeStr} `;
                 lastUpdateEl.style.color = "#0f0";
             } else {
                 lastUpdateEl.textContent = "Ошибка обновления";

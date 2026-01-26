@@ -52,15 +52,20 @@ self.addEventListener('activate', (event) => {
 // Перехват запросов
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  
+
   // Пропускаем запросы к Vite dev server (HMR и другие dev запросы)
-  if (url.pathname.includes('/@vite/') || 
-      url.pathname.includes('/node_modules/') ||
-      url.searchParams.has('t') || // Vite timestamp параметр
-      url.hostname === 'localhost' && url.port !== self.location.port) {
+  if (url.pathname.includes('/@vite/') ||
+    url.pathname.includes('/node_modules/') ||
+    url.searchParams.has('t') || // Vite timestamp параметр
+    url.hostname === 'localhost' && url.port !== self.location.port) {
     return; // Пропускаем запрос, не перехватываем
   }
-  
+
+  // Пропускаем запросы с неподдерживаемыми схемами (например, chrome-extension://)
+  if (!url.protocol.startsWith('http')) {
+    return;
+  }
+
   // Пропускаем запросы к внешним доменам (кроме статических ресурсов)
   if (url.origin !== self.location.origin) {
     // Для внешних ресурсов используем Network First
@@ -87,7 +92,7 @@ self.addEventListener('fetch', (event) => {
     }
     return; // Пропускаем другие внешние запросы
   }
-  
+
   // Стратегия кэширования для статических ресурсов
   if (CACHEABLE_EXTENSIONS.some(ext => url.pathname.endsWith(ext))) {
     event.respondWith(
@@ -152,7 +157,7 @@ self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
-  
+
   if (event.data && event.data.type === 'CLEAR_CACHE') {
     caches.delete(CACHE_NAME).then(() => {
       console.log('[SW] Cache cleared');

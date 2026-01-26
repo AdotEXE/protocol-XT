@@ -1868,82 +1868,57 @@ export class HUD {
         this.createHitMarker();
     }
 
-    // Create hit marker (X shape at center of screen)
+    // === HIT MARKER REMOVED BY USER REQUEST ===
     private createHitMarker(): void {
-        const size = scalePixels(20); // Size of X
-        const thickness = scalePixels(3);
-
-        // Diagonal line 1 (top-left to bottom-right)
-        const line1 = new Rectangle("hitMarker1");
-        line1.width = `${size}px`;
-        line1.height = `${thickness}px`;
-        line1.rotation = Math.PI / 4; // 45 degrees
-        line1.background = "#ff0000";
-        line1.thickness = 0;
-        line1.isVisible = false;
-        line1.zIndex = 1000;
-        this.guiTexture.addControl(line1);
-        this.hitMarkerLines.push(line1);
-
-        // Diagonal line 2 (top-right to bottom-left)
-        const line2 = new Rectangle("hitMarker2");
-        line2.width = `${size}px`;
-        line2.height = `${thickness}px`;
-        line2.rotation = -Math.PI / 4; // -45 degrees
-        line2.background = "#ff0000";
-        line2.thickness = 0;
-        line2.isVisible = false;
-        line2.zIndex = 1000;
-        this.guiTexture.addControl(line2);
-        this.hitMarkerLines.push(line2);
-
-        // Outline for visibility (slightly larger, darker)
-        const outline1 = new Rectangle("hitMarkerOutline1");
-        outline1.width = `${size + scalePixels(2)}px`;
-        outline1.height = `${thickness + scalePixels(2)}px`;
-        outline1.rotation = Math.PI / 4;
-        outline1.background = "#000000";
-        outline1.thickness = 0;
-        outline1.isVisible = false;
-        outline1.zIndex = 999;
-        this.guiTexture.addControl(outline1);
-        this.hitMarkerLines.push(outline1);
-
-        const outline2 = new Rectangle("hitMarkerOutline2");
-        outline2.width = `${size + scalePixels(2)}px`;
-        outline2.height = `${thickness + scalePixels(2)}px`;
-        outline2.rotation = -Math.PI / 4;
-        outline2.background = "#000000";
-        outline2.thickness = 0;
-        outline2.isVisible = false;
-        outline2.zIndex = 999;
-        this.guiTexture.addControl(outline2);
-        this.hitMarkerLines.push(outline2);
+        // Disabled per user request
     }
 
-    // Show hit marker when hitting an enemy
+    // Show hit marker (Disabled)
     showHitMarker(isCritical: boolean = false): void {
-        const color = isCritical ? "#ffff00" : "#ff0000"; // Yellow for critical, red for normal
-
-        this.hitMarkerLines.forEach((line, i) => {
-            line.isVisible = true;
-            // First two are main lines, last two are outlines
-            if (i < 2) {
-                line.background = color;
-            }
-        });
-
-        this.hitMarkerVisible = true;
-        this.hitMarkerFadeTime = Date.now() + 300; // Visible for 300ms
+        // Disabled per user request
     }
 
-    // Update hit marker fade
+    // Update hit marker fade (Disabled)
     private updateHitMarker(): void {
-        if (this.hitMarkerVisible && Date.now() > this.hitMarkerFadeTime) {
-            this.hitMarkerLines.forEach(line => {
-                line.isVisible = false;
-            });
-            this.hitMarkerVisible = false;
+        // Disabled per user request
+    }
+
+    /**
+     * Update reload bar status
+     * @param progress 0 to 1 (0 = empty, 1 = full)
+     * @param isReloading True if currently reloading
+     */
+    public updateReload(progress: number, isReloading: boolean): void {
+        if (!this.reloadBar || !this.reloadText) return;
+
+        if (isReloading) {
+            // Reloading state
+            if (this.reloadFill) {
+                this.reloadFill.width = `${Math.min(100, Math.max(0, progress * 100))}%`;
+                // Red to Yellow gradient could be nice, but simple Red is fine
+                this.reloadFill.background = "#ff3300";
+            }
+            this.reloadText.text = "RELOADING...";
+            this.reloadText.color = "#ff3300";
+
+            // Если есть анимация свечения
+            if ((this.reloadBar as any)._reloadGlow) {
+                (this.reloadBar as any)._reloadGlow.alpha = 0.1;
+            }
+        } else {
+            // Ready state
+            if (this.reloadFill) {
+                this.reloadFill.width = "100%";
+                this.reloadFill.background = "#00ff00";
+            }
+            this.reloadText.text = "READY";
+            this.reloadText.color = "#00ff00";
+
+            // Pulsing glow when ready
+            if ((this.reloadBar as any)._reloadGlow) {
+                const pulse = (Math.sin(Date.now() / 200) + 1) / 2;
+                (this.reloadBar as any)._reloadGlow.alpha = 0.2 + pulse * 0.3;
+            }
         }
     }
 

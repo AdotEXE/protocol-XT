@@ -1015,6 +1015,15 @@ export class TankController {
         logger.log(`[TANK-REBUILD] Stats updated: HP=${this._initialMaxHealth}, Speed=${this._initialMoveSpeed}, Damage=${this._initialDamage}`);
 
         // 1. Visuals - создаём уникальные формы для каждого типа корпуса
+
+        // КРИТИЧНО: Явно удаляем гусеницы и колёса, которые могли остаться от предыдущего танка (особенно если они были отсоединены при взрыве)
+        if (this.leftTrack) { this.leftTrack.dispose(); this.leftTrack = null; }
+        if (this.rightTrack) { this.rightTrack.dispose(); this.rightTrack = null; }
+        if (this.visualWheels && this.visualWheels.length > 0) {
+            this.visualWheels.forEach(w => { if (w && !w.isDisposed()) w.dispose(); });
+            this.visualWheels = [];
+        }
+
         if ((this as any).chassis && !(this as any).chassis.isDisposed()) {
             logger.warn("[TankController] Rebuild: Chassis already exists, disposing old one");
             (this as any).chassis.dispose();
@@ -1160,8 +1169,8 @@ export class TankController {
         // ═══════════════════════════════════════════════════════════════════════
 
         // 1. ОСНОВНОЙ КОРПУС (Hull)
-        // Центр бокса должен быть на высоте realHeight/2, если pivot в 0
-        const hullCenterY = realHeight * 0.5;
+        // Центр бокса должен быть в 0 (центр меша), так как MeshBuilder создает меш с центром в 0
+        const hullCenterY = 0;
 
         const mainHullBox = new PhysicsShape({
             type: PhysicsShapeType.BOX,
@@ -1179,8 +1188,10 @@ export class TankController {
         const turretHitboxWidth = this.chassisType.width * 0.65;
         const turretHitboxDepth = this.chassisType.depth * 0.6;
 
-        // Башня стоит НАД корпусом. Y = высота корпуса + половина высоты башни
-        const turretY = realHeight + (turretHitboxHeight * 0.5);
+        // Башня стоит НАД корпусом. 
+        // Если центр корпуса в 0, то крыша на realHeight/2.
+        // Центр башни = Крыша + Половина высоты башни.
+        const turretY = (realHeight * 0.5) + (turretHitboxHeight * 0.5);
 
         const turretBox = new PhysicsShape({
             type: PhysicsShapeType.BOX,
@@ -1309,8 +1320,10 @@ export class TankController {
         }
 
         // Проверяем изменения конфигурации и пересоздаём если нужно
-        if (this.checkForConfigurationChanges()) {
-            logger.log("[TankController] Configuration change detected. Rebuilding tank visuals...");
+        // ИСПРАВЛЕНИЕ: ВСЕГДА пересоздаём визуал при респавне, чтобы исправить баги с прозрачностью и оторванными гусеницами
+        // Старый код: if (this.checkForConfigurationChanges()) {
+        if (true) {
+            logger.log("[TankController] Respawn: Rebuilding tank visuals (forced to fix artifacts)...");
             this.rebuildTankVisuals(respawnPos);
         }
 
@@ -2792,8 +2805,9 @@ export class TankController {
 
 
             // Start reload on HUD
+            // Start reload on HUD - REMOVED (logic moved to updateHUD)
             if (this.hud) {
-                this.hud.startReload(this.cooldown);
+                // this.hud.startReload(this.cooldown); // Removed
                 this.hud.notifyPlayerShot(); // Tutorial notification
             }
 
@@ -4522,6 +4536,23 @@ export class TankController {
         this.trajectoryLines = [];
     }
 
+    // Update HUD elements (Reload bar, etc)
+    private updateHUD(): void {
+        if (!this.hud) return;
+
+        // Update reload bar
+        const now = Date.now();
+        const timeSinceShot = now - this.lastShotTime;
+        // Ensure progress is 0..1
+        const reloadProgress = Math.min(1, Math.max(0, timeSinceShot / this.cooldown));
+        const isReloading = reloadProgress < 1;
+
+        // Call updateReload
+        if (this.hud.updateReload) {
+            this.hud.updateReload(reloadProgress, isReloading);
+        }
+    }
+
     updatePhysics() {
         // Защитные проверки для предотвращения крашей
         if (!this.chassis || !this.physicsBody) return;
@@ -4598,6 +4629,7 @@ export class TankController {
             this.movementModule.updateMovement(dt);
             this.projectilesModule.updateShellCasings();
             this.updateProjectiles(dt); // ОПТИМИЗАЦИЯ: Ручное движение трассеров
+            this.updateHUD(); // Update HUD (Reload bar)
             this.visualsModule.updateVisuals(dt);
 
             // Update Health (Passive repair, Invulnerability)

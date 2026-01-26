@@ -518,6 +518,35 @@ export class MapEditor {
                                     <!-- Будет заполнено через populateTankModelSelectors -->
                                 </select>
                             </div>
+                            <!-- NEW: Selectors for Buildings, Trees, Rocks -->
+                            <div id="building-selector" class="toolbar-section" style="display: none; margin-left: 10px;">
+                                <label>Тип:</label>
+                                <select id="building-model">
+                                    <option value="residential">Жилое</option>
+                                    <option value="industrial">Индустр.</option>
+                                    <option value="military">Военное</option>
+                                    <option value="commercial">Коммерч.</option>
+                                    <option value="ruins">Руины</option>
+                                </select>
+                            </div>
+                            <div id="tree-selector" class="toolbar-section" style="display: none; margin-left: 10px;">
+                                <label>Тип:</label>
+                                <select id="tree-model">
+                                    <option value="oak">Дуб</option>
+                                    <option value="pine">Сосна</option>
+                                    <option value="palm">Пальма</option>
+                                    <option value="dead">Мертвое</option>
+                                </select>
+                            </div>
+                            <div id="rock-selector" class="toolbar-section" style="display: none; margin-left: 10px;">
+                                <label>Тип:</label>
+                                <select id="rock-model">
+                                    <option value="boulder">Валун</option>
+                                    <option value="stone">Камень</option>
+                                    <option value="crystal">Кристалл</option>
+                                    <option value="ore">Руда</option>
+                                </select>
+                            </div>
                         </div>
                         
                         <div class="toolbar-section">
@@ -905,6 +934,7 @@ export class MapEditor {
                 display: flex;
                 justify-content: center;
                 align-items: center;
+                pointer-events: auto;
             }
             .workshop-content {
                 background: linear-gradient(145deg, rgba(0, 30, 0, 0.98), rgba(0, 15, 0, 0.98));
@@ -1139,10 +1169,19 @@ export class MapEditor {
             const trackSel = this.container?.querySelector("#track-selector") as HTMLElement;
             const moduleSel = this.container?.querySelector("#module-selector") as HTMLElement;
 
+            // NEW: Show/hide environment selectors
+            const buildingSel = this.container?.querySelector("#building-selector") as HTMLElement;
+            const treeSel = this.container?.querySelector("#tree-selector") as HTMLElement;
+            const rockSel = this.container?.querySelector("#rock-selector") as HTMLElement;
+
             if (chassisSel) chassisSel.style.display = type === "tank_chassis" ? "flex" : "none";
             if (cannonSel) cannonSel.style.display = type === "tank_cannon" ? "flex" : "none";
             if (trackSel) trackSel.style.display = type === "tank_track" ? "flex" : "none";
             if (moduleSel) moduleSel.style.display = type === "tank_module" ? "flex" : "none";
+
+            if (buildingSel) buildingSel.style.display = type === "building" ? "flex" : "none";
+            if (treeSel) treeSel.style.display = type === "tree" ? "flex" : "none";
+            if (rockSel) rockSel.style.display = type === "rock" ? "flex" : "none";
         });
 
         // Удаление объекта
@@ -1328,6 +1367,29 @@ export class MapEditor {
         };
         // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки при cleanup()
         window.addEventListener("keydown", keyHandler, { signal: this.abortController.signal });
+
+        // WORKSHOP LISTENERS
+        this.container.querySelector("#workshop-btn")?.addEventListener("click", () => {
+            this.openWorkshop();
+        });
+
+        this.container.querySelector(".workshop-close")?.addEventListener("click", () => {
+            this.closeWorkshop();
+        });
+
+        this.container.querySelectorAll(".workshop-tab").forEach(tab => {
+            tab.addEventListener("click", (e) => {
+                const target = e.target as HTMLElement;
+                const type = target.getAttribute("data-tab");
+                if (type) {
+                    this.switchWorkshopTab(type);
+                }
+            });
+        });
+
+        this.container.querySelector("#workshop-place-btn")?.addEventListener("click", () => {
+            this.placeWorkshopItem();
+        });
     }
 
     /**
@@ -1992,6 +2054,12 @@ export class MapEditor {
                 return this.generateRockProperties(props);
             case "custom":
                 return this.generateCustomProperties(props);
+            case "tank_chassis":
+                return this.generateTankChassisProperties(props);
+            case "tank_cannon":
+                return this.generateTankCannonProperties(props);
+            case "tank_track":
+                return this.generateTankTrackProperties(props);
             default:
                 return "";
         }
@@ -2251,6 +2319,77 @@ export class MapEditor {
             <div class="property-group">
                 <label>Слой рендеринга:</label>
                 <input type="text" id="prop-render-layer" value="${props.renderLayer || 'default'}" placeholder="default">
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для TANK CHASSIS
+     */
+    private generateTankChassisProperties(props: any): string {
+        const options = CHASSIS_TYPES.map(c =>
+            `<option value="${c.id}" ${props.chassisId === c.id ? 'selected' : ''}>${c.name}</option>`
+        ).join('');
+
+        return `
+        <div class="properties-section">
+            <div class="properties-header">🚗 Настройки корпуса</div>
+            <div class="property-group">
+                <label>Модель корпуса:</label>
+                <select id="prop-chassis-id">
+                    ${options}
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Принудительный цвет:</label>
+                <input type="color" id="prop-chassis-color" value="${props.color || '#ffffff'}">
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для TANK CANNON
+     */
+    private generateTankCannonProperties(props: any): string {
+        const options = CANNON_TYPES.map(c =>
+            `<option value="${c.id}" ${props.cannonId === c.id ? 'selected' : ''}>${c.name}</option>`
+        ).join('');
+
+        return `
+        <div class="properties-section">
+            <div class="properties-header">🔫 Настройки пушки</div>
+            <div class="property-group">
+                <label>Модель пушки:</label>
+                <select id="prop-cannon-id">
+                    ${options}
+                </select>
+            </div>
+            <div class="property-group">
+                <label>Принудительный цвет:</label>
+                <input type="color" id="prop-cannon-color" value="${props.color || '#ffffff'}">
+            </div>
+        </div>
+        `;
+    }
+
+    /**
+     * Свойства для TANK TRACK
+     */
+    private generateTankTrackProperties(props: any): string {
+        const options = TRACK_TYPES.map(t =>
+            `<option value="${t.id}" ${props.trackId === t.id ? 'selected' : ''}>${t.name}</option>`
+        ).join('');
+
+        return `
+        <div class="properties-section">
+            <div class="properties-header">⚙️ Настройки гусениц</div>
+            <div class="property-group">
+                <label>Тип гусениц:</label>
+                <select id="prop-track-id">
+                    ${options}
+                </select>
             </div>
         </div>
         `;
@@ -2536,6 +2675,15 @@ export class MapEditor {
                 break;
             case "building":
                 this.setupBuildingPropertiesListeners(obj);
+                break;
+            case "tank_chassis":
+                this.setupTankChassisPropertiesListeners(obj);
+                break;
+            case "tank_cannon":
+                this.setupTankCannonPropertiesListeners(obj);
+                break;
+            case "tank_track":
+                this.setupTankTrackPropertiesListeners(obj);
                 break;
             case "tree":
                 this.setupTreePropertiesListeners(obj);
@@ -2908,6 +3056,81 @@ export class MapEditor {
                 this.mapData.metadata.modifiedAt = Date.now();
             });
         }
+    }
+
+    /**
+     * Обработчики для свойств TANK CHASSIS
+     */
+    private setupTankChassisPropertiesListeners(obj: PlacedObject): void {
+        const selector = this.container?.querySelector("#prop-chassis-id") as HTMLSelectElement;
+        if (selector) {
+            selector.addEventListener("change", () => {
+                obj.properties!.chassisId = selector.value;
+                this.refreshObjectMesh(obj);
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+        const colorInput = this.container?.querySelector("#prop-chassis-color") as HTMLInputElement;
+        if (colorInput) {
+            colorInput.addEventListener("change", () => {
+                obj.properties!.color = colorInput.value;
+                // Color update might not need full refresh, but safety first
+                this.refreshObjectMesh(obj);
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств TANK CANNON
+     */
+    private setupTankCannonPropertiesListeners(obj: PlacedObject): void {
+        const selector = this.container?.querySelector("#prop-cannon-id") as HTMLSelectElement;
+        if (selector) {
+            selector.addEventListener("change", () => {
+                obj.properties!.cannonId = selector.value;
+                this.refreshObjectMesh(obj);
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Обработчики для свойств TANK TRACK
+     */
+    private setupTankTrackPropertiesListeners(obj: PlacedObject): void {
+        const selector = this.container?.querySelector("#prop-track-id") as HTMLSelectElement;
+        if (selector) {
+            selector.addEventListener("change", () => {
+                obj.properties!.trackId = selector.value;
+                this.refreshObjectMesh(obj);
+                this.mapData.metadata.modifiedAt = Date.now();
+            });
+        }
+    }
+
+    /**
+     * Пересоздать меш объекта (для обновления визуализации)
+     */
+    private refreshObjectMesh(obj: PlacedObject): void {
+        const oldMesh = this.placedObjectMeshes.get(obj.id);
+        if (oldMesh) {
+            oldMesh.dispose();
+            this.placedObjectMeshes.delete(obj.id);
+        }
+        // Удаляем обводку, так как меш изменился
+        if (this.objectOutline) {
+            this.objectOutline.dispose();
+            this.objectOutline = null;
+        }
+
+        const newMesh = this.createObjectMesh(obj);
+
+        // Восстанавливаем трансформации
+        if (obj.rotation) newMesh.rotation = new Vector3(obj.rotation.x, obj.rotation.y, obj.rotation.z);
+        if (obj.scale) newMesh.scaling = new Vector3(obj.scale.x, obj.scale.y, obj.scale.z);
+
+        this.updateObjectOutline(); // Восстанавливаем обводку
     }
 
     /**
@@ -4504,6 +4727,20 @@ export class MapEditor {
                 placedObject.properties = { ...placedObject.properties, moduleId: moduleModel };
             }
 
+            // NEW: Add selected environment properties
+            if (this.selectedObjectType === "building") {
+                const buildingType = (this.container?.querySelector("#building-model") as HTMLSelectElement)?.value || "residential";
+                placedObject.properties = { ...placedObject.properties, buildingType: buildingType };
+            }
+            if (this.selectedObjectType === "tree") {
+                const treeType = (this.container?.querySelector("#tree-model") as HTMLSelectElement)?.value || "oak";
+                placedObject.properties = { ...placedObject.properties, treeType: treeType };
+            }
+            if (this.selectedObjectType === "rock") {
+                const rockType = (this.container?.querySelector("#rock-model") as HTMLSelectElement)?.value || "boulder";
+                placedObject.properties = { ...placedObject.properties, rockType: rockType };
+            }
+
             this.mapData.placedObjects.push(placedObject);
             this.createObjectMesh(placedObject);
             this.selectObject(objectId);
@@ -4535,13 +4772,22 @@ export class MapEditor {
 
             switch (obj.type) {
                 case "building":
+                    const bType = obj.properties?.buildingType || "residential";
+                    let bColor = new Color3(0.6, 0.5, 0.4);
+                    let bHeight = 8;
+
+                    if (bType === "industrial") { bColor = new Color3(0.4, 0.4, 0.5); bHeight = 6; }
+                    else if (bType === "military") { bColor = new Color3(0.3, 0.4, 0.3); bHeight = 5; }
+                    else if (bType === "commercial") { bColor = new Color3(0.3, 0.5, 0.8); bHeight = 12; }
+                    else if (bType === "ruins") { bColor = new Color3(0.4, 0.3, 0.2); bHeight = 3; }
+
                     mesh = MeshBuilder.CreateBox(`object_${obj.id}`, {
                         width: 5,
-                        height: 8,
+                        height: bHeight,
                         depth: 5
                     }, this.scene);
                     const buildingMat = new StandardMaterial(`buildingMat_${obj.id}`, this.scene);
-                    buildingMat.diffuseColor = new Color3(0.6, 0.5, 0.4);
+                    buildingMat.diffuseColor = bColor;
                     mesh.material = buildingMat;
                     // ИСПРАВЛЕНИЕ: Помечаем объект для выделения
                     mesh.metadata = { mapEditorObject: true, objectId: obj.id };
@@ -4549,10 +4795,16 @@ export class MapEditor {
                     break;
 
                 case "tree":
+                    const tType = obj.properties?.treeType || "oak";
+                    let foliageColor = new Color3(0.2, 0.6, 0.2); // Green
+                    if (tType === "pine") foliageColor = new Color3(0.1, 0.4, 0.2); // Dark Green
+                    else if (tType === "palm") foliageColor = new Color3(0.4, 0.7, 0.2); // Lime
+                    else if (tType === "dead") foliageColor = new Color3(0.4, 0.3, 0.2); // Brown
+
                     // Ствол (используем CreateBox для совместимости, можно заменить на цилиндр если доступен)
                     const trunk = MeshBuilder.CreateBox(`trunk_${obj.id}`, {
                         width: 0.5,
-                        height: 4,
+                        height: tType === "palm" ? 6 : 4,
                         depth: 0.5
                     }, this.scene);
                     trunk.position = position;
@@ -4562,14 +4814,14 @@ export class MapEditor {
 
                     // Крона
                     const crown = MeshBuilder.CreateBox(`crown_${obj.id}`, {
-                        width: 3,
-                        height: 3,
-                        depth: 3
+                        width: tType === "pine" ? 2 : 3,
+                        height: tType === "pine" ? 4 : 3,
+                        depth: tType === "pine" ? 2 : 3
                     }, this.scene);
                     crown.position = position.clone();
-                    crown.position.y += 3;
+                    crown.position.y += tType === "palm" ? 5 : 3;
                     const crownMat = new StandardMaterial(`crownMat_${obj.id}`, this.scene);
-                    crownMat.diffuseColor = new Color3(0.2, 0.6, 0.2);
+                    crownMat.diffuseColor = foliageColor;
                     crown.material = crownMat;
 
                     // Связываем как один объект
@@ -4583,13 +4835,20 @@ export class MapEditor {
                     break;
 
                 case "rock":
+                    const rType = obj.properties?.rockType || "boulder";
+                    let rColor = new Color3(0.5, 0.5, 0.5); // Grey
+                    if (rType === "stone") rColor = new Color3(0.6, 0.6, 0.6);
+                    else if (rType === "crystal") rColor = new Color3(0.2, 0.8, 1.0); // Cyan
+                    else if (rType === "ore") rColor = new Color3(0.6, 0.3, 0.1); // Copper
+
                     mesh = MeshBuilder.CreateBox(`rock_${obj.id}`, {
-                        width: 2,
-                        height: 1.5,
-                        depth: 2
+                        width: rType === "boulder" ? 3 : 2,
+                        height: rType === "crystal" ? 3 : 1.5,
+                        depth: rType === "boulder" ? 3 : 2
                     }, this.scene);
                     const rockMat = new StandardMaterial(`rockMat_${obj.id}`, this.scene);
-                    rockMat.diffuseColor = new Color3(0.4, 0.4, 0.4);
+                    rockMat.diffuseColor = rColor;
+                    if (rType === "crystal") rockMat.emissiveColor = new Color3(0.1, 0.4, 0.5);
                     mesh.material = rockMat;
                     // ИСПРАВЛЕНИЕ: Помечаем объект для выделения
                     mesh.metadata = { mapEditorObject: true, objectId: obj.id };
@@ -5615,13 +5874,17 @@ export class MapEditor {
      * Открыть мастерскую
      */
     private openWorkshop(): void {
+        console.log("[MapEditor] Opening Workshop...");
         const modal = this.container?.querySelector("#workshop-modal") as HTMLElement;
         if (modal) {
             modal.style.display = "flex";
             this.workshopSelectedItem = null;
             this.workshopCurrentTab = "chassis";
+            console.log("[MapEditor] Workshop tab: chassis", { types: CHASSIS_TYPES });
             this.renderWorkshopCards();
             this.updateWorkshopUI();
+        } else {
+            console.error("[MapEditor] Workshop modal not found!");
         }
     }
 

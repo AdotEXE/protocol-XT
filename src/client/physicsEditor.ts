@@ -8,9 +8,9 @@ import { Vector3, Scene } from "@babylonjs/core";
 import { Game } from "./game";
 import { logger } from "./utils/logger";
 import { CommonStyles } from "./commonStyles";
-import { 
-    PHYSICS_CONFIG, 
-    DEFAULT_PHYSICS_CONFIG, 
+import {
+    PHYSICS_CONFIG,
+    DEFAULT_PHYSICS_CONFIG,
     applyPhysicsConfig,
     resetPhysicsConfig,
     savePhysicsConfigToStorage,
@@ -24,20 +24,20 @@ export class PhysicsEditor {
     private game: Game | null = null;
     private scene: Scene | null = null;
     private visible = false;
-    
+
     // Input elements
     private inputs: Map<string, HTMLInputElement> = new Map();
     private valueDisplays: Map<string, HTMLSpanElement> = new Map();
-    
+
     // Tabs
     private activeTab: string = "tank";
     private tabs: Map<string, HTMLButtonElement> = new Map();
-    
+
     constructor() {
         try {
             logger.log("[PhysicsEditor] Constructor called");
             console.log("[PhysicsEditor] Constructor called");
-            
+
             // Загружаем сохранённую конфигурацию при создании
             loadPhysicsConfigFromStorage();
             this.createUI();
@@ -56,42 +56,43 @@ export class PhysicsEditor {
             throw error;
         }
     }
-    
+
     setGame(game: Game | null): void {
         this.game = game;
         if (game && game.scene) {
             this.scene = game.scene;
         }
     }
-    
+
     setTank(tank: TankController): void {
         this.tank = tank;
         this.updateFromConfig();
     }
-    
+
     private createUI(): void {
         try {
             CommonStyles.initialize();
-            
+
             // Проверяем, не создан ли уже контейнер
             const existing = document.getElementById("physics-editor");
             if (existing) {
                 logger.warn("[PhysicsEditor] Container already exists, removing old one");
                 existing.remove();
             }
-            
+
             this.container = document.createElement("div");
             this.container.id = "physics-editor";
             this.container.className = "panel-overlay";
             logger.log("[PhysicsEditor] Container created");
-        
+
             const html = `
-            <div class="panel" style="max-width: 900px; max-height: 90vh; width: 95%;">
-                <div class="panel-header">
+            <div class="panel" style="max-width: 800px; width: 90%; max-height: 80vh; display: flex; flex-direction: column; 
+                 position: relative; margin: auto; box-shadow: 0 0 50px rgba(0,255,0,0.2);">
+                <div class="panel-header" style="flex-shrink: 0;">
                     <div class="panel-title">РЕДАКТОР ФИЗИКИ [Ctrl+0]</div>
                     <button class="panel-close" id="physics-editor-close">✕</button>
                 </div>
-                <div class="panel-content" style="overflow-y: auto; max-height: calc(90vh - 60px);">
+                <div class="panel-content" style="overflow-y: auto; flex: 1; min-height: 0; padding-right: 5px;">
                     <!-- Tabs -->
                     <div class="physics-editor-tabs">
                         <button class="physics-tab active" data-tab="tank">Танк</button>
@@ -117,9 +118,9 @@ export class PhysicsEditor {
                 </div>
             </div>
         `;
-        
+
             this.container.innerHTML = html;
-            
+
             // КРИТИЧНО: Проверяем, что контейнер еще не в DOM
             if (!document.body.contains(this.container)) {
                 document.body.appendChild(this.container);
@@ -129,7 +130,7 @@ export class PhysicsEditor {
                 logger.warn("[PhysicsEditor] Container already in DOM!");
                 console.warn("[PhysicsEditor] Container already in DOM!", this.container);
             }
-            
+
             // Close button
             const closeBtn = document.getElementById("physics-editor-close");
             if (closeBtn) {
@@ -138,7 +139,7 @@ export class PhysicsEditor {
             } else {
                 logger.warn("[PhysicsEditor] Close button not found!");
             }
-            
+
             // Styles
             const style = document.createElement("style");
             style.id = "physics-editor-styles";
@@ -247,7 +248,7 @@ export class PhysicsEditor {
                 width: 80px;
             }
             `;
-            
+
             if (!document.getElementById("physics-editor-styles")) {
                 document.head.appendChild(style);
                 logger.log("[PhysicsEditor] Styles added");
@@ -258,26 +259,26 @@ export class PhysicsEditor {
             throw error;
         }
     }
-    
+
     private setupTabs(): void {
         const tabButtons = this.container.querySelectorAll(".physics-tab");
         tabButtons.forEach(btn => {
             const button = btn as HTMLButtonElement;
             const tabName = button.dataset.tab || "";
             this.tabs.set(tabName, button);
-            
+
             button.addEventListener("click", () => {
                 this.switchTab(tabName);
             });
         });
-        
+
         // Load initial tab
         this.switchTab(this.activeTab);
     }
-    
+
     private switchTab(tabName: string): void {
         this.activeTab = tabName;
-        
+
         // Update tab buttons
         this.tabs.forEach((btn, name) => {
             if (name === tabName) {
@@ -286,17 +287,17 @@ export class PhysicsEditor {
                 btn.classList.remove("active");
             }
         });
-        
+
         // Update content
         this.renderTabContent(tabName);
     }
-    
+
     private renderTabContent(tabName: string): void {
         const content = document.getElementById("physics-editor-content");
         if (!content) return;
-        
+
         let html = "";
-        
+
         switch (tabName) {
             case "tank":
                 html = this.renderTankTab();
@@ -320,11 +321,11 @@ export class PhysicsEditor {
                 html = this.renderOtherTab();
                 break;
         }
-        
+
         content.innerHTML = html;
         this.setupInputs();
     }
-    
+
     private renderTankTab(): string {
         const config = PHYSICS_CONFIG.tank;
         return `
@@ -393,7 +394,7 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     private renderTurretTab(): string {
         const config = PHYSICS_CONFIG.turret;
         return `
@@ -412,7 +413,7 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     private renderShootingTab(): string {
         const config = PHYSICS_CONFIG.shooting;
         return `
@@ -440,7 +441,7 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     private renderEnemyTab(): string {
         const config = PHYSICS_CONFIG.enemyTank;
         return `
@@ -471,7 +472,7 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     private renderModulesTab(): string {
         const config = PHYSICS_CONFIG.modules;
         return `
@@ -506,7 +507,7 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     private renderWorldTab(): string {
         const config = PHYSICS_CONFIG.world;
         return `
@@ -518,7 +519,7 @@ export class PhysicsEditor {
             <div class="physics-editor-section">
                 <div class="physics-editor-section-title">Параметры физики</div>
                 ${this.createSlider("world.substeps", "Подшаги", config.substeps, 1, 10, 1)}
-                ${this.createSlider("world.fixedTimeStep", "Шаг времени", config.fixedTimeStep, 1/120, 1/30, 1/120, "с")}
+                ${this.createSlider("world.fixedTimeStep", "Шаг времени", config.fixedTimeStep, 1 / 120, 1 / 30, 1 / 120, "с")}
             </div>
             
             <div class="physics-editor-section">
@@ -529,7 +530,7 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     private renderOtherTab(): string {
         const config = PHYSICS_CONFIG;
         return `
@@ -554,7 +555,7 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     private createSlider(path: string, label: string, value: number, min: number, max: number, step: number, unit: string = ""): string {
         const id = `physics-editor-${path.replace(/\./g, "-")}`;
         const displayId = `${id}-value`;
@@ -567,7 +568,7 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     private createVector3Input(path: string, label: string, vec: Vector3, min: number, max: number, step: number, unit: string = ""): string {
         const id = `physics-editor-${path.replace(/\./g, "-")}`;
         return `
@@ -582,38 +583,38 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     private formatValue(value: number): string {
         if (Math.abs(value) < 0.001) return value.toExponential(2);
         if (Math.abs(value) < 1) return value.toFixed(3);
         if (Math.abs(value) < 100) return value.toFixed(2);
         return value.toFixed(0);
     }
-    
+
     private setupInputs(): void {
         // Clear old inputs
         this.inputs.clear();
         this.valueDisplays.clear();
-        
+
         // Setup sliders and number inputs
         const content = document.getElementById("physics-editor-content");
         if (!content) return;
-        
+
         const sliders = content.querySelectorAll("input[type='range']");
         const numbers = content.querySelectorAll("input[type='number']");
-        
+
         sliders.forEach(slider => {
             const input = slider as HTMLInputElement;
             const path = input.id.replace("physics-editor-", "").replace(/-/g, ".");
             this.inputs.set(path, input);
-            
+
             const numInput = content.querySelector(`#${input.id}-num`) as HTMLInputElement;
             const valueDisplay = content.querySelector(`#${input.id}-value`) as HTMLSpanElement;
-            
+
             if (valueDisplay) {
                 this.valueDisplays.set(path, valueDisplay);
             }
-            
+
             // Sync slider and number input
             input.addEventListener("input", () => {
                 const value = parseFloat(input.value);
@@ -624,7 +625,7 @@ export class PhysicsEditor {
                 }
                 this.onParameterChange(path, value);
             });
-            
+
             if (numInput) {
                 numInput.addEventListener("input", () => {
                     const value = parseFloat(numInput.value);
@@ -637,7 +638,7 @@ export class PhysicsEditor {
                 });
             }
         });
-        
+
         // Setup Vector3 inputs
         const vector3Groups = content.querySelectorAll(".physics-editor-vector3");
         vector3Groups.forEach(group => {
@@ -646,71 +647,71 @@ export class PhysicsEditor {
                 const xInput = inputs[0] as HTMLInputElement;
                 const yInput = inputs[1] as HTMLInputElement;
                 const zInput = inputs[2] as HTMLInputElement;
-                
+
                 const path = xInput.id.replace("-x", "").replace("physics-editor-", "").replace(/-/g, ".");
-                
+
                 const updateVector3 = () => {
                     const x = parseFloat(xInput.value) || 0;
                     const y = parseFloat(yInput.value) || 0;
                     const z = parseFloat(zInput.value) || 0;
                     this.onVector3Change(path, new Vector3(x, y, z));
                 };
-                
+
                 xInput.addEventListener("input", updateVector3);
                 yInput.addEventListener("input", updateVector3);
                 zInput.addEventListener("input", updateVector3);
             }
         });
     }
-    
+
     private onParameterChange(path: string, value: number): void {
         // Update config
         const parts = path.split(".");
         let obj: any = PHYSICS_CONFIG;
-        
+
         for (let i = 0; i < parts.length - 1; i++) {
             const key = parts[i];
             if (key === undefined) return;
             obj = obj[key];
         }
-        
+
         const lastKey = parts[parts.length - 1];
         if (lastKey === undefined) return;
         obj[lastKey] = value;
-        
+
         // Apply to tank in real-time
         this.applyToTank();
-        
+
         // Save to storage
         savePhysicsConfigToStorage();
     }
-    
+
     private onVector3Change(path: string, value: Vector3): void {
         const parts = path.split(".");
         let obj: any = PHYSICS_CONFIG;
-        
+
         for (let i = 0; i < parts.length - 1; i++) {
             const key = parts[i];
             if (key === undefined) return;
             obj = obj[key];
         }
-        
+
         const lastKey = parts[parts.length - 1];
         if (lastKey === undefined) return;
         obj[lastKey] = value;
-        
+
         // Apply to tank in real-time
         this.applyToTank();
-        
+
         // Save to storage
         savePhysicsConfigToStorage();
     }
-    
+
     private applyToTank(): void {
         if (!this.tank) return;
-        
+
         const config = PHYSICS_CONFIG.tank;
-        
+
         // Apply basic parameters
         this.tank.mass = config.basic.mass;
         this.tank.hoverHeight = config.basic.hoverHeight;
@@ -718,7 +719,7 @@ export class PhysicsEditor {
         this.tank.turnSpeed = config.basic.turnSpeed;
         this.tank.acceleration = config.basic.acceleration;
         this.tank.maxHealth = config.basic.maxHealth;
-        
+
         // Apply stability
         this.tank.hoverStiffness = config.stability.hoverStiffness;
         this.tank.hoverDamping = config.stability.hoverDamping;
@@ -727,7 +728,7 @@ export class PhysicsEditor {
         this.tank.stabilityForce = config.stability.stabilityForce;
         this.tank.emergencyForce = config.stability.emergencyForce;
         this.tank.downForce = config.stability.downForce;
-        
+
         // Apply movement
         this.tank.turnAccel = config.movement.turnAccel;
         this.tank.stabilityTorque = config.movement.stabilityTorque;
@@ -736,7 +737,7 @@ export class PhysicsEditor {
         this.tank.sideDrag = config.movement.sideDrag;
         this.tank.fwdDrag = config.movement.fwdDrag;
         this.tank.angularDrag = config.movement.angularDrag;
-        
+
         // Apply climbing
         this.tank.climbAssistForce = config.climbing.climbAssistForce;
         this.tank.maxClimbHeight = config.climbing.maxClimbHeight;
@@ -744,17 +745,17 @@ export class PhysicsEditor {
         this.tank.frontClimbForce = config.climbing.frontClimbForce;
         this.tank.wallPushForce = config.climbing.wallPushForce;
         this.tank.climbTorque = config.climbing.climbTorque;
-        
+
         // Apply vertical walls
         this.tank.verticalWallThreshold = config.verticalWalls.verticalWallThreshold;
         this.tank.wallAttachmentForce = config.verticalWalls.wallAttachmentForce;
         this.tank.wallAttachmentDistance = config.verticalWalls.wallAttachmentDistance;
         this.tank.wallFrictionCoefficient = config.verticalWalls.wallFrictionCoefficient;
         this.tank.wallMinHorizontalSpeed = config.verticalWalls.wallMinHorizontalSpeed;
-        
+
         // Apply speed limits
         // Note: These are used in updatePhysics, so they're applied automatically
-        
+
         // Apply center of mass
         if (this.tank.physicsBody) {
             this.tank.physicsBody.setMassProperties({
@@ -764,7 +765,7 @@ export class PhysicsEditor {
             this.tank.physicsBody.setLinearDamping(config.stability.linearDamping);
             this.tank.physicsBody.setAngularDamping(config.stability.angularDamping);
         }
-        
+
         // Apply turret
         this.tank.turretSpeed = PHYSICS_CONFIG.turret.turret.speed;
         this.tank.baseTurretSpeed = PHYSICS_CONFIG.turret.turret.baseSpeed;
@@ -772,7 +773,7 @@ export class PhysicsEditor {
         this.tank.mouseSensitivity = PHYSICS_CONFIG.turret.turret.mouseSensitivity;
         this.tank.baseBarrelPitchSpeed = PHYSICS_CONFIG.turret.barrel.pitchSpeed;
         this.tank.barrelPitchLerpSpeed = PHYSICS_CONFIG.turret.barrel.pitchLerpSpeed;
-        
+
         // Apply shooting
         this.tank.damage = PHYSICS_CONFIG.shooting.basic.damage;
         this.tank.cooldown = PHYSICS_CONFIG.shooting.basic.cooldown;
@@ -783,22 +784,22 @@ export class PhysicsEditor {
         this.tank.barrelRecoilSpeed = PHYSICS_CONFIG.shooting.recoil.barrelRecoilSpeed;
         this.tank.barrelRecoilAmount = PHYSICS_CONFIG.shooting.recoil.barrelRecoilAmount;
     }
-    
+
     private updateFromConfig(): void {
         // Update all inputs from current config
         this.inputs.forEach((input, path) => {
             const parts = path.split(".");
             let value: any = PHYSICS_CONFIG;
-            
+
             for (const part of parts) {
                 value = value[part];
             }
-            
+
             if (typeof value === "number") {
                 input.value = value.toString();
                 const numInput = input.parentElement?.querySelector(`#${input.id}-num`) as HTMLInputElement;
                 if (numInput) numInput.value = value.toString();
-                
+
                 const valueDisplay = this.valueDisplays.get(path);
                 if (valueDisplay) {
                     const unit = valueDisplay.textContent?.split(" ").slice(1).join(" ") || "";
@@ -807,14 +808,14 @@ export class PhysicsEditor {
             }
         });
     }
-    
+
     private setupButtons(): void {
         const resetBtn = document.getElementById("physics-editor-reset");
         const saveBtn = document.getElementById("physics-editor-save");
         const loadBtn = document.getElementById("physics-editor-load");
         const exportBtn = document.getElementById("physics-editor-export");
         const importBtn = document.getElementById("physics-editor-import");
-        
+
         if (resetBtn) {
             resetBtn.addEventListener("click", () => {
                 if (confirm("Сбросить все параметры к значениям по умолчанию?")) {
@@ -824,7 +825,7 @@ export class PhysicsEditor {
                 }
             });
         }
-        
+
         if (saveBtn) {
             saveBtn.addEventListener("click", () => {
                 savePhysicsConfigToStorage();
@@ -833,7 +834,7 @@ export class PhysicsEditor {
                 }
             });
         }
-        
+
         if (loadBtn) {
             loadBtn.addEventListener("click", () => {
                 loadPhysicsConfigFromStorage();
@@ -844,7 +845,7 @@ export class PhysicsEditor {
                 }
             });
         }
-        
+
         if (exportBtn) {
             exportBtn.addEventListener("click", () => {
                 const json = JSON.stringify(PHYSICS_CONFIG, null, 2);
@@ -857,7 +858,7 @@ export class PhysicsEditor {
                 URL.revokeObjectURL(url);
             });
         }
-        
+
         if (importBtn) {
             importBtn.addEventListener("click", () => {
                 const input = document.createElement("input");
@@ -906,7 +907,7 @@ export class PhysicsEditor {
             });
         }
     }
-    
+
     toggle(): void {
         if (!this.container) {
             logger.error("[PhysicsEditor] Cannot toggle: container not initialized");
@@ -921,21 +922,21 @@ export class PhysicsEditor {
                 return;
             }
         }
-        
+
         this.visible = !this.visible;
         logger.log(`[PhysicsEditor] Toggling: visible=${this.visible}`);
-        
+
         if (this.visible) {
             // Убеждаемся, что контейнер в DOM
             if (!document.body.contains(this.container)) {
                 logger.warn("[PhysicsEditor] Container not in DOM, re-adding...");
                 document.body.appendChild(this.container);
             }
-            
+
             // Убираем класс hidden - CSS сам покажет контейнер с display: flex
             this.container.classList.remove("hidden");
             this.updateFromConfig();
-            
+
             // Показываем курсор и выходим из pointer lock
             if (document.pointerLockElement) {
                 document.exitPointerLock();
@@ -946,16 +947,16 @@ export class PhysicsEditor {
             logger.log("[PhysicsEditor] Editor hidden");
         }
     }
-    
+
     hide(): void {
         this.visible = false;
         this.container.classList.add("hidden");
     }
-    
+
     isVisible(): boolean {
         return this.visible;
     }
-    
+
     /**
      * Рендерит контент в переданный контейнер (для UnifiedMenu)
      */
@@ -963,7 +964,7 @@ export class PhysicsEditor {
         container.innerHTML = this.getEmbeddedContentHTML();
         this.setupEmbeddedEventListeners(container);
     }
-    
+
     /**
      * Возвращает HTML контента без overlay wrapper
      */
@@ -1068,7 +1069,7 @@ export class PhysicsEditor {
             </div>
         `;
     }
-    
+
     /**
      * Привязывает обработчики событий для embedded режима
      */
@@ -1079,13 +1080,13 @@ export class PhysicsEditor {
             tab.addEventListener("click", () => {
                 const tabName = (tab as HTMLElement).dataset.tab;
                 if (!tabName) return;
-                
+
                 container.querySelectorAll(".pe-tab").forEach(t => t.classList.remove("active"));
                 container.querySelectorAll(".pe-tab-content").forEach(c => {
                     (c as HTMLElement).style.display = "none";
                     c.classList.remove("active");
                 });
-                
+
                 tab.classList.add("active");
                 const content = container.querySelector(`.pe-tab-content[data-tab="${tabName}"]`) as HTMLElement;
                 if (content) {
@@ -1094,7 +1095,7 @@ export class PhysicsEditor {
                 }
             });
         });
-        
+
         // Обработчики слайдеров
         const setupSlider = (className: string, valClassName: string, suffix = "") => {
             const slider = container.querySelector(`.${className}`) as HTMLInputElement;
@@ -1103,7 +1104,7 @@ export class PhysicsEditor {
                 if (valEl) valEl.textContent = slider.value + suffix;
             });
         };
-        
+
         setupSlider("pe-maxspeed", "pe-maxspeed-val");
         setupSlider("pe-accel", "pe-accel-val");
         setupSlider("pe-mass", "pe-mass-val");
@@ -1113,7 +1114,7 @@ export class PhysicsEditor {
         setupSlider("pe-damage", "pe-damage-val");
         setupSlider("pe-gravity", "pe-gravity-val");
         setupSlider("pe-drag", "pe-drag-val");
-        
+
         // Кнопка сохранения
         const saveBtn = container.querySelector(".pe-save-btn");
         saveBtn?.addEventListener("click", () => {
@@ -1137,20 +1138,20 @@ export class PhysicsEditor {
                     drag: parseFloat((container.querySelector(".pe-drag") as HTMLInputElement)?.value || "0.1"),
                 }
             };
-            
+
             // Применяем к танку
             if (this.tank) {
                 this.tank.moveSpeed = config.tank.maxSpeed;
                 (this.tank as any).acceleration = config.tank.acceleration;
             }
-            
+
             localStorage.setItem("ptx_physics_config", JSON.stringify(config));
-            
+
             if (this.game?.hud) {
                 this.game.hud.showMessage("Настройки физики сохранены!", "#0f0", 2000);
             }
         });
-        
+
         // Кнопка сброса
         const resetBtn = container.querySelector(".pe-reset-btn");
         resetBtn?.addEventListener("click", () => {
@@ -1159,7 +1160,7 @@ export class PhysicsEditor {
                 this.game.hud.showMessage("Настройки сброшены!", "#ff0", 2000);
             }
         });
-        
+
         // Кнопка экспорта
         const exportBtn = container.querySelector(".pe-export-btn");
         exportBtn?.addEventListener("click", () => {

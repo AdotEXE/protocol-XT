@@ -677,7 +677,21 @@ export class ChatSystem {
     public setVisible(visible: boolean): void {
         if (this.htmlContainer) {
             this.htmlContainer.style.display = visible ? "block" : "none";
+            // Focus input if showing
+            if (visible && this.commandInput) {
+                setTimeout(() => this.commandInput.focus(), 10);
+            }
         }
+    }
+
+    // Alias for Game controller compatibility
+    public isTerminalVisible(): boolean {
+        return this.isChatActive();
+    }
+
+    public toggleTerminal(): void {
+        const isVisible = this.isTerminalVisible();
+        this.setVisible(!isVisible);
     }
 
     public isChatActive(): boolean {

@@ -28,6 +28,8 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
     const originalCreateCylinder = generator.createCylinder;
     const originalCreateMaterial = generator.createMaterial;
     const originalGetMat = generator.getMat;
+    // Override hasPhysics to prevent physics creation during export
+    const originalHasPhysics = generator.hasPhysics;
 
     const capturedObjects: any[] = [];
     const capturedMaterials: Record<string, string> = {}; // name -> hex color
@@ -46,6 +48,9 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
     const root = new TransformNode("export_root", scene);
 
     try {
+        // Disable physics for export
+        generator.hasPhysics = () => false;
+
         // Initialize with mock context
         // We use call/apply to ensure 'this' context if needed, but direct call is usually fine for these
         generator.initialize(mockContext);
@@ -140,6 +145,7 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
         generator.createCylinder = originalCreateCylinder;
         generator.createMaterial = originalCreateMaterial;
         generator.getMat = originalGetMat;
+        if (originalHasPhysics) generator.hasPhysics = originalHasPhysics;
     }
 
     // --- PROCESS RESULTS ---

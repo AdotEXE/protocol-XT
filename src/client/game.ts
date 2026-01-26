@@ -806,6 +806,26 @@ export class Game {
             }
         }, true);
 
+        // Chat System Shortcuts (Enter / Backquote)
+        window.addEventListener("keydown", (e) => {
+            // Enter or Backquote (~/`)
+            if ((e.code === "Enter" || e.code === "Backquote") && !e.ctrlKey && !e.altKey) {
+                if (this.chatSystem) {
+                    if (e.code === "Backquote") {
+                        e.preventDefault();
+                        // Use 'any' cast if method exists but not in type def yet, or assume it exists based on usage
+                        if ((this.chatSystem as any).toggleTerminal) (this.chatSystem as any).toggleTerminal();
+                    } else if (e.code === "Enter") {
+                        // Only open if closed
+                        if ((this.chatSystem as any).isTerminalVisible && !(this.chatSystem as any).isTerminalVisible()) {
+                            e.preventDefault();
+                            if ((this.chatSystem as any).toggleTerminal) (this.chatSystem as any).toggleTerminal();
+                        }
+                    }
+                }
+            }
+        });
+
         // F2: Скриншот
         window.addEventListener("keydown", async (e) => {
             if (e.code === "F2" && !e.ctrlKey && !e.altKey && !e.metaKey) {

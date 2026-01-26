@@ -565,13 +565,12 @@ export class TankHealthModule {
             // Устанавливаем флаг что части телепортированы
             (this.tank as any)._wasTeleportedToGarage = true;
 
-            // ШАГ 4: Небольшая пауза, затем анимация сборки
-            setTimeout(() => {
+            // ШАГ 4: Анимация сборки (детали стягиваются в центр)
+            this.animateAssembly(respawnPos, () => {
                 if (!this.tank.isAlive && this.tank.respawn) {
-                    console.log("[TANK] Starting assembly animation...");
                     this.tank.respawn();
                 }
-            }, 200);
+            });
         });
     }
 
@@ -616,14 +615,67 @@ export class TankHealthModule {
                 Math.random() * Math.PI * 2
             );
 
-            // КРИТИЧНО: Восстанавливаем видимость и прозрачность ВСЕХ частей
+            // КРИТИЧНО: Скрываем части, чтобы они плавно проявились в анимации сборки
             part.mesh.isVisible = true;
+            part.mesh.visibility = 0;
             if (part.mesh.material) {
-                (part.mesh.material as any).alpha = 1;
+                (part.mesh.material as any).alpha = 0;
             }
 
             console.log(`[TANK] Part ${part.name} teleported to (${teleportPos.x.toFixed(2)}, ${teleportPos.y.toFixed(2)}, ${teleportPos.z.toFixed(2)})`);
         }
+    }
+
+    /**
+     * Анимирует сборку танка из деталей (стягивание в центр + проявление)
+     */
+    private animateAssembly(centerPos: Vector3, onComplete: () => void): void {
+        const duration = 1000; // 1 секунда
+        const startTime = Date.now();
+
+        // Сохраняем начальные позиции
+        const startPositions: Map<Mesh, Vector3> = new Map();
+        this.destroyedParts.forEach(part => {
+            if (part.mesh && !part.mesh.isDisposed()) {
+                startPositions.set(part.mesh, part.mesh.position.clone());
+            }
+        });
+
+        const animate = () => {
+            const now = Date.now();
+            const progress = Math.min((now - startTime) / duration, 1.0);
+
+            // Ease Out Cubic
+            const ease = 1 - Math.pow(1 - progress, 3);
+
+            this.destroyedParts.forEach(part => {
+                if (part.mesh && !part.mesh.isDisposed()) {
+                    const startPos = startPositions.get(part.mesh);
+                    if (startPos) {
+                        // Целевая позиция = Центр респавна + Оригинальное смещение
+                        // Танк будет смотреть по дефолту (rotation 0,0,0)
+                        const targetPos = centerPos.add(part.originalLocalPos);
+
+                        // Интерполяция позиции
+                        Vector3.LerpToRef(startPos, targetPos, ease, part.mesh.position);
+
+                        // Интерполяция прозрачности
+                        part.mesh.visibility = progress;
+                        if (part.mesh.material) {
+                            (part.mesh.material as any).alpha = progress;
+                        }
+                    }
+                }
+            });
+
+            if (progress < 1.0) {
+                requestAnimationFrame(animate);
+            } else {
+                onComplete();
+            }
+        };
+
+        animate();
     }
 
     /**

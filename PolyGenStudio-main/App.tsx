@@ -2003,35 +2003,33 @@ export const App = () => {
                                             🎮 TEST IN GAME
                                         </button>
 
-                                        {/* HOT RELOAD BUTTON - Apply changes and return to game */}
-                                        {window.parent !== window && localStorage.getItem('polygen_test_mode_active') === 'true' && (
+                                        {/* EXPORT TO GAME BUTTON - Always show when in iframe */}
+                                        {window.parent !== window && (
                                             <button
                                                 onClick={() => {
-                                                    console.log('[PolyGen] ===== HOT RELOAD BUTTON CLICKED =====');
+                                                    console.log('[PolyGen] ===== EXPORT TO GAME CLICKED =====');
 
                                                     const mapData = exportForTest(cubes);
                                                     const jsonData = JSON.stringify(mapData);
 
                                                     try {
-                                                        localStorage.setItem('tx_test_map', jsonData);
-                                                        localStorage.setItem('selectedCustomMapData', jsonData);
-
-                                                        // Send HOT RELOAD message to parent
+                                                        // Send LOAD_CUSTOM_MAP message to parent (Protocol TX)
                                                         window.parent.postMessage({
-                                                            type: 'POLYGEN_HOT_RELOAD',
-                                                            mapData: mapData
+                                                            type: 'LOAD_CUSTOM_MAP',
+                                                            mapData: mapData,
+                                                            autoPlay: true
                                                         }, '*');
 
-                                                        showToast('🔥 Изменения применены!', 'success');
-                                                        addLog(`🔥 Hot-reload: ${mapData.placedObjects?.length} objects sent`, 'success');
+                                                        showToast('🚀 Отправлено в игру!', 'success');
+                                                        addLog(`🚀 Export: Sent ${mapData.placedObjects?.length} objects to Game`, 'success');
                                                     } catch (e) {
-                                                        console.error('[PolyGen] Hot-reload error:', e);
-                                                        showToast('❌ Ошибка hot-reload', 'error');
+                                                        console.error('[PolyGen] Export error:', e);
+                                                        showToast('❌ Ошибка отправки', 'error');
                                                     }
                                                 }}
-                                                className="w-full mt-2 py-2 px-4 rounded font-bold text-sm uppercase bg-orange-600 text-white hover:bg-orange-500 transition-colors flex items-center justify-center gap-2"
+                                                className="w-full mt-2 py-3 px-4 rounded-xl font-black text-sm uppercase bg-gradient-to-r from-green-600 to-emerald-600 text-white hover:from-green-500 hover:to-emerald-500 transition-all shadow-lg hover:shadow-green-500/20 flex items-center justify-center gap-2 border border-green-400/30"
                                             >
-                                                🔥 ПРИМЕНИТЬ И ВЕРНУТЬСЯ
+                                                <Icons.Upload /> ЭКСПОРТ В ИГРУ
                                             </button>
                                         )}
                                     </div>
