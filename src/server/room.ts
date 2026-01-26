@@ -10,26 +10,11 @@ import { CTFSystem } from "./ctf";
 import { InputValidator } from "./validation";
 import { logger, LogLevel, loggingSettings } from "../client/utils/logger";
 import { serverLogger } from "./logger";
+// SHARED: Import hitbox dimensions for SP/MP parity
+import { CHASSIS_HITBOX_DIMENSIONS, getChassisHitbox, type HitboxDimensions } from "../shared/hitboxDimensions";
 
-// Chassis dimensions lookup table (half-sizes for OBB check)
-// Format: { halfWidth, halfDepth, halfHeight }
-const CHASSIS_DIMENSIONS: Record<string, { halfWidth: number; halfDepth: number; halfHeight: number }> = {
-    racer: { halfWidth: 0.75, halfDepth: 1.3, halfHeight: 0.275 },
-    siege: { halfWidth: 1.5, halfDepth: 2.25, halfHeight: 0.55 },
-    amphibious: { halfWidth: 1.05, halfDepth: 1.8, halfHeight: 0.4 },
-    shield: { halfWidth: 1.15, halfDepth: 1.85, halfHeight: 0.45 },
-    artillery: { halfWidth: 1.4, halfDepth: 2.1, halfHeight: 0.5 },
-    light: { halfWidth: 0.9, halfDepth: 1.5, halfHeight: 0.35 },
-    medium: { halfWidth: 1.1, halfDepth: 1.75, halfHeight: 0.4 },
-    heavy: { halfWidth: 1.3, halfDepth: 2.0, halfHeight: 0.45 },
-    assault: { halfWidth: 1.2, halfDepth: 1.9, halfHeight: 0.425 },
-    scout: { halfWidth: 0.8, halfDepth: 1.4, halfHeight: 0.3 },
-    stealth: { halfWidth: 0.95, halfDepth: 1.6, halfHeight: 0.325 },
-    hover: { halfWidth: 1.0, halfDepth: 1.65, halfHeight: 0.375 },
-    destroyer: { halfWidth: 1.25, halfDepth: 2.0, halfHeight: 0.475 },
-    command: { halfWidth: 1.2, halfDepth: 1.95, halfHeight: 0.44 },
-    drone: { halfWidth: 1.1, halfDepth: 1.75, halfHeight: 0.425 },
-};
+// Alias for backward compatibility (uses shared dimensions now)
+const CHASSIS_DIMENSIONS = CHASSIS_HITBOX_DIMENSIONS;
 
 /**
  * Check OBB (Oriented Bounding Box) intersection with rotation
@@ -477,11 +462,11 @@ export class GameRoom {
                     const turretHalfH = halfH * 0.75; // 75% высоты корпуса
                     const turretHalfW = halfW * 0.65; // 65% ширины корпуса
                     const turretHalfD = halfD * 0.6;  // 60% глубины корпуса
-                    
+
                     // Позиция башни: выше корпуса на (высота корпуса / 2) + (высота башни / 2)
                     const turretY = targetPos.y + halfH + turretHalfH;
                     const turretCenter = new Vector3(targetPos.x, turretY, targetPos.z);
-                    
+
                     // Проверка попадания в башню (используем turretRotation вместо rotation танка)
                     isHit = this.checkOBBHit(projectile.position, turretCenter, player.turretRotation, turretHalfW, turretHalfD, turretHalfH, 0.5);
                 }

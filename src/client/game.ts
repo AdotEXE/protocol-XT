@@ -37,6 +37,7 @@ import { getPlayerGaragePosition } from "./maps/MapConstants";
 import { EnemyTank } from "./enemyTank";
 import { AICoordinator } from "./ai/AICoordinator";
 import { PerformanceOptimizer } from "./optimization/PerformanceOptimizer";
+import { AdaptiveQualityScaler, type QualitySettings } from "./optimization/AdaptiveQualityScaler";
 // MainMenu is lazy loaded - imported dynamically when needed
 import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
@@ -170,6 +171,9 @@ export class Game {
 
     // УЛУЧШЕНО: Performance Optimizer для LOD и culling
     performanceOptimizer: PerformanceOptimizer | undefined;
+
+    // OPTIMIZATION: Adaptive Quality Scaler for FPS optimization
+    adaptiveQualityScaler: AdaptiveQualityScaler | undefined;
 
     // Currency manager
     currencyManager: CurrencyManager | undefined;
@@ -3671,6 +3675,14 @@ export class Game {
             // УЛУЧШЕНО: Инициализация Performance Optimizer
             this.performanceOptimizer = new PerformanceOptimizer(this.scene);
 
+            // OPTIMIZATION: Initialize Adaptive Quality Scaler
+            this.adaptiveQualityScaler = new AdaptiveQualityScaler(this.engine, this.scene);
+            this.adaptiveQualityScaler.setOnQualityChange((quality: string, settings: QualitySettings) => {
+                logger.log(`[Game] Quality changed to ${quality} (Render Scale: ${settings.renderScale})`);
+                // Additional quality adjustments can be added here
+            });
+            this.adaptiveQualityScaler.start();
+
             // Оптимизируем все статические меши
             this.performanceOptimizer.optimizeAllStaticMeshes();
 
@@ -6647,8 +6659,15 @@ export class Game {
                     while (normalizedTurretRotY < -Math.PI) normalizedTurretRotY += Math.PI * 2;
                     this.cameraYaw = normalizedTurretRotY;
                 }
-                this.aimPitch = 0; // Только вертикаль сбрасываем
-                this.targetAimPitch = 0; // Сбрасываем целевой угол
+                // FIXED: Preserve tank's current aimPitch instead of resetting to 0
+                // This keeps keyboard-adjusted barrel angle (R/F keys)
+                if (this.tank) {
+                    this.aimPitch = this.tank.aimPitch;
+                    this.targetAimPitch = this.tank.aimPitch;
+                } else {
+                    this.aimPitch = 0;
+                    this.targetAimPitch = 0;
+                }
                 // Устанавливаем начальную дальность (горизонтальный выстрел)
                 // ОПТИМИЗАЦИЯ: Используем кэшированную высоту ствола
                 if (this.hud && this.tank && this.tank.barrel) {
@@ -6661,9 +6680,13 @@ export class Game {
             } else {
                 // === ВЫХОД ИЗ РЕЖИМА ПРИЦЕЛИВАНИЯ ===
                 // НЕ сбрасываем aimYaw - башня остаётся в текущем положении!
-                // Только сбрасываем pitch и zoom
-                this.aimPitch = 0;
-                this.targetAimPitch = 0; // Сбрасываем целевой угол
+                // FIXED: Sync aimPitch with tank instead of resetting to 0
+                // This preserves the barrel angle adjusted during aim mode
+                if (this.tank) {
+                    // Sync game aimPitch to tank for smooth transition
+                    this.tank.aimPitch = this.aimPitch;
+                }
+                this.targetAimPitch = this.aimPitch; // Keep current pitch
                 this.targetAimYaw = this.aimYaw; // Сохраняем текущий угол для плавного перехода
                 this.aimZoom = 0; // Сброс зума
                 this.targetAimZoom = 0; // Сброс целевого зума

@@ -218,11 +218,13 @@ export interface NetworkPlayer {
     lastPosition: Vector3;
     lastRotation: number;
     lastTurretRotation: number;
+    lastAimPitch: number; // Added for barrel pitch interpolation
     interpolationTime: number;
     // For cubic interpolation (spline)
     positionHistory: Vector3[]; // Last 3 positions for cubic spline
     rotationHistory: number[]; // Last 3 rotations
     turretRotationHistory: number[]; // Last 3 turret rotations
+    aimPitchHistory: number[]; // Last 3 aim pitches for smooth barrel interpolation
     // For dead reckoning (extrapolation)
     velocity: Vector3; // Calculated velocity for extrapolation
     angularVelocity: number; // Rotation speed
@@ -404,6 +406,12 @@ export class MultiplayerManager {
     private pingInterval: NodeJS.Timeout | null = null;
     private pingSequence: number = 0;
     private lastPongTime: number = 0;
+
+    // OPTIMIZATION: Adaptive ping interval configuration
+    private readonly PING_INTERVAL_MIN = 500;   // 0.5s - more frequent when unstable
+    private readonly PING_INTERVAL_MAX = 2000;  // 2s - less frequent when stable
+    private readonly PING_INTERVAL_BASE = 1000; // 1s - default
+    private currentPingInterval = 1000;         // Current adaptive interval
 
     public getPing(): number {
         return this.networkMetrics.rtt;
@@ -1187,18 +1195,23 @@ export class MultiplayerManager {
         // Reset last pong time
         this.lastPongTime = Date.now();
 
-        // Send ping every 1000ms
-        this.pingInterval = setInterval(() => {
+        // OPTIMIZATION: Use adaptive ping interval based on connection quality
+        // Using setTimeout chain instead of setInterval for dynamic interval adjustment
+        const schedulePing = () => {
             if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.sendPing();
+                // Schedule next ping with adaptive interval
+                this.pingInterval = setTimeout(schedulePing, this.currentPingInterval) as unknown as NodeJS.Timeout;
             } else {
                 // Stop ping if not connected
                 if (this.pingInterval) {
-                    clearInterval(this.pingInterval);
+                    clearTimeout(this.pingInterval);
                     this.pingInterval = null;
                 }
             }
-        }, 1000);
+        };
+        // Start ping chain with base interval
+        this.pingInterval = setTimeout(schedulePing, this.PING_INTERVAL_BASE) as unknown as NodeJS.Timeout;
 
         // Start health check (check every 2 seconds)
         this.healthCheckInterval = setInterval(() => {
@@ -1353,6 +1366,21 @@ export class MultiplayerManager {
             if (variations.length > 0) {
                 this.networkMetrics.jitter = variations.reduce((a, b) => a + b, 0) / variations.length;
             }
+        }
+
+        // OPTIMIZATION: Calculate adaptive ping interval based on connection quality
+        // High jitter = more frequent pings (better monitoring)
+        // Low jitter = less frequent pings (reduce overhead)
+        const jitterRatio = this.networkMetrics.jitter / Math.max(this.networkMetrics.rtt, 1);
+        if (jitterRatio > 0.3) {
+            // Unstable connection: ping more frequently
+            this.currentPingInterval = this.PING_INTERVAL_MIN;
+        } else if (jitterRatio > 0.1) {
+            // Moderate instability: use base interval
+            this.currentPingInterval = this.PING_INTERVAL_BASE;
+        } else {
+            // Stable connection: ping less frequently
+            this.currentPingInterval = this.PING_INTERVAL_MAX;
         }
     }
 
@@ -2454,11 +2482,13 @@ export class MultiplayerManager {
             lastPosition: initialPos.clone(),
             lastRotation: rotation,
             lastTurretRotation: turretRotation,
+            lastAimPitch: aimPitch, // Added for barrel pitch interpolation
             interpolationTime: 0,
             // Cubic interpolation (spline)
             positionHistory: [initialPos.clone(), initialPos.clone(), initialPos.clone()],
             rotationHistory: [rotation, rotation, rotation],
             turretRotationHistory: [turretRotation, turretRotation, turretRotation],
+            aimPitchHistory: [aimPitch, aimPitch, aimPitch], // Added for smooth barrel interpolation
             // Dead reckoning (extrapolation)
             velocity: new Vector3(0, 0, 0),
             angularVelocity: 0,
@@ -2614,6 +2644,7 @@ export class MultiplayerManager {
         }
         networkPlayer.lastRotation = networkPlayer.rotation;
         networkPlayer.lastTurretRotation = networkPlayer.turretRotation;
+        networkPlayer.lastAimPitch = networkPlayer.aimPitch; // Track previous aim pitch for interpolation
 
         // Update position history for cubic interpolation (keep last 3 positions)
         networkPlayer.positionHistory.shift(); // Remove oldest
@@ -2622,6 +2653,12 @@ export class MultiplayerManager {
         networkPlayer.rotationHistory.push(networkPlayer.rotation);
         networkPlayer.turretRotationHistory.shift();
         networkPlayer.turretRotationHistory.push(networkPlayer.turretRotation);
+        // ADDED: Update aimPitch history for smooth barrel interpolation
+        if (!networkPlayer.aimPitchHistory) {
+            networkPlayer.aimPitchHistory = [networkPlayer.aimPitch, networkPlayer.aimPitch, networkPlayer.aimPitch];
+        }
+        networkPlayer.aimPitchHistory.shift();
+        networkPlayer.aimPitchHistory.push(networkPlayer.aimPitch);
 
         // Update to new state
         networkPlayer.position.set(x, y, z);

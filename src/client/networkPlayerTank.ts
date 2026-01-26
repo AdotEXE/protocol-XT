@@ -769,10 +769,23 @@ export class NetworkPlayerTank {
             this.turret.rotation.y += turretDiff * lerpFactor;
         }
 
-        // Интерполяция угла ствола
+        // Интерполяция угла ствола (IMPROVED: Use history-based smoothing if available)
         if (this.barrel) {
-            const targetAimPitch = -(np.aimPitch || 0);
-            this.barrel.rotation.x += (targetAimPitch - this.barrel.rotation.x) * lerpFactor;
+            // Get target aim pitch (negated for correct visual rotation)
+            let targetAimPitch: number;
+
+            // Use history for smoother interpolation if available
+            if (np.aimPitchHistory && np.aimPitchHistory.length >= 3) {
+                // Use weighted average of history for smoother motion
+                const h = np.aimPitchHistory;
+                targetAimPitch = -(h[0]! * 0.15 + h[1]! * 0.35 + h[2]! * 0.50); // Weighted toward newest
+            } else {
+                targetAimPitch = -(np.aimPitch ?? 0);
+            }
+
+            // Use slightly higher lerp factor for barrel (more responsive than position)
+            const barrelLerpFactor = Math.min(lerpFactor * 1.5, 0.3);
+            this.barrel.rotation.x += (targetAimPitch - this.barrel.rotation.x) * barrelLerpFactor;
         }
 
         // Танк не должен проваливаться под землю
