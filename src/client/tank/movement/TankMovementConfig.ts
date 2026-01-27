@@ -41,28 +41,28 @@ export const DEFAULT_MOVEMENT_PARAMS: TankMovementParams = {
  */
 export const CHASSIS_MOVEMENT_PARAMS: Record<string, Partial<TankMovementParams>> = {
     light: {
-        maxForwardSpeed: 20,
-        maxBackwardSpeed: 12,
-        acceleration: 25,
-        turnSpeed: 80
+        maxForwardSpeed: 22, // +2
+        maxBackwardSpeed: 14, // +2
+        acceleration: 30, // +5: компенсация веса для легких
+        turnSpeed: 90 // +10
     },
     medium: {
-        maxForwardSpeed: 15,
-        maxBackwardSpeed: 8,
-        acceleration: 20,
-        turnSpeed: 60
+        maxForwardSpeed: 16, // +1
+        maxBackwardSpeed: 9, // +1
+        acceleration: 22, // +2
+        turnSpeed: 65 // +5
     },
     heavy: {
-        maxForwardSpeed: 10,
-        maxBackwardSpeed: 5,
-        acceleration: 12,
-        turnSpeed: 40
+        maxForwardSpeed: 11, // +1
+        maxBackwardSpeed: 6, // +1
+        acceleration: 15, // +3: чтобы не был слишком вялым
+        turnSpeed: 45 // +5
     },
     superheavy: {
-        maxForwardSpeed: 6,
-        maxBackwardSpeed: 3,
-        acceleration: 8,
-        turnSpeed: 25
+        maxForwardSpeed: 7, // +1
+        maxBackwardSpeed: 4, // +1
+        acceleration: 10, // +2
+        turnSpeed: 30 // +5
     }
 };
 

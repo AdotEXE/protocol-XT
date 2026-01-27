@@ -355,16 +355,16 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
         },
         stability: {
             hoverStiffness: 7000,
-            hoverDamping: 18000,
-            linearDamping: 0.8,
-            angularDamping: 4.0,
+            hoverDamping: 22000, // УВЕЛИЧЕНО с 18000: меньше пружинит, более тяжелое ощущение
+            linearDamping: 1.2, // УВЕЛИЧЕНО с 0.8: быстрее останавливается (инерция массы)
+            angularDamping: 6.0, // УВЕЛИЧЕНО с 4.0: более точный поворот без "заносов"
             suspensionCompression: 4.0,
-            uprightForce: 18000,
-            uprightDamp: 8000,
-            stabilityForce: 3000,
-            emergencyForce: 18000,
+            uprightForce: 25000, // УВЕЛИЧЕНО с 18000: сильнее держит вертикаль
+            uprightDamp: 12000, // УВЕЛИЧЕНО с 8000: плавнее возврат
+            stabilityForce: 5000, // УВЕЛИЧЕНО с 3000: общая стабильность
+            emergencyForce: 25000, // УВЕЛИЧЕНО с 18000: мощнее восстановление при перевороте
             liftForce: 0,
-            downForce: 1500,
+            downForce: 3000, // УВЕЛИЧЕНО с 1500: прижимает к земле сильнее (грип)
         },
         movement: {
             turnAccel: 11000,
@@ -425,13 +425,13 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             collideMask: 2 | 32,
         },
         arcade: {
-            antiRollFactor: 0, // ОТКЛЮЧЕНО
-            downforceFactor: 0, // ОТКЛЮЧЕНО
-            airControl: 0.15, // ВКЛЮЧЕНО: управление в воздухе для траекторных прыжков
-            angularDragAir: 0.5, // ВКЛЮЧЕНО: предотвращает бесконечное вращение в воздухе
-            uprightForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
-            uprightDamp: 0, // ОТКЛЮЧЕНО (не используется в arcade)
-            emergencyForce: 0, // ОТКЛЮЧЕНО (не используется в arcade)
+            antiRollFactor: 0, // ОТКЛЮЧЕНО - используем uprightForce из stability
+            downforceFactor: 0, // ОТКЛЮЧЕНО - используем downForce из stability
+            airControl: 0.25, // УВЕЛИЧЕНО с 0.15: чуть больше контроля в воздухе для фана
+            angularDragAir: 0.8, // УВЕЛИЧЕНО с 0.5: меньше бесконечного вращения в полёте
+            uprightForce: 0, // ОТКЛЮЧЕНО
+            uprightDamp: 0, // ОТКЛЮЧЕНО
+            emergencyForce: 0, // ОТКЛЮЧЕНО
         },
     },
     turret: {
@@ -849,7 +849,7 @@ export function loadPhysicsConfigFromStorage(): boolean {
     try {
         const stored = localStorage.getItem(STORAGE_KEY);
         if (!stored) return false;
-        
+
         const parsed = JSON.parse(stored);
         const deserialized = deserializeConfig(parsed);
         deepMerge(PHYSICS_CONFIG, deserialized);

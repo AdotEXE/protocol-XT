@@ -458,6 +458,65 @@ export class TankObjectEditor {
     }
     
     /**
+     * Тестирование на полигоне
+     */
+    private testOnPolygon(): void {
+        if (!this.targetObject) {
+            alert('Выберите танк для тестирования!');
+            return;
+        }
+        
+        // Получаем текущую конфигурацию
+        const config = (this.targetObject.properties as any)?.workshopConfig as WorkshopConfig | undefined;
+        
+        if (!config) {
+            alert('Нет конфигурации для тестирования! Настройте параметры танка.');
+            return;
+        }
+        
+        // Сохраняем конфигурацию для теста
+        const testConfig = {
+            ...config,
+            testMode: true,
+            testMap: 'polygon', // Используем полигон для тестирования
+            objectId: this.targetObject.id,
+            objectType: this.targetObject.type
+        };
+        
+        // Сохраняем в localStorage для загрузки в игре
+        localStorage.setItem('workshopTestConfig', JSON.stringify(testConfig));
+        localStorage.setItem('workshopTestMap', 'polygon');
+        localStorage.setItem('workshopTestRequested', 'true');
+        localStorage.setItem('workshopTestObjectId', this.targetObject.id);
+        
+        // Показываем инструкцию
+        const confirmed = confirm(
+            'Конфигурация сохранена для теста на полигоне!\n\n' +
+            'Закройте редактор карт и запустите игру на карте "Полигон" для тестирования.\n\n' +
+            'Хотите открыть меню игры сейчас?'
+        );
+        
+        if (confirmed) {
+            // Пытаемся найти и вызвать меню игры
+            const gameWindow = window as any;
+            if (gameWindow.game && gameWindow.game.mainMenu) {
+                // Закрываем редактор карт
+                if (this.onClose) {
+                    this.onClose();
+                }
+                // Показываем меню
+                if (gameWindow.game.mainMenu.show) {
+                    gameWindow.game.mainMenu.show();
+                }
+            } else {
+                alert('Меню игры не найдено. Закройте редактор карт вручную и запустите игру.');
+            }
+        }
+        
+        console.log('[Workshop] Test config saved:', testConfig);
+    }
+    
+    /**
      * Очистить ресурсы
      */
     dispose(): void {
