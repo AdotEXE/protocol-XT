@@ -1116,6 +1116,7 @@ export class GameMultiplayerCallbacks {
         }
 
         // Update HUD Network Indicator
+        // ИСПРАВЛЕНО: Обновляем PING и DRIFT каждый кадр для актуальных значений
         if (this.deps.hud && this.deps.multiplayerManager) {
             const ping = this.deps.multiplayerManager.getPing();
             let drift = 0;
@@ -1128,6 +1129,8 @@ export class GameMultiplayerCallbacks {
                 );
             }
 
+            // КРИТИЧНО: Всегда обновляем, даже если значения не изменились
+            // Это гарантирует актуальное отображение PING и DRIFT
             if (this.deps.hud.updateConnectionQuality) {
                 this.deps.hud.updateConnectionQuality(ping, drift);
             }

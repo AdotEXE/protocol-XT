@@ -48,6 +48,7 @@ import { ConsumablesManager, CONSUMABLE_TYPES } from "./consumables";
 import { ChatSystem } from "./chatSystem";
 import { getHotkeyManager } from "./hotkeyManager";
 import { getVoiceChatManager } from "./voiceChat";
+import { getSupplyDropSystem, SupplyDropSystem } from "./supplyDropSystem";
 import { ExperienceSystem } from "./experienceSystem";
 import { PlayerProgressionSystem } from "./playerProgression";
 import { AimingSystem } from "./aimingSystem";
@@ -249,6 +250,10 @@ export class Game {
 
     // Voice Chat
     private voiceChatInitialized: boolean = false;
+
+    // Supply Drop System
+    supplyDropSystem: SupplyDropSystem | null = null;
+    private _physicsViewer: any = null; // PhysicsViewer
 
     // Game modules - lazy initialization to prevent initialization order issues
     private _gameGarage: GameGarage | undefined;
@@ -968,6 +973,44 @@ export class Game {
                     this.canvas.style.opacity = "1";
                 }
 
+
+                // Инициализация SupplyDropSystem
+                if (this.scene) {
+                    this.supplyDropSystem = getSupplyDropSystem(this.scene, (x, z) => {
+                        return this.chunkSystem ? this.chunkSystem.getHeightAt(x, z) : 0;
+                    });
+                    if (this.supplyDropSystem) {
+                        // Default map size 500 if not available
+                        const mapSize = (this.chunkSystem as any)?.mapSize || 500;
+                        this.supplyDropSystem.initialize(mapData, mapSize);
+                        logger.log("[Game] SupplyDropSystem initialized");
+                    }
+                }
+
+                // Настройка F3 для просмотра хитбоксов (Physics Viewer)
+                window.addEventListener("keydown", (ev) => {
+                    if (ev.code === "F3") {
+                        if (this.scene) {
+                            if (!this._physicsViewer) {
+                                import("@babylonjs/core/Debug/physicsViewer").then(({ PhysicsViewer }) => {
+                                    this._physicsViewer = new PhysicsViewer(this.scene);
+                                    for (const mesh of this.scene.meshes) {
+                                        if (mesh.physicsBody) {
+                                            this._physicsViewer.showBody(mesh.physicsBody);
+                                        }
+                                    }
+                                    logger.log("[Game] Physics Viewer Enabled");
+                                    if (this.hud) this.hud.showMessage("Physics Debug ON", "#0f0", 2000);
+                                });
+                            } else {
+                                if (this._physicsViewer.dispose) this._physicsViewer.dispose();
+                                this._physicsViewer = null;
+                                logger.log("[Game] Physics Viewer Disabled");
+                                if (this.hud) this.hud.showMessage("Physics Debug OFF", "#f00", 2000);
+                            }
+                        }
+                    }
+                });
 
                 logger.log("[Game] Calling startGame()...");
                 this.startGame();
@@ -6674,12 +6717,11 @@ export class Game {
                         this.targetAimPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, newPitch));
                     }
 
-                    // ИСПРАВЛЕНИЕ: Плавная интерполяция aimPitch с учетом deltaTime для независимости от FPS
+                    // ИСПРАВЛЕНО: Минимальная автодоводка только для вертикальной наводки
                     const pitchDiff = this.targetAimPitch - this.aimPitch;
-                    // Используем адаптивное сглаживание: быстрее при больших изменениях, медленнее при малых
-                    const pitchEasing = Math.min(1.0, Math.abs(pitchDiff) * 5);
-                    const adaptivePitchSmoothing = this.aimPitchSmoothing * (0.5 + pitchEasing * 0.5);
-                    this.aimPitch += pitchDiff * adaptivePitchSmoothing;
+                    // Минимальное сглаживание: только 5% от разницы (было адаптивное сглаживание)
+                    const minimalPitchSmoothing = 0.05;
+                    this.aimPitch += pitchDiff * minimalPitchSmoothing;
                     // Передаем aimPitch в танк для применения к стволу
                     if (this.tank) {
                         this.tank.aimPitch = this.aimPitch;
@@ -7062,28 +7104,20 @@ export class Game {
                 // Плавно увеличиваем прогресс перехода
                 this.aimingTransitionProgress = Math.min(1.0, this.aimingTransitionProgress + this.aimingTransitionSpeed);
 
-                // === ПЛАВНАЯ ИНТЕРПОЛЯЦИЯ ГОРИЗОНТАЛЬНОГО ПРИЦЕЛИВАНИЯ ===
-                // Плавно интерполируем aimYaw к targetAimYaw для более плавного движения
-                let yawDiff = this.targetAimYaw - this.aimYaw;
-                // Нормализуем разницу в диапазон [-PI, PI] для правильной интерполяции
-                while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
-                while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
-                // Используем адаптивное сглаживание: быстрее при больших изменениях, медленнее при малых
-                const yawEasing = Math.min(1.0, Math.abs(yawDiff) * 2);
-                const adaptiveYawSmoothing = this.aimYawSmoothing * (0.5 + yawEasing * 0.5);
-                this.aimYaw += yawDiff * adaptiveYawSmoothing;
+                // === ГОРИЗОНТАЛЬНОЕ ПРИЦЕЛИВАНИЕ (БЕЗ АВТОДОВОДКИ) ===
+                // ИСПРАВЛЕНО: Убрана автодоводка для горизонтальной наводки - мгновенная реакция
+                this.aimYaw = this.targetAimYaw;
 
                 // Нормализуем aimYaw
                 while (this.aimYaw > Math.PI) this.aimYaw -= Math.PI * 2;
                 while (this.aimYaw < -Math.PI) this.aimYaw += Math.PI * 2;
 
-                // === ПЛАВНАЯ ИНТЕРПОЛЯЦИЯ ВЕРТИКАЛЬНОГО ПРИЦЕЛИВАНИЯ ===
-                // Плавно интерполируем aimPitch к targetAimPitch для более плавного движения
+                // === МИНИМАЛЬНАЯ АВТОДОВОДКА ТОЛЬКО ДЛЯ ВЕРТИКАЛЬНОЙ НАВОДКИ ===
+                // ИСПРАВЛЕНО: Минимальная автодоводка только для вертикального прицеливания (pitch)
                 const pitchDiff = this.targetAimPitch - this.aimPitch;
-                // Используем адаптивное сглаживание: быстрее при больших изменениях, медленнее при малых
-                const pitchEasing = Math.min(1.0, Math.abs(pitchDiff) * 5);
-                const adaptivePitchSmoothing = this.aimPitchSmoothing * (0.5 + pitchEasing * 0.5);
-                this.aimPitch += pitchDiff * adaptivePitchSmoothing;
+                // Минимальное сглаживание: только 5% от разницы (было 12% * адаптивное)
+                const minimalPitchSmoothing = 0.05;
+                this.aimPitch += pitchDiff * minimalPitchSmoothing;
 
                 // === ПЛАВНАЯ ИНТЕРПОЛЯЦИЯ ЗУМА (0x-4x) ===
                 const zoomDiff = this.targetAimZoom - this.aimZoom;
@@ -8653,7 +8687,10 @@ export class Game {
                 this.hud.updateMultiplayerScore?.(team0Score, team1Score, gameMode);
 
                 // Update player list
-                this.hud.updatePlayerList?.(playerList, localPlayerId || "");
+                // ИСПРАВЛЕНО: Передаем текущие mapId и roomId для фильтрации статистики
+                const currentMapId = this.currentMapType;
+                const currentRoomId = this.multiplayerManager?.getRoomId();
+                this.hud.updatePlayerList?.(playerList, localPlayerId || "", currentMapId, currentRoomId);
 
                 // Update minimap players
                 if (this.tank && this.tank.chassis) {

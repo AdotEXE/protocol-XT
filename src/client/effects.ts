@@ -71,6 +71,17 @@ export class EffectsManager {
         }
     }
 
+    /**
+     * Вспомогательная функция для создания меша эффекта без коллизий
+     * КРИТИЧНО: Все эффекты должны быть без коллизий для производительности
+     */
+    private createEffectMesh(name: string, options: any): Mesh {
+        const mesh = MeshBuilder.CreateBox(name, options, this.scene);
+        mesh.isPickable = false; // Отключаем пикинг
+        mesh.checkCollisions = false; // Отключаем проверку коллизий
+        return mesh;
+    }
+
     // УЛУЧШЕНО: Метод для создания следа снаряда (используется в NetworkProjectile)
     createProjectileTrail(position: Vector3, color: Color3, size: number = 0.4, lifetime: number = 400): void {
         if (this.particleEffects) {
@@ -105,7 +116,7 @@ export class EffectsManager {
     // Улучшенный эффект использования припаса - свечение вокруг танка
     createConsumableEffect(position: Vector3, color: Color3, _type: string): void {
         // Основное светящееся кольцо (расширяется) - replaced cylinder with box
-        const ring = MeshBuilder.CreateBox("consumableRing", { width: 5, height: 0.3, depth: 5 }, this.scene);
+        const ring = this.createEffectMesh("consumableRing", { width: 5, height: 0.3, depth: 5 });
         ring.position = position.clone();
         ring.position.y = 1;
         ring.rotation.x = Math.PI / 2;
@@ -117,7 +128,7 @@ export class EffectsManager {
         ring.material = ringMat;
 
         // Второе кольцо (меньше, для глубины) - replaced cylinder with box
-        const ring2 = MeshBuilder.CreateBox("consumableRing2", { width: 3, height: 0.2, depth: 3 }, this.scene);
+        const ring2 = this.createEffectMesh("consumableRing2", { width: 3, height: 0.2, depth: 3 });
         ring2.position = position.clone();
         ring2.position.y = 1.1;
         ring2.rotation.x = Math.PI / 2;
@@ -156,7 +167,7 @@ export class EffectsManager {
         // УЛУЧШЕНО: Улучшенные частицы (больше и ярче)
         const particleCount = 20; // УВЕЛИЧЕНО с 16 до 20 для более эффектного вида
         for (let i = 0; i < particleCount; i++) {
-            const particle = MeshBuilder.CreateBox("particle", { size: 0.3 }, this.scene); // УВЕЛИЧЕН размер с 0.25 до 0.3
+            const particle = this.createEffectMesh("particle", { size: 0.3 }); // УВЕЛИЧЕН размер с 0.25 до 0.3
             particle.position = position.clone();
             particle.position.y = 1;
 
@@ -196,7 +207,7 @@ export class EffectsManager {
         }
 
         // Центральная вспышка
-        const flash = MeshBuilder.CreateBox("consumableFlash", { size: 1.5 }, this.scene);
+        const flash = this.createEffectMesh("consumableFlash", { size: 1.5 });
         flash.position = position.clone();
         flash.position.y = 1.5;
 
@@ -247,7 +258,7 @@ export class EffectsManager {
     // Эффект подбора припаса (на карте)
     createPickupEffect(position: Vector3, color: Color3, _type: string): void {
         // Вспышка при подборе
-        const pickupFlash = MeshBuilder.CreateBox("pickupFlash", { size: 1.2 }, this.scene);
+        const pickupFlash = this.createEffectMesh("pickupFlash", { size: 1.2 });
         pickupFlash.position = position.clone();
         pickupFlash.position.y = 1;
 
@@ -273,7 +284,7 @@ export class EffectsManager {
         flashAnimate();
 
         // Кольцо энергии (replaced cylinder with box)
-        const energyRing = MeshBuilder.CreateBox("energyRing", { width: 2, height: 0.2, depth: 2 }, this.scene);
+        const energyRing = this.createEffectMesh("energyRing", { width: 2, height: 0.2, depth: 2 });
         energyRing.position = position.clone();
         energyRing.position.y = 1;
         energyRing.rotation.x = Math.PI / 2;
@@ -301,7 +312,7 @@ export class EffectsManager {
 
         // Частицы вверх
         for (let i = 0; i < 12; i++) {
-            const particle = MeshBuilder.CreateBox("pickupParticle", { size: 0.2 }, this.scene);
+            const particle = this.createEffectMesh("pickupParticle", { size: 0.2 });
             particle.position = position.clone();
             particle.position.y = 1;
             particle.material = ringMat;
@@ -373,7 +384,7 @@ export class EffectsManager {
             }
         }
         
-        const flash = MeshBuilder.CreateBox("flash", { width: flashSize, height: flashSize, depth: 0.3 }, this.scene);
+        const flash = this.createEffectMesh("flash", { width: flashSize, height: flashSize, depth: 0.3 });
         flash.position = position.add(direction.scale(0.5));
         this.activeEffects.add(flash); // Добавить в отслеживание
 
@@ -429,7 +440,7 @@ export class EffectsManager {
         }
 
         // Main explosion box (expanding) - replaced sphere with box
-        const explosion = MeshBuilder.CreateBox("explosion", { width: 0.7 * scale, height: 0.7 * scale, depth: 0.7 * scale }, this.scene);
+        const explosion = this.createEffectMesh("explosion", { width: 0.7 * scale, height: 0.7 * scale, depth: 0.7 * scale });
         explosion.position = position.clone();
         this.activeEffects.add(explosion); // Добавить в отслеживание
 
@@ -478,11 +489,11 @@ export class EffectsManager {
                     }
                 }
                 
-                const ringMesh = MeshBuilder.CreateBox("explosionRing", {
+                const ringMesh = this.createEffectMesh("explosionRing", {
                     width: 0.3 * scale,
                     height: 0.1 * scale,
                     depth: 0.3 * scale
-                }, this.scene);
+                });
                 ringMesh.position = position.clone();
                 ringMesh.position.y += ring * 0.5;
                 this.activeEffects.add(ringMesh); // Добавить в отслеживание
@@ -522,7 +533,7 @@ export class EffectsManager {
         const debrisCount = Math.floor(6 * scale);
         for (let i = 0; i < debrisCount; i++) {
             const debrisSize = (0.2 + Math.random() * 0.3) * scale;
-            const debris = MeshBuilder.CreateBox("debris", { size: debrisSize }, this.scene);
+            const debris = this.createEffectMesh("debris", { size: debrisSize });
             debris.position = position.clone();
             this.activeEffects.add(debris); // Добавить в отслеживание
 
@@ -571,7 +582,7 @@ export class EffectsManager {
         }
 
         // УЛУЧШЕНО: Flash effect с alpha анимацией
-        const flash = MeshBuilder.CreateBox("flash", { width: 0.3 * scale, height: 0.3 * scale, depth: 0.3 * scale }, this.scene);
+        const flash = this.createEffectMesh("flash", { width: 0.3 * scale, height: 0.3 * scale, depth: 0.3 * scale });
         flash.position = position.clone();
         const flashMat = new StandardMaterial("flashMat", this.scene);
         flashMat.diffuseColor = new Color3(1, 1, 0.8); // Bright yellow-white
@@ -610,7 +621,7 @@ export class EffectsManager {
             this.particleEffects.createDust(position);
         }
 
-        const dust = MeshBuilder.CreateBox("dust", { size: 1 }, this.scene);
+        const dust = this.createEffectMesh("dust", { size: 1 });
         dust.position = position.clone();
         dust.material = this.dustMat;
 
@@ -636,7 +647,7 @@ export class EffectsManager {
             this.particleEffects.createHit(position, direction);
         }
 
-        const spark = MeshBuilder.CreateBox("spark", { size: 0.3 }, this.scene);
+        const spark = this.createEffectMesh("spark", { size: 0.3 });
         spark.position = position.clone();
         spark.material = this.flashMat;
 
@@ -651,7 +662,7 @@ export class EffectsManager {
         }
 
         // Основная искра - золотой цвет
-        const spark = MeshBuilder.CreateBox("ricochetSpark", { size: 0.4 }, this.scene);
+        const spark = this.createEffectMesh("ricochetSpark", { size: 0.4 });
         spark.position = position.clone();
 
         const sparkMat = new StandardMaterial("ricochetSparkMat", this.scene);
@@ -664,7 +675,7 @@ export class EffectsManager {
         const particleCount = 5;
         const particles: Mesh[] = [];
         for (let i = 0; i < particleCount; i++) {
-            const particle = MeshBuilder.CreateBox(`ricochetParticle${i}`, { size: 0.15 }, this.scene);
+            const particle = this.createEffectMesh(`ricochetParticle${i}`, { size: 0.15 });
             particle.position = position.clone();
 
             const particleMat = new StandardMaterial(`ricochetParticleMat${i}`, this.scene);
@@ -715,11 +726,11 @@ export class EffectsManager {
     // Эффект респавна - светящееся кольцо и частицы
     createRespawnEffect(position: Vector3): void {
         // Основное светящееся кольцо (replaced cylinder with box)
-        const ring = MeshBuilder.CreateBox("respawnRing", {
+        const ring = this.createEffectMesh("respawnRing", {
             width: 6,
             height: 0.4,
             depth: 6
-        }, this.scene);
+        });
         ring.position = position.clone();
         ring.position.y = 1;
         ring.rotation.x = Math.PI / 2;
@@ -748,7 +759,7 @@ export class EffectsManager {
 
         // Частицы вверх (энергия)
         for (let i = 0; i < 12; i++) {
-            const particle = MeshBuilder.CreateBox("respawnParticle", { size: 0.3 }, this.scene);
+            const particle = this.createEffectMesh("respawnParticle", { size: 0.3 });
             particle.position = position.clone();
             particle.position.y = 0.5;
 
@@ -779,7 +790,7 @@ export class EffectsManager {
         }
 
         // Вспышка в центре
-        const flash = MeshBuilder.CreateBox("respawnFlash", { size: 2 }, this.scene);
+        const flash = this.createEffectMesh("respawnFlash", { size: 2 });
         flash.position = position.clone();
         flash.position.y = 1.5;
 
@@ -811,11 +822,11 @@ export class EffectsManager {
         const _direction = end.subtract(start).normalize(); void _direction;
 
         // Main tracer line - brighter and thicker (replaced cylinder with box)
-        const tracer = MeshBuilder.CreateBox("tracer", {
+        const tracer = this.createEffectMesh("tracer", {
             width: 0.15,
             height: length,
             depth: 0.15
-        }, this.scene);
+        });
 
         const mid = start.add(end).scale(0.5);
         tracer.position = mid;
@@ -846,7 +857,7 @@ export class EffectsManager {
         fade();
 
         // Glow effect at start (replaced sphere with box)
-        const glow = MeshBuilder.CreateBox("tracerGlow", { width: 0.3, height: 0.3, depth: 0.3 }, this.scene);
+        const glow = this.createEffectMesh("tracerGlow", { width: 0.3, height: 0.3, depth: 0.3 });
         glow.position = start.clone();
         const glowMat = new StandardMaterial("tracerGlowMat", this.scene);
         glowMat.diffuseColor = new Color3(1, 1, 0.5);
@@ -983,7 +994,7 @@ export class EffectsManager {
         const particleCount = Math.floor(2 + intensity * 2);
 
         for (let i = 0; i < particleCount; i++) {
-            const dust = MeshBuilder.CreateBox("moveDust", { size: 0.4 + Math.random() * 0.3 }, this.scene);
+            const dust = this.createEffectMesh("moveDust", { size: 0.4 + Math.random() * 0.3 });
             dust.position = position.clone();
             dust.position.x += (Math.random() - 0.5) * 2;
             dust.position.z += (Math.random() - 0.5) * 2;
@@ -1017,7 +1028,7 @@ export class EffectsManager {
     // Subtle, barely visible smoke when tank has low health
     createLowHealthSmoke(position: Vector3): void {
         // Create a very subtle, transparent smoke particle
-        const smoke = MeshBuilder.CreateBox("lowHealthSmoke", { size: 0.3 + Math.random() * 0.2 }, this.scene);
+        const smoke = this.createEffectMesh("lowHealthSmoke", { size: 0.3 + Math.random() * 0.2 });
         smoke.position = position.clone();
         smoke.position.x += (Math.random() - 0.5) * 0.5;
         smoke.position.z += (Math.random() - 0.5) * 0.5;
@@ -1060,7 +1071,7 @@ export class EffectsManager {
 
     createPlasmaBurst(position: Vector3): void {
         // Plasma burst - expanding magenta box (replaced sphere with box)
-        const burst = MeshBuilder.CreateBox("plasmaBurst", { width: 0.3, height: 0.3, depth: 0.3 }, this.scene);
+        const burst = this.createEffectMesh("plasmaBurst", { width: 0.3, height: 0.3, depth: 0.3 });
         burst.position = position.clone();
 
         const mat = new StandardMaterial("plasmaBurstMat", this.scene);
@@ -1088,7 +1099,7 @@ export class EffectsManager {
     createIceShards(position: Vector3): void {
         // Ice shards - multiple blue crystals
         for (let i = 0; i < 8; i++) {
-            const shard = MeshBuilder.CreateBox("iceShard", { size: 0.2 }, this.scene);
+            const shard = this.createEffectMesh("iceShard", { size: 0.2 });
             shard.position = position.clone();
             shard.rotation.set(
                 Math.random() * Math.PI * 2,
@@ -1124,7 +1135,7 @@ export class EffectsManager {
 
     createPoisonCloud(position: Vector3): void {
         // Poison cloud - expanding green cloud (replaced sphere with box)
-        const cloud = MeshBuilder.CreateBox("poisonCloud", { width: 0.5, height: 0.5, depth: 0.5 }, this.scene);
+        const cloud = this.createEffectMesh("poisonCloud", { width: 0.5, height: 0.5, depth: 0.5 });
         cloud.position = position.clone();
         cloud.position.y += 0.5;
 
@@ -1154,7 +1165,7 @@ export class EffectsManager {
     createFireEffect(position: Vector3): void {
         // Fire effect - upward flames
         for (let i = 0; i < 6; i++) {
-            const flame = MeshBuilder.CreateBox("flame", { width: 0.15, height: 0.4, depth: 0.15 }, this.scene);
+            const flame = this.createEffectMesh("flame", { width: 0.15, height: 0.4, depth: 0.15 });
             flame.position = position.clone();
             flame.position.x += (Math.random() - 0.5) * 0.5;
             flame.position.z += (Math.random() - 0.5) * 0.5;

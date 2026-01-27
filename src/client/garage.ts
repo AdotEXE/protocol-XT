@@ -16,7 +16,8 @@ import { initPreviewScene, cleanupPreviewScene, updatePreviewTank, type PreviewS
 import { injectGarageStyles } from "./garage/ui";
 import { TankEditor, TankConfiguration } from "./tank/tankEditor";
 import { SKIN_PRESETS, saveSelectedSkin, loadSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMaterial } from "./tank/tankSkins";
-import { MODULE_PRESETS } from "./tank/modules";
+import { MODULES, getModuleById } from "./config/moduleRegistry";
+import { TankEquipmentModule } from "./tank/tankEquipment";
 
 // ============ INTERFACES ============
 
@@ -274,20 +275,19 @@ export class Garage {
         };
     });
 
-    // УЛУЧШЕНО: Модули из централизованного хранилища с 5 новыми модулями
-    private moduleParts: TankPart[] = MODULE_PRESETS.map(module => ({
+    // УЛУЧШЕНО: Модули из централизованного хранилища (New Registry)
+    private moduleParts: TankPart[] = MODULES.map(module => ({
         id: module.id,
-        name: module.icon ? `${module.icon} ${module.name}` : module.name,
+        name: module.name,
         description: module.description,
-        cost: module.cost,
-        unlocked: module.unlocked,
+        cost: module.price,
+        unlocked: module.rarity === 'common', // Common items unlocked by default
         type: "module" as const,
         stats: {
-            armor: module.stats.armor ? module.stats.armor * 100 : undefined,
-            speed: module.stats.speed ? module.stats.speed * 100 : undefined,
-            reload: module.stats.reload ? Math.abs(module.stats.reload) * 100 : undefined,
-            damage: module.stats.damage ? module.stats.damage * 100 : undefined,
-            health: module.stats.health ? module.stats.health * 100 : undefined,
+            speed: module.stats.speedMultiplier ? (module.stats.speedMultiplier - 1) * 100 : undefined,
+            armor: module.stats.armorMultiplier ? (module.stats.armorMultiplier - 1) * 100 : undefined,
+            reload: module.stats.reloadMultiplier ? (1 - module.stats.reloadMultiplier) * 100 : undefined,
+            health: module.stats.hpAdd
         }
     }));
 
@@ -3512,7 +3512,7 @@ export class Garage {
             this.openWorkshop();
             return;
         }
-        
+
         this.currentCategory = cat;
         this.selectedItemIndex = 0;
 
@@ -3522,9 +3522,9 @@ export class Garage {
 
         this.refreshItemList();
     }
-    
+
     private workshopUI: any = null;
-    
+
     private openWorkshop(): void {
         // Импортируем и открываем WorkshopUI
         import('./workshop/WorkshopUI').then(module => {
@@ -3576,7 +3576,7 @@ export class Garage {
                     stats: {}
                 }));
             case "presets": return this.getPresetParts(); // Пресеты танков
-            case "workshop": 
+            case "workshop":
                 // Workshop не показывает список элементов, открывает отдельный UI
                 return [];
             default: return [];
@@ -4185,7 +4185,10 @@ export class Garage {
             const equipped = !isUpgrade && (
                 ((item as TankPart).type === 'chassis' && item.id === activeChassis) ||
                 ((item as TankPart).type === 'barrel' && item.id === activeCannon) ||
-                ((item as TankPart).type === 'module' && item.id === activeTrack)
+                ((item as TankPart).type === 'module' && this.trackParts.find(t => t.id === item.id) && item.id === activeTrack) ||
+                ((item as TankPart).type === 'module' && !this.trackParts.find(t => t.id === item.id) &&
+                    (this.tankController as any)?.equipment?.installedModules?.values() &&
+                    Array.from((this.tankController as any).equipment.installedModules.values()).includes((item as TankPart).id))
             );
 
             // Проверяем pending - выбранное, но ещё не примененное
@@ -4561,7 +4564,10 @@ export class Garage {
             ((item as TankPart).type === 'chassis' && item.id === this.currentChassisId) ||
             ((item as TankPart).type === 'barrel' && item.id === this.currentCannonId) ||
             ((item as TankPart).type === 'module' && this.trackParts.find(t => t.id === item.id) && item.id === this.currentTrackId) ||
-            (this.currentCategory === 'skins' && item.id === this.currentSkinId)
+            (this.currentCategory === 'skins' && item.id === this.currentSkinId) ||
+            ((item as TankPart).type === 'module' && !this.trackParts.find(t => t.id === item.id) &&
+                (this.tankController as any)?.equipment?.installedModules?.values() &&
+                Array.from((this.tankController as any).equipment.installedModules.values()).includes((item as TankPart).id))
         );
 
         // Define new models
@@ -4876,6 +4882,15 @@ export class Garage {
             // Очищаем pending для скина
             this.pendingSkinId = null;
             localStorage.removeItem("pendingSkin");
+        } else if (part.type === 'module') {
+            // New Equipment System
+            const tank = this.tankController as any;
+            if (tank && tank.equipment) {
+                const success = tank.equipment.equip(part.id);
+                if (success) {
+                    this.showNotification(`Модуль "${part.name}" установлен!`, "success");
+                }
+            }
         }
 
         this.saveProgress();

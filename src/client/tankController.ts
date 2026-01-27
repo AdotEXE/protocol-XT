@@ -28,6 +28,7 @@ import { TankHealthModule } from "./tank/tankHealth";
 import { TankMovementModule } from "./tank/tankMovement";
 import { TankProjectilesModule } from "./tank/tankProjectiles";
 import { TankVisualsModule } from "./tank/tankVisuals";
+import { TankEquipmentModule } from "./tank/tankEquipment";
 import type { ChassisAnimationElements } from "./tank/tankChassis";
 import { CHASSIS_SIZE_MULTIPLIERS } from "./tank/tankChassis";
 import type { ShellCasing } from "./tank/types";
@@ -102,6 +103,7 @@ export class TankController {
     private movementModule: TankMovementModule;
     private projectilesModule: TankProjectilesModule;
     private visualsModule: TankVisualsModule;
+    public equipment: TankEquipmentModule;
 
     // Эффекты движения
     private _lastMovementSoundTime: number = 0;
@@ -588,6 +590,7 @@ export class TankController {
         this.movementModule = new TankMovementModule(this);
         this.projectilesModule = new TankProjectilesModule(this);
         this.visualsModule = new TankVisualsModule(this);
+        this.equipment = new TankEquipmentModule(this);
 
         // 6. Build visuals and load configuration
         this.rebuildTankVisuals(position);
@@ -1230,6 +1233,17 @@ export class TankController {
 
         // Update Position Cache
         this._cachedChassisPosition.copyFrom(this.chassis.absolutePosition);
+
+        // КРИТИЧНО: Сохраняем базовые характеристики для работы модулей
+        if (!this._characteristicsInitialized) {
+            this._initialMoveSpeed = this.moveSpeed;
+            this._initialTurnSpeed = this.turnSpeed;
+            this._initialCooldown = this.cooldown; // Используем cooldown (1800) как базу
+            this._initialDamage = this.damage;
+            this._initialMaxHealth = this.maxHealth;
+            this._characteristicsInitialized = true;
+            logger.log(`[TankController] Initial characteristics saved: Speed=${this.moveSpeed}, CD=${this.cooldown}, HP=${this.maxHealth}`);
+        }
 
         logger.log("[TANK-REBUILD] Visuals Rebuilt Successfully");
     }
@@ -6120,12 +6134,15 @@ export class TankController {
             // Вместо этого полагаемся на parent-child hierarchy в Babylon.js
 
             // === UPDATE HUD (every 6th frame for optimization) ===
+            // ИСПРАВЛЕНО: updateReload() вызывается в updateHUD() с правильными параметрами
+            // Не вызываем updateReload() здесь, чтобы не перезаписывать правильное состояние
             if (this._tick % 6 === 0 && this.hud && isFinite(fwdSpeed)) {
                 this.hud.setSpeed(fwdSpeed);
                 if (isFinite(pos.x) && isFinite(pos.z)) {
                     this.hud.setPosition(pos.x, pos.z, pos.y);
                 }
-                this.hud.updateReload();
+                // ИСПРАВЛЕНО: updateReload() вызывается в updateHUD() (строка 4709)
+                // Не вызываем здесь, чтобы не перезаписывать правильное состояние
             }
 
             // === UPDATE ENGINE SOUND (каждые 2 кадра для оптимизации) with 3D positioning ===

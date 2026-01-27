@@ -5014,13 +5014,22 @@ updateReload(progress ?: number, isReloading ?: boolean) {
     if (progress !== undefined && isReloading !== undefined) {
         const reloadGlow = (this.reloadBar as any)?._reloadGlow as Rectangle;
 
+        // КРИТИЧНО: Убеждаемся, что элементы видимы
+        this.reloadBar.isVisible = true;
+        this.reloadFill.isVisible = true;
+        this.reloadText.isVisible = true;
+
         if (isReloading) {
-            this.reloadFill.width = `${Math.min(100, Math.max(0, progress * 100))}%`;
+            const progressPercent = Math.min(100, Math.max(0, progress * 100));
+            this.reloadFill.width = `${progressPercent}%`;
             this.reloadFill.background = "#ff3300";
-            this.reloadText.text = "RELOADING...";
+            this.reloadText.text = `RELOADING... ${Math.round(progressPercent)}%`;
             this.reloadText.color = "#ff3300";
 
-            if (reloadGlow) reloadGlow.alpha = 0.1;
+            if (reloadGlow) {
+                reloadGlow.width = `${progressPercent}%`;
+                reloadGlow.alpha = 0.1;
+            }
         } else {
             this.reloadFill.width = "100%";
             this.reloadFill.background = "#0f0";
@@ -9660,7 +9669,11 @@ updatePlayerList(players: Array<{
     score: number;
     team?: number;
     isAlive: boolean;
-}>, localPlayerId: string): void {
+    mapId?: string;  // ИСПРАВЛЕНО: Добавлена поддержка фильтрации по карте
+    roomId?: string; // ИСПРАВЛЕНО: Добавлена поддержка фильтрации по комнате
+}>, localPlayerId: string, currentMapId?: string, currentRoomId?: string): void {
+    // ИСПРАВЛЕНО: Фильтруем статистику только для текущей карты/комнаты
+    // Показываем только игроков из текущей игры, а не всю статистику из localStorage
     // ДИАГНОСТИКА: Логируем только при изменении количества игроков или раз в 30 секунд
     const now = Date.now();
     const shouldLog = (now - this._lastPlayerListLogTime) > 30000 || players.length !== this._lastPlayerListCount;
@@ -9690,8 +9703,24 @@ for (const item of this.playerListItems.values()) {
 }
 this.playerListItems.clear();
 
+// ИСПРАВЛЕНО: Фильтруем игроков только для текущей карты/комнаты
+// Показываем только игроков из текущей игры, а не всю статистику из localStorage
+let filteredPlayers = players;
+if (currentMapId || currentRoomId) {
+    filteredPlayers = players.filter(player => {
+        // Если у игрока указаны mapId/roomId, проверяем соответствие
+        if (player.mapId && currentMapId && player.mapId !== currentMapId) {
+            return false;
+        }
+        if (player.roomId && currentRoomId && player.roomId !== currentRoomId) {
+            return false;
+        }
+        return true;
+    });
+}
+
 // Sort players by score (descending)
-const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+const sortedPlayers = [...filteredPlayers].sort((a, b) => b.score - a.score);
 
 sortedPlayers.forEach((player, index) => {
     const item = new Rectangle(`playerListItem_${player.id}`);

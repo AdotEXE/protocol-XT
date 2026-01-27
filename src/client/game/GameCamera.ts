@@ -448,8 +448,10 @@ export class GameCamera {
             this.targetAimPitch = Math.max(-Math.PI / 18, Math.min(Math.PI / 36, newPitch));
         }
 
-        // Smooth pitch interpolation
-        this.aimPitch += (this.targetAimPitch - this.aimPitch) * this.aimPitchSmoothing;
+        // ИСПРАВЛЕНО: Минимальная автодоводка только для вертикальной наводки
+        const pitchDiff = this.targetAimPitch - this.aimPitch;
+        const minimalPitchSmoothing = 0.05; // Только 5% от разницы
+        this.aimPitch += pitchDiff * minimalPitchSmoothing;
         if (this.tank) {
             this.tank.aimPitch = this.aimPitch;
         }
@@ -808,23 +810,18 @@ export class GameCamera {
         // Плавно переходим в режим прицеливания
         this.aimingTransitionProgress = Math.min(1.0, this.aimingTransitionProgress + this.aimingTransitionSpeed);
 
-        // УЛУЧШЕНО: Более плавная интерполяция горизонтального прицеливания
-        let yawDiff = this.targetAimYaw - this.aimYaw;
-        while (yawDiff > Math.PI) yawDiff -= Math.PI * 2;
-        while (yawDiff < -Math.PI) yawDiff += Math.PI * 2;
-        // Плавное торможение при приближении к цели (easing)
-        const yawEasing = Math.min(1.0, Math.abs(yawDiff) * 2);
-        this.aimYaw += yawDiff * this.aimYawSmoothing * (0.5 + yawEasing * 0.5);
+        // ИСПРАВЛЕНО: Убрана автодоводка для горизонтальной наводки - мгновенная реакция
+        this.aimYaw = this.targetAimYaw;
 
         // Нормализуем aimYaw
         while (this.aimYaw > Math.PI) this.aimYaw -= Math.PI * 2;
         while (this.aimYaw < -Math.PI) this.aimYaw += Math.PI * 2;
 
-        // УЛУЧШЕНО: Более плавная интерполяция вертикального прицеливания
+        // ИСПРАВЛЕНО: Минимальная автодоводка только для вертикальной наводки
         const pitchDiff = this.targetAimPitch - this.aimPitch;
-        // Плавное торможение при приближении к цели
-        const pitchEasing = Math.min(1.0, Math.abs(pitchDiff) * 10);
-        this.aimPitch += pitchDiff * this.aimPitchSmoothing * (0.3 + pitchEasing * 0.7);
+        // Минимальное сглаживание: только 5% от разницы
+        const minimalPitchSmoothing = 0.05;
+        this.aimPitch += pitchDiff * minimalPitchSmoothing;
 
         // Синхронизируем aimPitch с танком для стрельбы
         this.tank.aimPitch = this.aimPitch;

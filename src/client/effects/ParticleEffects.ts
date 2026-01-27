@@ -390,7 +390,8 @@ export class ParticleEffects {
             }
         } else {
             mesh = MeshBuilder.CreateBox("particle", { size: size }, this.scene);
-            mesh.isPickable = false;
+            mesh.isPickable = false; // КРИТИЧНО: Отключаем пикинг для частиц
+            mesh.checkCollisions = false; // КРИТИЧНО: Отключаем проверку коллизий для частиц
         }
 
         return mesh;
