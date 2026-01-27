@@ -43,12 +43,15 @@ interface JoystickData {
     container: Rectangle;
     base: Ellipse;
     knob: Ellipse;
+    outerRing?: Ellipse; // Для визуальной обратной связи auto-run
     pointerId: number | null;
     startX: number;
     startY: number;
     valueX: number;
     valueY: number;
     fadeTimeout: number | null;
+    autoRunTimer: number; // Таймер для активации auto-run
+    autoRunActive: boolean; // Активен ли auto-run
 }
 
 /**
@@ -59,8 +62,14 @@ export class FloatingJoystick {
     private config: FloatingJoystickConfig;
     private joystick: JoystickData | null = null;
     private onValueChange: ((x: number, y: number) => void) | null = null;
+    private onAutoRunChange: ((active: boolean) => void) | null = null;
     private side: 'left' | 'right';
     private enabled: boolean = true;
+    
+    // Auto-run конфигурация
+    private autoRunActivationRadius: number = 0.95; // 95% от максимального радиуса
+    private autoRunActivationTime: number = 2000; // 2 секунды
+    private autoRunAnimationFrame: number | null = null;
 
     constructor(
         guiTexture: AdvancedDynamicTexture,
@@ -195,16 +204,33 @@ export class FloatingJoystick {
         knob.isPointerBlocker = false;
         container.addControl(knob);
 
+        // Внешнее кольцо для визуальной обратной связи auto-run (только для левого джойстика)
+        let outerRing: Ellipse | undefined;
+        if (this.side === 'left') {
+            outerRing = new Ellipse(`joystickOuterRing_${this.side}`);
+            outerRing.width = `${size + 20}px`;
+            outerRing.height = `${size + 20}px`;
+            outerRing.thickness = 3;
+            outerRing.color = cfg.color;
+            outerRing.background = "transparent";
+            outerRing.alpha = 0;
+            outerRing.isPointerBlocker = false;
+            container.addControl(outerRing);
+        }
+
         this.joystick = {
             container,
             base,
             knob,
+            outerRing,
             pointerId,
             startX: x,
             startY: y,
             valueX: 0,
             valueY: 0,
-            fadeTimeout: null
+            fadeTimeout: null,
+            autoRunTimer: 0,
+            autoRunActive: false
         };
     }
 
@@ -260,8 +286,68 @@ export class FloatingJoystick {
         this.joystick.valueX = deltaX / maxRadius;
         this.joystick.valueY = -deltaY / maxRadius; // Инвертируем Y
 
+        // Проверка активации auto-run (только для левого джойстика, только вперед)
+        if (this.side === 'left' && this.joystick.valueY > 0) {
+            const distance = Math.sqrt(this.joystick.valueX * this.joystick.valueX + this.joystick.valueY * this.joystick.valueY);
+            
+            if (distance >= this.autoRunActivationRadius && !this.joystick.autoRunActive) {
+                // Увеличиваем таймер
+                this.joystick.autoRunTimer += 16; // Примерно 60fps
+                
+                // Визуальная обратная связь
+                if (this.joystick.outerRing) {
+                    const progress = Math.min(1, this.joystick.autoRunTimer / this.autoRunActivationTime);
+                    this.joystick.outerRing.alpha = 0.5 + progress * 0.5;
+                    // Изменение цвета: зеленый -> желтый -> красный
+                    if (progress < 0.5) {
+                        this.joystick.outerRing.color = "#00ff44";
+                    } else if (progress < 0.8) {
+                        this.joystick.outerRing.color = "#ffaa00";
+                    } else {
+                        this.joystick.outerRing.color = "#ff0000";
+                    }
+                }
+                
+                // Активация auto-run
+                if (this.joystick.autoRunTimer >= this.autoRunActivationTime) {
+                    this.joystick.autoRunActive = true;
+                    if (this.onAutoRunChange) {
+                        this.onAutoRunChange(true);
+                    }
+                    // Визуальная обратная связь активации
+                    if (this.joystick.outerRing) {
+                        this.joystick.outerRing.color = "#00ff00";
+                        this.joystick.outerRing.alpha = 1.0;
+                        this.startAutoRunPulse();
+                    }
+                }
+            } else {
+                // Сброс таймера если не на максимальном радиусе
+                if (distance < this.autoRunActivationRadius) {
+                    this.joystick.autoRunTimer = 0;
+                    if (this.joystick.outerRing) {
+                        this.joystick.outerRing.alpha = 0;
+                    }
+                    
+                    // Деактивация auto-run если был активен
+                    if (this.joystick.autoRunActive) {
+                        this.joystick.autoRunActive = false;
+                        if (this.onAutoRunChange) {
+                            this.onAutoRunChange(false);
+                        }
+                        this.stopAutoRunPulse();
+                    }
+                }
+            }
+        }
+
         if (this.onValueChange) {
-            this.onValueChange(this.joystick.valueX, this.joystick.valueY);
+            // Если auto-run активен, всегда отправляем максимальный throttle вперед
+            if (this.joystick.autoRunActive && this.side === 'left') {
+                this.onValueChange(this.joystick.valueX, 1.0); // Максимальный throttle
+            } else {
+                this.onValueChange(this.joystick.valueX, this.joystick.valueY);
+            }
         }
     }
 
@@ -277,9 +363,24 @@ export class FloatingJoystick {
             if (!touch) continue;
 
             if (touch.identifier === this.joystick.pointerId) {
+                // Деактивация auto-run
+                if (this.joystick.autoRunActive) {
+                    this.joystick.autoRunActive = false;
+                    if (this.onAutoRunChange) {
+                        this.onAutoRunChange(false);
+                    }
+                    this.stopAutoRunPulse();
+                }
+                
                 // Reset values
                 if (this.onValueChange) {
                     this.onValueChange(0, 0);
+                }
+
+                // Сброс таймера
+                this.joystick.autoRunTimer = 0;
+                if (this.joystick.outerRing) {
+                    this.joystick.outerRing.alpha = 0;
                 }
 
                 // Fade out
@@ -318,6 +419,49 @@ export class FloatingJoystick {
      */
     setOnValueChange(callback: (x: number, y: number) => void): void {
         this.onValueChange = callback;
+    }
+
+    /**
+     * Установить callback изменения auto-run
+     */
+    setOnAutoRunChange(callback: (active: boolean) => void): void {
+        this.onAutoRunChange = callback;
+    }
+
+    /**
+     * Запустить пульсацию для визуальной обратной связи auto-run
+     */
+    private startAutoRunPulse(): void {
+        if (!this.joystick || !this.joystick.outerRing) return;
+        
+        let pulsePhase = 0;
+        const pulse = () => {
+            if (!this.joystick || !this.joystick.outerRing || !this.joystick.autoRunActive) {
+                this.autoRunAnimationFrame = null;
+                return;
+            }
+            
+            pulsePhase += 0.1;
+            const alpha = 0.7 + Math.sin(pulsePhase) * 0.3;
+            this.joystick.outerRing!.alpha = alpha;
+            
+            this.autoRunAnimationFrame = requestAnimationFrame(pulse);
+        };
+        
+        this.autoRunAnimationFrame = requestAnimationFrame(pulse);
+    }
+
+    /**
+     * Остановить пульсацию
+     */
+    private stopAutoRunPulse(): void {
+        if (this.autoRunAnimationFrame !== null) {
+            cancelAnimationFrame(this.autoRunAnimationFrame);
+            this.autoRunAnimationFrame = null;
+        }
+        if (this.joystick && this.joystick.outerRing) {
+            this.joystick.outerRing.alpha = 0;
+        }
     }
 
     /**

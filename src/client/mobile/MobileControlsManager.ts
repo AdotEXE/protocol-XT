@@ -24,6 +24,12 @@ import { FloatingJoystick } from "./FloatingJoystick";
 import { AimZoomButton } from "./AimZoomButton";
 import { MobileHUD } from "./MobileHUD";
 import { MobilePerformance } from "./MobilePerformance";
+import { DynamicOpacityManager } from "./DynamicOpacityManager";
+import { VirtualScrollWheel } from "./VirtualScrollWheel";
+import { GunElevationSlider } from "./GunElevationSlider";
+import { FreeLookZone } from "./FreeLookZone";
+import { RadialMenu, RadialMenuItem } from "./RadialMenu";
+import { ContextualRepair, DamagedModule } from "./ContextualRepair";
 
 /**
  * Состояние ввода для мобильного управления
@@ -46,6 +52,17 @@ export interface MobileInputState {
     // Зум
     zoomIn: boolean;
     zoomOut: boolean;
+    zoom: number; // Текущий уровень зума (1.0 - 4.0)
+    
+    // Возвышение орудия
+    gunElevation: number; // Угол в градусах (-15 до +30)
+    
+    // Free-look камера
+    freeLookDeltaX: number;
+    freeLookDeltaY: number;
+    
+    // Auto-run
+    autoRun: boolean;
 
     // Дополнительные действия
     pause: boolean;
@@ -88,8 +105,24 @@ export class MobileControlsManager {
     private mobileHUD: MobileHUD | null = null;
     private performance: MobilePerformance | null = null;
 
+    // Новые компоненты Ghost HUD
+    private opacityManager: DynamicOpacityManager | null = null;
+    private scrollWheel: VirtualScrollWheel | null = null;
+    private gunElevationSlider: GunElevationSlider | null = null;
+    private freeLookZone: FreeLookZone | null = null;
+    private radialMenu: RadialMenu | null = null;
+    private contextualRepair: ContextualRepair | null = null;
+    
+    // Sniper sensitivity
+    private baseSensitivity: number = 0.0004;
+    private sniperSensitivity: number = 0.0001;
+    private currentSensitivity: number = 0.0004;
+
     // Дополнительные кнопки
     private buttons: Map<string, Ellipse> = new Map();
+    
+    // Update loop
+    private updateLoopId: number | null = null;
 
     // Состояние ввода
     private inputState: MobileInputState = {
@@ -101,6 +134,11 @@ export class MobileControlsManager {
         fire: false,
         zoomIn: false,
         zoomOut: false,
+        zoom: 1.0,
+        gunElevation: 0,
+        freeLookDeltaX: 0,
+        freeLookDeltaY: 0,
+        autoRun: false,
         pause: false,
         centerTurret: false,
         cameraUp: false,
@@ -201,6 +239,122 @@ export class MobileControlsManager {
 
         // Мобильный HUD
         this.mobileHUD = new MobileHUD(this.guiTexture);
+
+        // Инициализация новых компонентов Ghost HUD
+        this.initializeGhostHUD();
+        
+        // Запуск цикла обновления
+        this.startUpdateLoop();
+    }
+
+    /**
+     * Инициализация компонентов Ghost HUD
+     */
+    private initializeGhostHUD(): void {
+        // Dynamic Opacity Manager
+        this.opacityManager = new DynamicOpacityManager();
+        
+        // Virtual Scroll Wheel для плавного зума
+        this.scrollWheel = new VirtualScrollWheel(this.guiTexture);
+        this.scrollWheel.setOnZoomChange((zoom) => {
+            this.inputState.zoom = zoom;
+            this.opacityManager?.setZoom(zoom);
+            this.updateSniperSensitivity(zoom);
+            // Эмулируем изменение зума через события
+            window.dispatchEvent(new CustomEvent('mobileZoomChange', { detail: { zoom } }));
+            this.notifyInputChange();
+        });
+        
+        // Gun Elevation Slider
+        this.gunElevationSlider = new GunElevationSlider(this.guiTexture);
+        this.gunElevationSlider.setOnAngleChange((angle) => {
+            this.inputState.gunElevation = angle;
+            window.dispatchEvent(new CustomEvent('gunElevationChange', { detail: { angle } }));
+            this.notifyInputChange();
+        });
+        
+        // Free-Look Zone
+        this.freeLookZone = new FreeLookZone(this.guiTexture);
+        this.freeLookZone.setOnFreeLookChange((deltaX, deltaY) => {
+            this.inputState.freeLookDeltaX = deltaX;
+            this.inputState.freeLookDeltaY = deltaY;
+            window.dispatchEvent(new CustomEvent('freeLookChange', { detail: { deltaX, deltaY } }));
+            this.notifyInputChange();
+        });
+        
+        // Radial Menu для модулей
+        this.radialMenu = new RadialMenu(this.guiTexture);
+        
+        // Contextual Repair
+        this.contextualRepair = new ContextualRepair(this.guiTexture);
+        
+        // Регистрация элементов в opacity manager
+        this.registerOpacityElements();
+        
+        // Auto-run для левого джойстика
+        if (this.leftJoystick) {
+            this.leftJoystick.setOnAutoRunChange((active) => {
+                this.inputState.autoRun = active;
+                this.notifyInputChange();
+            });
+        }
+        
+        // Слушаем события повреждения модулей
+        window.addEventListener('moduleDamaged', ((e: CustomEvent) => {
+            const module: DamagedModule = e.detail;
+            this.contextualRepair?.onModuleDamaged(module);
+        }) as EventListener);
+        
+        window.addEventListener('moduleRepaired', ((e: CustomEvent) => {
+            const moduleId: string = e.detail.moduleId;
+            this.contextualRepair?.onModuleRepaired(moduleId);
+        }) as EventListener);
+    }
+
+    /**
+     * Зарегистрировать элементы в opacity manager
+     */
+    private registerOpacityElements(): void {
+        if (!this.opacityManager) return;
+        
+        // Регистрируем все кнопки
+        this.buttons.forEach((button, id) => {
+            const category = id === 'fire' ? 'critical' : 'secondary';
+            this.opacityManager!.registerElement(id, button, category);
+        });
+        
+        // Регистрируем джойстики (через их контейнеры)
+        // Это будет сделано после создания джойстиков
+    }
+
+    /**
+     * Обновить чувствительность для режима снайпера
+     */
+    private updateSniperSensitivity(zoom: number): void {
+        const isSniper = zoom >= 3.5;
+        const targetSensitivity = isSniper ? this.sniperSensitivity : this.baseSensitivity;
+        
+        // Плавная интерполяция
+        const diff = targetSensitivity - this.currentSensitivity;
+        this.currentSensitivity += diff * 0.15;
+        
+        // Отправляем событие изменения чувствительности
+        window.dispatchEvent(new CustomEvent('sniperSensitivityChange', {
+            detail: { sensitivity: this.currentSensitivity, zoom }
+        }));
+    }
+
+    /**
+     * Запустить цикл обновления
+     */
+    private startUpdateLoop(): void {
+        const update = () => {
+            if (this.opacityManager) {
+                this.opacityManager.update();
+            }
+            this.updateLoopId = requestAnimationFrame(update);
+        };
+        this.updateLoopId = requestAnimationFrame(update);
     }
 
     /**
@@ -442,12 +596,38 @@ export class MobileControlsManager {
         if (this.aimZoomButton) {
             this.aimZoomButton.setVisible(visible);
         }
+        if (this.scrollWheel) {
+            this.scrollWheel.setVisible(visible);
+        }
+        if (this.gunElevationSlider) {
+            this.gunElevationSlider.setVisible(visible);
+        }
+        if (this.freeLookZone) {
+            this.freeLookZone.setEnabled(visible);
+        }
+        if (this.contextualRepair) {
+            this.contextualRepair.setVisible(visible);
+        }
         this.buttons.forEach(button => {
             button.isVisible = visible;
         });
         if (this.mobileHUD) {
             this.mobileHUD.setVisible(visible);
         }
+    }
+    
+    /**
+     * Получить менеджер прозрачности (для внешнего доступа)
+     */
+    getOpacityManager(): DynamicOpacityManager | null {
+        return this.opacityManager;
+    }
+    
+    /**
+     * Получить текущую чувствительность (для интеграции с камерой)
+     */
+    getCurrentSensitivity(): number {
+        return this.currentSensitivity;
     }
 
     /**
@@ -463,6 +643,12 @@ export class MobileControlsManager {
      * Уничтожить менеджер
      */
     dispose(): void {
+        // Остановить цикл обновления
+        if (this.updateLoopId !== null) {
+            cancelAnimationFrame(this.updateLoopId);
+            this.updateLoopId = null;
+        }
+        
         // if (this.orientationHandler) {
         // this.orientationHandler.dispose();
         // }
@@ -478,6 +664,27 @@ export class MobileControlsManager {
         if (this.mobileHUD) {
             this.mobileHUD.dispose();
         }
+        
+        // Уничтожить новые компоненты
+        if (this.opacityManager) {
+            this.opacityManager.dispose();
+        }
+        if (this.scrollWheel) {
+            this.scrollWheel.dispose();
+        }
+        if (this.gunElevationSlider) {
+            this.gunElevationSlider.dispose();
+        }
+        if (this.freeLookZone) {
+            this.freeLookZone.dispose();
+        }
+        if (this.radialMenu) {
+            this.radialMenu.dispose();
+        }
+        if (this.contextualRepair) {
+            this.contextualRepair.dispose();
+        }
+        
         this.buttons.forEach(button => {
             this.guiTexture.removeControl(button);
             button.dispose();
