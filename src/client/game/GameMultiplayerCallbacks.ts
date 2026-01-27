@@ -1083,10 +1083,12 @@ export class GameMultiplayerCallbacks {
         this.processPendingNetworkPlayers();
 
         // Update network players interpolation
-        const mm = this.deps.multiplayerManager;
-        if (mm) {
-            mm.getNetworkPlayers().forEach(player => {
-                player.update(deltaTime);
+        // Используем networkPlayerTanks из deps, а не getNetworkPlayers()
+        if (this.deps.networkPlayerTanks) {
+            this.deps.networkPlayerTanks.forEach(tank => {
+                if (tank && typeof tank.update === 'function') {
+                    tank.update(deltaTime);
+                }
             });
         }
 
@@ -1304,7 +1306,22 @@ export class GameMultiplayerCallbacks {
 
         // Setup reconciliation callback for client-side prediction
         mm.onReconciliation((data) => {
-            this.handleReconciliation(data);
+            // Преобразуем PlayerData в формат, ожидаемый handleReconciliation
+            if (data.serverState) {
+                const playerData = data.serverState;
+                const position = playerData.position;
+                this.handleReconciliation({
+                    serverState: {
+                        x: position instanceof Vector3 ? position.x : (position?.x || 0),
+                        y: position instanceof Vector3 ? position.y : (position?.y || 0),
+                        z: position instanceof Vector3 ? position.z : (position?.z || 0),
+                        rotation: playerData.rotation,
+                        turretRotation: playerData.turretRotation,
+                        aimPitch: playerData.aimPitch
+                    },
+                    positionDiff: data.positionDiff
+                });
+            }
         });
     }
 
@@ -1322,6 +1339,9 @@ export class GameMultiplayerCallbacks {
     private _localPlayerServerAimPitch: number = 0;
     private _hasLocalPlayerServerTarget: boolean = false;
     private _isFirstServerUpdate: boolean = true;
+    
+    // Серверное состояние для визуализации и отладки
+    private serverState: { x: number; y: number; z: number } | null = null;
 
     // Скорость интерполяции к серверу (настраиваемая)
     // 0.15 = достигаем цели примерно за 100ms при 60 FPS
@@ -1417,18 +1437,25 @@ export class GameMultiplayerCallbacks {
         const serverPos = data.serverState;
         
         // Проверяем и сохраняем позицию
+        let targetPos: Vector3 | null = null;
         if (serverPos instanceof Vector3) {
-            this._localPlayerServerTarget = serverPos.clone();
+            targetPos = serverPos.clone();
         } else if (serverPos && typeof serverPos === 'object' && 'x' in serverPos && 'y' in serverPos && 'z' in serverPos) {
             const pos = serverPos as { x: number; y: number; z: number };
             if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' &&
                 isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
-                this._localPlayerServerTarget = new Vector3(pos.x, pos.y, pos.z);
+                targetPos = new Vector3(pos.x, pos.y, pos.z);
             } else {
                 return; // Невалидные данные - игнорируем
             }
         } else {
             return; // Невалидный формат - игнорируем
+        }
+
+        if (targetPos) {
+            this._localPlayerServerTarget = targetPos;
+            // Сохраняем serverState для визуализации
+            this.serverState = { x: targetPos.x, y: targetPos.y, z: targetPos.z };
         }
 
         // ЛОГИРОВАНИЕ: Показываем что получили данные от сервера (раз в секунду)

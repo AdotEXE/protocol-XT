@@ -40,6 +40,20 @@ window.fetch = function (...args: Parameters<typeof fetch>) {
     return originalFetch.apply(this, args);
 };
 
+// Aggressive Browser Hotkey Blocker
+window.addEventListener('keydown', (e) => {
+    // Block Ctrl+S, Ctrl+P, Ctrl+U, F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
+    if (
+        (e.ctrlKey && (e.code === 'KeyS' || e.code === 'KeyP' || e.code === 'KeyU')) ||
+        e.code === 'F12' ||
+        (e.ctrlKey && e.shiftKey && (e.code === 'KeyI' || e.code === 'KeyJ' || e.code === 'KeyC'))
+    ) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+    }
+}, true);
+
 // Global resize handler for UI scaling
 let resizeTimeout: number | null = null;
 window.addEventListener('resize', () => {
