@@ -1,0 +1,118 @@
+# Protocol TX - Cursor AI Rules
+
+## 🎯 Project Context
+Protocol TX is a high-performance, multiplayer 3D tank combat simulator built with:
+- **Frontend**: TypeScript, Babylon.js 8.40, Vite 7.2, React
+- **Backend**: Node.js, WebSocket (Geckos.io), Express
+- **Physics**: Havok Physics Engine
+- **Architecture**: Client-Server separation (src/client, src/server, src/shared)
+
+## 🏗️ Architecture Principles
+
+### Code Organization
+- **Client** (`src/client/`): Rendering, input, prediction, UI
+- **Server** (`src/server/`): Authoritative game state, physics validation, synchronization
+- **Shared** (`src/shared/`): Common types, constants, utilities
+- Use path aliases: `@client/*`, `@server/*`, `@shared/*`
+
+### Performance Requirements
+- Target: 60 FPS gameplay
+- Use adaptive update intervals (camera every frame, HUD every 6 frames, chunks every 16 frames)
+- Cache expensive operations: `getAbsolutePosition()`, `computeWorldMatrix()`, raycasts
+- Implement LOD system for distant objects (disable enemy details beyond 150m)
+- Material pooling for shared materials
+- Limit active effects to 50 maximum
+- Use simplified physics (ANIMATED mode) for distant objects
+
+### Code Style
+- **TypeScript strict mode**: Always use proper types, avoid `any`
+- **No unused variables**: Keep code clean
+- **Consistent naming**: 
+  - Classes: PascalCase
+  - Functions/Methods: camelCase
+  - Constants: UPPER_SNAKE_CASE
+  - Private members: prefix with `_`
+- **Documentation**: Use JSDoc for public APIs, complex logic
+- **Error handling**: Always handle errors, use try-catch for async operations
+
+## 🚀 Development Workflow
+
+### Before Making Changes
+1. Check existing documentation in `docs/` folder
+2. Review related files using semantic search
+3. Understand the architecture impact
+4. Consider performance implications
+
+### When Writing Code
+1. **Follow existing patterns**: Match the style of surrounding code
+2. **Optimize for performance**: Cache calculations, use object pooling where appropriate
+3. **Handle edge cases**: Null checks, boundary conditions, network failures
+4. **Add comments**: Explain "why", not "what" (code should be self-documenting)
+5. **Type everything**: No implicit `any`, use proper interfaces/types
+
+### Multiplayer Considerations
+- Server is authoritative: All game state changes must be validated server-side
+- Client prediction: Implement client-side prediction for smooth gameplay
+- Network optimization: Use binary protocols (msgpack), minimize data sent
+- Synchronization: 60Hz sync rate, use delta compression
+
+### Physics & Gameplay
+- Use Havok Physics for all collisions
+- Implement hover mechanics with anisotropic friction
+- Ballistic system: Realistic trajectories with gravity and travel time
+- Destructible environment: Breakable objects, changing cover
+
+## 📝 File Naming Conventions
+- Components: `PascalCase.ts` (e.g., `TankController.ts`)
+- Utilities: `camelCase.ts` (e.g., `mathUtils.ts`)
+- Types: `types.ts` or `*.types.ts`
+- Configs: `*.config.ts` or `*.config.json`
+
+## 🔍 Code Search Strategy
+- Use semantic search for understanding architecture and data flow
+- Use grep for exact symbol/function names
+- Check `docs/` folder for existing documentation
+- Review `ARCHITECTURE.md` for system design
+
+## ⚠️ Common Pitfalls to Avoid
+- Don't break the client-server separation
+- Don't bypass server validation
+- Don't create memory leaks (unsubscribe from events, dispose resources)
+- Don't ignore performance implications
+- Don't use `any` type without good reason
+- Don't commit console.logs in production code
+
+## 🎨 UI/UX Guidelines
+- Use Babylon GUI for in-game UI
+- Use React for editor/admin interfaces
+- Maintain consistent styling
+- Optimize UI updates (don't update every frame if not needed)
+
+## 🧪 Testing Approach
+- Test multiplayer with multiple clients
+- Verify physics behavior
+- Check performance with browser DevTools
+- Test edge cases (network lag, disconnections)
+
+## 📚 Key Documentation Files
+- `docs/ARCHITECTURE.md` - System architecture
+- `docs/PERFORMANCE.md` - Performance optimizations
+- `docs/FEATURES.md` - Game mechanics
+- `docs/API.md` - API reference
+
+## 🔧 Tools & Scripts
+- `npm run dev` - Start client dev server
+- `npm run server` - Start game server
+- `npm run start:all` - Start everything
+- `npm run monitor` - System monitoring
+
+## 💡 AI Assistant Guidelines
+When helping with this project:
+1. Always consider multiplayer implications
+2. Optimize for performance (60 FPS target)
+3. Maintain type safety
+4. Follow existing code patterns
+5. Check documentation before suggesting major changes
+6. Consider both client and server perspectives
+7. Suggest improvements but respect existing architecture
+

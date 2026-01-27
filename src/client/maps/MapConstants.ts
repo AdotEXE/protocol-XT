@@ -171,6 +171,61 @@ export const MAP_SIZES: Record<string, MapSizeConfig> = {
         maxZ: 100,
         playerGaragePosition: [0, 0], // Центр
         wallHeight: 6
+    },
+
+    // Руины - разрушенный город
+    ruins: {
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
+        playerGaragePosition: [0, 0], // Центр
+        wallHeight: 8
+    },
+
+    // Индустриальная зона - заводы и склады
+    industrial: {
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
+        playerGaragePosition: [-100, -100], // Угол
+        wallHeight: 6
+    },
+
+    // Городская война - городская среда
+    urban_warfare: {
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
+        playerGaragePosition: [0, 0], // Центр
+        wallHeight: 10
+    },
+
+    // Подземелье - подземные туннели
+    underground: {
+        size: 400,
+        minX: -200,
+        maxX: 200,
+        minZ: -200,
+        maxZ: 200,
+        playerGaragePosition: [0, 0], // Центр
+        wallHeight: 0 // Подземелье без видимых стен
+    },
+
+    // Прибрежная зона - береговая линия
+    coastal: {
+        size: 500,
+        minX: -250,
+        maxX: 250,
+        minZ: -250,
+        maxZ: 250,
+        playerGaragePosition: [0, -200], // Южная сторона (ближе к берегу)
+        wallHeight: 5
     }
 };
 

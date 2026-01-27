@@ -28,7 +28,7 @@ export class DebugDashboard {
 
     private visible = false; // Hidden by default
     private embedded = false;
-    
+
     // Переключатели метрик (состояние сохраняется в localStorage)
     private metricToggles: Map<string, boolean> = new Map();
 
@@ -134,6 +134,11 @@ export class DebugDashboard {
             </div>
             <div class="debug-section">
                 <div class="debug-label">SYNC METRICS</div>
+                <div style="margin-bottom: 2px;">
+                    <label style="cursor: pointer; color: #fff; font-size: 9px;">
+                        <input type="checkbox" id="dbg-toggle-sync-visuals" style="vertical-align: middle;"> Show 3D Debug Lines
+                    </label>
+                </div>
                 <div class="debug-row"><span>Avg Pos Diff:</span><span id="dbg-sync-avg-diff">-</span></div>
                 <div class="debug-row"><span>Max Pos Diff:</span><span id="dbg-sync-max-diff">-</span></div>
                 <div class="debug-row"><span>Reconciliation/s:</span><span id="dbg-sync-recon-rate">-</span></div>
@@ -292,7 +297,7 @@ export class DebugDashboard {
     private setupEventListeners(): void {
         // Загружаем состояние переключателей из localStorage
         this.loadToggleStates();
-        
+
         // Настраиваем переключатели для каждой секции
         const sections = ['performance', 'scene', 'entities', 'network', 'memory', 'physics'];
         sections.forEach(section => {
@@ -302,7 +307,7 @@ export class DebugDashboard {
                 const isEnabled = this.metricToggles.get(section) ?? (section === 'performance' || section === 'entities');
                 checkbox.checked = isEnabled;
                 content.style.display = isEnabled ? '' : 'none';
-                
+
                 checkbox.addEventListener('change', () => {
                     const enabled = checkbox.checked;
                     content.style.display = enabled ? '' : 'none';
@@ -311,7 +316,7 @@ export class DebugDashboard {
                 });
             }
         });
-        
+
         // Toggle All
         document.getElementById("dbg-toggle-all")?.addEventListener("click", () => {
             const allEnabled = Array.from(this.metricToggles.values()).every(v => v);
@@ -326,7 +331,7 @@ export class DebugDashboard {
             });
             this.saveToggleStates();
         });
-        
+
         // Export Data
         document.getElementById("dbg-export-data")?.addEventListener("click", () => {
             this.metricsExporter?.exportToCSV();
@@ -349,8 +354,18 @@ export class DebugDashboard {
                 btn.textContent = chartsVisible ? "📊 Скрыть графики" : "📊 Графики";
             }
         });
+
+        // Toggle Sync Visuals
+        const toggleSyncVisuals = document.getElementById("dbg-toggle-sync-visuals") as HTMLInputElement;
+        if (toggleSyncVisuals) {
+            toggleSyncVisuals.addEventListener("change", () => {
+                if (this.game && (this.game as any).gameMultiplayerCallbacks) {
+                    (this.game as any).gameMultiplayerCallbacks.toggleSyncDebug(toggleSyncVisuals.checked);
+                }
+            });
+        }
     }
-    
+
     private loadToggleStates(): void {
         const saved = localStorage.getItem('debug-metric-toggles');
         if (saved) {
@@ -364,7 +379,7 @@ export class DebugDashboard {
             }
         }
     }
-    
+
     private saveToggleStates(): void {
         const states: Record<string, boolean> = {};
         this.metricToggles.forEach((value, key) => {
@@ -488,7 +503,7 @@ export class DebugDashboard {
             set("dbg-fps-min", fpsMin.toFixed(0));
             set("dbg-fps-max", fpsMax.toFixed(0));
             set("dbg-fps-avg", fpsAvg.toFixed(1));
-            
+
             // Цветовая индикация для min FPS
             const minEl = document.getElementById("dbg-fps-min");
             if (minEl) {
@@ -499,17 +514,17 @@ export class DebugDashboard {
         // FPS indicator removed - using HUD FPS only
 
         set("dbg-frametime", `${deltaTime.toFixed(1)} ms`);
-        
+
         // Render time (время рендеринга)
         const renderTime = deltaTime * 0.6; // Примерная оценка (60% от frame time)
         set("dbg-render-time", `${renderTime.toFixed(1)} ms`);
-        
+
         // Update time (время обновления логики)
         const updateTime = deltaTime * 0.3; // Примерная оценка (30% от frame time)
         set("dbg-update-time", `${updateTime.toFixed(1)} ms`);
-        
+
         set("dbg-drawcalls", (perf.renderer?.drawCalls || 0).toString());
-        
+
         // CPU Usage (оценка на основе frame time)
         const cpuUsage = Math.min(100, (deltaTime / 16.67) * 100); // 16.67ms = 60 FPS = 100% CPU
         set("dbg-cpu-usage", `${cpuUsage.toFixed(1)}%`);
