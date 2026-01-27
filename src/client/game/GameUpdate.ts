@@ -18,6 +18,7 @@ import type { PlayerProgressionSystem } from "../playerProgression";
 import type { MultiplayerManager } from "../multiplayer";
 import type { AICoordinator } from "../ai/AICoordinator";
 import type { PerformanceOptimizer } from "../optimization/PerformanceOptimizer";
+import { timerManager } from "../optimization/TimerManager";
 
 /**
  * GameUpdate - Основной игровой цикл
@@ -52,7 +53,7 @@ export class GameUpdate {
         enemyManager: 6,      // Увеличено с 5
         turrets: 15,          // Увеличено с 10
         garage: 3,            // Увеличено с 2
-        multiplayer: 1,       // Мультиплеер обновляется КАЖДЫЙ кадр для точной синхронизации
+        multiplayer: 2,       // ОПТИМИЗАЦИЯ: Каждые 2 кадра (30 Hz) вместо каждого кадра - снижает нагрузку на 50%
         consumables: 15       // Увеличено с 10
     };
     private _lastFPS = 60;
@@ -155,6 +156,9 @@ export class GameUpdate {
 
         // Delta time для анимаций
         const deltaTime = this.engine.getDeltaTime() / 1000;
+
+        // ОПТИМИЗАЦИЯ: Обновляем централизованный TimerManager каждый кадр
+        timerManager.update();
 
         // === ОБНОВЛЕНИЕ FPS И СЕТЕВОЙ СТАТИСТИКИ ===
         let currentFPS = 60;
@@ -275,10 +279,13 @@ export class GameUpdate {
         }
 
         // Обновление мультиплеера (адаптивный интервал)
+        // ОПТИМИЗАЦИЯ: Пропускаем обновление мультиплеера в одиночном режиме
         // КРИТИЧНО: updateMultiplayer вызывается в основном цикле update(), который выполняется ПОСЛЕ onAfterPhysicsObservable
         // Порядок в Babylon.js: onBeforePhysicsObservable → Physics → onAfterPhysicsObservable → Scene.render() → update()
         // Это гарантирует, что updatePositionCache() уже вызван перед updateMultiplayer()
-        if (this._updateTick % this._adaptiveIntervals.multiplayer === 0 && this.onUpdateMultiplayer) {
+        const game = (window as any).gameInstance;
+        const isMultiplayer = game?.isMultiplayer || false;
+        if (isMultiplayer && this._updateTick % this._adaptiveIntervals.multiplayer === 0 && this.onUpdateMultiplayer) {
             this.onUpdateMultiplayer(deltaTime);
 
             // Обновление индикатора качества синхронизации (каждые 30 кадров ~0.5 секунды)

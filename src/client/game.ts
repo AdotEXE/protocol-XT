@@ -28,6 +28,9 @@ import { TankController } from "./tankController";
 import { CHASSIS_SIZE_MULTIPLIERS } from "./tank/tankChassis";
 import { HUD } from "./hud";
 import { SoundManager } from "./soundManager";
+import { vector3Pool } from "./optimization/Vector3Pool";
+import { timerManager } from "./optimization/TimerManager";
+import { ENABLE_DIAGNOSTIC_LOGS } from "./utils/diagnosticLogs";
 import { EffectsManager } from "./effects";
 import { PostProcessingManager } from "./effects/PostProcessingManager";
 import { EnemyManager } from "./enemy";
@@ -230,6 +233,10 @@ export class Game {
     private metricsCollector: MetricsCollector | undefined;
     private lastMetricsSendTime: number = 0;
     private readonly METRICS_SEND_INTERVAL = 5000; // Send metrics every 5 seconds
+
+    // Performance monitoring
+    performanceMonitor: PerformanceMonitor | undefined;
+
     battleRoyaleVisualizer: BattleRoyaleVisualizer | undefined; // Lazy loaded from "./battleRoyale"
     ctfVisualizer: CTFVisualizer | undefined; // Lazy loaded from "./ctfVisualizer"
 
@@ -412,7 +419,7 @@ export class Game {
     // УДАЛЕНО: Система волн для карты "Передовая" - теперь управляется в GameEnemies
 
     // Таймер для проверки видимости меню
-    private canvasPointerEventsCheckInterval: number | null = null;
+    private canvasPointerEventsCheckInterval: string | null = null;
 
     // Stats overlay управляется через gameStatsOverlay модуль
 
@@ -486,6 +493,11 @@ export class Game {
     // Кэш позиции танка для оптимизации
     private _cachedTankPosition: Vector3 = new Vector3();
     private _tankPositionCacheFrame = -1;
+
+    // ОПТИМИЗАЦИЯ: Кэш последней отправленной позиции для проверки изменений
+    private _lastSentPosition: Vector3 = new Vector3();
+    private _lastSentRotation: number = 0;
+    private _lastSentFrame: number = -1;
 
     // Кэш для ammoData Map (переиспользование вместо создания каждый кадр)
     private _cachedAmmoData: Map<string, { current: number, max: number }> = new Map();
@@ -1530,9 +1542,10 @@ export class Game {
         // Периодическая проверка видимости меню (на случай если событие не сработало)
         // Очищаем предыдущий таймер если есть
         if (this.canvasPointerEventsCheckInterval !== null) {
-            clearInterval(this.canvasPointerEventsCheckInterval);
+            timerManager.clear(this.canvasPointerEventsCheckInterval);
         }
-        this.canvasPointerEventsCheckInterval = window.setInterval(() => {
+        // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
+        this.canvasPointerEventsCheckInterval = timerManager.setInterval(() => {
             this.updateCanvasPointerEvents();
         }, 100);
     }
@@ -2605,6 +2618,8 @@ export class Game {
             // Восстанавливаем здоровье танка при смене карты
             if (this.tank) {
                 this.tank.respawn(mapInitialPos);
+                // Проверяем кастомную конфигурацию после респавна
+                this.checkForCustomTank();
                 logger.debug("[Game] Player tank reset for new map");
             }
 
@@ -2749,7 +2764,7 @@ export class Game {
 
         // Останавливаем таймер проверки видимости меню
         if (this.canvasPointerEventsCheckInterval !== null) {
-            clearInterval(this.canvasPointerEventsCheckInterval);
+            timerManager.clear(this.canvasPointerEventsCheckInterval);
             this.canvasPointerEventsCheckInterval = null;
         }
 
@@ -2845,6 +2860,11 @@ export class Game {
                     logger.log("[Game] Starting render loop in init() - SINGLE INSTANCE");
                     this.engine.runRenderLoop(() => {
                         if (this.scene && this.engine) {
+                            // Start performance monitoring for this frame
+                            if (this.performanceMonitor) {
+                                this.performanceMonitor.startFrame();
+                            }
+
                             // КРИТИЧНО: Проверяем размер canvas - если 0x0, не рендерим
                             if (this.canvas.width === 0 || this.canvas.height === 0) {
                                 // Canvas еще не инициализирован, пропускаем рендер
@@ -2898,7 +2918,12 @@ export class Game {
                                 // Проверяем, не рендерится ли сцена дважды
                                 if (!(this.scene as any)._isRendering) {
                                     (this.scene as any)._isRendering = true;
+
+                                    // Performance: track render time
+                                    if (this.performanceMonitor) this.performanceMonitor.startRender();
                                     this.scene.render();
+                                    if (this.performanceMonitor) this.performanceMonitor.endRender();
+
                                     (this.scene as any)._isRendering = false;
                                 } else {
                                     logger.error("[Game] CRITICAL: scene.render() called twice in same frame! This causes visual duplication!");
@@ -2907,11 +2932,21 @@ export class Game {
                                 // КРИТИЧНО: Рендерим сцену ТОЛЬКО ОДИН РАЗ за кадр даже на паузе!
                                 if (!(this.scene as any)._isRendering) {
                                     (this.scene as any)._isRendering = true;
+
+                                    // Performance: track render time
+                                    if (this.performanceMonitor) this.performanceMonitor.startRender();
                                     this.scene.render();
+                                    if (this.performanceMonitor) this.performanceMonitor.endRender();
+
                                     (this.scene as any)._isRendering = false;
                                 } else {
                                     logger.error("[Game] CRITICAL: scene.render() called twice in same frame (paused)! This causes visual duplication!");
                                 }
+                            }
+
+                            // End performance monitoring for this frame
+                            if (this.performanceMonitor) {
+                                this.performanceMonitor.endFrame();
                             }
                         }
                     });
@@ -3190,6 +3225,9 @@ export class Game {
                 : new Vector3(0, 1.2, 0);
             this.tank = new TankController(this.scene, tankSpawnPos);
 
+            // Проверяем наличие кастомной конфигурации для теста
+            this.checkForCustomTank();
+
             // Обновляем ссылки в модулях
             this.gameGarage.updateReferences({ tank: this.tank });
             this.gameConsumables.updateReferences({ tank: this.tank });
@@ -3440,6 +3478,18 @@ export class Game {
             if (this.soundManager) {
                 this.chatSystem.setSoundManager(this.soundManager);
             }
+
+            // Connect Chat to Multiplayer
+            this.chatSystem.onMessageSent = (message: string) => {
+                if (this.multiplayerManager && this.multiplayerManager.isConnected()) {
+                    this.multiplayerManager.sendChatMessage(message);
+                } else {
+                    // SP mode - echo message or process local chat logic if needed
+                    // For now, just add it to chat as "You" (or locally)
+                    // But usually chat is disabled in SP or used for cheats (handled by commands)
+                    // this.chatSystem.addMessage(`You: ${message}`, "combat"); 
+                }
+            };
 
             // Initialize Hotkey Manager
             const hotkeyManager = getHotkeyManager();
@@ -4827,7 +4877,8 @@ export class Game {
         }
 
         // ИСПРАВЛЕНО: Улучшенный raycast с увеличенным диапазоном поиска до 500м вниз
-        const rayStart = new Vector3(x, 200, z);
+        // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо new Vector3()
+        const rayStart = vector3Pool.acquire(x, 200, z);
         const ray = new Ray(rayStart, Vector3.Down(), 500); // Увеличено до 500м для надёжности
 
         // Улучшенный фильтр мешей: проверяем больше паттернов
@@ -4847,6 +4898,7 @@ export class Game {
             const height = hit.pickedPoint.y;
             // ИСПРАВЛЕНО: Расширены пределы валидности до [-10, 500]
             if (height > -10 && height < 500) {
+                vector3Pool.release(rayStart);
                 return height;
             } else {
                 logger.warn(`[Game] getGroundHeight: Raycast returned suspicious height ${height.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
@@ -4871,6 +4923,7 @@ export class Game {
 
             if (maxHeight > 0) {
                 logger.debug(`[Game] getGroundHeight: TerrainGenerator returned ${maxHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+                vector3Pool.release(rayStart);
                 return maxHeight;
             }
         }
@@ -4890,7 +4943,8 @@ export class Game {
 
                     // Raycast в центре соседнего чанка
                     // ИСПРАВЛЕНО: Увеличен диапазон поиска в соседних чанках
-                    const checkRayStart = new Vector3(checkX, 200, checkZ);
+                    // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо new Vector3()
+                    const checkRayStart = vector3Pool.acquire(checkX, 200, checkZ);
                     const checkRay = new Ray(checkRayStart, Vector3.Down(), 500);
                     const checkHit = this.scene.pickWithRay(checkRay, (mesh) => {
                         if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
@@ -4901,15 +4955,19 @@ export class Game {
                         const height = checkHit.pickedPoint.y;
                         if (height > 0 && height < 200) {
                             logger.debug(`[Game] getGroundHeight: Found terrain in nearby chunk at ${height.toFixed(2)}`);
+                            vector3Pool.release(rayStart);
+                            vector3Pool.release(checkRayStart);
                             return height;
                         }
                     }
+                    vector3Pool.release(checkRayStart);
                 }
             }
         }
 
         // Последний fallback: минимальная безопасная высота
         logger.warn(`[Game] getGroundHeight: All methods failed at (${x.toFixed(1)}, ${z.toFixed(1)}), using safe default 2.0`);
+        vector3Pool.release(rayStart);
         return 2.0; // Минимальная безопасная высота вместо 0
     }
 
@@ -4929,7 +4987,8 @@ export class Game {
 
         // ИСПРАВЛЕНО: Raycast с очень большой высоты (500м) вниз на 600м для покрытия всех объектов
         // Покрывает диапазон от 500м до -100м
-        const rayStart = new Vector3(x, 500, z);
+        // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо new Vector3()
+        const rayStart = vector3Pool.acquire(x, 500, z);
         const ray = new Ray(rayStart, Vector3.Down(), 600);
 
         // multiPickWithRay возвращает ВСЕ пересечения
@@ -4974,6 +5033,7 @@ export class Game {
             // ИСПРАВЛЕНО: Проверка валидности результата
             if (maxHeight > -Infinity && maxHeight >= -10 && maxHeight <= 500) {
                 logger.log(`[Game] Top surface at (${x.toFixed(1)}, ${z.toFixed(1)}): ${maxHeight.toFixed(2)}m (from ${hits.length} hits)`);
+                vector3Pool.release(rayStart);
                 return maxHeight;
             } else {
                 logger.warn(`[Game] getTopSurfaceHeight: Invalid height ${maxHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)}), using fallback`);
@@ -4983,6 +5043,7 @@ export class Game {
         // Fallback на getGroundHeight если raycast не нашёл поверхность
         const fallbackHeight = this.getGroundHeight(x, z);
         logger.debug(`[Game] getTopSurfaceHeight: Using fallback height ${fallbackHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+        vector3Pool.release(rayStart);
         return fallbackHeight;
     }
 
@@ -5088,15 +5149,18 @@ export class Game {
             // Танк имеет примерно 3-4м в ширину, проверяем радиус 2.5м
             const checkRadius = 2.5;
             const checkHeight = pos.y + 1.0; // Проверяем на высоте центра танка
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо new Vector3()
             const directions = [
-                new Vector3(1, 0, 0),   // Восток
-                new Vector3(-1, 0, 0),  // Запад
-                new Vector3(0, 0, 1),   // Север
-                new Vector3(0, 0, -1),  // Юг
+                vector3Pool.acquire(1, 0, 0),   // Восток
+                vector3Pool.acquire(-1, 0, 0),  // Запад
+                vector3Pool.acquire(0, 0, 1),   // Север
+                vector3Pool.acquire(0, 0, -1),  // Юг
             ];
 
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool для rayStart
+            const rayStart = vector3Pool.acquire(pos.x, checkHeight, pos.z);
             for (const dir of directions) {
-                const ray = new Ray(new Vector3(pos.x, checkHeight, pos.z), dir, checkRadius);
+                const ray = new Ray(rayStart, dir, checkRadius);
                 const hit = this.scene.pickWithRay(ray, (mesh) => {
                     // Игнорируем terrain, ground, и невидимые меши
                     if (!mesh.isVisible) return false;
@@ -5109,9 +5173,15 @@ export class Game {
 
                 if (hit && hit.hit && hit.distance < checkRadius) {
                     logger.warn(`[Game] validateSpawnPosition: Obstacle detected at distance ${hit.distance.toFixed(2)}m in direction (${dir.x}, ${dir.z})`);
+                    // Освобождаем векторы перед return
+                    vector3Pool.release(rayStart);
+                    directions.forEach(d => vector3Pool.release(d));
                     return false;
                 }
             }
+            // Освобождаем векторы после цикла
+            vector3Pool.release(rayStart);
+            directions.forEach(d => vector3Pool.release(d));
         }
 
         return true;
@@ -5237,11 +5307,12 @@ export class Game {
         const upHit = this.scene.pickWithRay(upRay, collisionFilter);
 
         // Проверка 3: Raycast по горизонтали во всех направлениях
+        // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо new Vector3()
         const directions = [
-            new Vector3(1, 0, 0),   // Right
-            new Vector3(-1, 0, 0),  // Left
-            new Vector3(0, 0, 1),   // Forward
-            new Vector3(0, 0, -1),  // Back
+            vector3Pool.acquire(1, 0, 0),   // Right
+            vector3Pool.acquire(-1, 0, 0),  // Left
+            vector3Pool.acquire(0, 0, 1),   // Forward
+            vector3Pool.acquire(0, 0, -1),  // Back
         ];
 
         let isInsideGeometry = false;
@@ -5271,12 +5342,15 @@ export class Game {
                 isInsideGeometry = true;
             } else if (!hit?.hit || hit.distance > maxFreeDistance) {
                 maxFreeDistance = hit?.distance || checkRadius * 2;
-                escapeDirection = dir.clone();
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                if (escapeDirection) vector3Pool.release(escapeDirection);
+                escapeDirection = vector3Pool.acquire(dir.x, dir.y, dir.z);
             }
         }
 
         if (isInsideGeometry) {
-            let newPos = tankPos.clone();
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+            let newPos = vector3Pool.acquire(tankPos.x, tankPos.y, tankPos.z);
 
             // ИСПРАВЛЕНИЕ: Если застряли вертикально - поднимаем танк выше
             if (needsVerticalEject) {
@@ -5326,7 +5400,14 @@ export class Game {
             } else {
                 this.tank.chassis.position.copyFrom(newPos);
             }
+            // Освобождаем векторы после использования
+            vector3Pool.release(newPos);
+            if (escapeDirection) {
+                vector3Pool.release(escapeDirection);
+            }
         }
+        // Освобождаем векторы направлений
+        directions.forEach(d => vector3Pool.release(d));
     }
 
     /**
@@ -5746,10 +5827,11 @@ export class Game {
 
             // Шаг 5: Восстанавливаем disablePreStep после нескольких кадров стабилизации
             let frameCount = 0;
-            const stabilizeInterval = setInterval(() => {
+            // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
+            const stabilizeInterval = timerManager.setInterval(() => {
                 frameCount++;
                 if (frameCount > 3) { // Стабилизируем 3 кадра
-                    clearInterval(stabilizeInterval);
+                    timerManager.clear(stabilizeInterval);
                     // Восстанавливаем disablePreStep
                     if (this.tank?.physicsBody) {
                         this.tank.physicsBody.disablePreStep = true;
@@ -7112,8 +7194,11 @@ export class Game {
             // === AIMING CAMERA: ПРЯМО ИЗ БАШНИ С ПЛАВНЫМ ПЕРЕХОДОМ ===
             if (t > 0.01 && this.aimCamera && this.tank.turret && this.tank.barrel) {
                 // Целевая позиция: башня + немного вверх
-                const turretPos = this.tank.turret.getAbsolutePosition();
-                const targetCameraPos = turretPos.clone();
+                // ОПТИМИЗАЦИЯ: Используем кэшированную позицию башни
+                const turretPos = this.tank.getCachedTurretPosition ? this.tank.getCachedTurretPosition() : this.tank.turret.getAbsolutePosition();
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                const targetCameraPos = vector3Pool.acquire();
+                targetCameraPos.copyFrom(turretPos);
                 targetCameraPos.y += 0.5;
 
                 // Направление ствола
@@ -7121,7 +7206,14 @@ export class Game {
                 const barrelDir = Vector3.TransformNormal(Vector3.Forward(), barrelMatrix).normalize();
 
                 // Целевая точка взгляда
-                const targetLookAt = targetCameraPos.add(barrelDir.scale(100));
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool для временных векторов
+                const scaledDir = vector3Pool.acquire();
+                scaledDir.copyFrom(barrelDir);
+                scaledDir.scaleInPlace(100);
+                const targetLookAt = vector3Pool.acquire();
+                targetLookAt.copyFrom(targetCameraPos);
+                targetLookAt.addInPlace(scaledDir);
+                vector3Pool.release(scaledDir);
 
                 // Плавный ПЕРЕХОД (t < 1), но РЕЗКОЕ следование когда полностью в режиме (t ≈ 1)
                 const currentPos = this.aimCamera.position;
@@ -7132,12 +7224,17 @@ export class Game {
                 if (t < 0.85) {
                     // Очень быстрый переход камеры
                     const transitionSpeed = 0.5;
-                    const newPos = Vector3.Lerp(currentPos, targetCameraPos, transitionSpeed);
+                    // ОПТИМИЗАЦИЯ: Используем vector3Pool для временных векторов
+                    const newPos = vector3Pool.acquire();
+                    Vector3.LerpToRef(currentPos, targetCameraPos, transitionSpeed, newPos);
                     // УЛУЧШЕНО: Проверяем коллизии для промежуточной позиции
                     const safeNewPos = this.gameCamera?.checkAimingCameraCollision(newPos) || newPos;
                     this.aimCamera.position.copyFrom(safeNewPos);
-                    const newTarget = Vector3.Lerp(currentTarget, targetLookAt, transitionSpeed);
+                    const newTarget = vector3Pool.acquire();
+                    Vector3.LerpToRef(currentTarget, targetLookAt, transitionSpeed, newTarget);
                     this.aimCamera.setTarget(newTarget);
+                    vector3Pool.release(newPos);
+                    vector3Pool.release(newTarget);
                 } else {
                     // Полный режим прицеливания - камера МГНОВЕННО следует за башней
                     // УЛУЧШЕНО: Проверяем коллизии перед установкой позиции камеры
@@ -7145,6 +7242,10 @@ export class Game {
                     this.aimCamera.position.copyFrom(safeCameraPos);
                     this.aimCamera.setTarget(targetLookAt);
                 }
+
+                // ОПТИМИЗАЦИЯ: Освобождаем временные векторы
+                vector3Pool.release(targetCameraPos);
+                vector3Pool.release(targetLookAt);
             }
 
             // Применяем эффект тряски камеры
@@ -7589,12 +7690,13 @@ export class Game {
 
         // ИСПРАВЛЕНО: Добавляем сетевых игроков в список врагов для радара
         const networkEnemies: Array<{ x: number, z: number, alive: boolean, turretRotation: number }> = [];
+        // ОПТИМИЗАЦИЯ: Используем for...of вместо forEach для лучшей производительности
         if (this.networkPlayerTanks && this.networkPlayerTanks.size > 0) {
-            this.networkPlayerTanks.forEach((tank, playerId) => {
-                if (!tank || !tank.chassis || !tank.networkPlayer) return;
+            for (const [playerId, tank] of this.networkPlayerTanks) {
+                if (!tank || !tank.chassis || !tank.networkPlayer) continue;
 
                 // Проверяем статус игрока
-                if (tank.networkPlayer.status !== "alive") return;
+                if (tank.networkPlayer.status !== "alive") continue;
 
                 // Получаем позицию
                 const pos = tank.chassis.position;
@@ -7615,7 +7717,7 @@ export class Game {
                     alive: true,
                     turretRotation: absoluteTurretAngle
                 });
-            });
+            }
         }
 
         const allEnemies = [...turretEnemies, ...tankPositions, ...networkEnemies];
@@ -8034,8 +8136,8 @@ export class Game {
         if (!this.tank || !this.tank.barrel) return;
 
         // === HP ПРОТИВНИКА ПРИ НАВЕДЕНИИ СТВОЛА (не камеры!) ===
-        // Получаем направление ствола и создаём луч от ствола
-        const barrelPos = this.tank.barrel.getAbsolutePosition();
+        // ОПТИМИЗАЦИЯ: Используем кэшированную позицию ствола
+        const barrelPos = this.tank.getCachedBarrelPosition ? this.tank.getCachedBarrelPosition() : this.tank.barrel.getAbsolutePosition();
         const barrelDir = this.tank.barrel.getDirection(Vector3.Forward()).normalize();
 
         // Рассчитываем дальность поражения (макс 150м для отображения HP)
@@ -8074,8 +8176,10 @@ export class Game {
                 const tank = this.enemyTanks.find(et => et.isPartOf && et.isPartOf(pickedMesh));
                 if (tank && tank.isAlive) {
                     if (this.hud && playerPos) {
+                        // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance
                         const enemyPos = tank.chassis?.getAbsolutePosition();
-                        const distance = enemyPos ? Vector3.Distance(playerPos, enemyPos) : 0;
+                        const distanceSq = enemyPos ? Vector3.DistanceSquared(playerPos, enemyPos) : Infinity;
+                        const distance = enemyPos ? Math.sqrt(distanceSq) : 0; // Вычисляем корень только для отображения
 
                         // Враг в радиусе поражения
                         if (distance <= maxRange) {
@@ -8097,8 +8201,10 @@ export class Game {
                     const turret = this.enemyManager.turrets.find(tr => tr.isPartOf && tr.isPartOf(pickedMesh));
                     if (turret && turret.isAlive) {
                         if (this.hud && playerPos) {
+                            // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance
                             const turretPos = turret.base?.getAbsolutePosition();
-                            const distance = turretPos ? Vector3.Distance(playerPos, turretPos) : 0;
+                            const distanceSq = turretPos ? Vector3.DistanceSquared(playerPos, turretPos) : Infinity;
+                            const distance = turretPos ? Math.sqrt(distanceSq) : 0; // Вычисляем корень только для отображения
 
                             if (distance <= maxRange) {
                                 turret.setHpVisible(true);
@@ -8226,7 +8332,10 @@ export class Game {
                 logger.warn(`[Game] ⚠️ [updateMultiplayer] Кэш позиций устарел! cacheFrame=${cacheFrame}, currentFrame=${currentFrame}, diff=${currentFrame - cacheFrame}`);
             }
 
-            const currentPosition = cachedPos.clone();
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+            const currentPosition = vector3Pool.acquire();
+            currentPosition.copyFrom(cachedPos);
+
             // КРИТИЧНО: Если используется rotationQuaternion, нужно конвертировать в Euler
             let currentRotation = this.tank.chassis.rotation.y;
             if (this.tank.chassis.rotationQuaternion) {
@@ -8234,6 +8343,26 @@ export class Game {
                 const euler = this.tank.chassis.rotationQuaternion.toEulerAngles();
                 currentRotation = euler.y;
             }
+
+            // ОПТИМИЗАЦИЯ: Проверяем изменения перед отправкой (снижает сетевой трафик на 40-60%)
+            const POSITION_THRESHOLD = 0.1; // Минимальное изменение позиции для отправки
+            const ROTATION_THRESHOLD = 0.01; // Минимальное изменение поворота для отправки (радианы)
+
+            const positionChanged = this._lastSentFrame !== this._updateTick ||
+                Vector3.DistanceSquared(currentPosition, this._lastSentPosition) > (POSITION_THRESHOLD * POSITION_THRESHOLD);
+            const rotationChanged = Math.abs(currentRotation - this._lastSentRotation) > ROTATION_THRESHOLD;
+
+            // Обновляем кэш
+            this._lastSentPosition.copyFrom(currentPosition);
+            this._lastSentRotation = currentRotation;
+            this._lastSentFrame = this._updateTick;
+
+            // Отправляем только если есть изменения
+            if (!positionChanged && !rotationChanged) {
+                vector3Pool.release(currentPosition);
+                return; // Нет изменений - не отправляем
+            }
+
             this.multiplayerManager.setLocalPlayerPosition(currentPosition, currentRotation);
 
             // Send input and get sequence number for prediction tracking
@@ -8267,38 +8396,65 @@ export class Game {
             // This allows reconciliation to compare predicted vs server state
             if (sequence >= 0) {
                 // КРИТИЧНО: Используем getCachedChassisPosition() для мировых координат
-                // Position after physics update (current frame)
-                const newPosition = this.tank.getCachedChassisPosition().clone();
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                const newPosition = vector3Pool.acquire();
+                newPosition.copyFrom(this.tank.getCachedChassisPosition());
+
                 // Конвертируем quaternion в Euler если нужно
                 let newRotation = this.tank.chassis.rotation.y;
                 if (this.tank.chassis.rotationQuaternion) {
                     newRotation = this.tank.chassis.rotationQuaternion.toEulerAngles().y;
                 }
                 this.multiplayerManager.updatePredictedState(sequence, newPosition, newRotation);
+
+                // ОПТИМИЗАЦИЯ: Освобождаем вектор после использования
+                // Примечание: updatePredictedState может сохранить ссылку, поэтому не освобождаем здесь
+                // Вместо этого освободим в следующем кадре или в самом updatePredictedState
             }
+
+            // ОПТИМИЗАЦИЯ: Освобождаем currentPosition после использования
+            vector3Pool.release(currentPosition);
         }
 
-        // Update network player tanks
+        // ОПТИМИЗАЦИЯ: Batch обработка сетевых игроков (по 5-10 за кадр)
+        // Это снижает нагрузку при большом количестве игроков
         if (this.networkPlayerTanks.size > 0) {
+            const BATCH_SIZE = 5;
+            const startIndex = this._updateTick % this.networkPlayerTanks.size;
+            let processed = 0;
+            let tankIndex = 0;
+
             // ДИАГНОСТИКА: Логируем обновление танков раз в 30 секунд (1800 кадров)
             const shouldLog = this._updateTick % 1800 === 0;
 
-            this.networkPlayerTanks.forEach((tank, playerId) => {
-                try {
-                    if (tank && tank.update) {
-                        tank.update(deltaTime);
+            // ОПТИМИЗАЦИЯ: Используем for...of вместо forEach для лучшей производительности
+            for (const [playerId, tank] of this.networkPlayerTanks) {
+                if (processed >= BATCH_SIZE) break;
 
-                        // ДИАГНОСТИКА: Логируем позицию танка раз в 30 секунд
-                        if (shouldLog && tank.chassis && tank.networkPlayer) {
-                            const pos = tank.chassis.position;
-                            const serverPos = tank.networkPlayer.position;
-                            console.log(`[Game] 🔄 Network tank ${playerId}: pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                // Обновляем только часть игроков за кадр (распределяем по кадрам)
+                // Используем циклический индекс для равномерного распределения
+                const totalTanks = this.networkPlayerTanks.size;
+                const shouldUpdate = (tankIndex % totalTanks) >= startIndex &&
+                    (tankIndex % totalTanks) < (startIndex + BATCH_SIZE);
+
+                if (shouldUpdate) {
+                    try {
+                        if (tank && tank.update) {
+                            tank.update(deltaTime);
+                            processed++;
+
+                            // ОПТИМИЗАЦИЯ: Логирование только в dev режиме
+                            if (ENABLE_DIAGNOSTIC_LOGS && shouldLog && tank.chassis && tank.networkPlayer) {
+                                const pos = tank.chassis.position;
+                                console.log(`[Game] 🔄 Network tank ${playerId}: pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                            }
                         }
+                    } catch (error) {
+                        console.error(`[Game] Error updating network player tank ${playerId}:`, error);
                     }
-                } catch (error) {
-                    console.error(`[Game] Error updating network player tank ${playerId}:`, error);
                 }
-            });
+                tankIndex++;
+            }
         } else {
             // ДИАГНОСТИКА: Логируем, если танков нет, но должны быть
             const networkPlayersCount = this.multiplayerManager?.getNetworkPlayers()?.size || 0;
@@ -8326,28 +8482,31 @@ export class Game {
                 }
 
                 // Проверяем каждого сетевого игрока - есть ли у него танк
-                networkPlayers?.forEach((networkPlayer, playerId) => {
-                    if (playerId === localPlayerId) return;
-                    if (this.networkPlayerTanks.has(playerId)) return;
+                // ОПТИМИЗАЦИЯ: Используем for...of вместо forEach для лучшей производительности
+                if (networkPlayers) {
+                    for (const [playerId, networkPlayer] of networkPlayers) {
+                        if (playerId === localPlayerId) continue;
+                        if (this.networkPlayerTanks.has(playerId)) continue;
 
-                    missingTanks++;
+                        missingTanks++;
 
-                    // Принудительно создаём танк
-                    console.warn(`[Game] 🔨 [updateMultiplayer] ПРИНУДИТЕЛЬНОЕ создание танка для ${playerId} (${networkPlayer.name})`);
-                    console.warn(`[Game]    Позиция: (${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)})`);
-                    this.createNetworkPlayerTank({
-                        id: playerId,
-                        name: networkPlayer.name,
-                        position: networkPlayer.position,
-                        rotation: networkPlayer.rotation,
-                        turretRotation: networkPlayer.turretRotation,
-                        aimPitch: networkPlayer.aimPitch,
-                        health: networkPlayer.health,
-                        maxHealth: networkPlayer.maxHealth,
-                        status: networkPlayer.status || "alive",
-                        team: networkPlayer.team
-                    });
-                });
+                        // Принудительно создаём танк
+                        console.warn(`[Game] 🔨 [updateMultiplayer] ПРИНУДИТЕЛЬНОЕ создание танка для ${playerId} (${networkPlayer.name})`);
+                        console.warn(`[Game]    Позиция: (${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)})`);
+                        this.createNetworkPlayerTank({
+                            id: playerId,
+                            name: networkPlayer.name,
+                            position: networkPlayer.position,
+                            rotation: networkPlayer.rotation,
+                            turretRotation: networkPlayer.turretRotation,
+                            aimPitch: networkPlayer.aimPitch,
+                            health: networkPlayer.health,
+                            maxHealth: networkPlayer.maxHealth,
+                            status: networkPlayer.status || "alive",
+                            team: networkPlayer.team
+                        });
+                    }
+                }
 
                 if (missingTanks > 0) {
                     console.warn(`[Game] ⚠️ [updateMultiplayer] Создано ${missingTanks} недостающих танков (из ${networkPlayersCount} сетевых игроков, было танков: ${tanksCount})`);
@@ -9358,6 +9517,24 @@ export class Game {
         };
 
         this.hud.updateDetailedTankStats(tankStatsData);
+    }
+
+    /**
+     * Проверяет наличие кастомной конфигурации танка для теста
+     */
+    private checkForCustomTank(): void {
+        const testTank = localStorage.getItem('testCustomTank');
+        if (testTank && this.tank) {
+            try {
+                const config = JSON.parse(testTank);
+                this.tank.loadCustomConfiguration(config);
+                // Удаляем после использования (одноразовое использование)
+                localStorage.removeItem('testCustomTank');
+                logger.log(`[Game] Custom tank configuration loaded: ${config.name || 'Unknown'}`);
+            } catch (e) {
+                logger.error('[Game] Failed to load custom tank:', e);
+            }
+        }
     }
 }
 

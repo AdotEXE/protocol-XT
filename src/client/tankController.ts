@@ -39,6 +39,8 @@ import { upgradeManager, UpgradeBonuses } from "./upgrade";
 import { ClientMessageType } from "../shared/messages";
 import { createClientMessage } from "../shared/protocol";
 import { isMobileDevice } from "./mobile/MobileDetection";
+import { timerManager } from "./optimization/TimerManager";
+import { vector3Pool } from "./optimization/Vector3Pool";
 
 export class TankController {
     scene: Scene;
@@ -93,7 +95,7 @@ export class TankController {
 
     // Респавн с таймером
     private respawnCountdown = 0; // Секунды до респавна
-    private respawnIntervalId: number | null = null;
+    private respawnIntervalId: string | null = null;
 
     // Модули
     private healthModule: TankHealthModule;
@@ -1081,7 +1083,13 @@ export class TankController {
             depth: turretDepth
         }, scene);
 
-        this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
+        // Применяем кастомный pivot если есть
+        if ((this as any).customTurretPivot) {
+            const pivot = (this as any).customTurretPivot as Vector3;
+            this.turret.position = pivot;
+        } else {
+            this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
+        }
         this.turret.parent = this.chassis;
         (this.turret as any)._isChildMesh = true;
         (this.turret as any)._shouldBeChild = true;
@@ -1229,19 +1237,20 @@ export class TankController {
     startRespawnCountdown() {
         // Очищаем предыдущий таймер если есть
         if (this.respawnIntervalId !== null) {
-            clearInterval(this.respawnIntervalId);
+            timerManager.clear(this.respawnIntervalId);
         }
 
         // Без сообщения о смерти - тихий респавн
 
         // Обратный отсчёт каждую секунду
-        this.respawnIntervalId = window.setInterval(() => {
+        // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
+        this.respawnIntervalId = timerManager.setInterval(() => {
             this.respawnCountdown--;
 
             if (this.respawnCountdown <= 0) {
                 // Останавливаем таймер
                 if (this.respawnIntervalId !== null) {
-                    clearInterval(this.respawnIntervalId);
+                    timerManager.clear(this.respawnIntervalId);
                     this.respawnIntervalId = null;
                 }
 
@@ -1329,6 +1338,11 @@ export class TankController {
 
         this.isAlive = true;
         this.isMovementEnabled = true;
+
+        // КРИТИЧНО: Сбрасываем состояние перезарядки при респавне!
+        // Это предотвращает зависание перезарядки если танк умер во время reload
+        this.isReloading = false;
+        this.lastShotTime = 0;
 
         // КРИТИЧНО: Прямой телепорт ПЕРЕД восстановлением физики
         if (this.chassis) {
@@ -1636,6 +1650,10 @@ export class TankController {
         // КРИТИЧНО: Устанавливаем isAlive = true ЗДЕСЬ, после завершения анимации сборки!
         // Это предотвращает конфликт между анимацией и updatePhysics/updateCamera
         this.isAlive = true;
+
+        // КРИТИЧНО: Сбрасываем состояние перезарядки при респавне!
+        this.isReloading = false;
+        this.lastShotTime = 0;
 
         let targetX = respawnPos.x;
         let targetZ = respawnPos.z;
@@ -2697,7 +2715,9 @@ export class TankController {
             if (dot > closestDot && distance < closestDistance) {
                 closestDot = dot;
                 closestDistance = distance;
-                closestTarget = enemyPos.clone();
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                if (closestTarget) vector3Pool.release(closestTarget);
+                closestTarget = vector3Pool.acquire(enemyPos.x, enemyPos.y, enemyPos.z);
             }
         }
 
@@ -2812,16 +2832,28 @@ export class TankController {
             }
 
             // End reload after cooldown
-            setTimeout(() => {
+            // УЛУЧШЕНО: Добавлен failsafe timeout для предотвращения зависания
+            const reloadTimeout = setTimeout(() => {
                 this.isReloading = false;
                 if (this.soundManager) {
                     this.soundManager.playReloadComplete();
                 }
             }, this.cooldown);
 
+            // FAILSAFE: Если через 2x cooldown reload всё еще active - принудительно сбрасываем
+            setTimeout(() => {
+                if (this.isReloading) {
+                    console.warn('[TankController] FAILSAFE: Reload was stuck, forcing reset');
+                    this.isReloading = false;
+                }
+            }, this.cooldown * 2 + 500);
+
             // Play shooting sound (с учётом типа пушки) with 3D positioning
             if (this.soundManager) {
-                this.soundManager.playShoot(this.cannonType.id, muzzlePos.clone());
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                const soundPos = vector3Pool.acquire(muzzlePos.x, muzzlePos.y, muzzlePos.z);
+                this.soundManager.playShoot(this.cannonType.id, soundPos);
+                vector3Pool.release(soundPos);
             }
 
             // Записываем выстрел для опыта пушки
@@ -3094,10 +3126,19 @@ export class TankController {
             const HIT_RADIUS_TURRET = 2.5; // Радиус попадания в турель
 
             // Сохраняем предыдущую позицию для рейкаста
-            let prevBulletPos = ball.absolutePosition.clone();
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+            let prevBulletPos = vector3Pool.acquire(
+                ball.absolutePosition.x,
+                ball.absolutePosition.y,
+                ball.absolutePosition.z
+            );
 
             const checkHit = () => {
-                if (hasHit || ball.isDisposed()) return;
+                if (hasHit || ball.isDisposed()) {
+                    // Освобождаем prevBulletPos при завершении
+                    if (prevBulletPos) vector3Pool.release(prevBulletPos);
+                    return;
+                }
 
                 const bulletPos = ball.absolutePosition;
                 const bulletMeta = ball.metadata as any;
@@ -3343,8 +3384,17 @@ export class TankController {
                             hasHit = true;
                             console.log(`[TankController] 🎯 CAPSULE HIT on network player ${playerId}!`);
 
+                            // Get damage from projectile metadata
+                            const bulletDamage = bulletMeta?.damage || 25;
+                            const cannonTypeId = bulletMeta?.cannonType || this.cannonType.id || "standard";
+
+                            // CRITICAL: Send hit to server via callback (FIX: was missing in duplicate code!)
+                            if (this.onNetworkPlayerHitCallback) {
+                                this.onNetworkPlayerHitCallback(playerId, bulletDamage, impactPoint, cannonTypeId);
+                            }
+
                             // Визуальный эффект
-                            this.createHitEffect(impactPoint, bulletMeta?.cannonType || "standard");
+                            this.createHitEffect(impactPoint, cannonTypeId);
                             if (this.soundManager) this.soundManager.playHit("normal", impactPoint);
 
                             // Show hit marker
@@ -3502,14 +3552,17 @@ export class TankController {
                         const groundNormal = new Vector3(0, 1, 0);
                         const cannonType = this.cannonType.id;
 
+                        // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                        const hitPoint = vector3Pool.acquire(bulletPos.x, bulletPos.y, bulletPos.z);
                         const result = ricochetSystem.calculate({
                             velocity,
-                            hitPoint: bulletPos.clone(),
+                            hitPoint: hitPoint,
                             hitNormal: groundNormal,
                             surfaceMaterial: "ground",
                             currentRicochetCount: ricochetCount,
                             projectileType: cannonType === "tracer" ? "tracer" : undefined
                         });
+                        vector3Pool.release(hitPoint);
 
                         if (result.shouldRicochet) {
                             ricochetCount = result.ricochetCount;
@@ -3550,14 +3603,17 @@ export class TankController {
                             }
 
                             const cannonType = this.cannonType.id;
+                            // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                            const hitPoint3 = vector3Pool.acquire(bulletPos.x, bulletPos.y, bulletPos.z);
                             const result = ricochetSystem.calculate({
                                 velocity,
-                                hitPoint: bulletPos.clone(),
+                                hitPoint: hitPoint3,
                                 hitNormal: wallNormal,
                                 surfaceMaterial: "concrete", // Границы карты как бетон
                                 currentRicochetCount: ricochetCount,
                                 projectileType: cannonType === "tracer" ? "tracer" : undefined
                             });
+                            vector3Pool.release(hitPoint3);
 
                             if (result.shouldRicochet) {
                                 ricochetCount = result.ricochetCount;
@@ -3590,7 +3646,9 @@ export class TankController {
                 }
 
                 // Сохраняем текущую позицию для следующего кадра (для рейкаста)
-                prevBulletPos = bulletPos.clone();
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                vector3Pool.release(prevBulletPos);
+                prevBulletPos = vector3Pool.acquire(bulletPos.x, bulletPos.y, bulletPos.z);
 
                 // Продолжаем проверку КАЖДЫЙ КАДР
                 requestAnimationFrame(checkHit);
@@ -3601,7 +3659,11 @@ export class TankController {
 
             // Авто-удаление через 6 секунд (дольше для большей дальности)
             setTimeout(() => {
-                if (!ball.isDisposed()) ball.dispose();
+                if (!ball.isDisposed()) {
+                    ball.dispose();
+                    // Освобождаем prevBulletPos при dispose
+                    if (prevBulletPos) vector3Pool.release(prevBulletPos);
+                }
             }, 6000);
         } catch (e) { logger.error("[FIRE ERROR]", e); }
     }
@@ -3617,7 +3679,8 @@ export class TankController {
             const angle = (i - (pelletCount - 1) / 2) * spreadAngle / (pelletCount - 1);
             const right = Vector3.Cross(direction, Vector3.Up()).normalize();
             const up = Vector3.Up();
-            const spreadDir = direction.clone();
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+            const spreadDir = vector3Pool.acquire(direction.x, direction.y, direction.z);
             spreadDir.addInPlace(right.scale(Math.sin(angle)));
             spreadDir.addInPlace(up.scale(Math.sin(angle * 0.5)));
             spreadDir.normalize();
@@ -3628,8 +3691,12 @@ export class TankController {
                 height: this.projectileSize * 0.6,
                 depth: this.projectileSize * 2
             }, this.scene);
-            pellet.position = muzzlePos.clone();
+            const pelletPos = vector3Pool.acquire(muzzlePos.x, muzzlePos.y, muzzlePos.z);
+            pellet.position = pelletPos;
             pellet.lookAt(pellet.position.add(spreadDir));
+            // Освобождаем векторы после использования (позиция сохраняется в mesh)
+            vector3Pool.release(spreadDir);
+            vector3Pool.release(pelletPos);
 
             const pelletMat = new StandardMaterial("pelletMat", this.scene);
             pelletMat.diffuseColor = new Color3(1, 0.7, 0.2);
@@ -4149,12 +4216,21 @@ export class TankController {
             }
 
             // End reload after cooldown
+            // УЛУЧШЕНО: Добавлен failsafe timeout для предотвращения зависания
             setTimeout(() => {
                 this.isReloading = false;
                 if (this.soundManager) {
                     this.soundManager.playReloadComplete();
                 }
             }, this.cooldown);
+
+            // FAILSAFE: Если через 2x cooldown reload всё еще active - принудительно сбрасываем
+            setTimeout(() => {
+                if (this.isReloading) {
+                    console.warn('[TankController] FAILSAFE: Tracer reload was stuck, forcing reset');
+                    this.isReloading = false;
+                }
+            }, this.cooldown * 2 + 500);
 
             if (loggingSettings.getLevel() >= LogLevel.DEBUG) {
                 combatLogger.debug(`[TRACER] Fired! ${this.tracerCount}/${this.maxTracerCount} remaining`);
@@ -4274,9 +4350,10 @@ export class TankController {
             const markDuration = this.tracerMarkDuration;
             const HIT_RADIUS = 4.5; // Slightly larger hit radius for tracer
 
-            const checkInterval = setInterval(() => {
+            // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
+            const checkInterval = timerManager.setInterval(() => {
                 if (tracer.isDisposed()) {
-                    clearInterval(checkInterval);
+                    timerManager.clear(checkInterval);
                     return;
                 }
 
@@ -8556,6 +8633,94 @@ export class TankController {
 
         // Запускаем анимацию
         requestAnimationFrame(animate);
+    }
+
+    /**
+     * Загрузить кастомную конфигурацию танка из Workshop
+     */
+    public loadCustomConfiguration(config: {
+        movement?: { maxForwardSpeed?: number; turnSpeed?: number; acceleration?: number };
+        combat?: { damage?: number; cooldown?: number; projectileSpeed?: number; projectileSize?: number };
+        physics?: { mass?: number; hoverHeight?: number; hoverStiffness?: number; hoverDamping?: number; linearDamping?: number; angularDamping?: number; uprightForce?: number; stabilityForce?: number };
+        turret?: { turretSpeed?: number; baseTurretSpeed?: number; turretLerpSpeed?: number; barrelPitchSpeed?: number };
+        turretPivot?: { x?: number; y?: number; z?: number };
+        visual?: { chassisColor?: string; turretColor?: string; barrelColor?: string };
+    }): void {
+        try {
+            // Применяем параметры движения
+            if (config.movement) {
+                this.moveSpeed = config.movement.maxForwardSpeed || this.moveSpeed;
+                this.turnSpeed = (config.movement.turnSpeed || this.turnSpeed) * (Math.PI / 180); // Конвертируем градусы в радианы
+                this.acceleration = config.movement.acceleration || this.acceleration;
+            }
+
+            // Применяем параметры боя
+            if (config.combat) {
+                this.damage = config.combat.damage || this.damage;
+                this.cooldown = config.combat.cooldown || this.cooldown;
+                this.baseCooldown = config.combat.cooldown || this.baseCooldown;
+                this.projectileSpeed = config.combat.projectileSpeed || this.projectileSpeed;
+                this.projectileSize = config.combat.projectileSize || this.projectileSize;
+            }
+
+            // Применяем физику
+            if (config.physics) {
+                this.mass = config.physics.mass || this.mass;
+                this.hoverHeight = config.physics.hoverHeight || this.hoverHeight;
+                this.hoverStiffness = config.physics.hoverStiffness || this.hoverStiffness;
+                if (config.physics.hoverDamping !== undefined) this.hoverDamping = config.physics.hoverDamping;
+                if (config.physics.linearDamping !== undefined) {
+                    // Применяем к physicsBody если он существует
+                    if (this.physicsBody) {
+                        this.physicsBody.setLinearDamping(config.physics.linearDamping);
+                    }
+                }
+                if (config.physics.angularDamping !== undefined) {
+                    if (this.physicsBody) {
+                        this.physicsBody.setAngularDamping(config.physics.angularDamping);
+                    }
+                }
+                if (config.physics.uprightForce !== undefined) this.uprightForce = config.physics.uprightForce;
+                if (config.physics.stabilityForce !== undefined) this.stabilityForce = config.physics.stabilityForce;
+            }
+
+            // Применяем башню
+            if (config.turret) {
+                this.turretSpeed = config.turret.turretSpeed || this.turretSpeed;
+                if (config.turret.baseTurretSpeed !== undefined) this.baseTurretSpeed = config.turret.baseTurretSpeed;
+                if (config.turret.turretLerpSpeed !== undefined) this.turretLerpSpeed = config.turret.turretLerpSpeed;
+                this.baseBarrelPitchSpeed = config.turret.barrelPitchSpeed || this.baseBarrelPitchSpeed;
+            }
+
+            // Применяем attachment point (при следующем rebuild)
+            if (config.turretPivot) {
+                (this as any).customTurretPivot = new Vector3(
+                    config.turretPivot.x || 0,
+                    config.turretPivot.y || 0,
+                    config.turretPivot.z || 0
+                );
+            }
+
+            // Применяем цвета (если есть визуальный модуль)
+            if (config.visual && this.visualsModule) {
+                // Применяем цвета через visualsModule если есть такой метод
+                if ((this.visualsModule as any).setColors) {
+                    (this.visualsModule as any).setColors(config.visual);
+                }
+            }
+
+            // Обновляем физику тела если оно существует
+            if (this.physicsBody) {
+                this.physicsBody.setMassProperties({
+                    mass: this.mass,
+                    centerOfMass: new Vector3(0, 0, 0)
+                });
+            }
+
+            logger.log(`[TankController] Custom configuration loaded`);
+        } catch (e) {
+            logger.error('[TankController] Failed to load custom configuration:', e);
+        }
     }
 }
 

@@ -82,7 +82,7 @@ export interface TerrainEdit {
  */
 export interface PlacedObject {
     id: string;
-    type: "building" | "tree" | "rock" | "spawn" | "garage" | "custom" | "tank_chassis" | "tank_cannon" | "tank_track" | "tank_module";
+    type: "building" | "tree" | "rock" | "spawn" | "garage" | "custom" | "tank_chassis" | "tank_cannon" | "tank_track" | "tank_module" | "drop_point";
     position: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number };
     scale?: { x: number; y: number; z: number };
@@ -145,6 +145,61 @@ export interface PlacedObject {
         cannonId?: string;   // ID пушки из CANNON_TYPES
         trackId?: string;    // ID гусениц из TRACK_TYPES
         moduleId?: string;   // ID модуля из MODULE_PRESETS
+
+        // DROP POINT свойства (Supply Drop System)
+        dropTypes?: string[];        // Типы припасов: ["health", "damage", "armor", ...]
+        dropRespawnTime?: number;    // Время между дропами (мс), default: 30000
+        dropChance?: number;         // Шанс появления: 0.0-1.0, default: 1.0
+
+        // WORKSHOP свойства
+        workshopConfig?: {
+            movement?: {
+                maxForwardSpeed?: number;
+                maxBackwardSpeed?: number;
+                acceleration?: number;
+                deceleration?: number;
+                turnSpeed?: number;
+                pivotTurnMultiplier?: number;
+            };
+            combat?: {
+                damage?: number;
+                cooldown?: number;
+                projectileSpeed?: number;
+                projectileSize?: number;
+                maxRange?: number;
+            };
+            physics?: {
+                mass?: number;
+                hoverHeight?: number;
+                hoverStiffness?: number;
+                hoverDamping?: number;
+                linearDamping?: number;
+                angularDamping?: number;
+                uprightForce?: number;
+                stabilityForce?: number;
+            };
+            turret?: {
+                turretSpeed?: number;
+                baseTurretSpeed?: number;
+                turretLerpSpeed?: number;
+                barrelPitchSpeed?: number;
+            };
+            visual?: {
+                chassisColor?: string;
+                turretColor?: string;
+                barrelColor?: string;
+            };
+            special?: {
+                ability?: string;
+                abilityCooldown?: number;
+                abilityDuration?: number;
+                modules?: string[];
+            };
+            attachments?: {
+                turretPivot?: { x: number; y: number; z: number };
+                barrelMount?: { x: number; y: number; z: number };
+            };
+        };
     };
 }
 
@@ -190,7 +245,7 @@ export interface MapTrigger {
 /**
  * Инструменты редактора
  */
-type EditorTool = "terrain" | "objects" | "triggers" | "paint" | "select";
+type EditorTool = "terrain" | "objects" | "triggers" | "paint" | "select" | "workshop";
 
 /**
  * Режим редактирования объектов
@@ -270,6 +325,8 @@ export class MapEditor {
     // Workshop (Мастерская)
     private workshopSelectedItem: { type: string; id: string } | null = null;
     private workshopCurrentTab: string = "chassis";
+    private tankObjectEditor: any = null; // TankObjectEditor (lazy loaded)
+    private workshopPropertiesContainer: HTMLDivElement | null = null;
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -440,6 +497,9 @@ export class MapEditor {
                         <button class="toolbar-btn ${this.currentTool === 'select' ? 'active' : ''}" data-tool="select" title="Выбор объектов (S)">
                             👆 Выбор
                         </button>
+                        <button class="toolbar-btn ${this.currentTool === 'workshop' ? 'active' : ''}" data-tool="workshop" title="Workshop - редактирование танков в 3D (W)">
+                            🔧 Workshop
+                        </button>
                         <button class="toolbar-btn ${this.currentTool === 'triggers' ? 'active' : ''}" data-tool="triggers" title="Триггеры (R)">
                             ⚡ Триггеры
                         </button>
@@ -489,6 +549,7 @@ export class MapEditor {
                                 <option value="tank_cannon">🔫 Пушка танка</option>
                                 <option value="tank_track">🚜 Гусеницы</option>
                                 <option value="tank_module">📦 Модуль</option>
+                                <option value="drop_point">📦 Точка дропа</option>
                                 <option value="npc">🤖 Бот (NPC)</option>
                                 <option value="custom">Пользовательский</option>
                             </select>
@@ -601,6 +662,9 @@ export class MapEditor {
                     <div class="map-editor-properties" id="properties-panel">
                         <div class="properties-content" id="properties-content">
                             <!-- Content will be populated by updatePropertiesPanel() -->
+                        </div>
+                        <div class="workshop-properties-container" id="workshop-properties-container" style="display: none;">
+                            <!-- Workshop properties panel will be inserted here -->
                         </div>
                     </div>
                 </div>
@@ -1132,7 +1196,7 @@ export class MapEditor {
                 if (tool) {
                     this.currentTool = tool;
                     // При переключении на другой инструмент снимаем выбор если нужно
-                    if (tool !== "select" && tool !== "objects") {
+                    if (tool !== "select" && tool !== "objects" && tool !== "workshop") {
                         this.deselectObject();
                     }
                     if (tool !== "triggers") {
@@ -1142,6 +1206,14 @@ export class MapEditor {
                     if (this.isDragging) this.endObjectDrag();
                     if (this.isRotating) this.endObjectRotate();
                     if (this.isScaling) this.endObjectScale();
+
+                    // Обработка workshop режима
+                    if (tool === "workshop") {
+                        this.enterWorkshopMode();
+                    } else {
+                        this.exitWorkshopMode();
+                    }
+
                     this.updateUI();
                 }
             });
@@ -1390,6 +1462,28 @@ export class MapEditor {
         this.container.querySelector("#workshop-place-btn")?.addEventListener("click", () => {
             this.placeWorkshopItem();
         });
+
+        // Workshop gizmo buttons
+        this.container.querySelector("#workshop-gizmo-translate")?.addEventListener("click", () => {
+            if (this.tankObjectEditor) {
+                this.tankObjectEditor.setGizmoMode("translate");
+            }
+        });
+        this.container.querySelector("#workshop-gizmo-rotate")?.addEventListener("click", () => {
+            if (this.tankObjectEditor) {
+                this.tankObjectEditor.setGizmoMode("rotate");
+            }
+        });
+        this.container.querySelector("#workshop-gizmo-scale")?.addEventListener("click", () => {
+            if (this.tankObjectEditor) {
+                this.tankObjectEditor.setGizmoMode("scale");
+            }
+        });
+        this.container.querySelector("#workshop-gizmo-none")?.addEventListener("click", () => {
+            if (this.tankObjectEditor) {
+                this.tankObjectEditor.setGizmoMode("none");
+            }
+        });
     }
 
     /**
@@ -1438,6 +1532,48 @@ export class MapEditor {
                         }
                         this.handleTriggerPlacement(pointerInfo);
                     }
+                } else if (this.currentTool === "workshop") {
+                    // Обработка workshop режима
+                    if (this.tankObjectEditor) {
+                        // Получаем кнопку мыши из события
+                        let button = 0; // По умолчанию левая кнопка
+                        if (pointerInfo.event) {
+                            const evt = pointerInfo.event as any;
+                            // Проверяем разные способы получения кнопки
+                            if (evt.button !== undefined) {
+                                button = evt.button; // 0 = левая, 1 = средняя, 2 = правая
+                            } else if (evt.which !== undefined) {
+                                button = evt.which === 3 ? 2 : (evt.which === 2 ? 1 : 0);
+                            } else if (evt.buttons !== undefined) {
+                                // buttons - битовая маска
+                                if (evt.buttons & 2) button = 2; // Правая
+                                else if (evt.buttons & 4) button = 1; // Средняя
+                                else button = 0; // Левая
+                            }
+                        }
+
+                        const handled = this.tankObjectEditor.handlePointerDown(
+                            this.scene.pointerX,
+                            this.scene.pointerY,
+                            button
+                        );
+                        if (!handled) {
+                            // Если не обработано редактором, пытаемся выбрать объект
+                            this.handleObjectSelection(pointerInfo);
+                            // Если выбран объект типа tank_chassis или tank_cannon, активируем редактор
+                            if (this.selectedObjectId) {
+                                const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
+                                const mesh = this.placedObjectMeshes.get(this.selectedObjectId || '');
+                                if (obj && mesh && (obj.type === "tank_chassis" || obj.type === "tank_cannon")) {
+                                    this.tankObjectEditor.setTarget(obj, mesh);
+                                    this.tankObjectEditor.setVisible(true);
+                                }
+                            }
+                        }
+                    } else {
+                        // Если редактор ещё не загружен, просто выбираем объект
+                        this.handleObjectSelection(pointerInfo);
+                    }
                 }
             } else if (pointerInfo.type === PointerEventTypes.POINTERMOVE && this.isMouseDown) {
                 // Оптимизация: троттлинг событий движения мыши (ограничение ~60 FPS)
@@ -1457,6 +1593,11 @@ export class MapEditor {
                     } else if (this.objectEditMode === "scale" && this.isScaling) {
                         this.handleObjectScale(pointerInfo);
                     }
+                } else if (this.currentTool === "workshop") {
+                    // Обработка движения мыши в workshop режиме
+                    if (this.tankObjectEditor) {
+                        this.tankObjectEditor.handlePointerMove(this.scene.pointerX, this.scene.pointerY);
+                    }
                 }
             } else if (pointerInfo.type === PointerEventTypes.POINTERUP) {
                 this.isMouseDown = false;
@@ -1469,6 +1610,9 @@ export class MapEditor {
                 }
                 if (this.isScaling) {
                     this.endObjectScale();
+                }
+                if (this.currentTool === "workshop" && this.tankObjectEditor) {
+                    this.tankObjectEditor.handlePointerUp();
                 }
             }
         });
@@ -3073,7 +3217,7 @@ export class MapEditor {
         const colorInput = this.container?.querySelector("#prop-chassis-color") as HTMLInputElement;
         if (colorInput) {
             colorInput.addEventListener("change", () => {
-                obj.properties!.color = colorInput.value;
+                (obj.properties as any).color = colorInput.value;
                 // Color update might not need full refresh, but safety first
                 this.refreshObjectMesh(obj);
                 this.mapData.metadata.modifiedAt = Date.now();
@@ -4616,15 +4760,11 @@ export class MapEditor {
             }
 
             const newId = `obj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            const duplicated: PlacedObject = {
-                ...obj,
-                id: newId,
-                position: {
-                    x: obj.position.x + 2,
-                    y: obj.position.y,
-                    z: obj.position.z + 2
-                }
-            };
+            // Deep clone to prevent shared reference to properties object
+            const duplicated: PlacedObject = JSON.parse(JSON.stringify(obj));
+            duplicated.id = newId;
+            duplicated.position.x += 2;
+            duplicated.position.z += 2;
 
             this.mapData.placedObjects.push(duplicated);
             this.createObjectMesh(duplicated);
@@ -4730,15 +4870,15 @@ export class MapEditor {
             // NEW: Add selected environment properties
             if (this.selectedObjectType === "building") {
                 const buildingType = (this.container?.querySelector("#building-model") as HTMLSelectElement)?.value || "residential";
-                placedObject.properties = { ...placedObject.properties, buildingType: buildingType };
+                placedObject.properties = { ...placedObject.properties, buildingType: buildingType as any };
             }
             if (this.selectedObjectType === "tree") {
                 const treeType = (this.container?.querySelector("#tree-model") as HTMLSelectElement)?.value || "oak";
-                placedObject.properties = { ...placedObject.properties, treeType: treeType };
+                placedObject.properties = { ...placedObject.properties, treeType: treeType as any };
             }
             if (this.selectedObjectType === "rock") {
                 const rockType = (this.container?.querySelector("#rock-model") as HTMLSelectElement)?.value || "boulder";
-                placedObject.properties = { ...placedObject.properties, rockType: rockType };
+                placedObject.properties = { ...placedObject.properties, rockType: rockType as any };
             }
 
             this.mapData.placedObjects.push(placedObject);
@@ -5437,6 +5577,10 @@ export class MapEditor {
      */
     private setupUpdateLoop(): void {
         this.scene.registerBeforeRender(() => {
+            // Обновляем TankObjectEditor если активен
+            if (this.tankObjectEditor && this.tankObjectEditor.isEditorActive()) {
+                this.tankObjectEditor.update();
+            }
             if (!this.isActive || this.currentTool !== "terrain") {
                 if (this.brushIndicator) {
                     this.brushIndicator.isVisible = false;
@@ -6089,5 +6233,73 @@ export class MapEditor {
         this.updateUI();
 
         this.showNotification(`Выбрано для размещения: ${this.workshopSelectedItem.id}. Кликните на карту для размещения.`);
+    }
+
+    /**
+     * Войти в режим Workshop
+     */
+    private enterWorkshopMode(): void {
+        // Инициализируем TankObjectEditor если нужно
+        if (!this.tankObjectEditor) {
+            const container = this.container?.querySelector("#workshop-properties-container") as HTMLDivElement;
+            if (container) {
+                import('./mapEditor/TankObjectEditor').then(module => {
+                    this.tankObjectEditor = new module.default(this.scene, container);
+                    this.workshopPropertiesContainer = container;
+
+                    // Настраиваем callbacks
+                    this.tankObjectEditor.setOnObjectChange((obj: PlacedObject) => {
+                        this.mapData.metadata.modifiedAt = Date.now();
+                    });
+
+                    this.tankObjectEditor.setOnClose(() => {
+                        this.currentTool = "select";
+                        this.updateUI();
+                    });
+
+                    // Если есть выбранный объект типа tank_chassis, активируем редактор
+                    if (this.selectedObjectId) {
+                        const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
+                        const mesh = this.placedObjectMeshes.get(this.selectedObjectId || '');
+                        if (obj && mesh && (obj.type === "tank_chassis" || obj.type === "tank_cannon")) {
+                            this.tankObjectEditor.setTarget(obj, mesh);
+                            this.tankObjectEditor.setVisible(true);
+                            if (this.workshopPropertiesContainer) {
+                                this.workshopPropertiesContainer.style.display = 'block';
+                            }
+                        }
+                    }
+                }).catch(e => {
+                    console.error('[MapEditor] Failed to load TankObjectEditor:', e);
+                });
+            }
+        } else {
+            // Показываем панель свойств
+            if (this.workshopPropertiesContainer) {
+                this.workshopPropertiesContainer.style.display = 'block';
+            }
+
+            // Если есть выбранный объект типа tank_chassis, активируем редактор
+            if (this.selectedObjectId) {
+                const obj = this.mapData.placedObjects.find(o => o.id === this.selectedObjectId);
+                const mesh = this.placedObjectMeshes.get(this.selectedObjectId || '');
+                if (obj && mesh && (obj.type === "tank_chassis" || obj.type === "tank_cannon")) {
+                    this.tankObjectEditor.setTarget(obj, mesh);
+                    this.tankObjectEditor.setVisible(true);
+                }
+            }
+        }
+    }
+
+    /**
+     * Выйти из режима Workshop
+     */
+    private exitWorkshopMode(): void {
+        if (this.tankObjectEditor) {
+            this.tankObjectEditor.setVisible(false);
+        }
+        if (this.workshopPropertiesContainer) {
+            this.workshopPropertiesContainer.style.display = 'none';
+        }
     }
 }

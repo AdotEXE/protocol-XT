@@ -1,12 +1,12 @@
 // Система припасов (consumables)
 
-import { 
-    Scene, 
-    Mesh, 
-    MeshBuilder, 
-    Vector3, 
-    StandardMaterial, 
-    Color3, 
+import {
+    Scene,
+    Mesh,
+    MeshBuilder,
+    Vector3,
+    StandardMaterial,
+    Color3,
     PhysicsBody,
     PhysicsMotionType,
     PhysicsShape,
@@ -24,69 +24,67 @@ export interface ConsumableType {
     duration?: number; // Длительность эффекта в мс (если есть)
 }
 
-// 5 типов припасов
+// 8 типов припасов (Supply Drop System)
 export const CONSUMABLE_TYPES: ConsumableType[] = [
     {
         id: "health",
-        name: "Medkit",
-        description: "Restores 50 HP",
+        name: "Ремкомплект",
+        description: "Восстанавливает 50% HP",
         icon: "❤️",
-        color: "#ff0000",
+        color: "#ff4444",
         effect: (tank: any) => {
             if (tank.currentHealth < tank.maxHealth) {
-                const healAmount = Math.min(50, tank.maxHealth - tank.currentHealth);
-                tank.currentHealth += healAmount;
+                const healAmount = Math.floor(tank.maxHealth * 0.5);
+                tank.currentHealth = Math.min(tank.maxHealth, tank.currentHealth + healAmount);
                 if (tank.hud) {
                     tank.hud.heal(healAmount);
                 }
                 if (tank.chatSystem) {
-                    tank.chatSystem.success(`Used medkit: +${healAmount} HP`);
+                    tank.chatSystem.success(`❤️ Ремкомплект: +${healAmount} HP`);
                 }
                 if (tank.soundManager) {
                     tank.soundManager.playHit();
                 }
-                // Визуальный эффект
                 if (tank.effectsManager && tank.chassis) {
                     const color = Color3.FromHexString("#00ff00");
                     tank.effectsManager.createConsumableEffect(tank.chassis.absolutePosition, color, "heal");
                 }
-                console.log(`[Consumable] Healed ${healAmount} HP`);
+                console.log(`[Consumable] Healed ${healAmount} HP (50%)`);
             }
         }
     },
     {
         id: "speed",
-        name: "Speed Boost",
-        description: "+50% speed for 10 sec",
+        name: "Двойная скорость",
+        description: "2x скорость на 10 сек",
         icon: "⚡",
         color: "#ffff00",
         duration: 10000,
         effect: (tank: any) => {
             const originalSpeed = tank.moveSpeed;
-            tank.moveSpeed *= 1.5;
+            tank.moveSpeed *= 2; // 2x вместо 1.5x
             if (tank.hud) {
-                tank.hud.addActiveEffect("Speed Boost", "⚡", "#ff0", 10000);
+                tank.hud.addActiveEffect("Двойная скорость", "⚡", "#ff0", 10000);
             }
             if (tank.chatSystem) {
-                tank.chatSystem.success("⚡ Speed boost activated");
+                tank.chatSystem.success("⚡ Двойная скорость активирована!");
             }
             if (tank.soundManager) {
                 tank.soundManager.playShoot();
             }
-            // Визуальный эффект
             if (tank.effectsManager && tank.chassis) {
                 const color = Color3.FromHexString("#ffff00");
                 tank.effectsManager.createConsumableEffect(tank.chassis.absolutePosition, color, "speed");
             }
-            console.log(`[Consumable] Speed boost activated`);
-            
+            console.log(`[Consumable] 2x Speed boost activated`);
+
             setTimeout(() => {
                 tank.moveSpeed = originalSpeed;
                 if (tank.hud) {
-                    tank.hud.removeActiveEffect("Speed Boost");
+                    tank.hud.removeActiveEffect("Двойная скорость");
                 }
                 if (tank.chatSystem) {
-                    tank.chatSystem.log("Speed boost ended");
+                    tank.chatSystem.log("⚡ Двойная скорость закончилась");
                 }
                 console.log(`[Consumable] Speed boost ended`);
             }, 10000);
@@ -94,52 +92,48 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
     },
     {
         id: "armor",
-        name: "Armor",
-        description: "+50% defense for 15 sec",
+        name: "Двойная броня",
+        description: "2x защита на 15 сек",
         icon: "🛡️",
         color: "#00ffff",
         duration: 15000,
         effect: (tank: any) => {
-            const originalMaxHealth = tank.maxHealth;
-            tank.maxHealth = Math.floor(tank.maxHealth * 1.5);
-            tank.currentHealth = Math.floor(tank.currentHealth * 1.5);
-            if (tank.hud) {
-                tank.hud.setHealth(tank.currentHealth, tank.maxHealth);
-                tank.hud.addActiveEffect("Armor", "🛡️", "#0ff", 15000);
-            }
-            if (tank.chatSystem) {
-                tank.chatSystem.success("🛡️ Enhanced armor activated");
-            }
-            if (tank.soundManager) {
-                tank.soundManager.playShoot();
-            }
-            // Визуальный эффект
-            if (tank.effectsManager && tank.chassis) {
-                const color = Color3.FromHexString("#00ffff");
-                tank.effectsManager.createConsumableEffect(tank.chassis.absolutePosition, color, "armor");
-            }
-            console.log(`[Consumable] Armor boost activated`);
-            
-            setTimeout(() => {
-                tank.maxHealth = originalMaxHealth;
-                if (tank.currentHealth > tank.maxHealth) {
-                    tank.currentHealth = tank.maxHealth;
-                }
+            if (!tank._armorActive) {
+                tank._armorActive = true;
+                tank._damageReduction = 0.5; // Получает 50% урона = 2x броня
                 if (tank.hud) {
-                    tank.hud.setHealth(tank.currentHealth, tank.maxHealth);
-                    tank.hud.removeActiveEffect("Armor");
+                    tank.hud.addActiveEffect("Двойная броня", "🛡️", "#0ff", 15000);
                 }
                 if (tank.chatSystem) {
-                    tank.chatSystem.log("Enhanced armor ended");
+                    tank.chatSystem.success("🛡️ Двойная броня активирована!");
                 }
-                console.log(`[Consumable] Armor boost ended`);
-            }, 15000);
+                if (tank.soundManager) {
+                    tank.soundManager.playShoot();
+                }
+                if (tank.effectsManager && tank.chassis) {
+                    const color = Color3.FromHexString("#00ffff");
+                    tank.effectsManager.createConsumableEffect(tank.chassis.absolutePosition, color, "armor");
+                }
+                console.log(`[Consumable] 2x Armor boost activated`);
+
+                setTimeout(() => {
+                    tank._armorActive = false;
+                    tank._damageReduction = 1;
+                    if (tank.hud) {
+                        tank.hud.removeActiveEffect("Двойная броня");
+                    }
+                    if (tank.chatSystem) {
+                        tank.chatSystem.log("🛡️ Двойная броня закончилась");
+                    }
+                    console.log(`[Consumable] Armor boost ended`);
+                }, 15000);
+            }
         }
     },
     {
         id: "ammo",
-        name: "Ammo",
-        description: "Instant reload",
+        name: "Боеприпасы",
+        description: "Мгновенная перезарядка",
         icon: "💣",
         color: "#ff8800",
         effect: (tank: any) => {
@@ -149,12 +143,11 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
                 tank.hud.reloadTime = 0;
             }
             if (tank.chatSystem) {
-                tank.chatSystem.combat("💣 Instant reload");
+                tank.chatSystem.combat("💣 Мгновенная перезарядка!");
             }
             if (tank.soundManager) {
                 tank.soundManager.playReloadComplete();
             }
-            // Визуальный эффект
             if (tank.effectsManager && tank.chassis) {
                 const color = Color3.FromHexString("#ff8800");
                 tank.effectsManager.createConsumableEffect(tank.chassis.absolutePosition, color, "ammo");
@@ -164,46 +157,148 @@ export const CONSUMABLE_TYPES: ConsumableType[] = [
     },
     {
         id: "damage",
-        name: "Damage Boost",
-        description: "+50% damage for 20 sec",
+        name: "Двойной урон",
+        description: "2x урон на 20 сек",
         icon: "🔥",
         color: "#ff0000",
         duration: 20000,
         effect: (tank: any) => {
-            // Сохраняем оригинальный урон (будет использоваться при стрельбе)
             if (!tank._originalDamage) {
                 tank._originalDamage = tank.damage || 25;
             }
-            tank.damage = Math.floor(tank._originalDamage * 1.5);
+            tank.damage = Math.floor(tank._originalDamage * 2); // 2x вместо 1.5x
             if (tank.hud) {
-                tank.hud.addActiveEffect("Damage Boost", "🔥", "#f00", 20000);
+                tank.hud.addActiveEffect("Двойной урон", "🔥", "#f00", 20000);
             }
             if (tank.chatSystem) {
-                tank.chatSystem.combat("🔥 Damage boost activated");
+                tank.chatSystem.combat("🔥 Двойной урон активирован!");
             }
             if (tank.soundManager) {
                 tank.soundManager.playShoot();
             }
-            // Визуальный эффект
             if (tank.effectsManager && tank.chassis) {
                 const color = Color3.FromHexString("#ff0000");
                 tank.effectsManager.createConsumableEffect(tank.chassis.absolutePosition, color, "damage");
             }
-            console.log(`[Consumable] Damage boost activated`);
-            
+            console.log(`[Consumable] 2x Damage boost activated`);
+
             setTimeout(() => {
                 tank.damage = tank._originalDamage;
                 if (tank.hud) {
-                    tank.hud.removeActiveEffect("Damage Boost");
+                    tank.hud.removeActiveEffect("Двойной урон");
                 }
                 if (tank.chatSystem) {
-                    tank.chatSystem.log("Damage boost ended");
+                    tank.chatSystem.log("🔥 Двойной урон закончился");
                 }
                 console.log(`[Consumable] Damage boost ended`);
             }, 20000);
         }
+    },
+    {
+        id: "fuel",
+        name: "Топливо",
+        description: "Восстанавливает 50% топлива",
+        icon: "⛽",
+        color: "#88ff00",
+        effect: (tank: any) => {
+            const fuelAmount = 50;
+            tank.fuel = Math.min(100, (tank.fuel || 0) + fuelAmount);
+            if (tank.hud) {
+                tank.hud.setFuel?.(tank.fuel);
+            }
+            if (tank.chatSystem) {
+                tank.chatSystem.success(`⛽ Топливо: +${fuelAmount}%`);
+            }
+            if (tank.soundManager) {
+                tank.soundManager.playHit();
+            }
+            if (tank.effectsManager && tank.chassis) {
+                const color = Color3.FromHexString("#88ff00");
+                tank.effectsManager.createConsumableEffect(tank.chassis.absolutePosition, color, "fuel");
+            }
+            console.log(`[Consumable] +${fuelAmount}% fuel`);
+        }
+    },
+    {
+        id: "stealth",
+        name: "Невидимость",
+        description: "Скрытие от радара 15 сек",
+        icon: "👻",
+        color: "#8800ff",
+        duration: 15000,
+        effect: (tank: any) => {
+            tank._isStealthed = true;
+            // Делаем танк полупрозрачным
+            if (tank.chassis?.material) {
+                tank._originalAlpha = (tank.chassis.material as any).alpha || 1;
+                (tank.chassis.material as any).alpha = 0.3;
+            }
+            if (tank.hud) {
+                tank.hud.addActiveEffect("Невидимость", "👻", "#80f", 15000);
+            }
+            if (tank.chatSystem) {
+                tank.chatSystem.success("👻 Невидимость активирована!");
+            }
+            if (tank.effectsManager && tank.chassis) {
+                const color = Color3.FromHexString("#8800ff");
+                tank.effectsManager.createConsumableEffect(tank.chassis.absolutePosition, color, "stealth");
+            }
+            console.log(`[Consumable] Stealth activated`);
+
+            setTimeout(() => {
+                tank._isStealthed = false;
+                if (tank.chassis?.material && tank._originalAlpha !== undefined) {
+                    (tank.chassis.material as any).alpha = tank._originalAlpha;
+                }
+                if (tank.hud) {
+                    tank.hud.removeActiveEffect("Невидимость");
+                }
+                if (tank.chatSystem) {
+                    tank.chatSystem.log("👻 Невидимость закончилась");
+                }
+                console.log(`[Consumable] Stealth ended`);
+            }, 15000);
+        }
+    },
+    {
+        id: "shield",
+        name: "Энергощит",
+        description: "Неуязвимость 5 сек",
+        icon: "🔮",
+        color: "#ff00ff",
+        duration: 5000,
+        effect: (tank: any) => {
+            tank.godMode = true;
+            if (tank.hud) {
+                tank.hud.addActiveEffect("Энергощит", "🔮", "#f0f", 5000);
+            }
+            if (tank.chatSystem) {
+                tank.chatSystem.success("🔮 Энергощит активирован! НЕУЯЗВИМОСТЬ!");
+            }
+            if (tank.soundManager) {
+                tank.soundManager.playShoot();
+            }
+            // Визуальный эффект щита
+            if (tank.effectsManager && tank.chassis) {
+                const color = Color3.FromHexString("#ff00ff");
+                tank.effectsManager.createConsumableEffect(tank.chassis.absolutePosition, color, "shield");
+            }
+            console.log(`[Consumable] Shield activated - INVINCIBLE`);
+
+            setTimeout(() => {
+                tank.godMode = false;
+                if (tank.hud) {
+                    tank.hud.removeActiveEffect("Энергощит");
+                }
+                if (tank.chatSystem) {
+                    tank.chatSystem.log("🔮 Энергощит закончился");
+                }
+                console.log(`[Consumable] Shield ended`);
+            }, 5000);
+        }
     }
 ];
+
 
 // Класс для припаса на карте
 export class ConsumablePickup {
@@ -259,7 +354,7 @@ export class ConsumablePickup {
         // Metadata для обнаружения
         this.mesh.metadata = { type: "consumable", consumableType: type.id, pickup: this };
     }
-    
+
     // Обновление анимации (вызывается из централизованного update)
     update(deltaTime: number): void {
         if (this.mesh.isDisposed()) return;

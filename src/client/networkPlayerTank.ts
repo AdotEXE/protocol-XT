@@ -7,6 +7,7 @@
 
 import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, Quaternion } from "@babylonjs/core";
 import type { NetworkPlayer } from "./multiplayer";
+import { vector3Pool } from "./optimization/Vector3Pool";
 import { getChassisById, getCannonById, getTrackById, type ChassisType, type CannonType, type TrackType } from "./tankTypes";
 import { createUniqueCannon, type CannonAnimationElements } from "./tank/tankCannon";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
@@ -57,6 +58,16 @@ export class NetworkPlayerTank {
     // Position buffer for smooth interpolation
     private positionBuffer: { x: number; y: number; z: number; rotation: number; time: number }[] = [];
     private readonly BUFFER_SIZE = 3; // Храним 3 последних позиции для сглаживания
+
+    // ОПТИМИЗАЦИЯ: Кэш усредненной позиции для избежания пересчета каждый кадр
+    private _cachedAveragePosition: { x: number; y: number; z: number; rotation: number } | null = null;
+    private _cachedAverageFrame = -1;
+    private _lastBufferUpdateFrame = -1;
+
+    // ОПТИМИЗАЦИЯ: Кэш усреднённой позиции для избежания пересчёта каждый кадр
+    private _cachedAveragePosition: { x: number; y: number; z: number; rotation: number } | null = null;
+    private _cachedAverageFrame = -1;
+    private _lastBufferHash = 0; // Хэш для отслеживания изменений буфера
 
     // КРИТИЧНО: Флаг для мгновенной телепортации при первом обновлении
     needsInitialSync: boolean = true;
@@ -672,19 +683,42 @@ export class NetworkPlayerTank {
             }
         }
 
-        // Вычисляем усреднённую целевую позицию из буфера для сглаживания
+        // ОПТИМИЗАЦИЯ: Кэшируем усреднённую позицию - вычисляем только при изменении буфера
+        const bufferHash = this.positionBuffer.length + (this.positionBuffer.length > 0 ?
+            Math.floor(this.positionBuffer[this.positionBuffer.length - 1].x * 100) : 0);
+        const bufferChanged = bufferHash !== this._lastBufferHash;
+
         let avgX = 0, avgY = 0, avgZ = 0, avgRot = 0;
-        for (const pos of this.positionBuffer) {
-            avgX += pos.x;
-            avgY += pos.y;
-            avgZ += pos.z;
-            avgRot += pos.rotation;
+        if (bufferChanged || !this._cachedAveragePosition) {
+            // Вычисляем усреднённую целевую позицию из буфера для сглаживания
+            for (const pos of this.positionBuffer) {
+                avgX += pos.x;
+                avgY += pos.y;
+                avgZ += pos.z;
+                avgRot += pos.rotation;
+            }
+            const bufferLen = this.positionBuffer.length || 1;
+            avgX /= bufferLen;
+            avgY /= bufferLen;
+            avgZ /= bufferLen;
+            avgRot /= bufferLen;
+
+            // Кэшируем результат
+            if (!this._cachedAveragePosition) {
+                this._cachedAveragePosition = { x: 0, y: 0, z: 0, rotation: 0 };
+            }
+            this._cachedAveragePosition.x = avgX;
+            this._cachedAveragePosition.y = avgY;
+            this._cachedAveragePosition.z = avgZ;
+            this._cachedAveragePosition.rotation = avgRot;
+            this._lastBufferHash = bufferHash;
+        } else {
+            // Используем кэшированное значение
+            avgX = this._cachedAveragePosition.x;
+            avgY = this._cachedAveragePosition.y;
+            avgZ = this._cachedAveragePosition.z;
+            avgRot = this._cachedAveragePosition.rotation;
         }
-        const bufferLen = this.positionBuffer.length || 1;
-        avgX /= bufferLen;
-        avgY /= bufferLen;
-        avgZ /= bufferLen;
-        avgRot /= bufferLen;
 
         // Используем последнюю позицию с небольшим сглаживанием к средней
         // Это даёт баланс между отзывчивостью и плавностью
@@ -693,14 +727,27 @@ export class NetworkPlayerTank {
         const finalTargetY = targetY * smoothFactor + avgY * (1 - smoothFactor);
         const finalTargetZ = targetZ * smoothFactor + avgZ * (1 - smoothFactor);
 
+        // ОПТИМИЗАЦИЯ: Пропускаем интерполяцию для очень малых изменений
+        const MIN_CHANGE_THRESHOLD = 0.001; // Минимальное изменение для интерполяции
+        const dx = finalTargetX - this.chassis.position.x;
+        const dy = finalTargetY - this.chassis.position.y;
+        const dz = finalTargetZ - this.chassis.position.z;
+
+        // Пропускаем если изменение слишком мало
+        if (Math.abs(dx) < MIN_CHANGE_THRESHOLD &&
+            Math.abs(dy) < MIN_CHANGE_THRESHOLD &&
+            Math.abs(dz) < MIN_CHANGE_THRESHOLD) {
+            return; // Не обновляем позицию
+        }
+
         // УПРОЩЁННАЯ ЛИНЕЙНАЯ ИНТЕРПОЛЯЦИЯ
         // Используем базовую интерполяцию без экстраполяции (dead reckoning отключён)
         const lerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED);
 
-        // Интерполяция позиции
-        this.chassis.position.x += (finalTargetX - this.chassis.position.x) * lerpFactor;
-        this.chassis.position.y += (finalTargetY - this.chassis.position.y) * lerpFactor;
-        this.chassis.position.z += (finalTargetZ - this.chassis.position.z) * lerpFactor;
+        // Интерполяция позиции (оптимизированная версия)
+        this.chassis.position.x += dx * lerpFactor;
+        this.chassis.position.y += dy * lerpFactor;
+        this.chassis.position.z += dz * lerpFactor;
 
         // Интерполяция вращения корпуса (Yaw, Pitch, Roll)
         // КРИТИЧНО: Используем Quaternion, так как PhysicsAggregate может его создать, 
@@ -1300,6 +1347,53 @@ export class NetworkPlayerTank {
      */
     hasModule(moduleId: string): boolean {
         return this.attachedModules.has(moduleId);
+    }
+
+    /**
+     * Синхронизировать модули с серверными данными
+     * Удаляет старые модули и добавляет новые
+     * @param modules - массив модулей от сервера [{id, attachTo, position, visualConfig}]
+     */
+    syncModules(modules: Array<{
+        id: string;
+        attachTo: 'chassis' | 'turret';
+        position: 'front' | 'back' | 'left' | 'right' | 'top';
+        visualConfig?: {
+            width?: number;
+            height?: number;
+            depth?: number;
+            color?: string;
+        };
+    }>): void {
+        // Получаем текущие модули
+        const currentModuleIds = new Set(this.attachedModules.keys());
+        const newModuleIds = new Set(modules.map(m => m.id));
+
+        // Удаляем модули, которых нет в новых данных
+        for (const oldId of currentModuleIds) {
+            if (!newModuleIds.has(oldId)) {
+                this.detachModule(oldId);
+            }
+        }
+
+        // Добавляем новые модули
+        for (const moduleData of modules) {
+            if (!currentModuleIds.has(moduleData.id)) {
+                this.attachModule(
+                    moduleData.id,
+                    moduleData.visualConfig || {
+                        width: 0.5,
+                        height: 0.5,
+                        depth: 0.5,
+                        color: '#FFD700' // Золотой цвет по умолчанию
+                    },
+                    moduleData.attachTo,
+                    moduleData.position
+                );
+            }
+        }
+
+        console.log(`[NetworkPlayerTank] 🔄 Modules synced for ${this.playerId}: ${modules.length} modules`);
     }
 
     /**

@@ -4,7 +4,8 @@ import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, ScrollViewer } f
 import { CommandSystem } from "./commandSystem";
 import { LogLevel, loggingSettings } from "./utils/logger";
 
-export type MessageType = "system" | "info" | "warning" | "error" | "success" | "log" | "combat" | "economy";
+export type MessageType = "system" | "info" | "warning" | "error" | "success" | "log" | "combat" | "economy" | "chat";
+export type ChatChannel = "global" | "local" | "team" | "room";
 
 export interface ChatMessage {
     text: string;
@@ -59,7 +60,17 @@ export class ChatSystem {
     private _commandHistoryIndex: number = -1;
 
     private game: any = null;
-    public onMessageSent: ((message: string) => void) | null = null;
+    public onMessageSent: ((message: string, channel: ChatChannel) => void) | null = null;
+
+    // Chat channels system
+    public currentChannel: ChatChannel = "room";
+    private channelColors: Record<ChatChannel, string> = {
+        global: "#ff0",  // Yellow - global
+        local: "#0f0",   // Green - local  
+        team: "#0af",    // Blue - team
+        room: "#fff"     // White - room
+    };
+    private channelSelector: HTMLSelectElement | null = null;
 
     constructor(scene: Scene) {
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("ChatUI", false, scene);
@@ -313,36 +324,96 @@ export class ChatSystem {
         htmlContainer.appendChild(messagesDiv);
         (htmlContainer as any)._messagesDiv = messagesDiv;
 
-        // Поле ввода команд
+        // === CHAT CHANNEL SELECTOR ===
+        const chatInputWrapper = document.createElement("div");
+        chatInputWrapper.style.cssText = `
+            width: 100%;
+            height: ${30 * scaleFactor}px;
+            display: ${isCollapsed ? 'none' : 'flex'};
+            gap: 4px;
+            background: rgba(0, 5, 0, 0.8);
+            border-top: ${2 * scaleFactor}px solid rgba(0, 255, 4, 0.6);
+        `;
+        htmlContainer.appendChild(chatInputWrapper);
+        (htmlContainer as any)._chatInputWrapper = chatInputWrapper;
+
+        // Channel selector dropdown
+        const channelSelect = document.createElement("select");
+        channelSelect.id = "chat-channel-selector";
+        channelSelect.style.cssText = `
+            width: 90px;
+            height: 100%;
+            background: rgba(0, 10, 0, 0.9);
+            border: 1px solid rgba(0, 255, 4, 0.4);
+            color: ${this.channelColors[this.currentChannel]};
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: 11px;
+            outline: none;
+            cursor: pointer;
+            padding: 2px 4px;
+        `;
+        channelSelect.innerHTML = `
+            <option value="room" style="color: #fff;">📢 Комната</option>
+            <option value="global" style="color: #ff0;">🌍 Глобал</option>
+            <option value="local" style="color: #0f0;">📍 Местный</option>
+            <option value="team" style="color: #0af;">👥 Команда</option>
+        `;
+        channelSelect.value = this.currentChannel;
+        channelSelect.addEventListener("change", (e) => {
+            this.currentChannel = (e.target as HTMLSelectElement).value as ChatChannel;
+            channelSelect.style.color = this.channelColors[this.currentChannel];
+            commandInput.style.borderColor = this.channelColors[this.currentChannel];
+        });
+        channelSelect.addEventListener("keydown", (e) => e.stopPropagation());
+        chatInputWrapper.appendChild(channelSelect);
+        this.channelSelector = channelSelect;
+
+        // Поле ввода команд / сообщений
         const commandInput = document.createElement("input");
         commandInput.type = "text";
         commandInput.id = "terminal-command-input";
-        commandInput.placeholder = "Enter command... (type 'help' for commands)";
+        commandInput.placeholder = "Сообщение или /команда...";
         commandInput.style.cssText = `
-            width: 100%;
-            height: ${30 * scaleFactor}px;
+            flex: 1;
+            height: 100%;
             padding: ${4 * scaleFactor}px ${8 * scaleFactor}px;
             background: rgba(0, 5, 0, 0.8);
-            border: ${1 * scaleFactor}px solid rgba(0, 255, 4, 0.4);
-            border-top: ${2 * scaleFactor}px solid rgba(0, 255, 4, 0.6);
+            border: ${1 * scaleFactor}px solid ${this.channelColors[this.currentChannel]};
             color: #0f0;
             font-family: Consolas, Monaco, 'Courier New', monospace;
             font-size: clamp(10px, 1.1vw, 12px);
             outline: none;
-            display: ${isCollapsed ? 'none' : 'block'};
         `;
-        htmlContainer.appendChild(commandInput);
+        chatInputWrapper.appendChild(commandInput);
         this.commandInput = commandInput;
 
         // Обработка ввода команд
         commandInput.addEventListener("keydown", async (e) => {
+            // CRITICAL: Stop propagation to prevent game actions while typing
+            e.stopPropagation();
+
+            // Handle toggle/close keys explicitly since we stopped propagation
+            if (e.key === "Escape" || e.code === "Backquote") {
+                e.preventDefault();
+                this.toggleTerminal();
+                return;
+            }
+
             if (e.key === "Enter") {
-                const command = commandInput.value.trim();
-                if (command) {
-                    // Добавляем команду в историю
-                    this.addToHistory(command);
+                const text = commandInput.value.trim();
+                if (text) {
+                    // Добавляем в историю
+                    this.addToHistory(text);
                     commandInput.value = "";
-                    await this.executeCommand(command);
+
+                    // Проверяем: команда (начинается с /) или чат сообщение
+                    if (text.startsWith("/")) {
+                        // Команда - выполняем локально
+                        await this.executeCommand(text);
+                    } else {
+                        // Чат сообщение - отправляем через MP
+                        this.sendChatMessage(text);
+                    }
                 }
             } else if (e.key === "ArrowUp") {
                 e.preventDefault();
@@ -679,7 +750,7 @@ export class ChatSystem {
             this.htmlContainer.style.display = visible ? "block" : "none";
             // Focus input if showing
             if (visible && this.commandInput) {
-                setTimeout(() => this.commandInput.focus(), 10);
+                setTimeout(() => this.commandInput?.focus(), 10);
             }
         }
     }
@@ -1001,6 +1072,57 @@ export class ChatSystem {
         else if (color === "#0ff") type = "info";
 
         this.addMessage(text, type, 0);
+    }
+
+    /**
+     * Отправить чат сообщение через MP
+     * Вызывается при Enter в input (не начинающееся с /)
+     */
+    sendChatMessage(message: string): void {
+        if (!message.trim()) return;
+
+        // Отправляем через callback в Game/Multiplayer
+        if (this.onMessageSent) {
+            this.onMessageSent(message, this.currentChannel);
+        }
+
+        // Локальный эхо для мгновенного отклика (сервер также пришлет)
+        const channelPrefix = this.getChannelPrefix(this.currentChannel);
+        this.addMessage(`${channelPrefix} Вы: ${message}`, "chat", 0);
+    }
+
+    /**
+     * Получить сообщение от другого игрока (из MP)
+     * Вызывается когда сервер присылает CHAT_MESSAGE
+     */
+    receiveChatMessage(data: { playerId: string; playerName: string; message: string; channel?: string; timestamp?: number }): void {
+        const channel = (data.channel || "room") as ChatChannel;
+        const channelPrefix = this.getChannelPrefix(channel);
+        const color = this.channelColors[channel] || "#fff";
+
+        // Форматируем сообщение
+        const formattedText = `${channelPrefix} ${data.playerName}: ${data.message}`;
+
+        // Добавляем в чат с соответствующим цветом
+        this.addMessage(formattedText, "chat", 0);
+
+        // Звук уведомления
+        if (this.soundManager && data.playerId !== this.game?.playerId) {
+            // Можно добавить звук нового сообщения
+        }
+    }
+
+    /**
+     * Получить префикс канала для отображения
+     */
+    private getChannelPrefix(channel: ChatChannel): string {
+        switch (channel) {
+            case "global": return "[🌍ГЛОБАЛ]";
+            case "local": return "[📍МЕСТН]";
+            case "team": return "[👥КОМАНД]";
+            case "room": return "[📢]";
+            default: return "";
+        }
     }
 
     /**

@@ -77,7 +77,7 @@ export interface TankPart {
     };
 }
 
-type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop" | "skins" | "presets";
+type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop" | "skins" | "presets" | "workshop";
 
 // ============ GARAGE CLASS ============
 export class Garage {
@@ -3400,6 +3400,7 @@ export class Garage {
                     <div class="garage-tab ${this.currentCategory === 'supplies' ? 'active' : ''}" data-cat="supplies">[5] SUPPLIES</div>
                     <div class="garage-tab ${this.currentCategory === 'shop' ? 'active' : ''}" data-cat="shop">[6] SHOP</div>
                     <div class="garage-tab ${this.currentCategory === 'presets' ? 'active' : ''}" data-cat="presets">[7] PRESETS</div>
+                    <div class="garage-tab ${this.currentCategory === 'workshop' ? 'active' : ''}" data-cat="workshop">[8] WORKSHOP</div>
                 </div>
                 <div class="garage-content">
                     <div class="garage-left">
@@ -3506,6 +3507,12 @@ export class Garage {
     }
 
     private switchCategory(cat: CategoryType): void {
+        // Если выбрана категория workshop, открываем WorkshopUI
+        if (cat === 'workshop') {
+            this.openWorkshop();
+            return;
+        }
+        
         this.currentCategory = cat;
         this.selectedItemIndex = 0;
 
@@ -3514,6 +3521,20 @@ export class Garage {
         });
 
         this.refreshItemList();
+    }
+    
+    private workshopUI: any = null;
+    
+    private openWorkshop(): void {
+        // Импортируем и открываем WorkshopUI
+        import('./workshop/WorkshopUI').then(module => {
+            if (!this.workshopUI) {
+                this.workshopUI = new module.default(this._scene);
+            }
+            this.workshopUI.show();
+        }).catch(e => {
+            console.error('[Garage] Failed to open Workshop:', e);
+        });
     }
 
     private getItemsForCategory(): (TankPart | TankUpgrade)[] {
@@ -3555,6 +3576,9 @@ export class Garage {
                     stats: {}
                 }));
             case "presets": return this.getPresetParts(); // Пресеты танков
+            case "workshop": 
+                // Workshop не показывает список элементов, открывает отдельный UI
+                return [];
             default: return [];
         }
     }
@@ -4898,7 +4922,7 @@ export class Garage {
                 return;
             }
 
-            const cats: CategoryType[] = ['chassis', 'cannons', 'tracks', 'modules', 'supplies', 'shop', 'skins', 'presets'];
+            const cats: CategoryType[] = ['chassis', 'cannons', 'tracks', 'modules', 'supplies', 'shop', 'presets', 'workshop'];
             for (let i = 1; i <= 8; i++) {
                 if (e.code === `Digit${i}` || e.code === `Numpad${i}`) {
                     e.preventDefault();

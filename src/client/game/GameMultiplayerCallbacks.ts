@@ -5,6 +5,7 @@
 
 import { Vector3, MeshBuilder, StandardMaterial, Color3, PhysicsMotionType, LinesMesh, Mesh, Quaternion, Scene } from "@babylonjs/core";
 import { logger } from "../utils/logger";
+import { vector3Pool } from "../optimization/Vector3Pool";
 import { createClientMessage } from "../../shared/protocol";
 import { ClientMessageType, ServerMessageType, PlayerDamagedData, PlayerHitData } from "../../shared/messages";
 import { CONSUMABLE_TYPES } from "../consumables";
@@ -419,15 +420,16 @@ export class GameMultiplayerCallbacks {
                     if (networkPlayer.position instanceof Vector3) {
                         networkPlayer.position.set(data.position.x, data.position.y, data.position.z);
                     } else {
-                        (networkPlayer.position as any) = new Vector3(data.position.x, data.position.y, data.position.z);
+                        // ОПТИМИЗАЦИЯ: Используем vector3Pool
+                        (networkPlayer.position as any) = vector3Pool.acquire(data.position.x, data.position.y, data.position.z);
                     }
                 }
             }
 
             const tank = this.deps.networkPlayerTanks.get(data.playerId);
             if (tank) {
-                // Ensure position is valid
-                const spawnPos = new Vector3(data.position.x, data.position.y, data.position.z);
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool
+                const spawnPos = vector3Pool.acquire(data.position.x, data.position.y, data.position.z);
 
                 // Clear any death effects or states
                 console.log(`[Game] ♻️ Restoring tank ${data.playerId}...`);
@@ -444,7 +446,8 @@ export class GameMultiplayerCallbacks {
                 // Если tank не найден в networkPlayerTanks, значит это мы (локальный игрок)
                 // У TankController методы называются иначе чем у NetworkPlayerTank
                 console.log(`[Game] ♻️ Respawning LOCAL PLAYER tank at ${JSON.stringify(data.position)}`);
-                const spawnPos = new Vector3(data.position.x, data.position.y, data.position.z);
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool
+                const spawnPos = vector3Pool.acquire(data.position.x, data.position.y, data.position.z);
 
                 if (this.deps.tank) {
                     // Вызываем метод respawn() контроллера танка
@@ -885,8 +888,9 @@ export class GameMultiplayerCallbacks {
                         logger.log("[Game] Respawn animation complete, teleporting to server position");
 
                         // Телепортируем на позицию от сервера
+                        // ОПТИМИЗАЦИЯ: Используем vector3Pool
                         if (this.deps.tank.chassis && data.position) {
-                            const respawnPos = new Vector3(data.position.x, data.position.y, data.position.z);
+                            const respawnPos = vector3Pool.acquire(data.position.x, data.position.y, data.position.z);
                             this.deps.tank.chassis.position.copyFrom(respawnPos);
 
                             // Эффект респавна на новой позиции
@@ -964,9 +968,15 @@ export class GameMultiplayerCallbacks {
 
                     // Звук получения урона
                     if (this.deps.soundManager) {
-                        // Используем позицию попадания если есть, или позицию танка
-                        const hitPos = data.hitPosition ? new Vector3((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z) : this.deps.tank.chassis.position;
+                        // ОПТИМИЗАЦИЯ: Используем vector3Pool
+                        const hitPos = data.hitPosition ?
+                            vector3Pool.acquire((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z) :
+                            this.deps.tank.chassis.position;
                         this.deps.soundManager.playHit("armor", hitPos); // или "player_hit"
+                        // ОПТИМИЗАЦИЯ: Освобождаем вектор если создали новый
+                        if (data.hitPosition && hitPos !== this.deps.tank.chassis.position) {
+                            vector3Pool.release(hitPos);
+                        }
                     }
                 }
             } else {
@@ -976,16 +986,20 @@ export class GameMultiplayerCallbacks {
                     tank.setHealth(data.health ?? 100, data.maxHealth ?? 100);
 
                     // Визуальный эффект попадания
+                    // ОПТИМИЗАЦИЯ: Используем vector3Pool
                     if (data.hitPosition && this.deps.effectsManager) {
-                        const pos = new Vector3((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z);
+                        const pos = vector3Pool.acquire((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z);
                         this.deps.effectsManager.createHitSpark(pos);
+                        vector3Pool.release(pos);
                     }
 
                     // Звук попадания по врагу 
                     // (только если мы находимся достаточно близко, чтобы слышать)
+                    // ОПТИМИЗАЦИЯ: Используем vector3Pool
                     if (this.deps.soundManager && data.hitPosition) {
-                        const hitSoundPos = new Vector3((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z);
+                        const hitSoundPos = vector3Pool.acquire((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z);
                         this.deps.soundManager.playHit("armor", hitSoundPos);
+                        vector3Pool.release(hitSoundPos);
                     }
                 }
             }
@@ -1873,13 +1887,17 @@ export class GameMultiplayerCallbacks {
                 const networkTank = this.deps.networkPlayerTanks.get(data.playerId);
                 if (networkTank) {
                     networkTank.setHealth(data.health ?? 100, data.maxHealth ?? 100);
-                    targetPos = networkTank.chassis.position.clone();
+                    // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                    targetPos = vector3Pool.acquire();
+                    targetPos.copyFrom(networkTank.chassis.position);
                     targetPos.y += 2;
                 }
 
                 // Если атакующий - МЫ, показываем урон
                 if (data.attackerId === localPlayerId && targetPos && this.deps.hud) {
                     this.deps.hud.showFloatingDamage(targetPos, damage, 'dealt', isCritical);
+                    // ОПТИМИЗАЦИЯ: Освобождаем вектор после использования
+                    vector3Pool.release(targetPos);
                 }
             }
         });
@@ -2017,6 +2035,30 @@ export class GameMultiplayerCallbacks {
                         });
                     }
                     break;
+
+                case "MODULES_UPDATE":
+                    // Синхронизация модулей сетевого игрока (#9)
+                    const moduleTank = this.deps.networkPlayerTanks.get(data.sourceId);
+                    if (moduleTank && data.payload?.modules) {
+                        console.log(`[Game] 🔧 MODULES_UPDATE for ${data.sourceId}:`, data.payload.modules);
+                        moduleTank.syncModules(data.payload.modules);
+                    }
+                    break;
+
+                case "ENEMY_SPAWN":
+                    // Синхронизация появления бота (#6)
+                    this.handleEnemySpawn(data.payload);
+                    break;
+
+                case "ENEMY_UPDATE":
+                    // Обновление позиции/состояния бота
+                    this.handleEnemyUpdate(data.payload);
+                    break;
+
+                case "ENEMY_DEATH":
+                    // Смерть бота
+                    this.handleEnemyDeath(data.payload);
+                    break;
             }
         });
     }
@@ -2040,6 +2082,68 @@ export class GameMultiplayerCallbacks {
             const game = (window as any).gameInstance;
             if (game?.gameEnemies?.updateNetworkEnemies) {
                 game.gameEnemies.updateNetworkEnemies(enemies);
+            }
+        }
+    }
+
+    /**
+     * Обработка появления бота от сервера (#6)
+     * Создаёт визуальную модель бота когда сервер сообщает о спавне
+     */
+    private handleEnemySpawn(data: any): void {
+        if (!data) return;
+
+        console.log(`[Game] 🤖 ENEMY_SPAWN received:`, data);
+
+        // Получаем GameEnemies для создания бота
+        const gameEnemies = this.deps.gameEnemies || (window as any).gameInstance?.gameEnemies;
+        if (!gameEnemies) {
+            console.warn(`[Game] ⚠️ ENEMY_SPAWN: gameEnemies not available, queueing for later`);
+            this.pendingEnemies.push(data);
+            return;
+        }
+
+        // Создаём бота через GameEnemies
+        if (typeof gameEnemies.spawnNetworkEnemy === "function") {
+            gameEnemies.spawnNetworkEnemy(data);
+        } else if (typeof gameEnemies.spawnEnemy === "function") {
+            // Fallback: используем обычный спавн
+            const position = data.position
+                ? new Vector3(data.position.x, data.position.y, data.position.z)
+                : Vector3.Zero();
+            gameEnemies.spawnEnemy(data.type || "basic", position, data.id);
+        } else {
+            console.warn(`[Game] ⚠️ ENEMY_SPAWN: no spawn method available on gameEnemies`);
+        }
+    }
+
+    /**
+     * Обработка смерти бота от сервера (#6)
+     * Удаляет визуальную модель бота когда сервер сообщает о смерти
+     */
+    private handleEnemyDeath(data: any): void {
+        if (!data || !data.id) return;
+
+        console.log(`[Game] 💀 ENEMY_DEATH received: ${data.id}`);
+
+        // Получаем GameEnemies для удаления бота
+        const gameEnemies = this.deps.gameEnemies || (window as any).gameInstance?.gameEnemies;
+        if (!gameEnemies) {
+            console.warn(`[Game] ⚠️ ENEMY_DEATH: gameEnemies not available`);
+            return;
+        }
+
+        // Удаляем бота через GameEnemies
+        if (typeof gameEnemies.killNetworkEnemy === "function") {
+            gameEnemies.killNetworkEnemy(data.id);
+        } else if (typeof gameEnemies.killEnemy === "function") {
+            gameEnemies.killEnemy(data.id);
+        } else {
+            // Fallback: ищем бота напрямую и убиваем
+            const enemies = gameEnemies.enemies || gameEnemies.getEnemies?.() || [];
+            const enemy = enemies.find((e: any) => e.id === data.id);
+            if (enemy && enemy.takeDamage) {
+                enemy.takeDamage(99999); // Kill instantly
             }
         }
     }

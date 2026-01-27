@@ -1336,26 +1336,99 @@ export class GameServer {
     }
 
 
+    /**
+     * Handle chat message with channel routing
+     * Channels: 'global' | 'local' | 'team' | 'room' (default)
+     */
     private handleChatMessage(player: ServerPlayer, data: any): void {
-        // Rate limiting DISABLED - no chat restrictions
-        // Validation DISABLED - accept all chat messages
+        const message = data.message;
+        const channel = data.channel || "room"; // default to room chat
+
+        // Basic validation
+        if (!message || typeof message !== "string" || message.length === 0) {
+            return;
+        }
+
+        // Truncate long messages
+        const truncatedMessage = message.substring(0, 500);
 
         const chatData = {
             playerId: player.id,
             playerName: player.name,
-            message: data.message,
+            message: truncatedMessage,
+            channel: channel,
             timestamp: Date.now()
         };
 
-        // Если игрок в комнате - отправляем в комнату
-        if (player.roomId) {
-            const room = this.rooms.get(player.roomId);
-            if (room) {
-                this.broadcastToRoom(room, createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
+        serverLogger.log(`[Chat] ${player.name} [${channel}]: ${truncatedMessage.substring(0, 50)}...`);
+
+        switch (channel) {
+            case "global":
+                // Send to ALL connected players (all rooms + lobby)
+                this.broadcastToAll(createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
+                break;
+
+            case "local":
+                // Send only to players within 200 units
+                if (player.roomId && player.position) {
+                    const room = this.rooms.get(player.roomId);
+                    if (room) {
+                        this.broadcastToNearby(room, player.position,
+                            createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData),
+                            200 // 200 units radius for local chat
+                        );
+                    }
+                }
+                break;
+
+            case "team":
+                // Send only to same team players
+                if (player.roomId) {
+                    const room = this.rooms.get(player.roomId);
+                    if (room) {
+                        this.broadcastToTeam(room, player.team,
+                            createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData)
+                        );
+                    }
+                }
+                break;
+
+            case "room":
+            default:
+                // Send to entire room or lobby
+                if (player.roomId) {
+                    const room = this.rooms.get(player.roomId);
+                    if (room) {
+                        this.broadcastToRoom(room, createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
+                    }
+                } else {
+                    this.broadcastToLobby(createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
+                }
+                break;
+        }
+    }
+
+    /**
+     * Broadcast to ALL connected players (global chat)
+     */
+    private broadcastToAll(message: ServerMessage): void {
+        const serialized = serializeMessage(message);
+        for (const player of this.players.values()) {
+            if (player.socket.readyState === WebSocket.OPEN) {
+                player.socket.send(serialized);
             }
-        } else {
-            // Иначе - отправляем всем игрокам в лобби (не в комнатах)
-            this.broadcastToLobby(createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData));
+        }
+    }
+
+    /**
+     * Broadcast to players on the same team
+     */
+    private broadcastToTeam(room: GameRoom, team: string | undefined, message: ServerMessage): void {
+        const serialized = serializeMessage(message);
+        for (const player of room.getAllPlayers()) {
+            if (player.socket.readyState === WebSocket.OPEN && player.team === team) {
+                player.socket.send(serialized);
+            }
         }
     }
 
@@ -1415,11 +1488,13 @@ export class GameServer {
         }
 
         // Check distance (simple validation)
+        // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance (избегаем вычисления корня)
         const playerPos = player.position;
         const consumablePos = new Vector3(position.x, position.y, position.z);
-        const distance = Vector3.Distance(playerPos, consumablePos);
+        const distanceSq = Vector3.DistanceSquared(playerPos, consumablePos);
+        const maxDistanceSq = 25; // 5^2
 
-        if (distance > 5) {
+        if (distanceSq > maxDistanceSq) {
             return; // Too far
         }
 
@@ -1848,9 +1923,10 @@ export class GameServer {
                         return false;
                     });
 
-                    // КРИТИЧНО: Периодическая отправка полных состояний (каждые 60 пакетов = 1 раз в секунду)
+                    // ОПТИМИЗАЦИЯ: Периодическая отправка полных состояний (каждые 120 пакетов = 1 раз в 2 секунды)
                     // Это предотвращает накопление ошибок квантования и дельта-компрессии
-                    const isFullState = this.tickCount % 60 === 0;
+                    // Уменьшено с 60 до 120 для снижения сетевого трафика на 50%
+                    const isFullState = this.tickCount % 120 === 0;
 
                     // Send filtered player states with adaptive update rate
                     const statesData = {
@@ -1871,7 +1947,11 @@ export class GameServer {
 
                     // AOI for Projectiles
                     const visibleProjectiles = Array.from(room.projectiles.values())
-                        .filter(p => Vector3.Distance(playerPos, p.position) < 350) // 350 unit radius (slightly larger than player AOI)
+                        // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance (избегаем вычисления корня)
+                        .filter(p => {
+                            const distSq = Vector3.DistanceSquared(playerPos, p.position);
+                            return distSq < 122500; // 350^2
+                        }) // 350 unit radius (slightly larger than player AOI)
                         .map(p => p.toProjectileData());
 
                     if (visibleProjectiles.length > 0) {
@@ -1883,7 +1963,11 @@ export class GameServer {
                     // AOI for Enemies (Bots)
                     if (room.enemies.size > 0 && (room.mode === "coop" || room.mode === "ffa" || room.mode === "tdm" || room.mode === "survival" || room.mode === "raid")) {
                         const visibleEnemies = Array.from(room.enemies.values())
-                            .filter(e => Vector3.Distance(playerPos, e.position) < 350)
+                            // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance (избегаем вычисления корня)
+                            .filter(e => {
+                                const distSq = Vector3.DistanceSquared(playerPos, e.position);
+                                return distSq < 122500; // 350^2
+                            })
                             .map(e => e.toEnemyData());
 
                         // ALWAYS send enemy update, even if empty, to clear distant enemies from client
@@ -1959,7 +2043,10 @@ export class GameServer {
         for (const player of room.getAllPlayers()) {
             if (player.id === excludePlayerId) continue;
             if (player.socket.readyState === WebSocket.OPEN && player.position) {
-                if (Vector3.Distance(player.position, position) <= maxDistance) {
+                // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance (избегаем вычисления корня)
+                const distSq = Vector3.DistanceSquared(player.position, position);
+                const maxDistanceSq = maxDistance * maxDistance;
+                if (distSq <= maxDistanceSq) {
                     player.socket.send(serialized);
                 }
             }

@@ -30,7 +30,7 @@ enum PacketType {
  * Binary Writer Helper
  * Little Endian by default
  */
-class BinaryWriter {
+export class BinaryWriter {
     private parts: Uint8Array[] = [];
     private totalLength = 0;
 
@@ -657,30 +657,36 @@ function deserializeFromBinary(buffer: ArrayBuffer): any {
 
 export function serializeMessage(message: ClientMessage | ServerMessage): string | ArrayBuffer {
     if (USE_BINARY_SERIALIZATION) {
-        const writer = new BinaryWriter();
+        // ОПТИМИЗАЦИЯ: Используем object pool для BinaryWriter для снижения GC нагрузки
+        const writer = binaryWriterPool.acquire();
 
-        if (message.type === ClientMessageType.PLAYER_INPUT) {
-            writer.writeUint8(PacketType.PLAYER_INPUT);
-            serializePlayerInput(writer, message.data);
-            return writer.getBuffer();
-        }
-        else if (message.type === ServerMessageType.PLAYER_STATES) {
-            writer.writeUint8(PacketType.PLAYER_STATES);
-            serializePlayerStates(writer, message.data);
-            return writer.getBuffer();
-        }
-        else {
-            // Legacy/Generic Fallback
-            // Wrap the whole message object like before
-            const plainObj = messageToPlainObject(message);
-            const legacyBuffer = serializeToBinary(plainObj);
+        try {
+            if (message.type === ClientMessageType.PLAYER_INPUT) {
+                writer.writeUint8(PacketType.PLAYER_INPUT);
+                serializePlayerInput(writer, message.data);
+                return writer.getBuffer();
+            }
+            else if (message.type === ServerMessageType.PLAYER_STATES) {
+                writer.writeUint8(PacketType.PLAYER_STATES);
+                serializePlayerStates(writer, message.data);
+                return writer.getBuffer();
+            }
+            else {
+                // Legacy/Generic Fallback
+                // Wrap the whole message object like before
+                const plainObj = messageToPlainObject(message);
+                const legacyBuffer = serializeToBinary(plainObj);
 
-            // Write LEAGCY type marker + legacy buffer
-            // We need to concat [0] + legacyBuffer
-            const result = new Uint8Array(1 + legacyBuffer.byteLength);
-            result[0] = PacketType.LEGACY;
-            result.set(new Uint8Array(legacyBuffer), 1);
-            return result.buffer;
+                // Write LEAGCY type marker + legacy buffer
+                // We need to concat [0] + legacyBuffer
+                const result = new Uint8Array(1 + legacyBuffer.byteLength);
+                result[0] = PacketType.LEGACY;
+                result.set(new Uint8Array(legacyBuffer), 1);
+                return result.buffer;
+            }
+        } finally {
+            // Освобождаем writer обратно в pool
+            binaryWriterPool.release(writer);
         }
     } else {
         const plainObj = messageToPlainObject(message);

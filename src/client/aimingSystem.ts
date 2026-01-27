@@ -284,8 +284,8 @@ export class AimingSystem {
             return;
         }
 
-        // Create ray from barrel
-        const barrelPos = this.tank.barrel.getAbsolutePosition();
+        // ОПТИМИЗАЦИЯ: Используем кэшированную позицию ствола
+        const barrelPos = this.tank.getCachedBarrelPosition ? this.tank.getCachedBarrelPosition() : this.tank.barrel.getAbsolutePosition();
         const barrelDir = this.tank.barrel.getDirection(Vector3.Forward()).normalize();
 
         let closestTarget: TargetInfo | null = null;
@@ -295,8 +295,10 @@ export class AimingSystem {
         for (const enemy of this.enemyTanks) {
             if (!enemy || !enemy.chassis || !enemy.isAlive) continue;
 
+            // ОПТИМИЗАЦИЯ: Используем DistanceSquared для сравнения, вычисляем корень только для отображения
             const enemyPos = enemy.chassis.getAbsolutePosition();
-            const dist = Vector3.Distance(barrelPos, enemyPos);
+            const distSq = Vector3.DistanceSquared(barrelPos, enemyPos);
+            const dist = Math.sqrt(distSq); // Вычисляем корень только для отображения
 
             // Check if in cone of fire
             const toEnemy = enemyPos.subtract(barrelPos).normalize();

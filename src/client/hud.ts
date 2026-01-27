@@ -44,6 +44,7 @@ import {
 import type { TouchInputState } from "./hud/components";
 import { MobileControlsManager, type MobileInputState } from "./mobile";
 import { isMobileDevice } from "./mobile/MobileDetection";
+import { timerManager } from "./optimization/TimerManager";
 
 // ULTRA SIMPLE HUD - NO gradients, NO shadows, NO alpha, NO transparency
 // Pure solid colors only!
@@ -3883,7 +3884,8 @@ export class HUD {
             duration,
             startTime: Date.now(),
             slotIndex,
-            updateInterval: setInterval(() => {
+            // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
+            updateInterval: timerManager.setInterval(() => {
                 const elapsed = Date.now() - effectData.startTime;
                 const remaining = Math.max(0, duration - elapsed);
                 const remainingSeconds = Math.ceil(remaining / 1000);
@@ -3894,7 +3896,7 @@ export class HUD {
                     slot.progressBar.width = `${progressPercent}%`;
                 } else {
                     // Эффект закончился
-                    clearInterval(effectData.updateInterval);
+                    timerManager.clear(effectData.updateInterval);
                     this.removeActiveEffect(name);
                 }
             }, 100) // Обновляем каждые 100мс для плавности
@@ -3913,7 +3915,7 @@ export class HUD {
 
         // Останавливаем обновление таймера
         if ((effectData as any).updateInterval) {
-            clearInterval((effectData as any).updateInterval);
+            timerManager.clear((effectData as any).updateInterval);
         }
 
         // Очищаем слот
@@ -3972,9 +3974,10 @@ export class HUD {
 
             // Перезапускаем интервал обновления
             if (data.updateInterval) {
-                clearInterval(data.updateInterval);
+                timerManager.clear(data.updateInterval);
             }
-            data.updateInterval = setInterval(() => {
+            // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
+            data.updateInterval = timerManager.setInterval(() => {
                 const elapsed = Date.now() - data.startTime;
                 const remaining = Math.max(0, data.duration - elapsed);
                 const remainingSeconds = Math.ceil(remaining / 1000);
@@ -3984,7 +3987,7 @@ export class HUD {
                     slot.timerText.text = `${remainingSeconds}s`;
                     slot.progressBar.width = `${progressPercent}%`;
                 } else {
-                    clearInterval(data.updateInterval);
+                    timerManager.clear(data.updateInterval);
                     this.removeActiveEffect(effectName);
                 }
             }, 100);
@@ -5516,7 +5519,7 @@ export class HUD {
     showMessage(text: string, color: string = "#0f0", duration: number = 2000) {
 
         if (this.messageTimeout) {
-            clearTimeout(this.messageTimeout);
+            timerManager.clear(this.messageTimeout);
         }
 
         const msgBg = (this.messageText as any)._msgBg as Rectangle;
@@ -5535,7 +5538,8 @@ export class HUD {
 
         // Если duration = 0, не скрываем автоматически (для таймера респавна)
         if (duration > 0) {
-            this.messageTimeout = setTimeout(() => {
+            // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setTimeout
+            this.messageTimeout = timerManager.setTimeout(() => {
                 msgBg.isVisible = false;
             }, duration);
         }
@@ -5693,7 +5697,8 @@ export class HUD {
         // Start countdown timer animation
         let timeLeft = respawnTime;
         console.log(`[HUD] showDeathScreen: starting timer, respawnTime=${respawnTime}, callback exists: ${!!this.onRespawnStartCallback}`);
-        const countdownInterval = setInterval(() => {
+        // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
+        const countdownInterval = timerManager.setInterval(() => {
             timeLeft--;
             if (this.deathRespawnText) {
                 if (timeLeft > 0) {
@@ -5703,7 +5708,7 @@ export class HUD {
                 }
             }
             if (timeLeft <= 0) {
-                clearInterval(countdownInterval);
+                timerManager.clear(countdownInterval);
                 console.log(`[HUD] Timer hit 0, callback exists: ${!!this.onRespawnStartCallback}`);
                 // Invoke the respawn callback
                 if (this.onRespawnStartCallback) {
@@ -6834,8 +6839,33 @@ export class HUD {
 
         console.log(`[HUD] 🔨 createCentralXpBar: Creating new XP bar elements`);
 
-        // Сохраняем текущий текст, если элементы уже были созданы
-        const savedText = this.centralXpText?.text || "RANK 1 | XP: 0/100";
+        // ИСПРАВЛЕНО: Читаем данные напрямую из localStorage для корректного начального отображения
+        let savedText = "RANK 1 | XP: 0/100"; // Дефолт если ничего не найдено
+        try {
+            const playerStatsRaw = localStorage.getItem("tx_player_stats");
+            if (playerStatsRaw) {
+                const playerStats = JSON.parse(playerStatsRaw);
+                const level = playerStats.level || 1;
+                const experience = playerStats.experience || 0;
+
+                // Получаем требуемый опыт для следующего уровня
+                const PLAYER_LEVEL_EXP = [0, 500, 1200, 2100, 3300, 4800, 6600, 8800, 11500, 14700, 18500, 23000, 28200, 34200, 41000, 48700, 57300, 67000, 77800, 90000];
+                const currentLevelXP = PLAYER_LEVEL_EXP[level - 1] || 0;
+                const nextLevelXP = PLAYER_LEVEL_EXP[level] || PLAYER_LEVEL_EXP[PLAYER_LEVEL_EXP.length - 1];
+                const required = (nextLevelXP || currentLevelXP) - currentLevelXP;
+                const current = Math.min(experience, required);
+
+                savedText = `RANK ${level} | XP: ${current}/${required}`;
+                console.log(`[HUD] createCentralXpBar: Loaded from localStorage: ${savedText}`);
+            }
+        } catch (e) {
+            console.warn("[HUD] Failed to load player stats from localStorage:", e);
+        }
+
+        // Если есть уже существующий текст, используем его
+        if (this.centralXpText?.text && this.centralXpText.text !== "RANK 1 | XP: 0/100") {
+            savedText = this.centralXpText.text;
+        }
 
         // Вычисляем ширину XP бара - максимум 800px, но не больше 60% экрана
         const maxWidth = Math.min(800, window.innerWidth * 0.6);
@@ -8908,21 +8938,23 @@ export class HUD {
 
         // Анимация появления
         notification.alpha = 0;
-        const fadeIn = setInterval(() => {
+        // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
+        const fadeIn = timerManager.setInterval(() => {
             if (notification.alpha < 1) {
                 notification.alpha += 0.1;
             } else {
-                clearInterval(fadeIn);
+                timerManager.clear(fadeIn);
             }
         }, 20);
 
         // Удаление через 5 секунд с анимацией
-        setTimeout(() => {
-            const fadeOut = setInterval(() => {
+        // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setTimeout
+        timerManager.setTimeout(() => {
+            const fadeOut = timerManager.setInterval(() => {
                 if (notification.alpha > 0) {
                     notification.alpha -= 0.1;
                 } else {
-                    clearInterval(fadeOut);
+                    timerManager.clear(fadeOut);
                     notification.dispose();
                 }
             }, 20);

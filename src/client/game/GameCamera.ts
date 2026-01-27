@@ -687,7 +687,7 @@ export class GameCamera {
         );
 
         // ОПТИМИЗАЦИЯ: Кэширование raycast
-        const minDistance = this.isAiming ? 2.0 : 3.0; // УВЕЛИЧЕНО: Минимальная дистанция для предотвращения клиппинга (было 1.5/2.0)
+        const minDistance = this.isAiming ? 2.5 : 4.0; // УВЕЛИЧЕНО: Минимальная дистанция для предотвращения клиппинга
         let finalRadius = requestedRadius;
 
         // Вычисляем текущую позицию камеры для проверки движения
@@ -729,6 +729,30 @@ export class GameCamera {
                 if (limit < minDistance) limit = minDistance;
                 finalRadius = limit;
             }
+
+            // УЛУЧШЕНИЕ: Дополнительные лучи для предотвращения прохождения через углы
+            // Создаём 4 дополнительных луча смещённых от центра
+            const offsetDistance = 0.5; // Смещение боковых лучей
+            const offsets = [
+                new Vector3(offsetDistance, 0, 0),
+                new Vector3(-offsetDistance, 0, 0),
+                new Vector3(0, offsetDistance, 0),
+                new Vector3(0, -offsetDistance, 0)
+            ];
+
+            for (const offset of offsets) {
+                const offsetOrigin = origin.add(offset);
+                const offsetRay = new Ray(offsetOrigin, direction, requestedRadius + 1);
+                const offsetHit = this.scene.pickWithRay(offsetRay, (mesh) => this.cameraCollisionMeshFilter(mesh));
+
+                if (offsetHit && offsetHit.hit && offsetHit.distance < finalRadius) {
+                    let offsetLimit = offsetHit.distance - this.cameraCollisionOffset;
+                    if (offsetLimit < minDistance) offsetLimit = minDistance;
+                    if (offsetLimit < finalRadius) {
+                        finalRadius = offsetLimit;
+                    }
+                }
+            }
         }
 
         // Применяем сглаживание для плавного изменения радиуса
@@ -738,7 +762,7 @@ export class GameCamera {
         // КРИТИЧНО: Если камера вот-вот проникнет сквозь объект (finalRadius сильно меньше текущего),
         // применяем МГНОВЕННОЕ ограничение без сглаживания!
         const radiusDifference = this.currentCollisionRadius - finalRadius;
-        if (radiusDifference > 1.0) {
+        if (radiusDifference > 0.5) {
             // Камера вот-вот пролетит сквозь объект - мгновенно ограничиваем радиус
             this.currentCollisionRadius = finalRadius;
         } else {

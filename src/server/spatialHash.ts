@@ -71,8 +71,24 @@ export class SpatialHashGrid {
         const oldCellKey = this.playerCells.get(playerId);
         const newCellKey = this.getCellKey(newPosition);
         
+        // ОПТИМИЗАЦИЯ: Обновляем только при значительном перемещении (> 10 единиц)
+        // Это снижает количество обновлений ячеек
+        const oldPos = this.playerPositions.get(playerId);
+        if (oldPos) {
+            const moveDistSq = Vector3.DistanceSquared(oldPos, newPosition);
+            if (moveDistSq < 100) { // 10^2 - незначительное перемещение
+                // Только обновляем позицию, не меняем ячейку
+                oldPos.copyFrom(newPosition);
+                return false;
+            }
+        }
+        
         // Обновляем сохранённую позицию
-        this.playerPositions.set(playerId, newPosition.clone());
+        if (!oldPos) {
+            this.playerPositions.set(playerId, newPosition.clone());
+        } else {
+            oldPos.copyFrom(newPosition);
+        }
         
         // Если ячейка не изменилась, ничего не делаем
         if (oldCellKey === newCellKey) {
@@ -152,10 +168,12 @@ export class SpatialHashGrid {
                         if (otherId === playerId) continue;
                         
                         // Проверяем реальное расстояние
+                        // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance (избегаем вычисления корня)
                         const otherPos = this.playerPositions.get(otherId);
                         if (otherPos) {
-                            const dist = Vector3.Distance(position, otherPos);
-                            if (dist <= maxDistance) {
+                            const distSq = Vector3.DistanceSquared(position, otherPos);
+                            const maxDistanceSq = maxDistance * maxDistance;
+                            if (distSq <= maxDistanceSq) {
                                 nearbyPlayers.add(otherId);
                             }
                         }
@@ -189,13 +207,14 @@ export class SpatialHashGrid {
             const otherPos = this.playerPositions.get(otherId);
             if (!otherPos) continue;
             
-            const dist = Vector3.Distance(position, otherPos);
+            // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance (избегаем вычисления корня)
+            const distSq = Vector3.DistanceSquared(position, otherPos);
             
-            if (dist < 50) {
+            if (distSq < 2500) { // 50^2
                 result.get("near")!.add(otherId);
-            } else if (dist < 150) {
+            } else if (distSq < 22500) { // 150^2
                 result.get("medium")!.add(otherId);
-            } else if (dist < 300) {
+            } else if (distSq < 90000) { // 300^2
                 result.get("far")!.add(otherId);
             } else {
                 result.get("veryFar")!.add(otherId);

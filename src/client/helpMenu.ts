@@ -21,7 +21,7 @@ export class HelpMenu {
     private game: Game | null = null;
     private searchInput: HTMLInputElement | null = null;
     private filteredCategories: ControlCategory[] = [];
-    
+
     private categories: ControlCategory[] = [
         {
             title: "ДВИЖЕНИЕ",
@@ -96,9 +96,24 @@ export class HelpMenu {
                 { key: "B", description: "Гараж" },
                 { key: "ESC", description: "Пауза / Выход" },
             ]
+        },
+        {
+            title: "РЕДАКТОР КАРТ",
+            icon: "🏗️",
+            controls: [
+                { key: "T", description: "Инструмент Террейн" },
+                { key: "O", description: "Инструмент Объекты" },
+                { key: "S", description: "Инструмент Выбор" },
+                { key: "R", description: "Инструмент Триггеры" },
+                { key: "Ctrl+D", description: "Дублировать объект" },
+                { key: "Delete", description: "Удалить объект" },
+                { key: "Ctrl+Z", description: "Отмена действия" },
+                { key: "Ctrl+Y", description: "Повтор действия" },
+                { key: "Esc", description: "Снять выделение" },
+            ]
         }
     ];
-    
+
     constructor() {
         this.filteredCategories = [...this.categories];
         this.createUI();
@@ -107,21 +122,21 @@ export class HelpMenu {
         this.container.classList.add("hidden");
         this.container.style.display = "none";
     }
-    
+
     setGame(game: Game | null): void {
         this.game = game;
     }
-    
+
     private createUI(): void {
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
-        
-        
+
+
         this.container = document.createElement("div");
         this.container.id = "help-menu";
         this.container.className = "panel-overlay";
-        
-        
+
+
         const html = `
             <div class="panel" style="width: min(800px, 90vw); max-height: min(700px, 90vh);">
                 <div class="panel-header">
@@ -147,22 +162,22 @@ export class HelpMenu {
                 </div>
             </div>
         `;
-        
+
         this.container.innerHTML = html;
         document.body.appendChild(this.container);
-        
+
         // Setup search
         this.searchInput = document.getElementById("help-search") as HTMLInputElement;
         if (this.searchInput) {
             this.searchInput.addEventListener("input", () => this.handleSearch());
         }
-        
+
         // Setup close button
         const closeBtn = document.getElementById("help-close");
         if (closeBtn) {
             closeBtn.addEventListener("click", () => this.hide());
         }
-        
+
         // Close on overlay click
         this.container.addEventListener("click", (e) => {
             if (e.target === this.container) {
@@ -170,7 +185,7 @@ export class HelpMenu {
             }
         });
     }
-    
+
     private renderCategories(): string {
         return this.filteredCategories.map(category => `
             <div class="panel-section" style="margin-bottom: 24px;">
@@ -212,12 +227,12 @@ export class HelpMenu {
             </div>
         `).join("");
     }
-    
+
     private handleSearch(): void {
         if (!this.searchInput) return;
-        
+
         const query = this.searchInput.value.toLowerCase().trim();
-        
+
         if (query === "") {
             this.filteredCategories = [...this.categories];
         } else {
@@ -231,13 +246,13 @@ export class HelpMenu {
                     : null;
             }).filter((cat): cat is ControlCategory => cat !== null);
         }
-        
+
         const content = document.getElementById("help-content");
         if (content) {
             content.innerHTML = this.renderCategories();
         }
     }
-    
+
     private setupToggle(): void {
         // ESC обработчик для закрытия меню
         window.addEventListener("keydown", (e) => {
@@ -248,32 +263,32 @@ export class HelpMenu {
             }
         }, true);
     }
-    
+
     toggle(): void {
-        
+
         if (this.visible) {
             this.hide();
         } else {
             this.show();
         }
     }
-    
+
     show(): void {
-        
+
         if (!this.container) return;
-        
+
         this.visible = true;
         this.container.classList.remove("hidden");
         this.container.classList.add("visible");
         this.container.style.display = "flex";
         this.container.style.visibility = "visible";
-        
+
         // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {
             document.exitPointerLock();
         }
         document.body.style.cursor = 'default';
-        
+
         // Reset search
         if (this.searchInput) {
             this.searchInput.value = "";
@@ -283,32 +298,32 @@ export class HelpMenu {
                 content.innerHTML = this.renderCategories();
             }
         }
-        
+
         logger.log("[HelpMenu] Menu opened");
     }
-    
+
     hide(): void {
         if (!this.container) return;
-        
+
         this.visible = false;
         this.container.classList.add("hidden");
         this.container.classList.remove("visible");
         this.container.style.display = "none";
         this.container.style.visibility = "hidden";
-        
+
         // Восстанавливаем курсор только если игра активна
         const game = (window as any).gameInstance;
         if (game?.gameStarted && !game.gamePaused) {
             document.body.style.cursor = 'none';
         }
-        
+
         logger.log("[HelpMenu] Menu closed");
     }
-    
+
     isVisible(): boolean {
         return this.visible;
     }
-    
+
     /**
      * Рендерит контент меню в переданный контейнер (для UnifiedMenu)
      */
@@ -316,7 +331,7 @@ export class HelpMenu {
         container.innerHTML = this.getEmbeddedContentHTML();
         this.setupEmbeddedEventListeners(container);
     }
-    
+
     /**
      * Возвращает HTML контента без overlay wrapper
      */
@@ -345,7 +360,7 @@ export class HelpMenu {
             </div>
         `;
     }
-    
+
     /**
      * Рендерит категории для embedded режима
      */
@@ -390,18 +405,18 @@ export class HelpMenu {
             </div>
         `).join("");
     }
-    
+
     /**
      * Привязывает обработчики событий для embedded режима
      */
     private setupEmbeddedEventListeners(container: HTMLElement): void {
         const searchInput = container.querySelector(".help-search-embedded") as HTMLInputElement;
         const categoriesContainer = container.querySelector(".help-categories-container");
-        
+
         if (searchInput && categoriesContainer) {
             searchInput.addEventListener("input", () => {
                 const query = searchInput.value.toLowerCase().trim();
-                
+
                 let filtered: ControlCategory[];
                 if (query === "") {
                     filtered = [...this.categories];
@@ -416,7 +431,7 @@ export class HelpMenu {
                             : null;
                     }).filter((cat): cat is ControlCategory => cat !== null);
                 }
-                
+
                 categoriesContainer.innerHTML = this.renderCategoriesEmbedded(filtered);
             });
         }

@@ -53,12 +53,24 @@ window.addEventListener('resize', () => {
 // Register Service Worker for caching and offline support
 registerServiceWorker();
 
+// Show loading screen immediately for better UX
+import { showLoading, setLoadingStage, nextLoadingStage, hideLoading } from './loadingScreen';
+showLoading();
+setLoadingStage(0, 0); // Инициализация движка
+
 // Initialize game
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _game = new Game();
 
 // Expose game instance globally for CustomMapBridge map reload
 (window as any).gameInstance = _game;
+
+// Expose loading screen controls for game to update progress
+(window as any).loadingScreenControls = {
+    setStage: setLoadingStage,
+    nextStage: nextLoadingStage,
+    hide: hideLoading
+};
 
 // Lazy load analytics after game initialization to reduce initial bundle size
 (async () => {

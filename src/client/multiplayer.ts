@@ -8,21 +8,29 @@ import { logger } from "./utils/logger";
 import { getSkinById, getDefaultSkin } from "./tank/tankSkins";
 import { firebaseService } from "./firebaseService";
 import { getVoiceChatManager } from "./voiceChat";
+import { timerManager } from "./optimization/TimerManager";
+import { vector3Pool } from "./optimization/Vector3Pool";
 
 /**
  * Safely convert any position object to Vector3
  * Handles both Vector3 instances and plain {x, y, z} objects from JSON
  */
 function toVector3(pos: any): Vector3 {
-    if (!pos) return new Vector3(0, 0, 0);
-    if (pos instanceof Vector3) return pos.clone();
-    return new Vector3(pos.x || 0, pos.y || 0, pos.z || 0);
+    // ОПТИМИЗАЦИЯ: Используем vector3Pool для переиспользования объектов
+    if (!pos) return vector3Pool.acquire(0, 0, 0);
+    if (pos instanceof Vector3) {
+        const vec = vector3Pool.acquire();
+        vec.copyFrom(pos);
+        return vec;
+    }
+    return vector3Pool.acquire(pos.x || 0, pos.y || 0, pos.z || 0);
 }
 
 /**
  * Safely clone a position (works with both Vector3 and plain objects)
  */
 function clonePosition(pos: any): Vector3 {
+    // ОПТИМИЗАЦИЯ: Используем toVector3 который уже использует pool
     return toVector3(pos);
 }
 
@@ -408,7 +416,7 @@ export class MultiplayerManager {
     private lastPongTime: number = 0;
 
     // OPTIMIZATION: Adaptive ping interval configuration
-    private readonly PING_INTERVAL_MIN = 500;   // 0.5s - more frequent when unstable
+    private readonly PING_INTERVAL_MIN = 1000;  // ОПТИМИЗАЦИЯ: 1s (было 0.5s) - снижает сетевую нагрузку
     private readonly PING_INTERVAL_MAX = 2000;  // 2s - less frequent when stable
     private readonly PING_INTERVAL_BASE = 1000; // 1s - default
     private currentPingInterval = 1000;         // Current adaptive interval
@@ -422,6 +430,10 @@ export class MultiplayerManager {
     private pingSendTimes: Map<number, number> = new Map();
     private pongTimeout: number = 30000; // 30 seconds timeout - fallback только если нет НИКАКИХ сообщений от сервера
     private healthCheckInterval: NodeJS.Timeout | null = null;
+    // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval/setTimeout
+    private pingTimerId: string | null = null;
+    private healthCheckTimerId: string | null = null;
+    private metricsTimerId: string | null = null;
 
     // Packet tracking for metrics
     private packetsSent: number = 0;
@@ -438,7 +450,7 @@ export class MultiplayerManager {
         sequence: number;
     }> = [];
     private jitterBufferTargetDelay: number = 30; // Initial target delay (ms) - уменьшено для быстрой синхронизации
-    private jitterBufferMaxSize: number = 300; // Maximum buffer size - увеличено для предотвращения overflow
+    private jitterBufferMaxSize: number = 100; // ОПТИМИЗАЦИЯ: Уменьшено с 300 до 100 для снижения задержек и памяти
     private lastProcessedSequence: number = -1;
     private jitterBufferNeedsSort: boolean = false; // Flag to avoid unnecessary sorts
 
@@ -1187,6 +1199,11 @@ export class MultiplayerManager {
         }
 
         // Clear existing health check interval
+        // ОПТИМИЗАЦИЯ: Очищаем таймер через TimerManager
+        if (this.healthCheckTimerId) {
+            timerManager.clear(this.healthCheckTimerId);
+            this.healthCheckTimerId = null;
+        }
         if (this.healthCheckInterval) {
             clearInterval(this.healthCheckInterval);
             this.healthCheckInterval = null;
@@ -1195,26 +1212,16 @@ export class MultiplayerManager {
         // Reset last pong time
         this.lastPongTime = Date.now();
 
-        // OPTIMIZATION: Use adaptive ping interval based on connection quality
-        // Using setTimeout chain instead of setInterval for dynamic interval adjustment
-        const schedulePing = () => {
+        // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval/setTimeout
+        // Это снижает нагрузку на event loop и улучшает производительность
+        this.pingTimerId = timerManager.setInterval(() => {
             if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.sendPing();
-                // Schedule next ping with adaptive interval
-                this.pingInterval = setTimeout(schedulePing, this.currentPingInterval) as unknown as NodeJS.Timeout;
-            } else {
-                // Stop ping if not connected
-                if (this.pingInterval) {
-                    clearTimeout(this.pingInterval);
-                    this.pingInterval = null;
-                }
             }
-        };
-        // Start ping chain with base interval
-        this.pingInterval = setTimeout(schedulePing, this.PING_INTERVAL_BASE) as unknown as NodeJS.Timeout;
+        }, this.currentPingInterval);
 
-        // Start health check (check every 2 seconds)
-        this.healthCheckInterval = setInterval(() => {
+        // Start health check (check every 2 seconds) через TimerManager
+        this.healthCheckTimerId = timerManager.setInterval(() => {
             this.checkConnectionHealth();
         }, 2000);
 
@@ -1348,10 +1355,28 @@ export class MultiplayerManager {
             }
         }
 
-        // Calculate exponential weighted moving average (EWMA)
-        // При подозрительном RTT используем меньший вес (0.05 вместо 0.125)
-        const alpha = isSuspiciousRTT ? 0.05 : 0.125;
-        this.networkMetrics.rtt = (1 - alpha) * this.networkMetrics.rtt + alpha * rtt;
+        // ОПТИМИЗАЦИЯ: Улучшенное вычисление RTT с адаптивным alpha на основе jitter
+        // Более агрессивное обновление при высоком jitter для быстрой реакции на изменения
+        const jitterRatio = this.networkMetrics.jitter / Math.max(this.networkMetrics.rtt, 1);
+        let alpha = isSuspiciousRTT ? 0.05 : 0.125;
+
+        // Адаптивный alpha: при высоком jitter используем более агрессивное обновление
+        if (jitterRatio > 0.3) {
+            alpha = isSuspiciousRTT ? 0.1 : 0.2; // Более агрессивное обновление при нестабильной сети
+        }
+
+        // ОПТИМИЗАЦИЯ: Медианный фильтр для устранения выбросов
+        let rttToUse = rtt;
+        if (this.networkMetrics.pingHistory.length >= 3) {
+            const sorted = [...this.networkMetrics.pingHistory].sort((a, b) => a - b);
+            const median = sorted[Math.floor(sorted.length / 2)];
+            // Используем median если текущий RTT сильно отличается (выброс)
+            if (Math.abs(rtt - median) > median * 0.5) {
+                rttToUse = median; // Используем медиану вместо выброса
+            }
+        }
+
+        this.networkMetrics.rtt = (1 - alpha) * this.networkMetrics.rtt + alpha * rttToUse;
 
         // Calculate jitter (variation in RTT)
         if (this.networkMetrics.pingHistory.length >= 2) {
@@ -1363,15 +1388,20 @@ export class MultiplayerManager {
                     variations.push(Math.abs(current - previous));
                 }
             }
+            // ОПТИМИЗАЦИЯ: Заменяем reduce на обычный цикл
             if (variations.length > 0) {
-                this.networkMetrics.jitter = variations.reduce((a, b) => a + b, 0) / variations.length;
+                let sumVariations = 0;
+                for (let i = 0; i < variations.length; i++) {
+                    sumVariations += variations[i];
+                }
+                this.networkMetrics.jitter = sumVariations / variations.length;
             }
         }
 
         // OPTIMIZATION: Calculate adaptive ping interval based on connection quality
         // High jitter = more frequent pings (better monitoring)
         // Low jitter = less frequent pings (reduce overhead)
-        const jitterRatio = this.networkMetrics.jitter / Math.max(this.networkMetrics.rtt, 1);
+        // Note: jitterRatio already calculated above at line 1360
         if (jitterRatio > 0.3) {
             // Unstable connection: ping more frequently
             this.currentPingInterval = this.PING_INTERVAL_MIN;
@@ -1388,13 +1418,13 @@ export class MultiplayerManager {
      * Start metrics tracking
      */
     private startMetricsTracking(): void {
-        // Clear existing interval
-        if (this.metricsUpdateInterval) {
-            clearInterval(this.metricsUpdateInterval);
+        // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
+        if (this.metricsTimerId) {
+            timerManager.clear(this.metricsTimerId);
         }
 
-        // Update metrics every second
-        this.metricsUpdateInterval = setInterval(() => {
+        // Update metrics every second через TimerManager
+        this.metricsTimerId = timerManager.setInterval(() => {
             this.updateMetrics();
         }, 1000);
 
@@ -1418,17 +1448,45 @@ export class MultiplayerManager {
             this.packetsReceivedHistory.push({ timestamp: now, count: packetsReceivedPerSecond });
 
             // Remove old history entries (older than 10 seconds)
+            // ОПТИМИЗАЦИЯ: Заменяем filter на обычный цикл для лучшей производительности
             const historyThreshold = now - 10000;
-            this.packetsSentHistory = this.packetsSentHistory.filter(h => h.timestamp > historyThreshold);
-            this.packetsReceivedHistory = this.packetsReceivedHistory.filter(h => h.timestamp > historyThreshold);
+            const newSentHistory: typeof this.packetsSentHistory = [];
+            for (let i = 0; i < this.packetsSentHistory.length; i++) {
+                if (this.packetsSentHistory[i].timestamp > historyThreshold) {
+                    newSentHistory.push(this.packetsSentHistory[i]);
+                }
+            }
+            this.packetsSentHistory = newSentHistory;
 
-            // Calculate average packets per second
-            const avgSent = this.packetsSentHistory.reduce((sum, h) => sum + h.count, 0) / this.packetsSentHistory.length || 0;
-            const avgReceived = this.packetsReceivedHistory.reduce((sum, h) => sum + h.count, 0) / this.packetsReceivedHistory.length || 0;
+            const newReceivedHistory: typeof this.packetsReceivedHistory = [];
+            for (let i = 0; i < this.packetsReceivedHistory.length; i++) {
+                if (this.packetsReceivedHistory[i].timestamp > historyThreshold) {
+                    newReceivedHistory.push(this.packetsReceivedHistory[i]);
+                }
+            }
+            this.packetsReceivedHistory = newReceivedHistory;
+
+            // ОПТИМИЗАЦИЯ: Заменяем reduce на обычный цикл для лучшей производительности
+            let sumSent = 0;
+            for (let i = 0; i < this.packetsSentHistory.length; i++) {
+                sumSent += this.packetsSentHistory[i].count;
+            }
+            const avgSent = this.packetsSentHistory.length > 0 ? sumSent / this.packetsSentHistory.length : 0;
+
+            let sumReceived = 0;
+            for (let i = 0; i < this.packetsReceivedHistory.length; i++) {
+                sumReceived += this.packetsReceivedHistory[i].count;
+            }
+            const avgReceived = this.packetsReceivedHistory.length > 0 ? sumReceived / this.packetsReceivedHistory.length : 0;
 
             // Estimate packet loss based on ping history (simplified)
+            // ОПТИМИЗАЦИЯ: Заменяем reduce на обычный цикл для лучшей производительности
             if (this.networkMetrics.pingHistory.length > 0) {
-                const avgRTT = this.networkMetrics.pingHistory.reduce((a, b) => a + b, 0) / this.networkMetrics.pingHistory.length;
+                let sumRTT = 0;
+                for (let i = 0; i < this.networkMetrics.pingHistory.length; i++) {
+                    sumRTT += this.networkMetrics.pingHistory[i];
+                }
+                const avgRTT = sumRTT / this.networkMetrics.pingHistory.length;
                 // Higher RTT and jitter might indicate packet loss
                 const estimatedLoss = Math.min(100, Math.max(0, (this.networkMetrics.jitter / avgRTT) * 10));
                 this.networkMetrics.packetLoss = estimatedLoss;
@@ -1981,7 +2039,15 @@ export class MultiplayerManager {
         const serverSequence = statesData.serverSequence ?? -1;
 
         const playersCount = statesData.players?.length || 0;
-        const networkPlayersCount = statesData.players?.filter((p: any) => p.id !== this.playerId).length || 0;
+        // ОПТИМИЗАЦИЯ: Заменяем filter на обычный цикл для лучшей производительности
+        let networkPlayersCount = 0;
+        if (statesData.players) {
+            for (let i = 0; i < statesData.players.length; i++) {
+                if (statesData.players[i]?.id !== this.playerId) {
+                    networkPlayersCount++;
+                }
+            }
+        }
 
         // Логируем при изменении количества игроков (только при реальном изменении, через logger, не console)
         if (networkPlayersCount !== this.networkPlayers.size) {
@@ -2004,9 +2070,16 @@ export class MultiplayerManager {
         const DEBUG_SYNC = (window as any).gameSettings?.debugSync || localStorage.getItem("debugSync") === "true";
         if (DEBUG_SYNC && (serverSequence % 60 === 0 || networkPlayersCount !== this.networkPlayers.size)) {
             logger.log(`[Multiplayer] 📊 PLAYER_STATES: players=${playersCount}, networkPlayers=${networkPlayersCount}, roomId=${this.roomId || 'N/A'}, worldSeed=${this.worldSeed || 'N/A'}, mapType=${this.pendingMapType || 'N/A'}, networkPlayers.size=${this.networkPlayers.size}`);
-            if (networkPlayersCount > 0) {
-                const playerIds = statesData.players?.filter((p: any) => p.id !== this.playerId).map((p: any) => p.id || 'unknown').join(', ') || 'none';
-                logger.log(`[Multiplayer] 📊 Другие игроки в PLAYER_STATES: [${playerIds}]`);
+            if (networkPlayersCount > 0 && statesData.players) {
+                // ОПТИМИЗАЦИЯ: Заменяем filter/map на обычный цикл для лучшей производительности
+                const playerIds: string[] = [];
+                for (let i = 0; i < statesData.players.length; i++) {
+                    const p = statesData.players[i];
+                    if (p && p.id !== this.playerId) {
+                        playerIds.push(p.id || 'unknown');
+                    }
+                }
+                logger.log(`[Multiplayer] 📊 Другие игроки в PLAYER_STATES: [${playerIds.join(', ')}]`);
             }
         }
 
@@ -2077,9 +2150,19 @@ export class MultiplayerManager {
         }
 
         // Calculate jitter as standard deviation of RTT
+        // ОПТИМИЗАЦИЯ: Заменяем reduce на обычные циклы для лучшей производительности
         const rtts = this.networkMetrics.pingHistory;
-        const mean = rtts.reduce((a, b) => a + b, 0) / rtts.length;
-        const variance = rtts.reduce((sum, rtt) => sum + Math.pow(rtt - mean, 2), 0) / rtts.length;
+        let sum = 0;
+        for (let i = 0; i < rtts.length; i++) {
+            sum += rtts[i];
+        }
+        const mean = sum / rtts.length;
+
+        let varianceSum = 0;
+        for (let i = 0; i < rtts.length; i++) {
+            varianceSum += Math.pow(rtts[i] - mean, 2);
+        }
+        const variance = varianceSum / rtts.length;
         const jitter = Math.sqrt(variance);
         this.networkMetrics.jitter = jitter;
 
@@ -2198,7 +2281,15 @@ export class MultiplayerManager {
         }
 
         // Update buffer with remaining valid entries
-        this.jitterBuffer = validEntries.filter(entry => !readyEntries.includes(entry));
+        // ОПТИМИЗАЦИЯ: Заменяем filter на обычный цикл для лучшей производительности
+        const readySet = new Set(readyEntries);
+        const remainingEntries: typeof this.jitterBuffer = [];
+        for (let i = 0; i < validEntries.length; i++) {
+            if (!readySet.has(validEntries[i])) {
+                remainingEntries.push(validEntries[i]);
+            }
+        }
+        this.jitterBuffer = remainingEntries;
 
         // Adaptive delay recovery: gradually reduce delay if no packet loss
         if (readyEntries.length > 0 && this.networkMetrics.packetLoss < 0.01) {
@@ -2215,39 +2306,52 @@ export class MultiplayerManager {
      */
     private applyPlayerStates(statesData: PlayerStatesData): void {
         // Фильтрация аномальных/подозрительных состояний игроков (простая защита от мусорных пакетов)
+        // ОПТИМИЗАЦИЯ: Заменяем filter на обычный цикл для лучшей производительности
         const rawPlayers = statesData.players || [];
+        const players: typeof rawPlayers = [];
 
-        const players = rawPlayers.filter((p) => {
+        for (let i = 0; i < rawPlayers.length; i++) {
+            const p = rawPlayers[i];
             if (!p || !p.position) {
                 logger.warn(`[Multiplayer] Dropping player state: missing player or position for ${p?.id || 'unknown'}`);
-                return false;
+                continue;
             }
             const { x, y, z } = p.position;
             if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
                 logger.warn("[Multiplayer] Dropping player state with NaN/Infinity position", p.id);
-                return false;
+                continue;
             }
             // Ограничение по радиусу карты (защита от телепортов далеко за пределы мира)
             const MAX_RADIUS = 10000;
             const MAX_HEIGHT = 2000;
             if (Math.abs(x) > MAX_RADIUS || Math.abs(z) > MAX_RADIUS || Math.abs(y) > MAX_HEIGHT) {
                 logger.warn("[Multiplayer] Dropping player state with out-of-bounds position", p.id, p.position);
-                return false;
+                continue;
             }
-            return true;
-        });
+            players.push(p);
+        }
 
-        // ДИАГНОСТИКА: Логируем количество игроков после фильтрации
-        logger.log(`[Multiplayer] applyPlayerStates: ${players.length} players after filtering (dropped ${rawPlayers.length - players.length})`);
+        // ОПТИМИЗАЦИЯ: Логирование только в dev режиме
+        if (ENABLE_DIAGNOSTIC_LOGS) {
+            logger.log(`[Multiplayer] applyPlayerStates: ${players.length} players after filtering (dropped ${rawPlayers.length - players.length})`);
+        }
 
         const gameTime = statesData.gameTime || 0;
         const serverSequence = statesData.serverSequence;
 
         // КРИТИЧНО: Очистка networkPlayers от локального игрока и игроков, которых нет в списке
-        const validPlayerIds = new Set(players.map(p => p.id).filter(id => id !== this.playerId));
+        // ОПТИМИЗАЦИЯ: Используем Set для быстрой проверки, но создаем его через цикл вместо map/filter
+        const validPlayerIds = new Set<string>();
+        for (let i = 0; i < players.length; i++) {
+            const playerId = players[i].id;
+            if (playerId !== this.playerId) {
+                validPlayerIds.add(playerId);
+            }
+        }
         const playersToRemove: string[] = [];
 
-        this.networkPlayers.forEach((np, id) => {
+        // ОПТИМИЗАЦИЯ: Используем for...of вместо forEach
+        for (const [id, np] of this.networkPlayers) {
             // Удаляем локального игрока, если он попал в networkPlayers
             if (id === this.playerId) {
                 playersToRemove.push(id);
@@ -2259,17 +2363,31 @@ export class MultiplayerManager {
                 playersToRemove.push(id);
                 // logger.log(`[Multiplayer] 🗑️ Pruning AOI invisible player: ${id}`);
             }
-        });
+        }
 
         // Удаляем найденных игроков
-        playersToRemove.forEach(id => {
+        // ОПТИМИЗАЦИЯ: Используем обычный цикл вместо forEach
+        for (let i = 0; i < playersToRemove.length; i++) {
+            const id = playersToRemove[i];
             this.networkPlayers.delete(id);
-            logger.log(`[Multiplayer] ✅ Removed invalid player ${id} from networkPlayers`);
-        });
+            // ОПТИМИЗАЦИЯ: Логирование только в dev режиме
+            if (ENABLE_DIAGNOSTIC_LOGS) {
+                logger.log(`[Multiplayer] ✅ Removed invalid player ${id} from networkPlayers`);
+            }
+        }
 
         // ДИАГНОСТИКА: Логируем детальную информацию перед обработкой
-        const localPlayerInList = players.find(p => p.id === this.playerId);
-        const networkPlayersInList = players.filter(p => p.id !== this.playerId);
+        // ОПТИМИЗАЦИЯ: Используем цикл вместо find/filter
+        let localPlayerInList: PlayerData | undefined = undefined;
+        const networkPlayersInList: PlayerData[] = [];
+        for (let i = 0; i < players.length; i++) {
+            const p = players[i];
+            if (p.id === this.playerId) {
+                localPlayerInList = p;
+            } else {
+                networkPlayersInList.push(p);
+            }
+        }
         const currentNetworkPlayersSize = this.networkPlayers.size;
 
         // Убрано для уменьшения спама в логах
@@ -2321,8 +2439,9 @@ export class MultiplayerManager {
         (this as any).lastPlayerStates = players;
 
         // ДИАГНОСТИКА: Логируем детальную информацию о сохраненных игроках
-        const savedLocalPlayer = players.find(p => p.id === this.playerId);
-        const savedNetworkPlayers = players.filter(p => p.id !== this.playerId);
+        // ОПТИМИЗАЦИЯ: Используем цикл вместо find/filter (уже вычислено выше)
+        const savedLocalPlayer = localPlayerInList;
+        const savedNetworkPlayers = networkPlayersInList;
         // logger.log(`[Multiplayer] applyPlayerStates: Saved ${players.length} players to lastPlayerStates:`);
         // logger.log(`  - Local player: ${savedLocalPlayer ? `YES (${savedLocalPlayer.name || savedLocalPlayer.id})` : 'NO'}`);
         // logger.log(`  - Network players: ${savedNetworkPlayers.length} (${savedNetworkPlayers.map(p => `${p.name || p.id}(${p.id})`).join(', ')})`);
@@ -2458,11 +2577,17 @@ export class MultiplayerManager {
         const health = Number.isFinite(playerData.health) ? playerData.health : 100;
         const maxHealth = Number.isFinite(playerData.maxHealth) ? playerData.maxHealth : 100;
 
-        const initialPos = new Vector3(x, y, z);
+        // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо new Vector3()
+        const initialPos = vector3Pool.acquire(x, y, z);
+        const lastPos1 = vector3Pool.acquire(x, y, z);
+        const lastPos2 = vector3Pool.acquire(x, y, z);
+        const lastPos3 = vector3Pool.acquire(x, y, z);
+        const velocity = vector3Pool.acquire(0, 0, 0);
+
         const networkPlayer: NetworkPlayer = {
             id: playerData.id,
             name: playerData.name || "Unknown",
-            position: initialPos.clone(),
+            position: initialPos, // Используем напрямую, не клонируем
             rotation: rotation,
             turretRotation: turretRotation,
             aimPitch: aimPitch,
@@ -2479,18 +2604,18 @@ export class MultiplayerManager {
             tankColor: playerData.tankColor,
             turretColor: playerData.turretColor,
             // Linear interpolation (backward compatibility)
-            lastPosition: initialPos.clone(),
+            lastPosition: lastPos1,
             lastRotation: rotation,
             lastTurretRotation: turretRotation,
             lastAimPitch: aimPitch, // Added for barrel pitch interpolation
             interpolationTime: 0,
             // Cubic interpolation (spline)
-            positionHistory: [initialPos.clone(), initialPos.clone(), initialPos.clone()],
+            positionHistory: [lastPos1, lastPos2, lastPos3],
             rotationHistory: [rotation, rotation, rotation],
             turretRotationHistory: [turretRotation, turretRotation, turretRotation],
             aimPitchHistory: [aimPitch, aimPitch, aimPitch], // Added for smooth barrel interpolation
             // Dead reckoning (extrapolation)
-            velocity: new Vector3(0, 0, 0),
+            velocity: velocity,
             angularVelocity: 0,
             turretAngularVelocity: 0,
             lastUpdateTime: Date.now(),
@@ -2568,8 +2693,9 @@ export class MultiplayerManager {
         }
 
         // КРИТИЧНО: Инициализация новых полей для старых игроков (если они отсутствуют)
+        // ОПТИМИЗАЦИЯ: Используем vector3Pool
         if (!networkPlayer.velocity) {
-            networkPlayer.velocity = new Vector3(0, 0, 0);
+            networkPlayer.velocity = vector3Pool.acquire(0, 0, 0);
         }
         if (networkPlayer.angularVelocity === undefined) {
             networkPlayer.angularVelocity = 0;
@@ -2608,13 +2734,18 @@ export class MultiplayerManager {
             networkPlayer.turretAngularVelocity = playerData.turretAngularVelocity ?? 0;
         } else if (deltaTime > 0 && deltaTime < 1) { // Valid delta time (0-1 second)
             // Fallback: calculate velocity from position delta with EWMA smoothing
-            const posDelta = new Vector3(x, y, z).subtract(networkPlayer.position);
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool
+            const posDelta = vector3Pool.acquire(x, y, z);
+            posDelta.subtractInPlace(networkPlayer.position);
             const newVelocity = posDelta.scale(1 / deltaTime);
             // EWMA smoothing - КРИТИЧНО уменьшено для МАКСИМАЛЬНОГО сглаживания (15% новое, 85% старое)
             const VELOCITY_SMOOTHING = 0.15;
             networkPlayer.velocity.x = networkPlayer.velocity.x * (1 - VELOCITY_SMOOTHING) + newVelocity.x * VELOCITY_SMOOTHING;
             networkPlayer.velocity.y = networkPlayer.velocity.y * (1 - VELOCITY_SMOOTHING) + newVelocity.y * VELOCITY_SMOOTHING;
             networkPlayer.velocity.z = networkPlayer.velocity.z * (1 - VELOCITY_SMOOTHING) + newVelocity.z * VELOCITY_SMOOTHING;
+
+            // ОПТИМИЗАЦИЯ: Освобождаем временный вектор
+            vector3Pool.release(posDelta);
 
             // Calculate angular velocities with EWMA smoothing
             let rotDiff = rotation - networkPlayer.rotation;
@@ -2640,7 +2771,8 @@ export class MultiplayerManager {
         if (networkPlayer.lastPosition instanceof Vector3) {
             networkPlayer.lastPosition.copyFrom(currentPos);
         } else {
-            networkPlayer.lastPosition = currentPos.clone();
+            // ОПТИМИЗАЦИЯ: Используем copyFrom вместо clone()
+            networkPlayer.lastPosition.copyFrom(currentPos);
         }
         networkPlayer.lastRotation = networkPlayer.rotation;
         networkPlayer.lastTurretRotation = networkPlayer.turretRotation;
@@ -2789,7 +2921,12 @@ export class MultiplayerManager {
         const predictedState: PredictedState = {
             sequence,
             timestamp: input.timestamp,
-            position: this._lastKnownLocalPosition?.clone() || new Vector3(0, 0, 0),
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool
+            position: this._lastKnownLocalPosition ? (() => {
+                const pos = vector3Pool.acquire();
+                pos.copyFrom(this._lastKnownLocalPosition!);
+                return pos;
+            })() : vector3Pool.acquire(0, 0, 0),
             rotation: this._lastKnownLocalRotation || 0,
             turretRotation: input.turretRotation,
             aimPitch: input.aimPitch,
@@ -2841,12 +2978,20 @@ export class MultiplayerManager {
     updatePredictedState(sequence: number, position: Vector3, rotation: number): void {
         const state = this.predictionState.predictedStates.get(sequence);
         if (state) {
-            state.position = position.clone();
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool
+            if (!state.position) {
+                state.position = vector3Pool.acquire();
+            }
+            state.position.copyFrom(position);
             state.rotation = rotation;
         }
 
         // Also update last known position for next prediction
-        this._lastKnownLocalPosition = position.clone();
+        // ОПТИМИЗАЦИЯ: Используем copyFrom вместо clone()
+        if (!this._lastKnownLocalPosition) {
+            this._lastKnownLocalPosition = vector3Pool.acquire();
+        }
+        this._lastKnownLocalPosition.copyFrom(position);
         this._lastKnownLocalRotation = rotation;
     }
 
@@ -2868,9 +3013,15 @@ export class MultiplayerManager {
         const unconfirmedInputs: PlayerInput[] = [];
 
         // Get all sequences after confirmed
-        const sequences = Array.from(this.predictionState.predictedStates.keys())
-            .filter(seq => seq > confirmedSeq)
-            .sort((a, b) => a - b);
+        // ОПТИМИЗАЦИЯ: Заменяем filter на обычный цикл для лучшей производительности
+        const allSequences = Array.from(this.predictionState.predictedStates.keys());
+        const sequences: number[] = [];
+        for (let i = 0; i < allSequences.length; i++) {
+            if (allSequences[i] > confirmedSeq) {
+                sequences.push(allSequences[i]);
+            }
+        }
+        sequences.sort((a, b) => a - b);
 
         for (const seq of sequences) {
             const state = this.predictionState.predictedStates.get(seq);
@@ -2896,9 +3047,11 @@ export class MultiplayerManager {
         const serverState = this.predictionState.lastServerState;
         if (!serverState || !serverState.position) return false;
 
+        // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance (избегаем вычисления корня)
         const serverPos = toVector3(serverState.position);
-        const diff = Vector3.Distance(currentPosition, serverPos);
-        return diff > threshold;
+        const diffSq = Vector3.DistanceSquared(currentPosition, serverPos);
+        const thresholdSq = threshold * threshold;
+        return diffSq > thresholdSq;
     }
 
     /**
@@ -2922,11 +3075,16 @@ export class MultiplayerManager {
     // =========================================================================
 
     // Целевая позиция от сервера (к ней интерполируем)
-    private _serverTargetPosition: Vector3 = new Vector3(0, 0, 0);
+    // ОПТИМИЗАЦИЯ: Используем vector3Pool для переиспользования
+    private _serverTargetPosition: Vector3 = vector3Pool.acquire(0, 0, 0);
     private _serverTargetRotation: number = 0;
     private _serverTargetTurretRotation: number = 0;
     private _serverTargetAimPitch: number = 0;
     private _hasServerTarget: boolean = false;
+
+    // ОПТИМИЗАЦИЯ: Ограничение частоты reconciliation (максимум раз в 3 кадра)
+    private _lastReconciliationFrame: number = -1;
+    private readonly RECONCILIATION_INTERVAL = 3; // Каждые 3 кадра
 
     /**
      * НОВЫЙ МЕТОД: Получить целевую позицию от сервера для интерполяции
@@ -2938,8 +3096,11 @@ export class MultiplayerManager {
         aimPitch: number;
         hasTarget: boolean
     } {
+        // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+        const pos = vector3Pool.acquire();
+        pos.copyFrom(this._serverTargetPosition);
         return {
-            position: this._serverTargetPosition.clone(),
+            position: pos, // Вызывающий код должен освободить этот вектор после использования
             rotation: this._serverTargetRotation,
             turretRotation: this._serverTargetTurretRotation,
             aimPitch: this._serverTargetAimPitch,
@@ -2956,6 +3117,25 @@ export class MultiplayerManager {
             return;
         }
 
+        // ОПТИМИЗАЦИЯ: Ограничиваем частоту reconciliation
+        const currentFrame = (window as any).gameInstance?._updateTick || 0;
+        if (this._lastReconciliationFrame >= 0 &&
+            currentFrame - this._lastReconciliationFrame < this.RECONCILIATION_INTERVAL) {
+            return; // Пропускаем reconciliation - слишком часто
+        }
+        this._lastReconciliationFrame = currentFrame;
+
+        // ОПТИМИЗАЦИЯ: Проверяем необходимость reconciliation (расхождение должно быть значительным)
+        const QUANTIZATION_ERROR = 0.15; // Погрешность квантования
+        const thresholdSq = QUANTIZATION_ERROR * QUANTIZATION_ERROR;
+
+        if (this._lastKnownLocalPosition && this._hasServerTarget) {
+            const diffSq = Vector3.DistanceSquared(this._lastKnownLocalPosition, this._serverTargetPosition);
+            if (diffSq < thresholdSq) {
+                return; // Расхождение минимально - не требуется reconciliation
+            }
+        }
+
         // Обновляем серверную целевую позицию
         this._serverTargetPosition = toVector3(serverPlayerData.position);
         this._serverTargetRotation = serverPlayerData.rotation || 0;
@@ -2970,7 +3150,11 @@ export class MultiplayerManager {
         this.predictionState.lastServerState = serverPlayerData;
 
         // Обновляем last known position
-        this._lastKnownLocalPosition = this._serverTargetPosition.clone();
+        // ОПТИМИЗАЦИЯ: Используем copyFrom вместо clone()
+        if (!this._lastKnownLocalPosition) {
+            this._lastKnownLocalPosition = vector3Pool.acquire();
+        }
+        this._lastKnownLocalPosition.copyFrom(this._serverTargetPosition);
         this._lastKnownLocalRotation = this._serverTargetRotation;
 
         // ВСЕГДА вызываем callback - клиент должен интерполировать к серверу
