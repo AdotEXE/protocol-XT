@@ -162,33 +162,34 @@ export class GameMultiplayerCallbacks {
                 }
             }
         }
+    }
 
-        /**
-         * Настроить все мультиплеерные колбэки
-         */
-        setup(): void {
-            const mm = this.deps.multiplayerManager;
-            if(!mm) {
-                logger.warn("[GameMultiplayerCallbacks] setup() called but multiplayerManager is not available");
-                return;
-            }
+    /**
+     * Настроить все мультиплеерные колбэки
+     */
+    setup(): void {
+        const mm = this.deps.multiplayerManager;
+        if(!mm) {
+            logger.warn("[GameMultiplayerCallbacks] setup() called but multiplayerManager is not available");
+            return;
+        }
 
         logger.log("[GameMultiplayerCallbacks] Setting up all multiplayer callbacks...");
 
-            // КРИТИЧНО: Настраиваем onPlayerStates ПЕРВЫМ, до других callbacks
-            // Это гарантирует, что данные игроков будут обрабатываться сразу при получении
-            this.setupPlayerCallbacks(mm);
+        // КРИТИЧНО: Настраиваем onPlayerStates ПЕРВЫМ, до других callbacks
+        // Это гарантирует, что данные игроков будут обрабатываться сразу при получении
+        this.setupPlayerCallbacks(mm);
 
-            this.setupConnectionCallbacks(mm);
-            this.setupMatchCallbacks(mm);
-            this.setupGameEventCallbacks(mm);
-            this.setupCTFCallbacks(mm);
-            this.setupChatCallbacks(mm);
-            this.setupProjectileCallbacks(mm);
-            this.setupOtherCallbacks(mm);
+        this.setupConnectionCallbacks(mm);
+        this.setupMatchCallbacks(mm);
+        this.setupGameEventCallbacks(mm);
+        this.setupCTFCallbacks(mm);
+        this.setupChatCallbacks(mm);
+        this.setupProjectileCallbacks(mm);
+        this.setupOtherCallbacks(mm);
 
-            logger.log("[GameMultiplayerCallbacks] ✅ All callbacks set up successfully");
-        }
+        logger.log("[GameMultiplayerCallbacks] ✅ All callbacks set up successfully");
+    }
 
     private setupChatCallbacks(mm: MultiplayerManager): void {
         // Handle incoming chat messages
@@ -1399,37 +1400,55 @@ export class GameMultiplayerCallbacks {
      * Фактическая интерполяция происходит в updateLocalPlayerToServer()
      */
     private handleReconciliation(data: {
+        serverState: {
+            x: number;
+            y: number;
+            z: number;
+            rotation?: number;
+            turretRotation?: number;
+            aimPitch?: number;
+        };
+        positionDiff?: number;
+    }): void {
+        if (!data || !data.serverState) {
+            return; // Невалидные данные - игнорируем
+        }
+
+        const serverPos = data.serverState;
+        
+        // Проверяем и сохраняем позицию
+        if (serverPos instanceof Vector3) {
             this._localPlayerServerTarget = serverPos.clone();
         } else if (serverPos && typeof serverPos === 'object' && 'x' in serverPos && 'y' in serverPos && 'z' in serverPos) {
-    const pos = serverPos as { x: number; y: number; z: number };
-    if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' &&
-        isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
-        this._localPlayerServerTarget = new Vector3(pos.x, pos.y, pos.z);
-    } else {
-        return; // Невалидные данные - игнорируем
-    }
-} else {
-    return; // Невалидный формат - игнорируем
-}
+            const pos = serverPos as { x: number; y: number; z: number };
+            if (typeof pos.x === 'number' && typeof pos.y === 'number' && typeof pos.z === 'number' &&
+                isFinite(pos.x) && isFinite(pos.y) && isFinite(pos.z)) {
+                this._localPlayerServerTarget = new Vector3(pos.x, pos.y, pos.z);
+            } else {
+                return; // Невалидные данные - игнорируем
+            }
+        } else {
+            return; // Невалидный формат - игнорируем
+        }
 
-// ЛОГИРОВАНИЕ: Показываем что получили данные от сервера (раз в секунду)
-this._reconciliationLogCounter++;
-/*
-if (this._reconciliationLogCounter % 60 === 0) {
-    console.log(`%c[Reconciliation] Server target: (${this._localPlayerServerTarget.x.toFixed(1)}, ${this._localPlayerServerTarget.y.toFixed(1)}, ${this._localPlayerServerTarget.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
-}
-*/
+        // ЛОГИРОВАНИЕ: Показываем что получили данные от сервера (раз в секунду)
+        this._reconciliationLogCounter++;
+        /*
+        if (this._reconciliationLogCounter % 60 === 0) {
+            console.log(`%c[Reconciliation] Server target: (${this._localPlayerServerTarget.x.toFixed(1)}, ${this._localPlayerServerTarget.y.toFixed(1)}, ${this._localPlayerServerTarget.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
+        }
+        */
 
-// Сохраняем серверные значения
-this._localPlayerServerRotation = data.serverState.rotation || 0;
-this._localPlayerServerTurretRotation = data.serverState.turretRotation || 0;
-this._localPlayerServerAimPitch = data.serverState.aimPitch || 0;
-this._hasLocalPlayerServerTarget = true;
+        // Сохраняем серверные значения
+        this._localPlayerServerRotation = data.serverState.rotation || 0;
+        this._localPlayerServerTurretRotation = data.serverState.turretRotation || 0;
+        this._localPlayerServerAimPitch = data.serverState.aimPitch || 0;
+        this._hasLocalPlayerServerTarget = true;
 
-// Записываем метрики для статистики
-if (data.positionDiff !== undefined) {
-    this.syncMetrics.recordPositionDiff(data.positionDiff);
-}
+        // Записываем метрики для статистики
+        if (data.positionDiff !== undefined) {
+            this.syncMetrics.recordPositionDiff(data.positionDiff);
+        }
     }
 
     /**

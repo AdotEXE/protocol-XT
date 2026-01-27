@@ -862,6 +862,9 @@ export class Game {
                     const { ScreenshotFormat, ScreenshotMode } = await import("./screenshotManager");
                     const blob = await this.screenshotManager.capture({ format: ScreenshotFormat.PNG, mode: ScreenshotMode.FULL_SCREEN });
                     await this.screenshotManager.copyToClipboard(blob);
+                    // Сохраняем файл на диск пользователю
+                    this.screenshotManager.download(blob);
+                    // Также сохраняем в историю (localStorage)
                     await this.screenshotManager.saveToLocalStorage(blob, { format: ScreenshotFormat.PNG, mode: ScreenshotMode.FULL_SCREEN });
 
                     if (this.hud) {

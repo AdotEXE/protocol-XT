@@ -64,9 +64,7 @@ export class NetworkPlayerTank {
     private _cachedAverageFrame = -1;
     private _lastBufferUpdateFrame = -1;
 
-    // ОПТИМИЗАЦИЯ: Кэш усреднённой позиции для избежания пересчёта каждый кадр
-    private _cachedAveragePosition: { x: number; y: number; z: number; rotation: number } | null = null;
-    private _cachedAverageFrame = -1;
+
     private _lastBufferHash = 0; // Хэш для отслеживания изменений буфера
 
     // КРИТИЧНО: Флаг для мгновенной телепортации при первом обновлении
