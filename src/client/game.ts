@@ -681,6 +681,11 @@ export class Game {
                     this.settings = this.mainMenu.getSettings();
                     this.setupMenuCallbacks();
                     logger.log("[Game] MainMenu loaded");
+
+                    // Скрываем экран загрузки
+                    import("./loadingScreen").then(({ hideLoading }) => {
+                        hideLoading();
+                    });
                 }
             }
         } catch (error) {

@@ -8,7 +8,8 @@ import {
     TextBlock,
     Control,
     Line,
-    Button
+    Button,
+    StackPanel
 } from "@babylonjs/gui";
 import type { MissionSystem, Mission, MissionProgress } from "./missionSystem";
 import { scalePixels } from "./utils/uiScale";
@@ -1337,53 +1338,53 @@ export class HUD {
      * Создать индикатор качества соединения (Ping / Drift / Jitter)
      */
     public createNetworkIndicator(): void {
-    const container = new Rectangle("networkIndicator");
-    container.width = "180px";
-    container.height = "50px";
-    container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    container.top = "60px"; // Ниже FPS
-    container.left = "-10px";
-    container.thickness = 0;
-    container.isHitTestVisible = false;
-    this.guiTexture.addControl(container);
-    this.networkIndicatorContainer = container;
+        const container = new Rectangle("networkIndicator");
+        container.width = "180px";
+        container.height = "50px";
+        container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        container.top = "60px"; // Ниже FPS
+        container.left = "-10px";
+        container.thickness = 0;
+        container.isHitTestVisible = false;
+        this.guiTexture.addControl(container);
+        this.networkIndicatorContainer = container;
 
-    // Фон для читаемости
-    const bg = new Rectangle("networkBg");
-    bg.background = "#000000";
-    bg.alpha = 0.5;
-    bg.cornerRadius = 5;
-    bg.thickness = 0;
-    container.addControl(bg);
+        // Фон для читаемости
+        const bg = new Rectangle("networkBg");
+        bg.background = "#000000";
+        bg.alpha = 0.5;
+        bg.cornerRadius = 5;
+        bg.thickness = 0;
+        container.addControl(bg);
 
-    // StackPanel для текстов
-    const stack = new StackPanel("networkStack");
-    stack.isVertical = true;
-    stack.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    stack.left = "10px";
-    container.addControl(stack);
+        // StackPanel для текстов
+        const stack = new StackPanel("networkStack");
+        stack.isVertical = true;
+        stack.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        stack.left = "10px";
+        container.addControl(stack);
 
-    // Ping Text
-    this.pingText = new TextBlock("pingText");
-    this.pingText.text = "PING: 0 ms";
-    this.pingText.color = "#00FF00";
-    this.pingText.fontSize = "14px";
-    this.pingText.fontFamily = "Consolas, monospace";
-    this.pingText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    this.pingText.height = "20px";
-    stack.addControl(this.pingText);
+        // Ping Text
+        this.pingText = new TextBlock("pingText");
+        this.pingText.text = "PING: 0 ms";
+        this.pingText.color = "#00FF00";
+        this.pingText.fontSize = "14px";
+        this.pingText.fontFamily = "Consolas, monospace";
+        this.pingText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.pingText.height = "20px";
+        stack.addControl(this.pingText);
 
-    // Drift Text
-    this.driftText = new TextBlock("driftText");
-    this.driftText.text = "DRIFT: 0.00 m";
-    this.driftText.color = "#00FF00";
-    this.driftText.fontSize = "14px";
-    this.driftText.fontFamily = "Consolas, monospace";
-    this.driftText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    this.driftText.height = "20px";
-    stack.addControl(this.driftText);
-}
+        // Drift Text
+        this.driftText = new TextBlock("driftText");
+        this.driftText.text = "DRIFT: 0.00 m";
+        this.driftText.color = "#00FF00";
+        this.driftText.fontSize = "14px";
+        this.driftText.fontFamily = "Consolas, monospace";
+        this.driftText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.driftText.height = "20px";
+        stack.addControl(this.driftText);
+    }
 
     /**
      * Обновить показатели качества соединения
@@ -1391,28 +1392,28 @@ export class HUD {
      * @param drift Расхождение позиций в метрах
      */
     public updateConnectionQuality(ping: number, drift: number): void {
-    if(this.pingText) {
-    this.pingText.text = `PING: ${Math.round(ping)} ms`;
-    if (ping < 100) this.pingText.color = "#00FF00";
-    else if (ping < 200) this.pingText.color = "#FFFF00";
-    else this.pingText.color = "#FF0000";
-}
+        if(this.pingText) {
+            this.pingText.text = `PING: ${Math.round(ping)} ms`;
+            if (ping < 100) this.pingText.color = "#00FF00";
+            else if (ping < 200) this.pingText.color = "#FFFF00";
+            else this.pingText.color = "#FF0000";
+        }
 
-if (this.driftText) {
-    this.driftText.text = `DRIFT: ${drift.toFixed(2)} m`;
-    if (drift < 0.5) this.driftText.color = "#00FF00";
-    else if (drift < 2.0) this.driftText.color = "#FFFF00";
-    else this.driftText.color = "#FF0000";
-}
+        if (this.driftText) {
+            this.driftText.text = `DRIFT: ${drift.toFixed(2)} m`;
+            if (drift < 0.5) this.driftText.color = "#00FF00";
+            else if (drift < 2.0) this.driftText.color = "#FFFF00";
+            else this.driftText.color = "#FF0000";
+        }
     }
 
     // Запуск анимаций (теперь вызывается из централизованного update)
     private startAnimations() {
-    // Анимации теперь обновляются через update() метод
-}
+        // Анимации теперь обновляются через update() метод
+    }
 
-// Обновление анимаций (вызывается из централизованного update)
-updateAnimations(deltaTime: number): void {
+    // Обновление анимаций (вызывается из централизованного update)
+    public updateAnimations(deltaTime: number): void {
     this.animationTime += deltaTime;
 
     // Плавная анимация шкалы опыта
@@ -10910,7 +10911,7 @@ updateMobileHUD(health: number, maxHealth: number, ammo: number, maxAmmo: number
 }
     }
     // === PING INDICATOR ===
-    private pingText: TextBlock | null = null;
+    // NOTE: pingText уже объявлен выше в классе (строка 145)
 
     public createPingDisplay(): void {
     if(this.pingText) return;
