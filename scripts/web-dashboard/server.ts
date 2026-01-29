@@ -58,7 +58,7 @@ interface Metrics {
 
 // Configuration
 const SERVICES: ServiceConfig[] = [
-    { name: 'Server', command: 'npm', args: ['run', 'server:dev'], cwd: PROJECT_ROOT, color: '#22c55e', port: 8080 },
+    { name: 'Server', command: 'npm', args: ['run', 'server:dev'], cwd: PROJECT_ROOT, color: '#22c55e', port: 8000 },
     { name: 'Client', command: 'npm', args: ['run', 'dev'], cwd: PROJECT_ROOT, color: '#06b6d4', port: 5000 },
     { name: 'Editor', command: 'npm', args: ['run', 'dev'], cwd: EDITOR_ROOT, color: '#a855f7', port: 3000 }
 ];
@@ -343,7 +343,7 @@ process.on('SIGTERM', cleanup);
 
 // Kill processes on required ports before starting
 async function killPortProcesses(): Promise<void> {
-    const ports = [PORT, 8080, 5000, 3000];
+    const ports = [PORT, 8000, 5000, 3000];
     console.log('\n🔧 Checking and clearing ports...\n');
 
     for (const port of ports) {
@@ -407,7 +407,7 @@ async function bootstrap() {
         console.log('║                                                            ║');
         console.log('║  Starting services in order:                               ║');
         console.log('║    1. Dashboard (port 9000) ✓                              ║');
-        console.log('║    2. Game Server (port 8080)                              ║');
+        console.log('║    2. Game Server (port 8000)                              ║');
         console.log('║    3. Game Client (port 5000)                              ║');
         console.log('║    4. Map Editor (port 3000)                               ║');
         console.log('╚════════════════════════════════════════════════════════════╝');

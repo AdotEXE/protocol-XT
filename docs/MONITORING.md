@@ -53,7 +53,7 @@ npm run monitor -- --config ./custom-config.json
 ### System Status
 Отображает статус всех систем:
 - Vite Dev Server (порт 3000)
-- WebSocket Server (порт 8080)
+- WebSocket Server (порт 8000)
 - Firebase
 - Physics Engine
 - Network
@@ -134,7 +134,7 @@ npm run monitor -- --config ./custom-config.json
 {
   "server": {
     "host": "localhost",
-    "port": 8080,
+    "port": 8000,
     "reconnectInterval": 5000
   },
   "client": {
@@ -225,7 +225,7 @@ npm run monitor -- --config ./custom-config.json
 ### Мониторинг не подключается к серверу
 
 1. Убедитесь, что сервер запущен: `npm run server`
-2. Проверьте порт в конфигурации (по умолчанию 8080)
+2. Проверьте порт в конфигурации (по умолчанию 8000)
 3. Проверьте, что WebSocket сервер доступен
 4. Проверьте логи на наличие ошибок подключения
 

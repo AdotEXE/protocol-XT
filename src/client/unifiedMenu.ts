@@ -5,6 +5,8 @@
 import { Game } from "./game";
 import { CommonStyles } from "./commonStyles";
 import { logger } from "./utils/logger";
+import { SettingsPanel } from "./settingsPanel";
+import { loadSettings } from "./menu/settings";
 
 // Типы категорий меню
 export interface MenuCategory {
@@ -96,25 +98,23 @@ export class UnifiedMenu {
             (win as HTMLElement).classList.remove("visible");
         });
 
-        if (document.pointerLockElement) {
-            document.exitPointerLock();
-        }
-        document.body.style.cursor = 'default';
-
-        // Принудительно ставим игру на паузу
+        // Set Menu Mode (Cursor + Input Release)
         if (this.game) {
-            // Если метод pauseGame доступен, используем его (или togglePause)
-            // В Game.ts есть togglePause, но может не быть явного setPause.
-            // Проверим состояние перед переключением?
-            // togglePause() переключает состояние.
-            // Лучше использовать setPause если есть, или проверить gamePaused.
+            this.game.setMenuMode(true);
 
-            // Assuming togglePause logic handles UI sync, we should force pause.
+            // Также ставим на паузу если это синглплеер/требуется
+            // (setMenuMode не ставит на паузу, только инпут)
             if (!this.game.gamePaused) {
                 this.game.togglePause();
             }
+        } else {
+            // Fallback if game not set
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            document.body.style.cursor = 'default';
         }
-        
+
         // Автофокус первого элемента для навигации клавиатурой
         setTimeout(() => {
             const focusableElements = this.container.querySelectorAll<HTMLElement>(
@@ -138,9 +138,14 @@ export class UnifiedMenu {
             this.container.classList.remove("visible");
             this.container.style.display = "none";
 
-            // Снимаем паузу при закрытии
-            if (this.game && this.game.gamePaused) {
-                this.game.togglePause();
+            if (this.game) {
+                // Restore Menu Mode
+                this.game.setMenuMode(false);
+
+                // Снимаем паузу при закрытии
+                if (this.game.gamePaused) {
+                    this.game.togglePause();
+                }
             }
         }
     }
@@ -608,9 +613,7 @@ export class UnifiedMenu {
     }
 
     private async loadSettingsContent(tab: MenuTab): Promise<void> {
-        const { SettingsPanel } = await import("./settingsPanel");
-        const { loadSettings } = await import("./menu/settings");
-
+        // SettingsPanel и loadSettings уже импортированы статически
         const settings = loadSettings();
         const panel = new SettingsPanel(settings, true);
 
@@ -639,7 +642,7 @@ export class UnifiedMenu {
         // Навигация клавиатурой и закрытие по ESC
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!this.isVisible) return;
-            
+
             // Закрытие по ESC
             if (e.code === "Escape") {
                 e.preventDefault();
@@ -648,30 +651,30 @@ export class UnifiedMenu {
                 this.hide();
                 return;
             }
-            
+
             // Игнорируем если пользователь вводит текст
             const activeEl = document.activeElement;
             if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || (activeEl as HTMLElement).isContentEditable)) {
                 return;
             }
-            
+
             // Навигация по категориям в sidebar стрелками вверх/вниз
             if ((e.key === "ArrowDown" || e.key === "ArrowUp") && this.sidebarElement) {
                 e.preventDefault();
                 e.stopPropagation();
-                
+
                 const sidebarItems = Array.from(this.sidebarElement.querySelectorAll<HTMLElement>('.sidebar-item'));
                 if (sidebarItems.length === 0) return;
-                
+
                 const currentIndex = sidebarItems.findIndex(item => item.classList.contains('active') || item === document.activeElement);
                 let nextIndex: number;
-                
+
                 if (e.key === "ArrowDown") {
                     nextIndex = currentIndex < sidebarItems.length - 1 ? currentIndex + 1 : 0;
                 } else {
                     nextIndex = currentIndex > 0 ? currentIndex - 1 : sidebarItems.length - 1;
                 }
-                
+
                 const nextItem = sidebarItems[nextIndex];
                 if (nextItem) {
                     nextItem.setAttribute('tabindex', '0');
@@ -681,25 +684,25 @@ export class UnifiedMenu {
                 }
                 return;
             }
-            
+
             // Навигация по вкладкам стрелками влево/вправо
             if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && this.tabBarElement) {
                 e.preventDefault();
                 e.stopPropagation();
-                
+
                 const tabItems = Array.from(this.tabBarElement.querySelectorAll<HTMLElement>('.tab-item'));
                 if (tabItems.length === 0) return;
-                
+
                 const activeTabIndex = tabItems.findIndex(tab => tab.classList.contains('active'));
                 if (activeTabIndex < 0) return;
-                
+
                 let nextTabIndex: number;
                 if (e.key === "ArrowRight") {
                     nextTabIndex = activeTabIndex < tabItems.length - 1 ? activeTabIndex + 1 : 0;
                 } else {
                     nextTabIndex = activeTabIndex > 0 ? activeTabIndex - 1 : tabItems.length - 1;
                 }
-                
+
                 const nextTab = tabItems[nextTabIndex];
                 if (nextTab) {
                     const tabId = nextTab.getAttribute('data-tab');
@@ -710,16 +713,16 @@ export class UnifiedMenu {
                 }
                 return;
             }
-            
+
             // Навигация по элементам внутри контента
             const focusableElements = this.container.querySelectorAll<HTMLElement>(
                 'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
             );
-            
+
             if (focusableElements.length === 0) return;
-            
+
             const currentIndex = Array.from(focusableElements).findIndex(el => el === document.activeElement);
-            
+
             // Enter для активации кнопок
             if (e.key === "Enter" && document.activeElement instanceof HTMLElement) {
                 const activeEl = document.activeElement;

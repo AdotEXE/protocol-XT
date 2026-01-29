@@ -96,6 +96,7 @@ function handleLoadMap(message: MapLoadMessage, source: Window | null): void {
     console.log("[CustomMapBridge] ===== LOADING CUSTOM MAP =====");
     console.log("[CustomMapBridge] Map name:", message.mapData.name);
     console.log("[CustomMapBridge] Objects:", message.mapData.placedObjects?.length || 0);
+    console.log("[CustomMapBridge] autoPlay:", message.autoPlay);
 
     const generator = getCustomMapGenerator();
 
@@ -108,6 +109,22 @@ function handleLoadMap(message: MapLoadMessage, source: Window | null): void {
         // КРИТИЧНО: Также сохраняем в selectedCustomMapData для CustomMapRunner!
         localStorage.setItem('selectedCustomMapData', JSON.stringify(message.mapData));
         console.log("[CustomMapBridge] ✅ Saved to selectedCustomMapData localStorage");
+
+        // КРИТИЧНО: Если autoPlay=true (TEST режим), сохраняем в tx_test_map
+        if (message.autoPlay) {
+            localStorage.setItem('tx_test_map', JSON.stringify(message.mapData));
+            console.log("[CustomMapBridge] ✅ TEST MODE: Saved to tx_test_map");
+            
+            // Скрываем редактор если он открыт (дополнительная проверка)
+            const editorContainer = document.getElementById('polygen-editor-container') || 
+                                   (window as any).__polygenEditorContainer;
+            if (editorContainer) {
+                editorContainer.style.display = 'none';
+                editorContainer.style.visibility = 'hidden';
+                editorContainer.style.pointerEvents = 'none';
+                console.log("[CustomMapBridge] ✅ TEST MODE: Editor hidden");
+            }
+        }
 
         // КРИТИЧНО: Перезагрузить карту если игра уже запущена!
         // Используем глобальный gameInstance

@@ -56,7 +56,8 @@ interface SlotElements {
     countText: TextBlock | null;
     hotkeyText: TextBlock | null;
     cooldownOverlay: Rectangle;
-    cooldownFill: Rectangle;
+    appearAnimation: Rectangle | null; // Анимация появления припаса
+    lastCount: number; // Для отслеживания изменений количества
 }
 
 /**
@@ -68,6 +69,7 @@ export class ConsumablesBar {
     private slotData: Map<number, ConsumableSlotData> = new Map();
     private config: ConsumablesBarConfig;
     private selectedSlot: number = -1;
+    private animationTimers: Map<number, NodeJS.Timeout> = new Map(); // Таймеры анимаций появления
 
     constructor(parent: AdvancedDynamicTexture, config: Partial<ConsumablesBarConfig> = {}) {
         this.config = { ...DEFAULT_CONSUMABLES_CONFIG, ...config };
@@ -77,7 +79,7 @@ export class ConsumablesBar {
         // Контейнер
         this.container = new Rectangle("consumablesContainer");
         this.container.width = `${totalWidth + 20}px`;
-        this.container.height = `${this.config.slotSize + 30}px`;
+        this.container.height = `${this.config.slotSize + 40}px`; // Увеличено для хоткеев под слотами
         this.container.thickness = 0;
         this.container.background = "transparent";
         this.container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -116,23 +118,25 @@ export class ConsumablesBar {
         icon.color = "white";
         slotContainer.addControl(icon);
 
-        // Кулдаун оверлей
+        // Кулдаун оверлей - плавная полупрозрачная завеса
         const cooldownOverlay = new Rectangle(`cooldown_${index}`);
         cooldownOverlay.width = "100%";
         cooldownOverlay.height = "100%";
-        cooldownOverlay.background = "transparent";
+        cooldownOverlay.background = "rgba(0, 0, 0, 0.7)"; // Полупрозрачная темная завеса
         cooldownOverlay.thickness = 0;
         cooldownOverlay.isVisible = false;
+        cooldownOverlay.alpha = 0.7; // Прозрачность завесы
         slotContainer.addControl(cooldownOverlay);
 
-        // Заполнение кулдауна
-        const cooldownFill = new Rectangle(`cooldownFill_${index}`);
-        cooldownFill.width = "100%";
-        cooldownFill.height = "0%";
-        cooldownFill.background = "rgba(255, 100, 0, 0.5)";
-        cooldownFill.thickness = 0;
-        cooldownFill.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        cooldownOverlay.addControl(cooldownFill);
+        // Анимация появления припаса
+        const appearAnimation = new Rectangle(`appear_${index}`);
+        appearAnimation.width = "100%";
+        appearAnimation.height = "100%";
+        appearAnimation.background = "rgba(0, 255, 0, 0.4)";
+        appearAnimation.thickness = 0;
+        appearAnimation.isVisible = false;
+        appearAnimation.alpha = 0;
+        slotContainer.addControl(appearAnimation);
 
         // Текст количества
         let countText: TextBlock | null = null;
@@ -152,7 +156,7 @@ export class ConsumablesBar {
             slotContainer.addControl(countText);
         }
 
-        // Текст хоткея
+        // Текст хоткея - перемещен под слот
         let hotkeyText: TextBlock | null = null;
         if (this.config.showHotkeys) {
             hotkeyText = new TextBlock(`hotkey_${index}`);
@@ -160,11 +164,13 @@ export class ConsumablesBar {
             hotkeyText.fontSize = 10;
             hotkeyText.color = HUD_COLORS.PRIMARY;
             hotkeyText.fontFamily = "'Consolas', monospace";
-            hotkeyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+            hotkeyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             hotkeyText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-            hotkeyText.left = "2px";
-            hotkeyText.top = "2px";
-            slotContainer.addControl(hotkeyText);
+            hotkeyText.top = `${slotSize + 4}px`; // Под слотом
+            hotkeyText.shadowColor = "black";
+            hotkeyText.shadowOffsetX = 1;
+            hotkeyText.shadowOffsetY = 1;
+            this.container.addControl(hotkeyText); // Добавляем в контейнер, а не в слот
         }
 
         this.slots.push({
@@ -173,7 +179,8 @@ export class ConsumablesBar {
             countText,
             hotkeyText,
             cooldownOverlay,
-            cooldownFill
+            appearAnimation,
+            lastCount: 0
         });
     }
 
@@ -220,13 +227,48 @@ export class ConsumablesBar {
             slot.container.shadowBlur = 0;
         }
 
-        // Обновить кулдаун
+        // Обновить кулдаун - плавная полупрозрачная завеса
         if (data.cooldown > 0) {
             slot.cooldownOverlay.isVisible = true;
-            slot.cooldownFill.height = `${(1 - data.cooldown) * 100}%`;
+            // Прозрачность завесы уменьшается по мере прохождения кулдауна
+            slot.cooldownOverlay.alpha = 0.7 * data.cooldown;
         } else {
             slot.cooldownOverlay.isVisible = false;
         }
+
+        // Анимация появления припаса при поднятии дропа
+        if (data.count > slot.lastCount && slot.appearAnimation) {
+            // Останавливаем предыдущую анимацию если есть
+            const existingTimer = this.animationTimers.get(index);
+            if (existingTimer) {
+                clearTimeout(existingTimer);
+                this.animationTimers.delete(index);
+            }
+
+            // Запускаем анимацию появления
+            slot.appearAnimation.isVisible = true;
+            slot.appearAnimation.alpha = 0.8;
+            
+            // Плавно исчезаем анимацию через несколько кадров
+            let fadeOut = 0.8;
+            const fadeStep = () => {
+                fadeOut -= 0.1;
+                if (slot.appearAnimation && fadeOut > 0) {
+                    slot.appearAnimation.alpha = fadeOut;
+                    const timerId = setTimeout(fadeStep, 50);
+                    this.animationTimers.set(index, timerId);
+                } else {
+                    if (slot.appearAnimation) {
+                        slot.appearAnimation.isVisible = false;
+                        slot.appearAnimation.alpha = 0;
+                    }
+                    this.animationTimers.delete(index);
+                }
+            };
+            const timerId = setTimeout(fadeStep, 50);
+            this.animationTimers.set(index, timerId);
+        }
+        slot.lastCount = data.count;
     }
 
     /**
@@ -278,6 +320,10 @@ export class ConsumablesBar {
      * Освободить ресурсы
      */
     dispose(): void {
+        // Очищаем все таймеры анимаций
+        this.animationTimers.forEach(timerId => clearTimeout(timerId));
+        this.animationTimers.clear();
+        
         this.container.dispose();
     }
 }

@@ -60,6 +60,7 @@ export class FloatingDamageNumbers {
     private config: DamageNumberConfig;
     private numbers: DamageNumber[] = [];
     private pool: PoolElement[] = [];
+    private lastCleanupTime: number = 0; // Время последней очистки старых чисел
 
     constructor(
         guiTexture: AdvancedDynamicTexture,
@@ -191,6 +192,14 @@ export class FloatingDamageNumbers {
         if (!camera) return;
 
         const now = Date.now();
+        
+        // КРИТИЧНО: Периодическая очистка старых чисел (каждые 2 секунды)
+        // Это защита на случай если update() вызывается нерегулярно или Date.now() работает неправильно
+        if (now - this.lastCleanupTime > 2000) {
+            this.cleanupOldNumbers(3000); // Удаляем числа старше 3 секунд
+            this.lastCleanupTime = now;
+        }
+        
         const engine = this.scene.getEngine();
         const width = engine.getRenderWidth();
         const height = engine.getRenderHeight();
@@ -207,13 +216,33 @@ export class FloatingDamageNumbers {
         // Обновляем все активные числа
         for (let i = this.numbers.length - 1; i >= 0; i--) {
             const num = this.numbers[i];
-            if (!num) continue;
+            if (!num || !num.container) {
+                // Удаляем повреждённые записи
+                this.numbers.splice(i, 1);
+                continue;
+            }
+            
             const elapsed = now - num.startTime;
 
-            // Проверяем, истекло ли время показа
+            // Проверяем, истекло ли время показа (с запасом для безопасности)
             const totalTime = this.config.displayTime + this.config.fadeTime;
-            if (elapsed > totalTime) {
+            const MAX_LIFETIME = totalTime + 1000; // Максимальное время жизни + 1 секунда запас
+            
+            // КРИТИЧНО: Удаляем если время истекло ИЛИ если elapsed отрицательный (проблема с Date.now())
+            if (elapsed > MAX_LIFETIME || elapsed < 0) {
                 // Возвращаем элемент в пул
+                const poolElement = this.pool.find(p => p.container === num.container);
+                if (poolElement) {
+                    poolElement.inUse = false;
+                    poolElement.container.isVisible = false;
+                    poolElement.container.alpha = 0;
+                }
+                this.numbers.splice(i, 1);
+                continue;
+            }
+            
+            // Дополнительная проверка: если alpha = 0 и прошло время fade, удаляем
+            if (elapsed > totalTime && num.container.alpha <= 0) {
                 const poolElement = this.pool.find(p => p.container === num.container);
                 if (poolElement) {
                     poolElement.inUse = false;
@@ -256,6 +285,11 @@ export class FloatingDamageNumbers {
                 const fadeElapsed = elapsed - this.config.displayTime;
                 const fadeProgress = fadeElapsed / this.config.fadeTime;
                 num.container.alpha = Math.max(0, 1 - fadeProgress);
+                
+                // КРИТИЧНО: Если alpha = 0, скрываем контейнер
+                if (num.container.alpha <= 0) {
+                    num.container.isVisible = false;
+                }
             } else {
                 // Плавное появление в начале
                 if (elapsed < 100) {
@@ -276,9 +310,35 @@ export class FloatingDamageNumbers {
             if (poolElement) {
                 poolElement.inUse = false;
                 poolElement.container.isVisible = false;
+                poolElement.container.alpha = 0;
             }
         }
         this.numbers = [];
+    }
+    
+    /**
+     * Принудительная очистка старых чисел (на случай если update() не вызывается)
+     */
+    cleanupOldNumbers(maxAge: number = 5000): void {
+        const now = Date.now();
+        for (let i = this.numbers.length - 1; i >= 0; i--) {
+            const num = this.numbers[i];
+            if (!num) {
+                this.numbers.splice(i, 1);
+                continue;
+            }
+            
+            const age = now - num.startTime;
+            if (age > maxAge) {
+                const poolElement = this.pool.find(p => p.container === num.container);
+                if (poolElement) {
+                    poolElement.inUse = false;
+                    poolElement.container.isVisible = false;
+                    poolElement.container.alpha = 0;
+                }
+                this.numbers.splice(i, 1);
+            }
+        }
     }
 
     /**

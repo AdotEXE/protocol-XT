@@ -19,6 +19,9 @@ import type { MultiplayerManager } from "../multiplayer";
 import type { AICoordinator } from "../ai/AICoordinator";
 import type { PerformanceOptimizer } from "../optimization/PerformanceOptimizer";
 import { timerManager } from "../optimization/TimerManager";
+import { GlobalIntelligenceManager } from "../ai/GlobalIntelligenceManager";
+import { timeProvider } from "../optimization/TimeProvider";
+import type { BotPerformanceMonitor } from "../bots/BotPerformanceMonitor";
 
 /**
  * GameUpdate - Основной игровой цикл
@@ -75,6 +78,7 @@ export class GameUpdate {
     protected multiplayerManager: MultiplayerManager | undefined;
     protected aiCoordinator: AICoordinator | undefined;
     protected performanceOptimizer: PerformanceOptimizer | undefined;
+    protected botPerformanceMonitor: BotPerformanceMonitor | undefined;
 
     // Callbacks для обновлений (будут переданы из Game)
     protected onUpdateCamera: (() => void) | null = null;
@@ -115,6 +119,7 @@ export class GameUpdate {
             multiplayerManager?: MultiplayerManager;
             aiCoordinator?: AICoordinator;
             performanceOptimizer?: PerformanceOptimizer;
+            botPerformanceMonitor?: BotPerformanceMonitor;
             gameStarted?: boolean;
             gamePaused?: boolean;
             isAiming?: boolean;
@@ -136,6 +141,7 @@ export class GameUpdate {
         this.multiplayerManager = callbacks.multiplayerManager;
         this.aiCoordinator = callbacks.aiCoordinator;
         this.performanceOptimizer = callbacks.performanceOptimizer;
+        this.botPerformanceMonitor = callbacks.botPerformanceMonitor;
         this.gameStarted = callbacks.gameStarted || false;
         this.gamePaused = callbacks.gamePaused || false;
         this.isAiming = callbacks.isAiming || false;
@@ -149,6 +155,10 @@ export class GameUpdate {
      */
     update(): void {
         if (!this.scene || !this.engine) return;
+
+        // PERFORMANCE: Обновляем глобальный провайдер времени ПЕРВЫМ
+        // Это позволяет всем системам использовать кэшированное время вместо Date.now()
+        timeProvider.update();
 
         // Счётчик кадров
         this._updateTick++;
@@ -362,6 +372,27 @@ export class GameUpdate {
         // ИСПРАВЛЕНО: Обновление врагов БЕЗ жесткой зависимости от FPS
         // Обновляем врагов всегда, но с адаптивной частотой при низком FPS
         if (this.enemyTanks && this.enemyTanks.length > 0 && this.tank && this.tank.chassis) {
+            // Обновляем глобальный интеллект ботов (каждые 2 кадра для оптимизации)
+            if (this._updateTick % 2 === 0) {
+                const globalIntel = GlobalIntelligenceManager.getInstance();
+                if (globalIntel.isEnabled()) {
+                    // Проверяем, есть ли активный бой (хотя бы один живой враг)
+                    const hasAliveEnemies = this.enemyTanks.some(e => e && e.isAlive && e.chassis && !e.chassis.isDisposed());
+                    const nowMs = Date.now();
+                    globalIntel.tick(nowMs, hasAliveEnemies);
+                }
+            }
+            
+            // Обновляем мониторинг производительности ботов
+            if (this.botPerformanceMonitor && this._updateTick % 60 === 0) {
+                // Обновляем FPS и позицию игрока в мониторе
+                this.botPerformanceMonitor.updateFPS(this._lastFPS);
+                if (this.tank?.chassis) {
+                    const playerPos = this.tank.getCachedChassisPosition ? this.tank.getCachedChassisPosition() : this.tank.chassis.position;
+                    this.botPerformanceMonitor.updatePlayerPosition(playerPos);
+                }
+            }
+            
             this.updateEnemiesOptimized();
             // Физику обновляем только при FPS >= 20 (более мягкое ограничение)
             if (this._lastFPS >= 20) {
@@ -421,7 +452,17 @@ export class GameUpdate {
                     const distance = Math.sqrt(distSq);
                     this.updateEnemyLOD(enemy, distance);
 
+                    // Записываем время начала обновления для мониторинга
+                    const updateStartTime = performance.now();
                     enemy.update();
+                    const updateTime = performance.now() - updateStartTime;
+                    
+                    // Записываем метрики в монитор производительности
+                    if (this.botPerformanceMonitor) {
+                        const botId = (enemy as any).id?.toString() || `enemy_${i}`;
+                        this.botPerformanceMonitor.recordBotUpdate(botId, updateTime);
+                    }
+                    
                     updatedThisFrame++;
                     // ИСПРАВЛЕНО: Убран break - обновляем нескольких врагов за кадр
                 } catch (e) {
@@ -776,11 +817,12 @@ export class GameUpdate {
         achievementsSystem?: AchievementsSystem;
         experienceSystem?: ExperienceSystem;
         playerProgression?: PlayerProgressionSystem;
-        multiplayerManager?: MultiplayerManager;
-        gameStarted?: boolean;
-        gamePaused?: boolean;
-        isAiming?: boolean;
-        survivalStartTime?: number;
+            multiplayerManager?: MultiplayerManager;
+            botPerformanceMonitor?: BotPerformanceMonitor;
+            gameStarted?: boolean;
+            gamePaused?: boolean;
+            isAiming?: boolean;
+            survivalStartTime?: number;
     }): void {
         if (callbacks.tank !== undefined) this.tank = callbacks.tank;
         if (callbacks.hud !== undefined) this.hud = callbacks.hud;
@@ -793,6 +835,7 @@ export class GameUpdate {
         if (callbacks.experienceSystem !== undefined) this.experienceSystem = callbacks.experienceSystem;
         if (callbacks.playerProgression !== undefined) this.playerProgression = callbacks.playerProgression;
         if (callbacks.multiplayerManager !== undefined) this.multiplayerManager = callbacks.multiplayerManager;
+        if (callbacks.botPerformanceMonitor !== undefined) this.botPerformanceMonitor = callbacks.botPerformanceMonitor;
         if (callbacks.gameStarted !== undefined) this.gameStarted = callbacks.gameStarted;
         if (callbacks.gamePaused !== undefined) this.gamePaused = callbacks.gamePaused;
         if (callbacks.isAiming !== undefined) this.isAiming = callbacks.isAiming;

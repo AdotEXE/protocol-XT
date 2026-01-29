@@ -162,8 +162,11 @@ export class Logger {
 
     /**
      * Логирует сообщение с проверкой уровня и категории
+     * ОПТИМИЗАЦИЯ: В production режиме все логи кроме ERROR отключены для максимальной производительности
      */
     log(...args: any[]): void {
+        // PERFORMANCE: Fast path - skip all non-error logs in production
+        if (isProduction) return;
         if (this.settings.shouldLog(LogLevel.INFO, this.category)) {
             console.log(this.prefix, ...args);
         }
@@ -171,17 +174,21 @@ export class Logger {
 
     /**
      * Логирует предупреждение (всегда видно если уровень >= WARN)
+     * ОПТИМИЗАЦИЯ: В production режиме отключено
      */
     warn(...args: any[]): void {
+        // PERFORMANCE: Fast path - skip warnings in production
+        if (isProduction) return;
         if (this.settings.shouldLog(LogLevel.WARN, this.category)) {
             console.warn(this.prefix, ...args);
         }
     }
 
     /**
-     * Логирует ошибку (всегда видно если уровень >= ERROR)
+     * Логирует ошибку (ВСЕГДА видно - критические ошибки важны даже в production)
      */
     error(...args: any[]): void {
+        // Ошибки всегда логируются, даже в production - это критически важно
         if (this.settings.shouldLog(LogLevel.ERROR, this.category)) {
             console.error(this.prefix, ...args);
             if (isDevelopment && args[0] instanceof Error) {
@@ -196,8 +203,11 @@ export class Logger {
 
     /**
      * Логирует информацию
+     * ОПТИМИЗАЦИЯ: В production режиме отключено
      */
     info(...args: any[]): void {
+        // PERFORMANCE: Fast path - skip info in production
+        if (isProduction) return;
         if (this.settings.shouldLog(LogLevel.INFO, this.category)) {
             console.info(this.prefix, ...args);
         }
@@ -205,8 +215,11 @@ export class Logger {
 
     /**
      * Логирует отладочную информацию
+     * ОПТИМИЗАЦИЯ: В production режиме отключено
      */
     debug(...args: any[]): void {
+        // PERFORMANCE: Fast path - skip debug in production
+        if (isProduction) return;
         if (this.settings.shouldLog(LogLevel.DEBUG, this.category)) {
             console.debug(this.prefix, ...args);
         }
@@ -214,8 +227,11 @@ export class Logger {
 
     /**
      * Логирует детальную информацию (VERBOSE уровень)
+     * ОПТИМИЗАЦИЯ: В production режиме отключено
      */
     verbose(...args: any[]): void {
+        // PERFORMANCE: Fast path - skip verbose in production
+        if (isProduction) return;
         if (this.settings.shouldLog(LogLevel.VERBOSE, this.category)) {
             console.log(this.prefix, "[VERBOSE]", ...args);
         }

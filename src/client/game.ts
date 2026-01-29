@@ -1,5 +1,6 @@
 import "@babylonjs/core/Debug/debugLayer";
 import { Logger, logger, LogLevel, loggingSettings } from "./utils/logger";
+import { showLoading, setLoadingStage, setLoadingStatus, hideLoading, setLoadingProgress } from "./loadingScreen";
 // import { CommonStyles } from "./commonStyles"; // Не используется
 import {
     Engine,
@@ -41,12 +42,20 @@ import { EnemyTank } from "./enemyTank";
 import { AICoordinator } from "./ai/AICoordinator";
 import { PerformanceOptimizer } from "./optimization/PerformanceOptimizer";
 import { AdaptiveQualityScaler, type QualitySettings } from "./optimization/AdaptiveQualityScaler";
+import type { PerformanceMonitor } from "./optimization/PerformanceMonitor";
+import type { MapEditor, MapData } from "./mapEditor";
+import type { PhysicsEditor } from "./physicsEditor";
+import type { SocialMenu } from "./socialMenu";
+import type { ReplayRecorder } from "./replaySystem";
 // MainMenu is lazy loaded - imported dynamically when needed
 import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
 import { ConsumablesManager, CONSUMABLE_TYPES } from "./consumables";
 import { ChatSystem } from "./chatSystem";
 import { getHotkeyManager } from "./hotkeyManager";
+import { BotPerformanceMonitor } from "./bots/BotPerformanceMonitor";
+import { BotPerformanceUI } from "./bots/BotPerformanceUI";
+import { BotPerformanceSettingsUI } from "./bots/BotPerformanceSettingsUI";
 import { getVoiceChatManager } from "./voiceChat";
 import { getSupplyDropSystem, SupplyDropSystem } from "./supplyDropSystem";
 import { ExperienceSystem } from "./experienceSystem";
@@ -57,7 +66,7 @@ import { DailyQuestsSystem, BattlePassSystem } from "./dailyQuests";
 import { DestructionSystem } from "./destructionSystem";
 import { MissionSystem, Mission } from "./missionSystem";
 import { PlayerStatsSystem } from "./playerStats";
-import { upgradeManager } from "./upgrade";
+import { upgradeManager, upgradeUI } from "./upgrade";
 import type { TankStatsData, StatWithBonus } from "./hud/HUDTypes";
 import { MultiplayerManager } from "./multiplayer";
 import { NetworkPlayerTank } from "./networkPlayerTank";
@@ -83,7 +92,75 @@ import type { ScreenshotManager } from "./screenshotManager";
 import type { ScreenshotPanel } from "./screenshotPanel";
 import type { BattleRoyaleVisualizer } from "./battleRoyale";
 import type { CTFVisualizer } from "./ctfVisualizer";
+import type { AbstractMesh, Node } from "@babylonjs/core";
+import type { PlayerData } from "../shared/types";
 // Game modules - direct imports to avoid initialization order issues
+
+// Расширение типов для глобальных объектов
+declare global {
+    interface Window {
+        gameInstance?: Game;
+        firebaseService?: typeof firebaseService;
+        setPlayerLevel?: (level: number) => void;
+        loadingScreenControls?: {
+            setStage: (stage: number, progress: number) => void;
+            nextStage: () => void;
+            hide: () => void;
+        };
+    }
+}
+
+// Типы для расширенных свойств объектов (используем type assertions через unknown для приватных свойств)
+// НЕ используем intersection types с приватными свойствами - только через unknown
+interface MainMenuWithSettings {
+    settings?: {
+        enemyDifficulty?: string;
+        [key: string]: unknown;
+    };
+    onStartGame?: (mapType?: MapType, mapData?: MapData) => Promise<void>;
+}
+
+interface ChatSystemWithTerminal {
+    toggleTerminal?: () => void;
+    isTerminalVisible?: () => boolean;
+    dispose?: () => void;
+}
+
+interface ChunkSystemExtended {
+    mapType?: MapType;
+    mapSize?: number;
+    garageDoors: Array<{
+        position: { x: number; y: number; z: number };
+        garageDepth?: number;
+        frontDoorOpen?: boolean;
+        backDoorOpen?: boolean;
+    }>;
+}
+
+interface HUDWithMethods {
+    hide?: () => void;
+    forceUpdate?: () => void;
+    setMissionSystem?: (missionSystem: MissionSystem) => void;
+}
+
+interface DebugDashboardWithProps {
+    visible?: boolean;
+    container?: HTMLDivElement;
+}
+
+type SessionSettingsWithMethods = {
+    isVisible?: () => boolean;
+    hide?: () => void;
+};
+
+type SceneWithFlags = Scene & {
+    _isRendering?: boolean;
+    terrainShadowGenerator?: ShadowGenerator;
+};
+
+type EngineWithFlags = Engine & {
+    _renderLoopRunning?: boolean;
+};
 import { GameProjectile } from "./game/GameProjectile";
 import { GamePhysics, DEFAULT_PHYSICS_CONFIG } from "./game/GamePhysics";
 import type { PhysicsConfig } from "./game/GamePhysics";
@@ -120,6 +197,30 @@ export class Game {
     camera: ArcRotateCamera | undefined;
     aimCamera: UniversalCamera | undefined; // Отдельная камера для режима прицеливания
     isCameraAnimating: boolean = false; // Флаг блокировки updateCamera во время анимации камеры (респавн)
+    isMenuOpen: boolean = false; // Центральный флаг состояния меню
+
+    // Управление режимом меню (курсор, управление)
+    setMenuMode(enabled: boolean): void {
+        this.isMenuOpen = enabled;
+        console.log(`[Game] Menu mode set to: ${enabled}`);
+
+        if (enabled) {
+            // Меню открыто: показываем курсор, отключаем управление танком
+            if (document.pointerLockElement === this.canvas) {
+                document.exitPointerLock();
+            }
+            // TankController должен проверять game.isMenuOpen
+        } else {
+            // Меню закрыто: скрываем курсор, включаем управление
+            if (document.pointerLockElement !== this.canvas) {
+                this.canvas.requestPointerLock();
+            }
+        }
+
+        // Notify UI elements if needed via observable?
+        // For now, poll-based check in TankController is enough.
+    }
+
     hud: HUD | undefined;
     soundManager: SoundManager | undefined;
     effectsManager: EffectsManager | undefined;
@@ -144,7 +245,7 @@ export class Game {
     physicsPanel: PhysicsPanel | undefined; // Lazy loaded from "./physicsPanel"
 
     // Physics editor (lazy loaded)
-    physicsEditor: any | undefined; // Lazy loaded from "./physicsEditor"
+    physicsEditor: PhysicsEditor | undefined; // Lazy loaded from "./physicsEditor"
 
     // Cheat menu (lazy loaded)
     cheatMenu: CheatMenu | undefined; // Lazy loaded from "./cheatMenu"
@@ -237,12 +338,17 @@ export class Game {
 
     // Performance monitoring
     performanceMonitor: PerformanceMonitor | undefined;
+    
+    // Bot performance monitoring
+    botPerformanceMonitor: BotPerformanceMonitor | undefined;
+    botPerformanceUI: BotPerformanceUI | undefined;
+    botPerformanceSettingsUI: BotPerformanceSettingsUI | undefined;
 
     battleRoyaleVisualizer: BattleRoyaleVisualizer | undefined; // Lazy loaded from "./battleRoyale"
     ctfVisualizer: CTFVisualizer | undefined; // Lazy loaded from "./ctfVisualizer"
 
     // Pending custom map data received from multiplayer
-    public pendingCustomMapData: any = null;
+    public pendingCustomMapData: MapData | null = null;
 
     // Spectator mode
     isSpectating: boolean = false;
@@ -253,7 +359,11 @@ export class Game {
 
     // Supply Drop System
     supplyDropSystem: SupplyDropSystem | null = null;
-    private _physicsViewer: any = null; // PhysicsViewer
+    private _physicsViewer: import("@babylonjs/core/Debug/physicsViewer").PhysicsViewer | null = null;
+
+    // УПРАВЛЕНИЕ ТАЙМЕРАМИ (для предотвращения утечек памяти)
+    private gameTimeouts: NodeJS.Timeout[] = []; // Одноразовые задержки для UI и логики
+    private stabilizeInterval: string | null = null; // Интервал стабилизации камеры
 
     // Game modules - lazy initialization to prevent initialization order issues
     private _gameGarage: GameGarage | undefined;
@@ -432,13 +542,13 @@ export class Game {
     private realtimeStatsTracker: RealtimeStatsTracker | undefined;
 
     // Replay system (lazy loaded)
-    private replayRecorder: any | undefined; // Lazy loaded from "./replaySystem"
+    private replayRecorder: ReplayRecorder | undefined; // Lazy loaded from "./replaySystem"
 
     // Social menu (lazy loaded)
-    socialMenu: any | undefined; // Lazy loaded from "./socialMenu"
+    socialMenu: SocialMenu | undefined; // Lazy loaded from "./socialMenu"
 
     // Map editor (lazy loaded)
-    mapEditor: any | undefined; // Lazy loaded from "./mapEditor"
+    mapEditor: MapEditor | undefined; // Lazy loaded from "./mapEditor"
 
     // Settings (loaded from menu when available)
     settings: GameSettings = {} as GameSettings;
@@ -563,7 +673,7 @@ export class Game {
                     if (restartSettingsStr && this.mainMenu) {
                         try {
                             const restartSettings = JSON.parse(restartSettingsStr);
-                            const menuSettings = (this.mainMenu as any).settings;
+                            const menuSettings = (this.mainMenu as unknown as MainMenuWithSettings).settings;
                             if (menuSettings && restartSettings.enemyDifficulty) {
                                 menuSettings.enemyDifficulty = restartSettings.enemyDifficulty;
                                 logger.log(`[Game] Restored difficulty: ${restartSettings.enemyDifficulty}`);
@@ -584,9 +694,11 @@ export class Game {
                     // Не показываем меню, сразу запускаем игру
                     setTimeout(async () => {
                         // Используем callback из mainMenu для запуска игры
-                        if (this.mainMenu && typeof (this.mainMenu as any).onStartGame === 'function') {
+                        // Используем type assertion через unknown для доступа к приватным методам
+                        const mainMenuWithCallback = this.mainMenu as unknown as MainMenuWithSettings & { onStartGame?: (mapType?: MapType, mapData?: MapData) => Promise<void> };
+                        if (mainMenuWithCallback && typeof mainMenuWithCallback.onStartGame === 'function') {
                             logger.log("[Game] Using mainMenu.onStartGame callback");
-                            await (this.mainMenu as any).onStartGame(restartMap);
+                            await mainMenuWithCallback.onStartGame(restartMap);
                         } else {
                             // Если callback еще не установлен, используем прямой вызов
                             logger.log("[Game] onStartGame not set, using direct startGame call");
@@ -688,9 +800,7 @@ export class Game {
                     logger.log("[Game] MainMenu loaded");
 
                     // Скрываем экран загрузки
-                    import("./loadingScreen").then(({ hideLoading }) => {
-                        hideLoading();
-                    });
+                    hideLoading();
                 }
             }
         } catch (error) {
@@ -832,20 +942,58 @@ export class Game {
             }
         }, true);
 
+        // F9: Network Menu - Меню настроек сети и мультиплеера
+        window.addEventListener("keydown", async (e) => {
+            if (e.code === "F9" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                try {
+                    logger.log("[Game] Toggling network menu (F9)...");
+                    if (!this.networkMenu) {
+                        const { NetworkMenu } = await import("./networkMenu");
+                        this.networkMenu = new NetworkMenu();
+                        this.networkMenu.setGame(this);
+                    }
+
+                    if (this.networkMenu.isVisible()) {
+                        this.networkMenu.hide();
+                    } else {
+                        this.networkMenu.show();
+                    }
+                    logger.log("[Game] Network menu toggled (F9)");
+                } catch (error) {
+                    logger.error("[Game] Failed to load network menu:", error);
+                    if (this.hud) {
+                        this.hud.showMessage("❌ Ошибка загрузки меню сети", "#f00", 2000);
+                    }
+                }
+                return;
+            }
+        }, true);
+
         // Chat System Shortcuts (Enter / Backquote)
         window.addEventListener("keydown", (e) => {
+            // ИСПРАВЛЕНО: НЕ перехватываем Enter если гараж открыт
+            if (this.garage && this.garage.isGarageOpen && this.garage.isGarageOpen()) {
+                return; // Гараж сам обрабатывает Enter
+            }
+            
             // Enter or Backquote (~/`)
             if ((e.code === "Enter" || e.code === "Backquote") && !e.ctrlKey && !e.altKey) {
                 if (this.chatSystem) {
                     if (e.code === "Backquote") {
                         e.preventDefault();
                         // Use 'any' cast if method exists but not in type def yet, or assume it exists based on usage
-                        if ((this.chatSystem as any).toggleTerminal) (this.chatSystem as any).toggleTerminal();
+                        const chatSystem = this.chatSystem as ChatSystemWithTerminal;
+                        if (chatSystem.toggleTerminal) chatSystem.toggleTerminal();
                     } else if (e.code === "Enter") {
                         // Only open if closed
                         if ((this.chatSystem as any).isTerminalVisible && !(this.chatSystem as any).isTerminalVisible()) {
                             e.preventDefault();
-                            if ((this.chatSystem as any).toggleTerminal) (this.chatSystem as any).toggleTerminal();
+                            const chatSystem = this.chatSystem as ChatSystemWithTerminal;
+                            if (chatSystem.toggleTerminal) chatSystem.toggleTerminal();
                         }
                     }
                 }
@@ -890,6 +1038,25 @@ export class Game {
                 return;
             }
         }, true);
+        
+        // F11: Очистка памяти (ручная)
+        window.addEventListener("keydown", (e) => {
+            if (e.code === "F11" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const statsBefore = this.getMemoryStats();
+                this.cleanupUnusedResources();
+                const statsAfter = this.getMemoryStats();
+                
+                logger.log(`[Game] 🧹 Manual memory cleanup (F11): Materials ${statsBefore.materials} → ${statsAfter.materials}, Textures ${statsBefore.textures} → ${statsAfter.textures}`);
+                
+                if (this.hud) {
+                    this.hud.showMessage(`🧹 Очистка памяти: ${statsBefore.materials - statsAfter.materials} мат. ${statsBefore.textures - statsAfter.textures} текст.`, "#4ade80", 3000);
+                }
+            }
+        }, true);
+        
         logger.log("[Game] Global keyboard shortcuts registered successfully");
     }
 
@@ -912,7 +1079,7 @@ export class Game {
             this.exitBattle();
         });
 
-        this.mainMenu.setOnStartGame(async (mapType?: MapType, mapData?: any) => {
+        this.mainMenu.setOnStartGame(async (mapType?: MapType, mapData?: MapData) => {
             logger.log(`[Game] ===== Start game callback called with mapType: ${mapType} =====`);
 
             try {
@@ -981,8 +1148,70 @@ export class Game {
                     });
                     if (this.supplyDropSystem) {
                         // Default map size 500 if not available
-                        const mapSize = (this.chunkSystem as any)?.mapSize || 500;
-                        this.supplyDropSystem.initialize(mapData, mapSize);
+                        const mapSize = (this.chunkSystem as ChunkSystemExtended)?.mapSize || 500;
+                        this.supplyDropSystem.initialize(mapData, mapSize, this.currentMapType);
+
+                        // Настройка callback для подбора дропов
+                        if (this.consumablesManager) {
+                            this.supplyDropSystem.setOnPickup((consumableType) => {
+                                // Ищем свободный слот (1-5)
+                                let slot = -1;
+                                for (let s = 1; s <= 5; s++) {
+                                    if (!this.consumablesManager!.get(s)) {
+                                        slot = s;
+                                        break;
+                                    }
+                                }
+
+                                if (slot > 0) {
+                                    // Подбираем припас
+                                    this.consumablesManager!.pickUp(consumableType, slot);
+
+                                    // Обновляем HUD и чат
+                                    if (this.chatSystem) {
+                                        this.chatSystem.updateConsumables(this.consumablesManager!.getAll());
+                                        this.chatSystem.success(`Подобран: ${consumableType.icon} ${consumableType.name} (слот ${slot})`);
+                                    }
+                                    if (this.hud) {
+                                        this.hud.updateConsumables(this.consumablesManager!.getAll());
+                                    }
+
+                                    // Звуковой эффект
+                                    if (this.soundManager) {
+                                        this.soundManager.playPickup();
+                                    }
+
+                                    // Опыт за подбор
+                                    if (this.experienceSystem && this.tank) {
+                                        this.experienceSystem.recordPickup(this.tank.chassisType.id);
+                                    }
+
+                                    logger.log(`[Game] Picked up supply drop: ${consumableType.name} in slot ${slot}`);
+                                } else {
+                                    // Все слоты заняты - заменяем слот 1
+                                    this.consumablesManager!.pickUp(consumableType, 1);
+
+                                    if (this.chatSystem) {
+                                        this.chatSystem.updateConsumables(this.consumablesManager!.getAll());
+                                        this.chatSystem.success(`Подобран: ${consumableType.icon} ${consumableType.name} (заменён слот 1)`);
+                                    }
+                                    if (this.hud) {
+                                        this.hud.updateConsumables(this.consumablesManager!.getAll());
+                                    }
+
+                                    if (this.soundManager) {
+                                        this.soundManager.playPickup();
+                                    }
+
+                                    if (this.experienceSystem && this.tank) {
+                                        this.experienceSystem.recordPickup(this.tank.chassisType.id);
+                                    }
+
+                                    logger.log(`[Game] Picked up supply drop: ${consumableType.name} (replaced slot 1)`);
+                                }
+                            });
+                        }
+
                         logger.log("[Game] SupplyDropSystem initialized");
                     }
                 }
@@ -1041,19 +1270,40 @@ export class Game {
         // КРИТИЧНО: Перехватываем запрос на захват курсора
         // Если открыт редактор карт, мы НЕ должны захватывать курсор
         const originalRequestPointerLock = this.canvas.requestPointerLock.bind(this.canvas);
-        this.canvas.requestPointerLock = async (options?: PointerLockOptions): Promise<void> => {
-            if (this.mapEditor && this.mapEditor.isActive) {
-                console.log("[Game] 🛑 Pointer lock BLOCKED because Map Editor is active");
-                return;
+        // PointerLockOptions может быть не определен в некоторых версиях TypeScript
+        // Используем интерфейс для совместимости
+        interface PointerLockOptionsCompat {
+            unadjustedMovement?: boolean;
+        }
+        this.canvas.requestPointerLock = async (options?: PointerLockOptionsCompat): Promise<void> => {
+            // Проверяем активность редактора карт через try-catch (isActive приватное)
+            if (this.mapEditor) {
+                try {
+                    const isActive = (this.mapEditor as any).isActive;
+                    if (isActive) {
+                        console.log("[Game] 🛑 Pointer lock BLOCKED because Map Editor is active");
+                        return;
+                    }
+                } catch {
+                    // Игнорируем ошибку доступа к приватному свойству
+                }
             }
-            return originalRequestPointerLock(options);
+            // requestPointerLock может не принимать аргументы в старых браузерах
+            // Проверяем наличие опций и вызываем соответствующий метод
+            if (options !== undefined && 'unadjustedMovement' in options) {
+                // Новый API с опциями (если поддерживается)
+                return (originalRequestPointerLock as any)(options);
+            } else {
+                // Старый API без опций
+                return originalRequestPointerLock();
+            }
         };
 
         // Устанавливаем pointer-events в зависимости от видимости меню
         this.updateCanvasPointerEvents();
 
         // Определяем, находимся ли мы в production
-        const isProduction = (import.meta as any).env?.PROD || false;
+        const isProduction = import.meta.env?.PROD || false;
 
         this.engine = new Engine(this.canvas, true, {
             deterministicLockstep: false,
@@ -1110,10 +1360,11 @@ export class Game {
         // Обработчики для игровых клавиш (B, G, Tab, ESC, M, N, 1-5)
         // ВАЖНО: Ctrl+0-9 обрабатываются в setupGlobalKeyboardShortcuts()
         // ЗАЩИТА: Предотвращаем двойную регистрацию обработчика
-        if ((this as any)._gameKeyboardHandlerRegistered) {
+        // Используем приватное свойство для предотвращения двойной регистрации
+        if ((this as { _gameKeyboardHandlerRegistered?: boolean })._gameKeyboardHandlerRegistered) {
             return;
         }
-        (this as any)._gameKeyboardHandlerRegistered = true;
+        (this as { _gameKeyboardHandlerRegistered?: boolean })._gameKeyboardHandlerRegistered = true;
         window.addEventListener("keydown", (e) => {
             // DEBUG: Логируем нажатия клавиш J/M в начале обработчика
             if (e.code === "KeyJ" || e.code === "KeyM") {
@@ -1240,7 +1491,7 @@ export class Game {
                         const playerPos = this.tank.chassis.absolutePosition;
 
                         // Находим ближайший гараж (максимум 50м)
-                        let nearestDoor: any = null;
+                        let nearestDoor: ChunkSystemExtended['garageDoors'][0] | null = null;
                         let nearestDist = 50;
 
                         for (const doorData of this.chunkSystem.garageDoors) {
@@ -1384,12 +1635,13 @@ export class Game {
                     this.screenshotPanel.hide();
                     return;
                 }
-                if (this.debugDashboard && (this.debugDashboard as any).visible) {
-                    const container = (this.debugDashboard as any).container;
+                const debugDashboard = this.debugDashboard as unknown as DebugDashboardWithProps;
+                if (debugDashboard && debugDashboard.visible) {
+                    const container = debugDashboard.container;
                     if (container && !container.classList.contains("hidden")) {
                         container.classList.add("hidden");
                         container.style.display = "none";
-                        (this.debugDashboard as any).visible = false;
+                        debugDashboard.visible = false;
                         return;
                     }
                 }
@@ -1399,13 +1651,21 @@ export class Game {
                     this.physicsPanel.hide();
                     return;
                 }
-                if (this.chatSystem && typeof (this.chatSystem as any).isTerminalVisible === 'function' && (this.chatSystem as any).isTerminalVisible()) {
-                    this.chatSystem.toggleTerminal();
-                    return;
+                const chatSystem = this.chatSystem as unknown as ChatSystemWithTerminal;
+                if (chatSystem && typeof chatSystem.isTerminalVisible === 'function') {
+                    const isVisible = chatSystem.isTerminalVisible();
+                    if (isVisible && chatSystem.toggleTerminal) {
+                        chatSystem.toggleTerminal();
+                        return; // return ТОЛЬКО если терминал был видим
+                    }
                 }
-                if (this.sessionSettings && typeof (this.sessionSettings as any).isVisible === 'function' && (this.sessionSettings as any).isVisible()) {
-                    (this.sessionSettings as any).hide();
-                    return;
+                const sessionSettings = this.sessionSettings as SessionSettingsWithMethods;
+                if (sessionSettings && typeof sessionSettings.isVisible === 'function') {
+                    const isVisible = sessionSettings.isVisible();
+                    if (isVisible && sessionSettings.hide) {
+                        sessionSettings.hide();
+                        return; // return ТОЛЬКО если настройки были видимы
+                    }
                 }
                 if (this.cheatMenu && typeof this.cheatMenu.isVisible === 'function' && this.cheatMenu.isVisible()) {
                     this.cheatMenu.hide();
@@ -1748,410 +2008,27 @@ export class Game {
 
     // === LOADING SCREEN ===
 
+    // === LOADING SCREEN ===
+
     private createLoadingScreen(): void {
-        // ИСПРАВЛЕНИЕ: Удаляем ВСЕ существующие экраны загрузки (предотвращает множественные экраны)
-        // Проверяем и удаляем через this.loadingScreen
-        if (this.loadingScreen) {
-            try {
-                if (this.loadingScreen.parentNode) {
-                    this.loadingScreen.parentNode.removeChild(this.loadingScreen);
-                }
-            } catch (e) {
-                // Игнорируем ошибки
-            }
-            this.loadingScreen = null;
-        }
-
-        // ИСПРАВЛЕНИЕ: Также проверяем и удаляем ВСЕ экраны загрузки по ID (на случай если они созданы в других местах)
-        // Это включает экраны, созданные через класс LoadingScreen или другими способами
-        const existingScreens = document.querySelectorAll("#loading-screen");
-        // console.log(`[Game] Found ${existingScreens.length} existing loading screens, removing them...`);
-        existingScreens.forEach((screen, index) => {
-            try {
-                console.log(`[Game] Removing loading screen ${index + 1}`);
-                if (screen.parentNode) {
-                    screen.parentNode.removeChild(screen);
-                } else {
-                    screen.remove();
-                }
-            } catch (e) {
-                console.error(`[Game] Error removing loading screen ${index + 1}:`, e);
-            }
-        });
-
-        // Дополнительная проверка: удаляем все элементы с классом loading-screen (если есть)
-        const screensByClass = document.querySelectorAll(".loading-screen");
-        screensByClass.forEach((screen) => {
-            try {
-                if (screen.parentNode) {
-                    screen.parentNode.removeChild(screen);
-                } else {
-                    screen.remove();
-                }
-            } catch (e) {
-                // Игнорируем ошибки
-            }
-        });
-
-        this.loadingScreen = document.createElement("div");
-        this.loadingScreen.id = "loading-screen";
-        this.loadingScreen.innerHTML = `
-            <style>
-                #loading-screen {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
-                    background-size: 200% 200%;
-                    animation: backgroundShift 10s ease infinite;
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: center;
-                    align-items: center;
-                    z-index: 999999;
-                    font-family: 'Press Start 2P', monospace;
-                    overflow: hidden;
-                }
-                
-                @keyframes backgroundShift {
-                    0% { background-position: 0% 50%; }
-                    50% { background-position: 100% 50%; }
-                    100% { background-position: 0% 50%; }
-                }
-                
-                #loading-screen::before {
-                    content: '';
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    background: 
-                        radial-gradient(circle at 20% 50%, rgba(0, 255, 0, 0.05) 0%, transparent 50%),
-                        radial-gradient(circle at 80% 50%, rgba(0, 255, 0, 0.05) 0%, transparent 50%);
-                    animation: backgroundPulse 4s ease-in-out infinite;
-                    pointer-events: none;
-                }
-                
-                @keyframes backgroundPulse {
-                    0%, 100% { opacity: 0.3; }
-                    50% { opacity: 0.6; }
-                }
-                
-                .loading-logo {
-                    font-size: 48px;
-                    color: #0f0;
-                    text-shadow: 0 0 20px rgba(0, 255, 0, 0.5),
-                                 0 0 40px rgba(0, 255, 0, 0.3),
-                                 0 0 60px rgba(0, 255, 0, 0.2);
-                    margin-bottom: 60px;
-                    letter-spacing: 4px;
-                    animation: logoGlow 2s ease-in-out infinite;
-                    position: relative;
-                }
-                
-                @keyframes logoGlow {
-                    0%, 100% { 
-                        text-shadow: 0 0 20px rgba(0, 255, 0, 0.5),
-                                     0 0 40px rgba(0, 255, 0, 0.3),
-                                     0 0 60px rgba(0, 255, 0, 0.2);
-                    }
-                    50% { 
-                        text-shadow: 0 0 30px rgba(0, 255, 0, 0.7),
-                                     0 0 60px rgba(0, 255, 0, 0.5),
-                                     0 0 90px rgba(0, 255, 0, 0.3);
-                    }
-                }
-                
-                .loading-logo .accent {
-                    color: #fff;
-                    text-shadow: 0 0 20px rgba(255, 255, 255, 0.8),
-                                 0 0 40px rgba(255, 255, 255, 0.5);
-                    animation: accentPulse 1.5s ease-in-out infinite;
-                }
-                
-                @keyframes accentPulse {
-                    0%, 100% { 
-                        text-shadow: 0 0 20px rgba(255, 255, 255, 0.8),
-                                     0 0 40px rgba(255, 255, 255, 0.5);
-                    }
-                    50% { 
-                        text-shadow: 0 0 30px rgba(255, 255, 255, 1),
-                                     0 0 60px rgba(255, 255, 255, 0.7);
-                    }
-                }
-                
-                .loading-container {
-                    width: 400px;
-                    text-align: center;
-                    position: relative;
-                    z-index: 1;
-                }
-                
-                .loading-bar-bg {
-                    width: 100%;
-                    height: 24px;
-                    background: rgba(0, 20, 0, 0.6);
-                    border: 2px solid #0a0;
-                    border-radius: 12px;
-                    overflow: hidden;
-                    box-shadow: 0 0 15px rgba(0, 255, 0, 0.3),
-                                inset 0 0 10px rgba(0, 100, 0, 0.5);
-                    position: relative;
-                }
-                
-                .loading-bar-bg::before {
-                    content: '';
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background: linear-gradient(90deg,
-                        transparent 0%,
-                        rgba(0, 255, 0, 0.1) 50%,
-                        transparent 100%);
-                    animation: pulse 2s ease-in-out infinite;
-                }
-                
-                .loading-bar-fill {
-                    height: 100%;
-                    background: linear-gradient(90deg, 
-                        #0a0 0%, 
-                        #1f1 25%,
-                        #0f0 50%, 
-                        #1f1 75%,
-                        #0a0 100%);
-                    background-size: 200% 100%;
-                    width: 0%;
-                    box-shadow: 0 0 20px rgba(0, 255, 0, 0.6),
-                                inset 0 0 10px rgba(255, 255, 255, 0.2);
-                    position: relative;
-                    animation: gradientShift 2s linear infinite;
-                    transition: width 0.1s linear;
-                }
-                
-                @keyframes gradientShift {
-                    0% { background-position: 0% 50%; }
-                    100% { background-position: 200% 50%; }
-                }
-                
-                @keyframes pulse {
-                    0%, 100% { opacity: 0.3; }
-                    50% { opacity: 0.6; }
-                }
-                
-                .loading-bar-fill::after {
-                    content: '';
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    right: 0;
-                    bottom: 0;
-                    background: linear-gradient(90deg, 
-                        transparent 0%, 
-                        rgba(255, 255, 255, 0.4) 30%,
-                        rgba(255, 255, 255, 0.6) 50%,
-                        rgba(255, 255, 255, 0.4) 70%,
-                        transparent 100%);
-                    animation: shimmer 1.2s infinite;
-                }
-                
-                @keyframes shimmer {
-                    0% { transform: translateX(-150%); }
-                    100% { transform: translateX(150%); }
-                }
-                
-                .loading-bar-fill::before {
-                    content: '';
-                    position: absolute;
-                    top: 0;
-                    left: 0;
-                    width: 4px;
-                    height: 100%;
-                    background: rgba(255, 255, 255, 0.8);
-                    box-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
-                    animation: scan 1.5s ease-in-out infinite;
-                }
-                
-                @keyframes scan {
-                    0% { left: -4px; }
-                    100% { left: 100%; }
-                }
-                
-                .loading-text {
-                    color: #0f0;
-                    font-size: 12px;
-                    margin-top: 20px;
-                    text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
-                    min-height: 20px;
-                    animation: textFade 0.5s ease-in;
-                }
-                
-                @keyframes textFade {
-                    0% { opacity: 0; transform: translateY(5px); }
-                    100% { opacity: 1; transform: translateY(0); }
-                }
-                
-                .loading-percent {
-                    color: #0f0;
-                    font-size: 28px;
-                    margin-top: 15px;
-                    text-shadow: 0 0 15px rgba(0, 255, 0, 0.6),
-                                 0 0 30px rgba(0, 255, 0, 0.3);
-                    font-weight: bold;
-                    letter-spacing: 2px;
-                    animation: percentGlow 1.5s ease-in-out infinite;
-                }
-                
-                @keyframes percentGlow {
-                    0%, 100% { 
-                        text-shadow: 0 0 15px rgba(0, 255, 0, 0.6),
-                                     0 0 30px rgba(0, 255, 0, 0.3);
-                    }
-                    50% { 
-                        text-shadow: 0 0 25px rgba(0, 255, 0, 0.8),
-                                     0 0 50px rgba(0, 255, 0, 0.5);
-                    }
-                }
-                
-                .loading-tip {
-                    color: #888;
-                    font-size: 10px;
-                    margin-top: 40px;
-                    max-width: 500px;
-                    line-height: 1.6;
-                }
-                
-                .loading-tank {
-                    font-size: 50px;
-                    margin-bottom: 20px;
-                    animation: tankBounce 1.2s ease-in-out infinite,
-                                tankRotate 3s linear infinite;
-                    filter: drop-shadow(0 0 10px rgba(0, 255, 0, 0.5));
-                }
-                
-                @keyframes tankBounce {
-                    0%, 100% { transform: translateY(0) rotate(0deg); }
-                    50% { transform: translateY(-15px) rotate(5deg); }
-                }
-                
-                @keyframes tankRotate {
-                    0% { filter: drop-shadow(0 0 10px rgba(0, 255, 0, 0.5)) hue-rotate(0deg); }
-                    50% { filter: drop-shadow(0 0 15px rgba(0, 255, 0, 0.7)) hue-rotate(10deg); }
-                    100% { filter: drop-shadow(0 0 10px rgba(0, 255, 0, 0.5)) hue-rotate(0deg); }
-                }
-            </style>
-            <div class="loading-logo">PROTOCOL <span class="accent">TX</span></div>
-            <div class="loading-tank">🎖️</div>
-            <div class="loading-container">
-                <div class="loading-bar-bg">
-                    <div class="loading-bar-fill" id="loading-bar-fill"></div>
-                </div>
-                <div class="loading-percent" id="loading-percent">0%</div>
-                <div class="loading-text" id="loading-text">Инициализация...</div>
-            </div>
-            <div class="loading-tip" id="loading-tip"></div>
-        `;
-
-        // ИСПРАВЛЕНИЕ: Проверяем, что экран загрузки еще не добавлен в DOM
-        const existingScreen = document.getElementById("loading-screen");
-        if (existingScreen) {
-            // Если экран уже существует, используем его вместо создания нового
-            this.loadingScreen = existingScreen as HTMLDivElement;
-            console.log("[Game] Reusing existing loading screen");
-        } else {
-            // Если экрана нет, добавляем новый
-            document.body.appendChild(this.loadingScreen);
-            // console.log("[Game] Created new loading screen");
-        }
-
-        // Показать случайный совет
-        this.showRandomLoadingTip();
+        // Use the shared "Beautiful" loading screen module
+        showLoading();
     }
 
-    private showRandomLoadingTip(): void {
-        const tips = [
-            "💡 Используйте ПКМ для прицеливания - это увеличивает точность!",
-            "💡 Клавиша G открывает гараж для смены танка",
-            "💡 Колесо мыши позволяет приближать/отдалять камеру в режиме прицеливания",
-            "💡 TAB показывает статистику игры",
-            "💡 ESC ставит игру на паузу",
-            "💡 Разные корпуса и орудия имеют уникальные характеристики",
-            "💡 Клавиша M открывает тактическую карту",
-            "💡 Захватывайте гаражи для получения тактического преимущества",
-            "💡 Расходники 1-5 помогают в сложных ситуациях",
-            "💡 Shift включает свободный обзор камеры"
-        ];
 
-        const tipElement = document.getElementById("loading-tip");
-        if (tipElement) {
-            const index = Math.floor(Math.random() * tips.length);
-            const tip = tips[index] ?? "";
-            tipElement.textContent = tip;
-        }
-    }
+
+
 
     private updateLoadingProgress(progress: number, stage: string): void {
-        this.targetLoadingProgress = Math.min(100, Math.max(0, progress));
-        // Запускаем плавную анимацию прогресса, если она еще не запущена
-        if (this.loadingAnimationFrame === null) {
-            this.animateLoadingProgress();
-        }
-
-        // Обновляем текст этапа сразу
-        const stageText = document.getElementById("loading-text");
-        if (stageText) {
-            stageText.textContent = stage;
-        }
+        const targetProgress = Math.min(100, Math.max(0, progress));
+        setLoadingProgress(targetProgress);
+        setLoadingStatus(stage);
     }
 
-    private animateLoadingProgress(): void {
-        const barFill = document.getElementById("loading-bar-fill");
-        const percentText = document.getElementById("loading-percent");
 
-        if (!barFill || !percentText) {
-            this.loadingAnimationFrame = null;
-            return;
-        }
-
-        // Плавная интерполяция к целевому прогрессу
-        const diff = this.targetLoadingProgress - this.loadingProgress;
-        if (Math.abs(diff) > 0.1) {
-            // Скорость интерполяции зависит от расстояния (быстрее для больших скачков)
-            const speed = Math.min(0.15, Math.abs(diff) * 0.02 + 0.05);
-            this.loadingProgress += diff * speed;
-
-            // Обновляем визуальные элементы
-            const roundedProgress = Math.round(this.loadingProgress);
-            barFill.style.width = `${this.loadingProgress}%`;
-            percentText.textContent = `${roundedProgress}%`;
-
-            // Продолжаем анимацию
-            this.loadingAnimationFrame = requestAnimationFrame(() => this.animateLoadingProgress());
-        } else {
-            // Достигли целевого значения
-            this.loadingProgress = this.targetLoadingProgress;
-            const roundedProgress = Math.round(this.loadingProgress);
-            barFill.style.width = `${this.loadingProgress}%`;
-            percentText.textContent = `${roundedProgress}%`;
-            this.loadingAnimationFrame = null;
-        }
-    }
 
     private hideLoadingScreen(): void {
-        if (this.loadingScreen) {
-            this.loadingScreen.style.transition = "opacity 0.5s ease-out";
-            this.loadingScreen.style.opacity = "0";
-            setTimeout(() => {
-                if (this.loadingScreen) {
-                    this.loadingScreen.remove();
-                    this.loadingScreen = null;
-                }
-            }, 500);
-        }
+        hideLoading(true);
     }
 
     // Called when an achievement is unlocked
@@ -2235,8 +2112,9 @@ export class Game {
         logger.log("startGame() called, mapType:", this.currentMapType);
 
         // КРИТИЧНО: Проверяем, соответствует ли текущая карта ожидаемой
-        if (this.chunkSystem && (this.chunkSystem as any).mapType !== this.currentMapType) {
-            logger.warn(`[Game] Map mismatch! Expected: ${this.currentMapType}, Actual: ${(this.chunkSystem as any).mapType}. Reloading map...`);
+        const chunkSystem = this.chunkSystem as ChunkSystemExtended;
+        if (chunkSystem && chunkSystem.mapType !== this.currentMapType) {
+            logger.warn(`[Game] Map mismatch! Expected: ${this.currentMapType}, Actual: ${chunkSystem.mapType}. Reloading map...`);
             await this.reloadMap(this.currentMapType);
         }
         this.gameStarted = true;
@@ -2485,7 +2363,8 @@ export class Game {
 
             // After waiting, check if we already have the correct map
             // This handles the "double reload" case where both calls wanted the same map
-            if (this.chunkSystem && (this.chunkSystem as any).mapType === mapType) {
+            const chunkSystem = this.chunkSystem as ChunkSystemExtended;
+            if (chunkSystem && chunkSystem.mapType === mapType) {
                 logger.log(`[Game] Map is already ${mapType} after wait, skipping redundant reload.`);
                 return;
             }
@@ -2543,6 +2422,9 @@ export class Game {
 
             // ВАЖНО: Dispose старой карты перед созданием новой!
             this.chunkSystem.dispose();
+            
+            // ОПТИМИЗАЦИЯ ПАМЯТИ: Очищаем неиспользуемые ресурсы после dispose карты
+            this.cleanupUnusedResources();
 
             // КРИТИЧНО ДЛЯ CUSTOM КАРТ: Полная очистка ВСЕХ мешей в сцене!
             // ChunkSystem.dispose() не удаляет все меши - некоторые остаются
@@ -2553,7 +2435,7 @@ export class Game {
                     'camera', 'light', 'skybox', '__root__'
                 ];
 
-                const meshesToRemove: any[] = [];
+                const meshesToRemove: AbstractMesh[] = [];
                 for (const mesh of this.scene.meshes) {
                     const name = mesh.name.toLowerCase();
                     let isProtected = false;
@@ -2621,11 +2503,20 @@ export class Game {
             if (mapTypeForChunkSystem === "custom") {
                 logger.log(`[Game] 🎨 RELOAD: CUSTOM MAP MODE - Running CustomMapRunner!`);
 
-                // Импортируем и запускаем CustomMapRunner
-                const { CustomMapRunner } = await import("./CustomMapRunner");
+                // Запускаем CustomMapRunner (уже импортирован статически)
                 const runner = new CustomMapRunner(this.scene);
                 // Передаем pendingCustomMapData если есть (иначе runner сам возьмет из localStorage)
-                const result = runner.run(this.pendingCustomMapData);
+                // Преобразуем MapData в CustomMapData формат
+                let customMapData: { version: number; name: string; mapType: string; placedObjects: any[] } | undefined;
+                if (this.pendingCustomMapData) {
+                    customMapData = {
+                        version: this.pendingCustomMapData.version || 1,
+                        name: this.pendingCustomMapData.name,
+                        mapType: this.pendingCustomMapData.mapType,
+                        placedObjects: (this.pendingCustomMapData as any).placedObjects || (this.pendingCustomMapData as any).objects || []
+                    };
+                }
+                const result = runner.run(customMapData);
 
                 if (result.success) {
                     logger.log(`[Game] ✅ RELOAD: Custom map "${result.mapName}" loaded: ${result.objectsCreated} objects`);
@@ -2727,7 +2618,7 @@ export class Game {
 
         // Сохраняем настройки игры (если есть mainMenu)
         if (this.mainMenu) {
-            const settings = (this.mainMenu as any).settings;
+            const settings = (this.mainMenu as unknown as MainMenuWithSettings).settings;
             if (settings) {
                 localStorage.setItem("ptx_restart_settings", JSON.stringify({
                     enemyDifficulty: settings.enemyDifficulty,
@@ -2772,6 +2663,10 @@ export class Game {
 
         // Очищаем танк игрока - полностью удаляем все части
         if (this.tank) {
+            // ОПТИМИЗАЦИЯ: Очищаем все таймеры и интервалы перед уничтожением
+            if (typeof this.tank.cleanupTimers === 'function') {
+                this.tank.cleanupTimers();
+            }
             // ОПТИМИЗАЦИЯ: Очищаем траектории снарядов и их таймеры
             if (typeof this.tank.clearTrajectoryLines === 'function') {
                 this.tank.clearTrajectoryLines();
@@ -2804,13 +2699,15 @@ export class Game {
         }
 
         // Очищаем чат систему
-        if (this.chatSystem && (this.chatSystem as any).dispose) {
-            (this.chatSystem as any).dispose();
+        const chatSystem = this.chatSystem as ChatSystemWithTerminal;
+        if (chatSystem && chatSystem.dispose) {
+            chatSystem.dispose();
         }
 
         // Очищаем HUD
-        if (this.hud && typeof (this.hud as any).hide === 'function') {
-            (this.hud as any).hide();
+        const hud = this.hud as HUDWithMethods;
+        if (hud && typeof hud.hide === 'function') {
+            hud.hide();
         }
 
         // Останавливаем таймер проверки видимости меню
@@ -2819,13 +2716,17 @@ export class Game {
             this.canvasPointerEventsCheckInterval = null;
         }
 
+        // Очищаем все таймауты
+        this.gameTimeouts.forEach(id => clearTimeout(id));
+        this.gameTimeouts = [];
+
         // Останавливаем таймер волн фронтлайна (теперь управляется в GameEnemies.clearEnemies())
     }
 
     // Инициализирует игру: создает сцену, загружает ресурсы, настраивает системы
     async init() {
         // ОПТИМИЗАЦИЯ: Определяем режим production один раз для всего метода
-        const isProduction = (import.meta as any).env?.PROD || false;
+        const isProduction = import.meta.env?.PROD || false;
 
         // Initialize Firebase
         try {
@@ -2834,7 +2735,7 @@ export class Game {
                 // logger.log("[Game] Firebase initialized successfully");
 
                 // Устанавливаем firebaseService в window для доступа из других модулей
-                (window as any).firebaseService = firebaseService;
+                window.firebaseService = firebaseService;
 
                 // Обработка Google redirect результата (если пользователь вернулся после Google auth)
                 const googleResult = await firebaseService.handleGoogleRedirectResult();
@@ -2858,6 +2759,15 @@ export class Game {
         try {
             logger.log(`[Game] init() called with mapType: ${this.currentMapType}`);
 
+            // КРИТИЧНО: Удаляем ВСЕ существующие экраны загрузки перед созданием нового
+            // Это гарантирует что будет только один экран загрузки
+            const existingLoadingScreens = document.querySelectorAll(
+                '#loading-screen, .loading-screen, #simple-loading-screen, .simple-loading-screen, #tx-loading-screen, #loading-indicator'
+            );
+            existingLoadingScreens.forEach(screen => {
+                screen.remove();
+            });
+            
             // ИСПРАВЛЕНИЕ: Не показываем экран загрузки, если игра уже инициализирована
             // Это предотвращает множественные экраны загрузки при открытии редактора
             if (!this.gameInitialized) {
@@ -2868,10 +2778,23 @@ export class Game {
                 }
 
                 // Показываем загрузочный экран только при первой инициализации
+                // loadingScreen.show() уже удалит все существующие экраны
                 this.createLoadingScreen();
                 this.updateLoadingProgress(5, "Инициализация движка...");
             } else {
                 logger.debug("[Game] init() called but game already initialized, skipping loading screen");
+                // Убеждаемся что экран загрузки скрыт
+                this.hideLoadingScreen();
+            }
+
+            // Инициализация Upgrade UI
+            // КРИТИЧНО: Панель прокачки создаётся скрытой - она должна показываться ТОЛЬКО внутри гаража!
+            try {
+                upgradeUI.create();
+                upgradeUI.setVisible(false); // Скрываем по умолчанию - показывать только в гараже
+                logger.log("[Game] Upgrade UI initialized (hidden by default)");
+            } catch (e) {
+                logger.error("[Game] Failed to initialize Upgrade UI:", e);
             }
 
             // Убеждаемся, что canvas виден и не перекрыт
@@ -2906,8 +2829,9 @@ export class Game {
             // КРИТИЧНО: Запускаем render loop ТОЛЬКО ОДИН РАЗ в init()
             // Проверяем, не запущен ли уже render loop через флаг
             if (this.engine && this.scene) {
-                if (!(this.engine as any)._renderLoopRunning) {
-                    (this.engine as any)._renderLoopRunning = true;
+                const engine = this.engine as EngineWithFlags;
+                if (!engine._renderLoopRunning) {
+                    engine._renderLoopRunning = true;
                     logger.log("[Game] Starting render loop in init() - SINGLE INSTANCE");
                     this.engine.runRenderLoop(() => {
                         if (this.scene && this.engine) {
@@ -2967,29 +2891,31 @@ export class Game {
                                 }
                                 // КРИТИЧНО: Рендерим сцену ТОЛЬКО ОДИН РАЗ за кадр!
                                 // Проверяем, не рендерится ли сцена дважды
-                                if (!(this.scene as any)._isRendering) {
-                                    (this.scene as any)._isRendering = true;
+                                const scene = this.scene as SceneWithFlags;
+                                if (!scene._isRendering) {
+                                    scene._isRendering = true;
 
                                     // Performance: track render time
                                     if (this.performanceMonitor) this.performanceMonitor.startRender();
                                     this.scene.render();
                                     if (this.performanceMonitor) this.performanceMonitor.endRender();
 
-                                    (this.scene as any)._isRendering = false;
+                                    scene._isRendering = false;
                                 } else {
                                     logger.error("[Game] CRITICAL: scene.render() called twice in same frame! This causes visual duplication!");
                                 }
                             } else {
                                 // КРИТИЧНО: Рендерим сцену ТОЛЬКО ОДИН РАЗ за кадр даже на паузе!
-                                if (!(this.scene as any)._isRendering) {
-                                    (this.scene as any)._isRendering = true;
+                                const scene = this.scene as SceneWithFlags;
+                                if (!scene._isRendering) {
+                                    scene._isRendering = true;
 
                                     // Performance: track render time
                                     if (this.performanceMonitor) this.performanceMonitor.startRender();
                                     this.scene.render();
                                     if (this.performanceMonitor) this.performanceMonitor.endRender();
 
-                                    (this.scene as any)._isRendering = false;
+                                    scene._isRendering = false;
                                 } else {
                                     logger.error("[Game] CRITICAL: scene.render() called twice in same frame (paused)! This causes visual duplication!");
                                 }
@@ -3140,7 +3066,7 @@ export class Game {
                     ShadowGenerator.QUALITY_HIGH : ShadowGenerator.QUALITY_MEDIUM;
 
                 // Store shadow generator for terrain
-                (this.scene as any).terrainShadowGenerator = shadowGenerator;
+                (this.scene as SceneWithFlags).terrainShadowGenerator = shadowGenerator;
                 logger.log(`[Game] Shadows enabled: quality=${shadowQuality}, mapSize=${shadowMapSize}, blurKernel=${blurKernel}`);
             }
 
@@ -3190,7 +3116,7 @@ export class Game {
                 if (this.tank.barrel && !this.tank.barrel.isDisposed()) {
                     // Удаляем дочерние меши barrel, если есть
                     if (this.tank.barrel.getChildren && this.tank.barrel.getChildren().length > 0) {
-                        this.tank.barrel.getChildren().forEach((child: any) => {
+                        this.tank.barrel.getChildren().forEach((child: Node) => {
                             if (child.dispose && !child.isDisposed()) {
                                 try {
                                     child.dispose();
@@ -3205,7 +3131,7 @@ export class Game {
                 if (this.tank.turret && !this.tank.turret.isDisposed()) {
                     // Удаляем дочерние меши turret (включая barrel, если он еще не удален)
                     if (this.tank.turret.getChildren && this.tank.turret.getChildren().length > 0) {
-                        this.tank.turret.getChildren().forEach((child: any) => {
+                        this.tank.turret.getChildren().forEach((child: Node) => {
                             if (child.dispose && !child.isDisposed()) {
                                 try {
                                     child.dispose();
@@ -3220,7 +3146,7 @@ export class Game {
                 if (this.tank.chassis && !this.tank.chassis.isDisposed()) {
                     // Удаляем дочерние меши chassis (включая turret и barrel, если они еще не удалены)
                     if (this.tank.chassis.getChildren && this.tank.chassis.getChildren().length > 0) {
-                        this.tank.chassis.getChildren().forEach((child: any) => {
+                        this.tank.chassis.getChildren().forEach((child: Node) => {
                             if (child.dispose && !child.isDisposed()) {
                                 try {
                                     child.dispose();
@@ -3234,6 +3160,10 @@ export class Game {
                 }
                 if (this.tank.physicsBody) {
                     this.tank.physicsBody.dispose();
+                }
+                // ОПТИМИЗАЦИЯ: Очищаем все таймеры и интервалы перед уничтожением
+                if (typeof this.tank.cleanupTimers === 'function') {
+                    this.tank.cleanupTimers();
                 }
                 this.tank = undefined;
             }
@@ -3251,7 +3181,7 @@ export class Game {
                     try {
                         // Удаляем все дочерние меши
                         if (mesh.getChildren && mesh.getChildren().length > 0) {
-                            mesh.getChildren().forEach((child: any) => {
+                            mesh.getChildren().forEach((child: Node) => {
                                 if (child.dispose && !child.isDisposed()) {
                                     try {
                                         child.dispose();
@@ -3414,8 +3344,9 @@ export class Game {
                     }
 
                     // ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ GUI
-                    if (this.hud && typeof (this.hud as any).forceUpdate === 'function') {
-                        (this.hud as any).forceUpdate();
+                    const hud = this.hud as HUDWithMethods;
+                    if (hud && typeof hud.forceUpdate === 'function') {
+                        hud.forceUpdate();
                     }
                 }
 
@@ -3571,8 +3502,9 @@ export class Game {
             });
 
             // Связываем HUD с системой миссий для обработки CLAIM напрямую из интерфейса
-            if (this.hud && typeof (this.hud as any).setMissionSystem === "function") {
-                (this.hud as any).setMissionSystem(this.missionSystem);
+            const hud = this.hud as HUDWithMethods;
+            if (hud && typeof hud.setMissionSystem === "function") {
+                hud.setMissionSystem(this.missionSystem);
             }
 
             // Initialize player stats system
@@ -3607,7 +3539,7 @@ export class Game {
 
             // Глобальная функция для восстановления уровня игрока (вызов из консоли браузера)
             // Использование: window.setPlayerLevel(17) - установит 17 уровень
-            (window as any).setPlayerLevel = (level: number) => {
+            window.setPlayerLevel = (level: number) => {
                 if (this.playerProgression) {
                     this.playerProgression.setLevel(level);
                     logger.log(`[Game] Уровень игрока установлен: ${level}`);
@@ -3844,7 +3776,7 @@ export class Game {
             // Это гарантирует, что pendingMapType и worldSeed из ROOM_JOINED/ROOM_CREATED
             // будут доступны при создании ChunkSystem
             if (!this.multiplayerManager) {
-                this.multiplayerManager = new MultiplayerManager(undefined, true); // autoConnect = true
+                this.multiplayerManager = new MultiplayerManager(undefined, false); // autoConnect = false
                 logger.log("[Game] ✅ MultiplayerManager создан в начале init() (перед ChunkSystem)");
             } else {
                 logger.log("[Game] ℹ️ MultiplayerManager уже существует, пропускаем создание");
@@ -4011,11 +3943,8 @@ export class Game {
                 console.log(`[Game] 🎨 CUSTOM MAP MODE - ENTERING BYPASS BLOCK!`);
 
                 try {
-                    console.log(`[Game] 🎨 Step 1: Importing CustomMapRunner...`);
-                    // Импортируем и запускаем CustomMapRunner
-                    const { CustomMapRunner } = await import("./CustomMapRunner");
-                    console.log(`[Game] 🎨 Step 2: CustomMapRunner imported, creating instance...`);
-
+                    console.log(`[Game] 🎨 Running CustomMapRunner...`);
+                    // CustomMapRunner уже импортирован статически
                     const runner = new CustomMapRunner(this.scene);
                     console.log(`[Game] 🎨 Step 3: Running CustomMapRunner...`);
 
@@ -4301,7 +4230,18 @@ export class Game {
                     // Enemy turrets visibility update logic (removed for performance)
                 },
                 onCheckConsumablePickups: () => {
-                    // Consumable pickups check logic
+                    // Проверка подбора обычных припасов (на земле)
+                    if (this.gameConsumables) {
+                        // Используем простой счётчик для кэширования позиции
+                        const tick = (this.gameUpdate as any)._updateTick || 0;
+                        this.gameConsumables.update(tick);
+                    }
+
+                    // Проверка подбора дропов с неба (SupplyDropSystem)
+                    if (this.supplyDropSystem && this.tank && this.tank.chassis) {
+                        const tankPosition = this.tank.chassis.absolutePosition;
+                        this.supplyDropSystem.checkPickup(tankPosition);
+                    }
                 },
                 onCheckSpectatorMode: () => {
                     // КРИТИЧНО: Проверяем подключение к комнате, а не только isMultiplayer флаг
@@ -4382,7 +4322,7 @@ export class Game {
             // URL будет автоматически определен в конструкторе MultiplayerManager
             // ПРИМЕЧАНИЕ: MultiplayerManager теперь создается раньше (перед ChunkSystem) для доступа к mapType
             if (!this.multiplayerManager) {
-                this.multiplayerManager = new MultiplayerManager(undefined, true); // autoConnect = true
+                this.multiplayerManager = new MultiplayerManager(undefined, false); // autoConnect = false
                 logger.log("[Game] ✅ MultiplayerManager создан (fallback)");
             }
 
@@ -4795,12 +4735,14 @@ export class Game {
                         logger.log("[Game] gameStarted set to true for enemy spawn + reward provider initialized");
                     }
 
-                    // Если в гаражах не спавнилось достаточно врагов, дополняем спавном на карте
-                    // Для Тартарии всегда спавним на карте
-                    // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
-                    if ((this.currentMapType !== undefined && this.currentMapType === "tartaria") || !enemiesSpawned || this.enemyTanks.length < 5) {
-                        logger.log(`[Game] Spawning enemies on map (current: ${this.enemyTanks.length}, mapType: ${this.currentMapType})...`);
+                    // Если в гаражах НЕ спавнилось врагов, используем fallback спавн на карте
+                    // Для Тартарии всегда спавним на карте (нет гаражей)
+                    // ИСПРАВЛЕНО: Убрана проверка < 5 которая вызывала дублирование спавна
+                    if ((this.currentMapType !== undefined && this.currentMapType === "tartaria") || !enemiesSpawned) {
+                        logger.log(`[Game] Fallback spawn on map (current: ${this.enemyTanks.length}, mapType: ${this.currentMapType}, enemiesSpawned: ${enemiesSpawned})...`);
                         this.spawnEnemyTanks();
+                    } else {
+                        logger.log(`[Game] Enemies already spawned in garages: ${this.enemyTanks.length}, skipping fallback spawn`);
                     }
 
                     if (this.tank) {
@@ -4896,12 +4838,14 @@ export class Game {
                         enemiesSpawned = this.enemyTanks.length > beforeCount;
                     }
 
-                    // ВСЕГДА используем fallback спавн на карте
-                    // Для Тартарии всегда спавним на карте
-                    // ЗАЩИТНАЯ ПРОВЕРКА: только явно "tartaria", не undefined и не другие значения
-                    if ((this.currentMapType !== undefined && this.currentMapType === "tartaria") || !enemiesSpawned || this.enemyTanks.length < 5) {
-                        logger.log(`[Game] (Timeout) Spawning enemies on map (current: ${this.enemyTanks.length}, mapType: ${this.currentMapType})...`);
+                    // Используем fallback спавн на карте ТОЛЬКО если в гаражах не спавнились враги
+                    // Для Тартарии всегда спавним на карте (нет гаражей)
+                    // ИСПРАВЛЕНО: Убрана проверка < 5 которая вызывала дублирование спавна
+                    if ((this.currentMapType !== undefined && this.currentMapType === "tartaria") || !enemiesSpawned) {
+                        logger.log(`[Game] (Timeout) Fallback spawn on map (current: ${this.enemyTanks.length}, mapType: ${this.currentMapType})...`);
                         this.spawnEnemyTanks();
+                    } else {
+                        logger.log(`[Game] (Timeout) Enemies already spawned: ${this.enemyTanks.length}, skipping fallback`);
                     }
 
                     if (this.tank) {
@@ -4910,12 +4854,14 @@ export class Game {
                 }, 5000);
             } else {
                 // Продолжаем ждать
-                setTimeout(checkGarages, 100);
+                const timeoutId = setTimeout(checkGarages, 100);
+                this.gameTimeouts.push(timeoutId);
             }
         };
 
         // Начинаем проверку сразу (гараж уже создан в ChunkSystem)
-        setTimeout(checkGarages, 100);
+        const timeoutId = setTimeout(checkGarages, 100);
+        this.gameTimeouts.push(timeoutId);
     }
 
     // Улучшенный метод получения высоты террейна (аналогичен GameEnemies.getGroundHeight)
@@ -5317,7 +5263,7 @@ export class Game {
         const checkRadius = Math.max(tankWidth, tankHeight) * 0.6; // Радиус проверки коллизий
 
         // ИСПРАВЛЕНИЕ: Проверяем коллизии со ВСЕМИ объектами, не только customObj
-        const collisionFilter = (mesh: any) => {
+        const collisionFilter = (mesh: AbstractMesh) => {
             if (!mesh || !mesh.isEnabled()) return false;
 
             // Исключаем сам танк и его части
@@ -6433,10 +6379,12 @@ export class Game {
 
                         try {
                             // requestPointerLock может вернуть Promise или void в зависимости от браузера
-                            const lockResult: any = canvas.requestPointerLock();
+                            const lockResult = canvas.requestPointerLock();
 
-                            if (lockResult && typeof lockResult === 'object' && typeof lockResult.then === 'function') {
-                                lockResult.then(() => {
+                            // requestPointerLock может вернуть Promise<void> или void
+                            // requestPointerLock может вернуть void или Promise<void>
+                            if (lockResult !== undefined && lockResult !== null && typeof lockResult === 'object' && 'then' in lockResult) {
+                                (lockResult as Promise<void>).then(() => {
                                     logger.log("[Game] Pointer lock activated via Alt key");
                                     // Визуальная индикация
                                     if (this.hud) {
@@ -7104,9 +7052,17 @@ export class Game {
                 // Плавно увеличиваем прогресс перехода
                 this.aimingTransitionProgress = Math.min(1.0, this.aimingTransitionProgress + this.aimingTransitionSpeed);
 
-                // === ГОРИЗОНТАЛЬНОЕ ПРИЦЕЛИВАНИЕ (БЕЗ АВТОДОВОДКИ) ===
-                // ИСПРАВЛЕНО: Убрана автодоводка для горизонтальной наводки - мгновенная реакция
-                this.aimYaw = this.targetAimYaw;
+                // === ГОРИЗОНТАЛЬНОЕ ПРИЦЕЛИВАНИЕ С ПЛАВНЫМ СГЛАЖИВАНИЕМ ===
+                // ИСПРАВЛЕНО: Добавлено сглаживание для предотвращения дёргания
+                const yawDiff = this.targetAimYaw - this.aimYaw;
+                // Нормализуем разницу в диапазон [-PI, PI]
+                let normalizedDiff = yawDiff;
+                while (normalizedDiff > Math.PI) normalizedDiff -= Math.PI * 2;
+                while (normalizedDiff < -Math.PI) normalizedDiff += Math.PI * 2;
+                
+                // Плавное сглаживание (быстрее чем pitch для мгновенной реакции, но без рывков)
+                const yawSmoothing = 0.25; // 25% за кадр - быстро но плавно
+                this.aimYaw += normalizedDiff * yawSmoothing;
 
                 // Нормализуем aimYaw
                 while (this.aimYaw > Math.PI) this.aimYaw -= Math.PI * 2;
@@ -7238,6 +7194,7 @@ export class Game {
                 // Целевая позиция: башня + немного вверх
                 // ОПТИМИЗАЦИЯ: Используем кэшированную позицию башни
                 const turretPos = this.tank.getCachedTurretPosition ? this.tank.getCachedTurretPosition() : this.tank.turret.getAbsolutePosition();
+                if (!turretPos) return; // Защита от null
                 // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
                 const targetCameraPos = vector3Pool.acquire();
                 targetCameraPos.copyFrom(turretPos);
@@ -7798,6 +7755,25 @@ export class Game {
             this.hud.setBarrelAngle(barrelAngleDegrees);
         }
 
+        // ИСПРАВЛЕНО: Обновляем шкалу перезарядки
+        if (this.tank.isReloading) {
+            const elapsed = Date.now() - (this.tank.lastShotTime || 0);
+            const progress = Math.min(1, elapsed / this.tank.cooldown);
+            this.hud.updateReload(progress, true);
+        } else {
+            this.hud.updateReload(1, false);
+        }
+
+        // ИСПРАВЛЕНО: Обновляем PING и DRIFT
+        if (this.multiplayerManager && this.multiplayerManager.isConnected()) {
+            const ping = this.multiplayerManager.getPing();
+            const networkMetrics = (this.multiplayerManager as any).networkMetrics;
+            const drift = networkMetrics?.drift || 0;
+            this.hud.updateConnectionQuality(ping, drift);
+        } else {
+            this.hud.updateConnectionQuality(0, 0);
+        }
+
         // Обновляем полную карту (если открыта)
         if (this.hud.isFullMapVisible()) {
             this.hud.updateFullMap(playerPos, absoluteTurretRotation, allEnemies);
@@ -8159,7 +8135,8 @@ export class Game {
 
             const enemyKey = `${turret.position.x.toFixed(0)}_${turret.position.z.toFixed(0)}`;
             const health = (turret as any).health || 100;
-            const maxHealth = (turret as any).maxHealth || 100;
+            // Используем type assertion для доступа к maxHealth (может быть не в типах)
+            const maxHealth = (turret as { maxHealth?: number }).maxHealth || 100;
 
             this.hud.setEnemyHealthForMinimap(enemyKey, health, maxHealth);
         }
@@ -8180,13 +8157,15 @@ export class Game {
         // === HP ПРОТИВНИКА ПРИ НАВЕДЕНИИ СТВОЛА (не камеры!) ===
         // ОПТИМИЗАЦИЯ: Используем кэшированную позицию ствола
         const barrelPos = this.tank.getCachedBarrelPosition ? this.tank.getCachedBarrelPosition() : this.tank.barrel.getAbsolutePosition();
+        if (!barrelPos) return; // Защита от null
         const barrelDir = this.tank.barrel.getDirection(Vector3.Forward()).normalize();
 
         // Рассчитываем дальность поражения (макс 150м для отображения HP)
         const maxRange = 150;
 
         // Raycast с дальностью поражения
-        const ray = new Ray(barrelPos, barrelDir, maxRange);
+        // TypeScript guard: barrelPos уже проверен на null выше
+        const ray = new Ray(barrelPos as Vector3, barrelDir, maxRange);
 
         // ИСПРАВЛЕНО: Используем multiPickWithRay чтобы найти ВСЕ объекты на пути
         // (не только первый - он может быть terrain/зданием)
@@ -8225,13 +8204,13 @@ export class Game {
 
                         // Враг в радиусе поражения
                         if (distance <= maxRange) {
-                            this.hud.setTargetInfo({
-                                name: "Enemy Tank",
-                                health: tank.currentHealth || 0,
-                                maxHealth: tank.maxHealth || 100,
-                                distance: distance,
-                                type: "enemy"
-                            });
+                            // this.hud.setTargetInfo({
+                            //     name: "Enemy Tank",
+                            //     health: tank.currentHealth || 0,
+                            //     maxHealth: tank.maxHealth || 100,
+                            //     distance: distance,
+                            //     type: "enemy"
+                            // });
                             targetFound = true;
                             break; // Нашли врага - выходим
                         }
@@ -8250,13 +8229,13 @@ export class Game {
 
                             if (distance <= maxRange) {
                                 turret.setHpVisible(true);
-                                this.hud.setTargetInfo({
-                                    name: "Turret",
-                                    health: turret.health || 0,
-                                    maxHealth: turret.maxHealth || 100,
-                                    distance: distance,
-                                    type: "enemy"
-                                });
+                                // this.hud.setTargetInfo({
+                                //     name: "Turret",
+                                //     health: turret.health || 0,
+                                //     maxHealth: turret.maxHealth || 100,
+                                //     distance: distance,
+                                //     type: "enemy"
+                                // });
                                 targetFound = true;
                                 break; // Нашли турель - выходим
                             }
@@ -8268,7 +8247,7 @@ export class Game {
 
         // Если цель не найдена, скрываем HUD индикатор
         if (!targetFound && this.hud) {
-            this.hud.setTargetInfo(null);
+            // this.hud.setTargetInfo(null);
         }
     }
 
@@ -8277,7 +8256,7 @@ export class Game {
 
     // Все мультиплеерные колбэки перенесены в GameMultiplayerCallbacks модуль
 
-    private createNetworkPlayerTank(playerData: any): void {
+    private createNetworkPlayerTank(playerData: PlayerData): void {
         if (this.networkPlayerTanks.has(playerData.id)) {
             console.log(`[Game] ⏭️ Танк для ${playerData.id} уже существует, пропускаем`);
             return; // Already exists
@@ -8545,7 +8524,10 @@ export class Game {
                             health: networkPlayer.health,
                             maxHealth: networkPlayer.maxHealth,
                             status: networkPlayer.status || "alive",
-                            team: networkPlayer.team
+                            team: networkPlayer.team,
+                            kills: 0,
+                            deaths: 0,
+                            score: 0
                         });
                     }
                 }
@@ -8619,7 +8601,7 @@ export class Game {
             if (cachedPlayers.length > 0) {
                 // Update real-time stats tracker
                 if (this.realtimeStatsTracker) {
-                    this.realtimeStatsTracker.updatePlayerStats(cachedPlayers.map((p: any) => ({
+                    this.realtimeStatsTracker.updatePlayerStats(cachedPlayers.map((p: { id: string; name: string; kills?: number; deaths?: number; score?: number; team?: number; status?: string; damageDealt?: number; damageTaken?: number }) => ({
                         id: p.id,
                         name: p.name,
                         kills: p.kills || 0,
@@ -8634,7 +8616,7 @@ export class Game {
 
                 // Record player states for replay
                 if (this.replayRecorder) {
-                    this.replayRecorder.recordPlayerStates(cachedPlayers.map((p: any) => ({
+                    this.replayRecorder.recordPlayerStates(cachedPlayers.map((p: { id: string; name: string; position: Vector3; rotation?: number; turretRotation?: number; aimPitch?: number; health?: number; maxHealth?: number; status?: string; kills?: number; deaths?: number; score?: number; team?: number }) => ({
                         id: p.id,
                         name: p.name,
                         position: new Vector3(p.position.x, p.position.y, p.position.z),
@@ -8664,7 +8646,7 @@ export class Game {
                     isAlive: boolean;
                 }> = [];
 
-                cachedPlayers.forEach((player: any) => {
+                cachedPlayers.forEach((player: { id: string; name: string; team?: number; score?: number; kills?: number; deaths?: number; status?: string }) => {
                     if (player.team === 0) {
                         team0Score += player.score || 0;
                     } else if (player.team === 1) {
@@ -8689,7 +8671,8 @@ export class Game {
                 // Update player list
                 // ИСПРАВЛЕНО: Передаем текущие mapId и roomId для фильтрации статистики
                 const currentMapId = this.currentMapType;
-                const currentRoomId = this.multiplayerManager?.getRoomId();
+                const roomId = this.multiplayerManager?.getRoomId();
+                const currentRoomId: string | undefined = roomId ?? undefined; // Преобразуем null в undefined
                 this.hud.updatePlayerList?.(playerList, localPlayerId || "", currentMapId, currentRoomId);
 
                 // Update minimap players
@@ -8697,8 +8680,8 @@ export class Game {
                     // КРИТИЧНО: Используем getCachedChassisPosition() для мировых координат
                     const localPos = this.tank.getCachedChassisPosition();
                     const minimapPlayers = cachedPlayers
-                        .filter((p: any) => p.position)
-                        .map((p: any) => ({
+                        .filter((p: { position?: Vector3 }) => p.position)
+                        .map((p: { id: string; position: Vector3; team?: number }) => ({
                             id: p.id,
                             position: { x: p.position.x, z: p.position.z },
                             team: p.team
@@ -9314,22 +9297,33 @@ export class Game {
             console.log("[Game] ====== openMapEditorFromMenu() CALLED ======");
             logger.log("[Game] openMapEditorFromMenu() called");
 
-            // ИСПРАВЛЕНИЕ: Удаляем ВСЕ существующие экраны загрузки перед открытием редактора
+            // КРИТИЧНО: Удаляем ВСЕ существующие экраны загрузки перед открытием редактора
             // Это предотвращает появление множественных экранов загрузки
-            const existingLoadingScreens = document.querySelectorAll('#loading-screen, .loading-screen');
+            const existingLoadingScreens = document.querySelectorAll(
+                '#loading-screen, .loading-screen, #simple-loading-screen, .simple-loading-screen, #tx-loading-screen, #loading-indicator'
+            );
             existingLoadingScreens.forEach(screen => {
                 console.log('[Game] 🧹 Removing existing loading screen before editor');
                 screen.remove();
             });
+            
+            // Также скрываем экран загрузки через функцию (на случай если он есть в памяти)
+            this.hideLoadingScreen();
 
             // Инициализируем игру и запускаем, если ещё не запущена
             if (!this.gameInitialized) {
                 console.log("[Game] Game not initialized, initializing...");
                 logger.log(`[Game] Initializing game for Map Editor with map type: ${this.currentMapType}`);
+                
+                // КРИТИЧНО: init() создаст экран загрузки только если gameInitialized = false
+                // Но мы уже удалили все экраны выше, так что будет создан только один
                 await this.init();
                 this.gameInitialized = true;
                 console.log("[Game] ✅ Game initialized");
                 logger.log("[Game] Game initialized for Map Editor");
+            } else {
+                // Если игра уже инициализирована, убеждаемся что экран загрузки скрыт
+                this.hideLoadingScreen();
             }
 
             if (!this.gameStarted) {
@@ -9580,6 +9574,102 @@ export class Game {
                 logger.error('[Game] Failed to load custom tank:', e);
             }
         }
+    }
+
+    /**
+     * ОПТИМИЗАЦИЯ ПАМЯТИ: Очистка неиспользуемых ресурсов
+     * Удаляет материалы и текстуры которые не привязаны к мешам
+     * Вызывать при смене карты, выходе из комнаты, или периодически
+     */
+    public cleanupUnusedResources(): void {
+        if (!this.scene) return;
+        
+        const beforeMaterials = this.scene.materials.length;
+        const beforeTextures = this.scene.textures.length;
+        const beforeMeshes = this.scene.meshes.length;
+        
+        // Собираем используемые материалы
+        const usedMaterials = new Set<string>();
+        for (const mesh of this.scene.meshes) {
+            if (mesh.material) {
+                usedMaterials.add(mesh.material.uniqueId.toString());
+            }
+        }
+        
+        // Удаляем неиспользуемые материалы
+        const materialsToDispose: any[] = [];
+        for (const material of this.scene.materials) {
+            // Защищаем системные материалы
+            if (material.name.startsWith('default') || 
+                material.name.includes('skybox') ||
+                material.name.includes('ground') ||
+                material.name.includes('tank') ||
+                material.name.includes('bullet')) {
+                continue;
+            }
+            
+            if (!usedMaterials.has(material.uniqueId.toString())) {
+                materialsToDispose.push(material);
+            }
+        }
+        
+        for (const mat of materialsToDispose) {
+            try {
+                mat.dispose(true, true); // forceDisposeTextures=true
+            } catch (e) {
+                // Игнорируем ошибки при dispose
+            }
+        }
+        
+        // Собираем используемые текстуры
+        const usedTextures = new Set<string>();
+        for (const material of this.scene.materials) {
+            const mat = material as any;
+            if (mat.diffuseTexture) usedTextures.add(mat.diffuseTexture.uniqueId?.toString());
+            if (mat.albedoTexture) usedTextures.add(mat.albedoTexture.uniqueId?.toString());
+            if (mat.emissiveTexture) usedTextures.add(mat.emissiveTexture.uniqueId?.toString());
+            if (mat.bumpTexture) usedTextures.add(mat.bumpTexture.uniqueId?.toString());
+        }
+        
+        // Удаляем неиспользуемые текстуры
+        const texturesToDispose: any[] = [];
+        for (const texture of this.scene.textures) {
+            if (texture.name.includes('skybox') || texture.name.includes('env')) continue;
+            if (!usedTextures.has(texture.uniqueId?.toString())) {
+                texturesToDispose.push(texture);
+            }
+        }
+        
+        for (const tex of texturesToDispose) {
+            try {
+                tex.dispose();
+            } catch (e) {
+                // Игнорируем ошибки при dispose
+            }
+        }
+        
+        const afterMaterials = this.scene.materials.length;
+        const afterTextures = this.scene.textures.length;
+        
+        logger.log(`[Game] 🧹 Memory cleanup: Materials ${beforeMaterials} → ${afterMaterials} (freed ${materialsToDispose.length}), Textures ${beforeTextures} → ${afterTextures} (freed ${texturesToDispose.length})`);
+        
+        // Показываем уведомление если много освободилось
+        if (materialsToDispose.length > 10 || texturesToDispose.length > 10) {
+            if (this.hud) {
+                this.hud.showMessage(`🧹 Очищено: ${materialsToDispose.length} мат. ${texturesToDispose.length} текст.`, "#4ade80", 2000);
+            }
+        }
+    }
+    
+    /**
+     * Получение статистики использования памяти
+     */
+    public getMemoryStats(): { materials: number; textures: number; meshes: number } {
+        return {
+            materials: this.scene?.materials.length || 0,
+            textures: this.scene?.textures.length || 0,
+            meshes: this.scene?.meshes.length || 0
+        };
     }
 }
 

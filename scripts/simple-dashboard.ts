@@ -112,7 +112,7 @@ console.log('\n');
 console.log(`${colors.cyan}╔════════════════════════════════════════════════════╗${colors.reset}`);
 console.log(`${colors.cyan}║     PROTOCOL TX - UNIFIED DEVELOPMENT SERVER       ║${colors.reset}`);
 console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);
-console.log(`${colors.cyan}║  ${colors.green}🟢 SERVER${colors.cyan} - Game Backend (port 8080)              ║${colors.reset}`);
+console.log(`${colors.cyan}║  ${colors.green}🟢 SERVER${colors.cyan} - Game Backend (port 8000)              ║${colors.reset}`);
 console.log(`${colors.cyan}║  ${colors.cyan}🔵 CLIENT${colors.cyan} - Game Frontend (port 5000)             ║${colors.reset}`);
 console.log(`${colors.cyan}║  ${colors.magenta}🟣 EDITOR${colors.cyan} - Map Editor (port 3000)               ║${colors.reset}`);
 console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);

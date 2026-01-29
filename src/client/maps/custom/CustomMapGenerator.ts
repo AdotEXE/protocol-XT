@@ -32,7 +32,7 @@ export interface TXMapData {
 
 export interface TXPlacedObject {
     id: string;
-    type: 'building' | 'tree' | 'rock' | 'spawn' | 'garage' | 'custom' | 'npc';
+    type: 'building' | 'tree' | 'rock' | 'spawn' | 'garage' | 'custom' | 'npc' | 'enemy_tank' | 'enemy_turret' | 'zone_damage' | 'zone_heal' | 'zone_teleport';
     position: { x: number; y: number; z: number };
     rotation: { x: number; y: number; z: number };
     scale: { x: number; y: number; z: number };

@@ -5,6 +5,7 @@ import { ClientMessageType, ServerMessageType } from "../shared/messages";
 import type { PlayerData, PlayerInput, GameMode, PredictedState, ClientPredictionState, NetworkMetrics, ProjectileData, EnemyData, FlagData, Vector3Data } from "../shared/types";
 import { nanoid } from "nanoid";
 import { logger } from "./utils/logger";
+import { ENABLE_DIAGNOSTIC_LOGS } from "./utils/diagnosticLogs";
 import { getSkinById, getDefaultSkin } from "./tank/tankSkins";
 import { firebaseService } from "./firebaseService";
 import { getVoiceChatManager } from "./voiceChat";
@@ -222,6 +223,7 @@ export interface NetworkPlayer {
     trackType?: string;
     tankColor?: string;
     turretColor?: string;
+    modules?: string[];
     // For interpolation (linear)
     lastPosition: Vector3;
     lastRotation: number;
@@ -246,8 +248,8 @@ export interface NetworkPlayer {
 
 /**
  * Автоматически определяет WebSocket URL на основе текущего hostname
- * Если игра загружена с 192.168.3.4:5000, вернет ws://192.168.3.4:8080
- * Если игра загружена с localhost:5000, вернет ws://localhost:8080
+ * Если игра загружена с 192.168.3.4:5000, вернет ws://192.168.3.4:8000
+ * Если игра загружена с localhost:5000, вернет ws://localhost:8000
  */
 /**
  * Validate WebSocket URL format
@@ -261,7 +263,7 @@ function validateWebSocketUrl(url: string): boolean {
     }
 }
 
-function getWebSocketUrl(defaultPort: number = 8080): string {
+function getWebSocketUrl(defaultPort: number = 8000): string {
     // Проверяем переменную окружения (приоритет)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const envUrl = (import.meta as any).env?.VITE_WS_SERVER_URL;
@@ -292,10 +294,28 @@ function getWebSocketUrl(defaultPort: number = 8080): string {
 }
 
 /**
+ * Get locally equipped modules from localStorage
+ */
+export function getLocallyEquippedModules(): string[] {
+    try {
+        const saved = localStorage.getItem("tank_modules_config");
+        if (saved) {
+            const config = JSON.parse(saved);
+            return Object.values(config).filter(id => typeof id === 'string' && id.length > 0) as string[];
+        }
+    } catch (e) {
+        console.error("Failed to load modules for multiplayer", e);
+    }
+    return [];
+}
+
+/**
  * Получить сохраненный ID игрока из localStorage или создать новый
  */
 function getOrCreatePlayerId(): string {
     const STORAGE_KEY = "tx_player_id";
+
+
     const STORAGE_NAME_KEY = "tx_player_name";
 
     try {
@@ -409,7 +429,8 @@ export class MultiplayerManager {
         jitter: 0,
         packetLoss: 0,
         lastPingTime: 0,
-        pingHistory: []
+        pingHistory: [],
+        drift: 0 // ИСПРАВЛЕНО: Добавлено вычисление drift
     };
     private pingInterval: NodeJS.Timeout | null = null;
     private pingSequence: number = 0;
@@ -423,6 +444,26 @@ export class MultiplayerManager {
 
     public getPing(): number {
         return this.networkMetrics.rtt;
+    }
+
+    /**
+     * Sync clock with server (NTP-like)
+     */
+    private syncClock(): void {
+        if (!this.connected) return;
+
+        const now = Date.now();
+        const msg: ClientMessage = {
+            type: ClientMessageType.PING,
+            timestamp: now,
+            data: {
+                seq: this.pingSequence++
+            }
+        };
+
+        // Track send time for accurate RTT calculation
+        this.pingSendTimes.set(msg.data.seq, now);
+        this.send(msg);
     }
 
     // КРИТИЧНО: Трекинг времени отправки PING по sequence number
@@ -547,18 +588,72 @@ export class MultiplayerManager {
         }
     }
 
+
+    // === NOTIFICATION HELPER ===
+    private dispatchToast(message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info'): void {
+        try {
+            // Dispatch standard UI event
+            window.dispatchEvent(new CustomEvent('tx:notification', {
+                detail: { message, type, duration: 3000 }
+            }));
+
+            // Also log to console for debugging
+            const logPrefix = `[Multiplayer]`;
+            if (type === 'error') logger.error(`${logPrefix} ${message}`);
+            else if (type === 'warning') logger.warn(`${logPrefix} ${message}`);
+            else logger.log(`${logPrefix} ${message}`);
+        } catch (e) {
+            console.error("Failed to dispatch toast:", e);
+        }
+    }
+
+    private _scheduleReconnect(): void {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+        }
+
+        // Check if localhost
+        const isLocalhost = this.serverUrl.includes("localhost") || this.serverUrl.includes("127.0.0.1");
+
+        // Exponential backoff
+        // Increase delay by 50% each time, capped at 30 seconds (5s for localhost)
+        const maxDelay = isLocalhost ? 5000 : 30000;
+        const maxAttempts = isLocalhost ? 5 : this.maxReconnectAttempts;
+
+        if (isLocalhost && this.reconnectAttempts >= maxAttempts) {
+            this.dispatchToast("Connection refused (localhost). Is server running?", "error");
+            logger.error("[Multiplayer] Max reconnect attempts reached for localhost.");
+            return;
+        }
+
+        const nextDelay = Math.min(maxDelay, this._reconnectDelay * 1.5);
+        this._reconnectDelay = nextDelay;
+
+        logger.log(`[Multiplayer] Scheduling reconnect attempt ${this.reconnectAttempts + 1}/${maxAttempts} in ${Math.round(nextDelay)}ms`);
+
+        this.reconnectTimer = setTimeout(() => {
+            if (this.reconnectAttempts >= maxAttempts) {
+                // Should have been caught above, but just in case
+                return;
+            }
+            this.reconnectAttempts++;
+            logger.log(`[Multiplayer] Attempting reconnect ${this.reconnectAttempts}/${maxAttempts}...`);
+            this.connect(this.serverUrl);
+        }, this._reconnectDelay);
+    }
+
     connect(serverUrl: string): void {
         this.serverUrl = serverUrl;
 
         // Prevent multiple simultaneous connection attempts
         if (this.isConnecting) {
-            logger.warn("[Multiplayer] Connection attempt already in progress");
+            // logger.warn("[Multiplayer] Connection attempt already in progress");
             return;
         }
 
         // If already connected, don't reconnect
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            logger.warn("[Multiplayer] Already connected");
+            // logger.warn("[Multiplayer] Already connected");
             return;
         }
 
@@ -579,6 +674,11 @@ export class MultiplayerManager {
             // ИСПРАВЛЕНО: Проверяем и нормализуем URL перед подключением
             let normalizedUrl = serverUrl.trim();
 
+            // Handle localhost special case for users without full protocol specification
+            if (normalizedUrl.startsWith('localhost') || normalizedUrl.startsWith('127.0.0.1')) {
+                normalizedUrl = `ws://${normalizedUrl}`;
+            }
+
             // Убеждаемся, что используется правильный протокол
             if (!normalizedUrl.startsWith('ws://') && !normalizedUrl.startsWith('wss://')) {
                 // Если протокол не указан, добавляем ws://
@@ -589,19 +689,62 @@ export class MultiplayerManager {
             if (!validateWebSocketUrl(normalizedUrl)) {
                 logger.error(`[Multiplayer] Invalid WebSocket URL format: ${normalizedUrl}`);
                 this.isConnecting = false;
+
+                // Don't just return, try to fallback to a safe default if initial failed
+                if (serverUrl !== "ws://localhost:8000") {
+                    logger.log("[Multiplayer] Falling back to default localhost URL");
+                    this.connect("ws://localhost:8000");
+                }
                 return;
             }
 
+            // Check if localhost to reduce log noise
+            const isLocalhost = normalizedUrl.includes("localhost") || normalizedUrl.includes("127.0.0.1");
+
             logger.log("[Multiplayer] Connecting to:", normalizedUrl);
             this.isConnecting = true;
-            this.ws = new WebSocket(normalizedUrl);
+
+            try {
+                this.ws = new WebSocket(normalizedUrl);
+            } catch (wsError) {
+                // For localhost, reduce spam level if it's just "not running"
+                if (!isLocalhost || this.reconnectAttempts === 0) {
+                    const errorMessage = isLocalhost
+                        ? `Failed to create WebSocket connection to ${normalizedUrl}. Убедитесь, что сервер запущен: npm run server`
+                        : `Failed to create WebSocket connection to ${normalizedUrl}`;
+                    logger.error("[Multiplayer] Critical error creating WebSocket:", {
+                        error: wsError,
+                        url: normalizedUrl,
+                        hint: errorMessage
+                    });
+                }
+                this.isConnecting = false;
+                // Dispatch error event so UI shows something only if manually initiated or max retries
+                if (this.reconnectAttempts === 0) {
+                    const toastMessage = isLocalhost
+                        ? "Не удалось подключиться к серверу. Запустите сервер: npm run server"
+                        : "Не удалось подключиться к серверу";
+                    this.dispatchToast(toastMessage, "error");
+                    window.dispatchEvent(new CustomEvent('tx:connection-lost', {
+                        detail: { code: 1006, reason: 'Failed to create WebSocket connection', url: normalizedUrl }
+                    }));
+                }
+
+                // Retry logic needs to happen here too if creation fails immediately
+                if (!this.isManualDisconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this._scheduleReconnect();
+                }
+                return;
+            }
 
             // Set connection timeout (10 seconds)
             this.connectionTimeout = setTimeout(() => {
                 if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
                     logger.warn("[Multiplayer] Connection timeout - server may still be starting");
                     this.isConnecting = false;
-                    this.ws.close();
+                    try {
+                        this.ws.close();
+                    } catch (e) { /* ignore */ }
                     this.ws = null;
 
                     // Trigger reconnection if not manual disconnect
@@ -619,6 +762,8 @@ export class MultiplayerManager {
                 }
 
                 logger.log("[Multiplayer] Connected to server");
+                this.dispatchToast("Connected to server", "success");
+
                 this.connected = true;
                 this.isConnecting = false;
                 // Reset reconnect state on successful connection
@@ -628,7 +773,12 @@ export class MultiplayerManager {
                     clearTimeout(this.reconnectTimer);
                     this.reconnectTimer = null;
                 }
-                await this.sendConnect();
+
+                try {
+                    await this.sendConnect();
+                } catch (e) {
+                    logger.error("[Multiplayer] Error sending connect handshake:", e);
+                }
 
                 // Process queued messages
                 this.processMessageQueue();
@@ -647,7 +797,7 @@ export class MultiplayerManager {
                     this.connectionTimeout = null;
                 }
 
-                logger.log("[Multiplayer] Disconnected from server", event.code, event.reason);
+                // logger.log("[Multiplayer] Disconnected from server", event.code, event.reason);
                 this.connected = false;
                 this.isConnecting = false;
                 this.roomId = null;
@@ -690,6 +840,8 @@ export class MultiplayerManager {
                 if (!this.isManualDisconnect && shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
                     this._scheduleReconnect();
                 } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+                    // Only show this once at the end
+                    this.dispatchToast("Connection lost. Max retries reached.", "error");
                     logger.error("[Multiplayer] Max reconnect attempts reached. Please reconnect manually.");
                 } else if (!shouldReconnect) {
                     logger.log(`[Multiplayer] Not reconnecting due to close code: ${event.code}`);
@@ -704,17 +856,18 @@ export class MultiplayerManager {
                 }
 
                 this.isConnecting = false;
-                logger.error("[Multiplayer] WebSocket error:", error);
-                // Выводим более подробную информацию об ошибке
-                if (error instanceof Error) {
-                    logger.error("[Multiplayer] Error message:", error.message);
-                }
-                // Проверяем, не является ли это ошибкой upgrade
-                if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
-                    logger.error("[Multiplayer] Connection failed. Check:");
-                    logger.error("  1. Server is running on", this.serverUrl);
-                    logger.error("  2. Firewall allows connection on port", this.serverUrl.split(':')[2] || '8080');
-                    logger.error("  3. URL format is correct (ws://host:port)");
+                // Suppress excessive error logging for localhost, но логируем первую попытку
+                if (!isLocalhost || this.reconnectAttempts === 0) {
+                    const errorMessage = isLocalhost
+                        ? `WebSocket connection failed to ${normalizedUrl}. Убедитесь, что сервер запущен: npm run server`
+                        : `WebSocket connection failed to ${normalizedUrl}. Проверьте доступность сервера`;
+                    logger.error("[Multiplayer] WebSocket error observed", {
+                        url: normalizedUrl,
+                        reconnectAttempts: this.reconnectAttempts,
+                        isLocalhost,
+                        error: error,
+                        hint: errorMessage
+                    });
                 }
             };
         } catch (error) {
@@ -1216,7 +1369,7 @@ export class MultiplayerManager {
         // Это снижает нагрузку на event loop и улучшает производительность
         this.pingTimerId = timerManager.setInterval(() => {
             if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.sendPing();
+                this.syncClock(); // Changed from sendPing to syncClock
             }
         }, this.currentPingInterval);
 
@@ -1226,7 +1379,7 @@ export class MultiplayerManager {
         }, 2000);
 
         // Send initial ping
-        this.sendPing();
+        this.syncClock(); // Changed from sendPing to syncClock
     }
 
     /**
@@ -1341,10 +1494,20 @@ export class MultiplayerManager {
 
         // КРИТИЧНО: Обновляем синхронизацию времени с сервером из serverTime в pong
         // Используем плавное обновление (EWMA) чтобы избежать скачков
+        // КРИТИЧНО: Обновляем синхронизацию времени с сервером из serverTime в pong
+        // Используем NTP-подобную формулу: offset = serverTime - (clientTime - rtt/2)
+        // newOffset = serverTime + rtt/2 - currentTime
         if ((pongData as any).serverTime) {
-            const newOffset = (pongData as any).serverTime - currentTime;
-            // Плавное обновление offset: 90% старое значение + 10% новое
-            this.serverTimeOffset = this.serverTimeOffset * 0.9 + newOffset * 0.1;
+            const serverTime = (pongData as any).serverTime;
+            const newOffset = serverTime + (rtt / 2) - currentTime;
+
+            // Если это первое измерение (offset ~ 0), принимаем сразу
+            if (Math.abs(this.serverTimeOffset) < 100) {
+                this.serverTimeOffset = newOffset;
+            } else {
+                // Плавное обновление offset: 90% старое значение + 10% новое
+                this.serverTimeOffset = this.serverTimeOffset * 0.9 + newOffset * 0.1;
+            }
         }
 
         // Update RTT history (only for valid RTT values)
@@ -1369,9 +1532,10 @@ export class MultiplayerManager {
         let rttToUse = rtt;
         if (this.networkMetrics.pingHistory.length >= 3) {
             const sorted = [...this.networkMetrics.pingHistory].sort((a, b) => a - b);
-            const median = sorted[Math.floor(sorted.length / 2)];
+            const medianIndex = Math.floor(sorted.length / 2);
+            const median = sorted[medianIndex];
             // Используем median если текущий RTT сильно отличается (выброс)
-            if (Math.abs(rtt - median) > median * 0.5) {
+            if (median !== undefined && Math.abs(rtt - median) > median * 0.5) {
                 rttToUse = median; // Используем медиану вместо выброса
             }
         }
@@ -1392,7 +1556,10 @@ export class MultiplayerManager {
             if (variations.length > 0) {
                 let sumVariations = 0;
                 for (let i = 0; i < variations.length; i++) {
-                    sumVariations += variations[i];
+                    const variation = variations[i];
+                    if (variation !== undefined) {
+                        sumVariations += variation;
+                    }
                 }
                 this.networkMetrics.jitter = sumVariations / variations.length;
             }
@@ -1452,16 +1619,18 @@ export class MultiplayerManager {
             const historyThreshold = now - 10000;
             const newSentHistory: typeof this.packetsSentHistory = [];
             for (let i = 0; i < this.packetsSentHistory.length; i++) {
-                if (this.packetsSentHistory[i].timestamp > historyThreshold) {
-                    newSentHistory.push(this.packetsSentHistory[i]);
+                const entry = this.packetsSentHistory[i];
+                if (entry !== undefined && entry.timestamp > historyThreshold) {
+                    newSentHistory.push(entry);
                 }
             }
             this.packetsSentHistory = newSentHistory;
 
             const newReceivedHistory: typeof this.packetsReceivedHistory = [];
             for (let i = 0; i < this.packetsReceivedHistory.length; i++) {
-                if (this.packetsReceivedHistory[i].timestamp > historyThreshold) {
-                    newReceivedHistory.push(this.packetsReceivedHistory[i]);
+                const entry = this.packetsReceivedHistory[i];
+                if (entry !== undefined && entry.timestamp > historyThreshold) {
+                    newReceivedHistory.push(entry);
                 }
             }
             this.packetsReceivedHistory = newReceivedHistory;
@@ -1469,13 +1638,19 @@ export class MultiplayerManager {
             // ОПТИМИЗАЦИЯ: Заменяем reduce на обычный цикл для лучшей производительности
             let sumSent = 0;
             for (let i = 0; i < this.packetsSentHistory.length; i++) {
-                sumSent += this.packetsSentHistory[i].count;
+                const entry = this.packetsSentHistory[i];
+                if (entry !== undefined) {
+                    sumSent += entry.count;
+                }
             }
             const avgSent = this.packetsSentHistory.length > 0 ? sumSent / this.packetsSentHistory.length : 0;
 
             let sumReceived = 0;
             for (let i = 0; i < this.packetsReceivedHistory.length; i++) {
-                sumReceived += this.packetsReceivedHistory[i].count;
+                const entry = this.packetsReceivedHistory[i];
+                if (entry !== undefined) {
+                    sumReceived += entry.count;
+                }
             }
             const avgReceived = this.packetsReceivedHistory.length > 0 ? sumReceived / this.packetsReceivedHistory.length : 0;
 
@@ -1484,7 +1659,10 @@ export class MultiplayerManager {
             if (this.networkMetrics.pingHistory.length > 0) {
                 let sumRTT = 0;
                 for (let i = 0; i < this.networkMetrics.pingHistory.length; i++) {
-                    sumRTT += this.networkMetrics.pingHistory[i];
+                    const rtt = this.networkMetrics.pingHistory[i];
+                    if (rtt !== undefined) {
+                        sumRTT += rtt;
+                    }
                 }
                 const avgRTT = sumRTT / this.networkMetrics.pingHistory.length;
                 // Higher RTT and jitter might indicate packet loss
@@ -1817,6 +1995,13 @@ export class MultiplayerManager {
             this.onPlayerJoinedCallbacks.forEach(cb => {
                 try { cb(player); } catch (e) { logger.error("[Multiplayer] Error in onPlayerJoined callback", e); }
             });
+
+            // ИСПРАВЛЕНО: Автоматически обновляем список комнат при входе игрока
+            if (this.connected) {
+                setTimeout(() => {
+                    this.requestRoomList();
+                }, 300);
+            }
         }
     }
 
@@ -1843,6 +2028,13 @@ export class MultiplayerManager {
             this.onPlayerLeftCallbacks.forEach(cb => {
                 try { cb(playerId); } catch (e) { logger.error("[Multiplayer] Error in onPlayerLeft callback", e); }
             });
+
+            // ИСПРАВЛЕНО: Автоматически обновляем список комнат при выходе игрока
+            if (this.connected) {
+                setTimeout(() => {
+                    this.requestRoomList();
+                }, 300);
+            }
         } else if (playerId === this.playerId) {
             // Если вышел текущий игрок, сбрасываем счетчик
             this._roomPlayersCount = 1;
@@ -2154,13 +2346,19 @@ export class MultiplayerManager {
         const rtts = this.networkMetrics.pingHistory;
         let sum = 0;
         for (let i = 0; i < rtts.length; i++) {
-            sum += rtts[i];
+            const rtt = rtts[i];
+            if (rtt !== undefined) {
+                sum += rtt;
+            }
         }
-        const mean = sum / rtts.length;
+        const mean = rtts.length > 0 ? sum / rtts.length : 0;
 
         let varianceSum = 0;
         for (let i = 0; i < rtts.length; i++) {
-            varianceSum += Math.pow(rtts[i] - mean, 2);
+            const rtt = rtts[i];
+            if (rtt !== undefined) {
+                varianceSum += Math.pow(rtt - mean, 2);
+            }
         }
         const variance = varianceSum / rtts.length;
         const jitter = Math.sqrt(variance);
@@ -2285,8 +2483,9 @@ export class MultiplayerManager {
         const readySet = new Set(readyEntries);
         const remainingEntries: typeof this.jitterBuffer = [];
         for (let i = 0; i < validEntries.length; i++) {
-            if (!readySet.has(validEntries[i])) {
-                remainingEntries.push(validEntries[i]);
+            const entry = validEntries[i];
+            if (entry !== undefined && !readySet.has(entry)) {
+                remainingEntries.push(entry);
             }
         }
         this.jitterBuffer = remainingEntries;
@@ -2343,9 +2542,12 @@ export class MultiplayerManager {
         // ОПТИМИЗАЦИЯ: Используем Set для быстрой проверки, но создаем его через цикл вместо map/filter
         const validPlayerIds = new Set<string>();
         for (let i = 0; i < players.length; i++) {
-            const playerId = players[i].id;
-            if (playerId !== this.playerId) {
-                validPlayerIds.add(playerId);
+            const player = players[i];
+            if (player !== undefined) {
+                const playerId = player.id;
+                if (playerId !== undefined && playerId !== this.playerId) {
+                    validPlayerIds.add(playerId);
+                }
             }
         }
         const playersToRemove: string[] = [];
@@ -2369,7 +2571,9 @@ export class MultiplayerManager {
         // ОПТИМИЗАЦИЯ: Используем обычный цикл вместо forEach
         for (let i = 0; i < playersToRemove.length; i++) {
             const id = playersToRemove[i];
-            this.networkPlayers.delete(id);
+            if (id !== undefined) {
+                this.networkPlayers.delete(id);
+            }
             // ОПТИМИЗАЦИЯ: Логирование только в dev режиме
             if (ENABLE_DIAGNOSTIC_LOGS) {
                 logger.log(`[Multiplayer] ✅ Removed invalid player ${id} from networkPlayers`);
@@ -2382,10 +2586,12 @@ export class MultiplayerManager {
         const networkPlayersInList: PlayerData[] = [];
         for (let i = 0; i < players.length; i++) {
             const p = players[i];
-            if (p.id === this.playerId) {
-                localPlayerInList = p;
-            } else {
-                networkPlayersInList.push(p);
+            if (p !== undefined) {
+                if (p.id === this.playerId) {
+                    localPlayerInList = p;
+                } else {
+                    networkPlayersInList.push(p);
+                }
             }
         }
         const currentNetworkPlayersSize = this.networkPlayers.size;
@@ -2766,13 +2972,22 @@ export class MultiplayerManager {
             networkPlayer.turretAngularVelocity = 0;
         }
 
+        // ИСПРАВЛЕНО: Вычисляем drift (разница между предсказанной и серверной позицией)
+        if (networkPlayer.id === this.playerId && networkPlayer.lastPosition instanceof Vector3) {
+            const serverPos = vector3Pool.acquire(x, y, z);
+            const predictedPos = networkPlayer.lastPosition;
+            const driftDistance = Vector3.Distance(serverPos, predictedPos);
+            this.networkMetrics.drift = driftDistance;
+            vector3Pool.release(serverPos);
+        }
+
         // Store previous state for interpolation (safely handle both Vector3 and plain objects)
         const currentPos = toVector3(networkPlayer.position);
         if (networkPlayer.lastPosition instanceof Vector3) {
             networkPlayer.lastPosition.copyFrom(currentPos);
         } else {
-            // ОПТИМИЗАЦИЯ: Используем copyFrom вместо clone()
-            networkPlayer.lastPosition.copyFrom(currentPos);
+            // Если lastPosition не Vector3, создаем новый Vector3
+            networkPlayer.lastPosition = currentPos.clone();
         }
         networkPlayer.lastRotation = networkPlayer.rotation;
         networkPlayer.lastTurretRotation = networkPlayer.turretRotation;
@@ -3017,8 +3232,9 @@ export class MultiplayerManager {
         const allSequences = Array.from(this.predictionState.predictedStates.keys());
         const sequences: number[] = [];
         for (let i = 0; i < allSequences.length; i++) {
-            if (allSequences[i] > confirmedSeq) {
-                sequences.push(allSequences[i]);
+            const seq = allSequences[i];
+            if (seq !== undefined && seq > confirmedSeq) {
+                sequences.push(seq);
             }
         }
         sequences.sort((a, b) => a - b);
@@ -3208,7 +3424,8 @@ export class MultiplayerManager {
             }
 
             logger.log("[Multiplayer] Requesting respawn from server");
-            this.send(createClientMessage(ClientMessageType.PLAYER_RESPAWN_REQUEST, {}));
+            const modules = getLocallyEquippedModules();
+            this.send(createClientMessage(ClientMessageType.PLAYER_RESPAWN_REQUEST, { modules }));
         } catch (error) {
             logger.error("[Multiplayer] Error in requestRespawn:", error);
         }
@@ -3396,8 +3613,9 @@ export class MultiplayerManager {
         const skin = getSkinById(skinId) || getDefaultSkin();
         const tankColor = skin.chassisColor;
         const turretColor = skin.turretColor;
+        const modules = getLocallyEquippedModules();
 
-        logger.log(`[Multiplayer] Creating room with customization: ${chassisType}/${cannonType}/${trackType}, skin=${skinId}`);
+        logger.log(`[Multiplayer] Creating room with customization: ${chassisType}/${cannonType}/${trackType}, skin=${skinId}, modules=${modules.length}`);
         if (mapType === 'custom') {
             logger.log(`[Multiplayer] 🔍 DEBUG: createRoom called with mapType='custom'. Has data: ${!!customMapData}`);
             if (customMapData) {
@@ -3420,6 +3638,7 @@ export class MultiplayerManager {
             trackType,
             tankColor,
             turretColor,
+            modules,
             // Данные карты
             customMapData
         }));
@@ -3445,6 +3664,7 @@ export class MultiplayerManager {
         const turretColor = skin.turretColor;
 
         logger.log(`[Multiplayer] Joining room with customization: ${chassisType}/${cannonType}/${trackType}, skin=${skinId}`);
+        const modules = getLocallyEquippedModules();
 
         this.send(createClientMessage(ClientMessageType.JOIN_ROOM, {
             roomId,
@@ -3453,7 +3673,8 @@ export class MultiplayerManager {
             cannonType,
             trackType,
             tankColor,
-            turretColor
+            turretColor,
+            modules
         }));
     }
 
@@ -3869,6 +4090,23 @@ export class MultiplayerManager {
         }
     }
 
+    // === MENU INTEGRATION METHODS ===
+
+    public updateRoomSettings(settings: any): void {
+        logger.log("[Multiplayer] Sending UPDATE_ROOM_SETTINGS...", settings);
+        // In a real implementation:
+        // this.send({ type: ClientMessageType.UPDATE_ROOM_SETTINGS, data: settings });
+
+        // For now, just simulate success for UI feedback
+        this.dispatchToast("Настройки комнаты обновлены (симуляция)", "success");
+    }
+
+
+    public sendInvite(friendId: string): void {
+        logger.log("[Multiplayer] Sending INVITE...", friendId);
+        this.dispatchToast("Приглашение отправлено (симуляция)", "success");
+    }
+
     onError(callback: (data: ErrorData) => void): void {
         this.onErrorCallback = callback;
     }
@@ -3895,7 +4133,7 @@ export class MultiplayerManager {
             }
 
             if (this.ws.readyState !== WebSocket.OPEN) {
-                logger.warn(`[Multiplayer] Cannot send message: WebSocket is not open (state: ${this.ws.readyState})`);
+                logger.warn(`[Multiplayer] Cannot send message: WebSocket is not open(state: ${this.ws.readyState})`);
                 // Queue message for later if critical
                 if (this.isCriticalMessage(message.type)) {
                     this.messageQueue.push(message);
@@ -3970,23 +4208,6 @@ export class MultiplayerManager {
         this.reconnectAttempts = 0;
         this._reconnectDelay = 1000;
         logger.log("[Multiplayer] Reconnect attempts counter reset");
-    }
-
-    private _scheduleReconnect(): void {
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-        }
-
-        this.reconnectAttempts++;
-        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s (max)
-        const delay = Math.min(this._reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
-
-        logger.log(`[Multiplayer] Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-
-        this.reconnectTimer = setTimeout(() => {
-            logger.log(`[Multiplayer] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-            this.connect(this.serverUrl);
-        }, delay);
     }
 
     /**

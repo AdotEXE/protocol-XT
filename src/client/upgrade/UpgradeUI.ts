@@ -10,9 +10,9 @@
  */
 
 import { upgradeManager } from './UpgradeManager';
-import { 
-    UpgradeCategory, 
-    MAX_UPGRADE_LEVEL 
+import {
+    UpgradeCategory,
+    MAX_UPGRADE_LEVEL
 } from './UpgradeTypes';
 import { getLevelRequirements } from './UpgradeConfig';
 
@@ -34,6 +34,20 @@ const UPGRADE_UI_STYLES = `
     color: #e0e0e0;
     box-shadow: 0 4px 20px rgba(255, 215, 0, 0.3);
     z-index: 1000;
+}
+
+.upgrade-panel.embedded {
+    position: relative;
+    top: auto;
+    right: auto;
+    min-width: 100%;
+    width: 100%;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    padding: 0;
 }
 
 .upgrade-panel.collapsed {
@@ -289,7 +303,7 @@ export class UpgradeUI {
      */
     private injectStyles(): void {
         if (document.getElementById('upgrade-ui-styles')) return;
-        
+
         this.styleElement = document.createElement('style');
         this.styleElement.id = 'upgrade-ui-styles';
         this.styleElement.textContent = UPGRADE_UI_STYLES;
@@ -327,7 +341,7 @@ export class UpgradeUI {
         this.container = document.createElement('div');
         this.container.className = 'upgrade-panel';
         this.container.innerHTML = this.renderContent();
-        
+
         if (parentElement) {
             parentElement.appendChild(this.container);
         } else {
@@ -336,6 +350,27 @@ export class UpgradeUI {
 
         this.attachEventHandlers();
         return this.container;
+    }
+
+    /**
+     * Создать встроенную панель прокачки в существующем контейнере
+     */
+    createEmbedded(containerId: string): void {
+        const parent = document.getElementById(containerId);
+        if (!parent) {
+            console.error(`[UpgradeUI] Container ${containerId} not found`);
+            return;
+        }
+
+        // Очищаем родителя
+        parent.innerHTML = '';
+
+        this.container = document.createElement('div');
+        this.container.className = 'upgrade-panel embedded';
+        this.container.innerHTML = this.renderContent();
+
+        parent.appendChild(this.container);
+        this.attachEventHandlers();
     }
 
     /**
@@ -415,7 +450,7 @@ export class UpgradeUI {
         // Здесь можно получить список элементов для категории
         // Пока используем заглушку
         const items = this.getItemsForCategory(this.currentCategory);
-        
+
         return `
             <div class="upgrade-section">
                 ${items.map(item => this.renderUpgradeItem(item)).join('')}
@@ -514,12 +549,12 @@ export class UpgradeUI {
                     this.isCollapsed = !this.isCollapsed;
                     this.refresh();
                     break;
-                
+
                 case 'category':
                     this.currentCategory = target.dataset.category as UpgradeCategory;
                     this.refresh();
                     break;
-                
+
                 case 'select':
                     const selectId = target.closest('[data-id]')?.getAttribute('data-id');
                     if (selectId) {
@@ -530,7 +565,7 @@ export class UpgradeUI {
                         this.refresh();
                     }
                     break;
-                
+
                 case 'upgrade':
                     const upgradeId = target.dataset.id;
                     if (upgradeId) {
@@ -546,7 +581,7 @@ export class UpgradeUI {
      */
     private handleUpgrade(elementId: string): void {
         const result = upgradeManager.upgrade(this.currentCategory, elementId);
-        
+
         if (!result.success && result.error) {
             let message = '';
             switch (result.error) {
@@ -584,7 +619,7 @@ export class UpgradeUI {
         notification.className = 'notification';
         notification.textContent = message;
         document.body.appendChild(notification);
-        
+
         setTimeout(() => {
             notification.remove();
         }, 3000);
@@ -598,7 +633,7 @@ export class UpgradeUI {
         effect.className = 'level-up-effect';
         effect.textContent = `LEVEL UP! ${level}`;
         document.body.appendChild(effect);
-        
+
         setTimeout(() => {
             effect.remove();
         }, 1000);
@@ -644,6 +679,12 @@ export class UpgradeUI {
     setVisible(visible: boolean): void {
         if (this.container) {
             this.container.style.display = visible ? 'block' : 'none';
+
+            // Manage menu mode (pointer lock/input)
+            const game = (window as any).gameInstance;
+            if (game) {
+                game.setMenuMode(visible);
+            }
         }
     }
 }

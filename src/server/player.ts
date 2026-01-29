@@ -27,6 +27,7 @@ export class ServerPlayer {
     trackType: string = "standard";
     tankColor: string = "#00ff00"; // Default green (matches medium chassis)
     turretColor: string = "#00ff00";
+    modules: string[] = []; // Equipped modules
 
     // Chassis dimensions for hit detection (set based on chassisType)
     chassisHalfWidth: number = 1.1;  // Half of chassis width
@@ -108,7 +109,8 @@ export class ServerPlayer {
             // Velocity data for dead reckoning
             velocity: { x: this.velocity.x, y: this.velocity.y, z: this.velocity.z },
             angularVelocity: this.angularVelocity,
-            turretAngularVelocity: this.turretAngularVelocity
+            turretAngularVelocity: this.turretAngularVelocity,
+            modules: this.modules
         };
     }
 

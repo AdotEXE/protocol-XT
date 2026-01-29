@@ -38,7 +38,7 @@ const LOADING_SCREEN_TEMPLATE = `
         justify-content: center;
         align-items: center;
         z-index: 999999;
-        font-family: 'Press Start 2P', monospace;
+        font-family: 'Press Start 2P', cursive;
         overflow: hidden;
     }
     

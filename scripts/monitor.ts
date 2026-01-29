@@ -235,7 +235,7 @@ async function launchAllWindows(): Promise<void> {
     // Launch all 3 remaining windows simultaneously (monitoring is already running)
     const launchPromises = [
         startInNewWindow(
-            'Protocol TX - Server (port 8080)',
+            'Protocol TX - Server (port 8000)',
             `${npmCmd} run server:dev`,
             workingDir,
             positions.topRight

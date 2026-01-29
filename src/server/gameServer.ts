@@ -61,7 +61,7 @@ export class GameServer {
     private roomCounter: number = 0; // Счетчик для комнат (0001, 0002...)
 
 
-    constructor(port: number = 8080, host: string = "0.0.0.0") {
+    constructor(port: number = 8000, host: string = "127.0.0.1") {
         // ИСПРАВЛЕНО: Настройка WebSocketServer с правильной обработкой upgrade
         this.wss = new WebSocketServer({
             port,
@@ -91,7 +91,7 @@ export class GameServer {
         });
 
         this.wss.on("listening", () => {
-            serverLogger.log(`[Server] ✅ WebSocket server started on ${host}:${port}`);
+            serverLogger.log(`[Server] ✅ WebSocket server started on 127.0.0.1:${port}`);
         });
 
         // Выводим информацию о доступных адресах для подключения
@@ -112,28 +112,9 @@ export class GameServer {
     }
 
     private printNetworkInfo(port: number): void {
-        const interfaces = os.networkInterfaces();
-
-        serverLogger.log(`\n[Server] Доступные адреса для подключения:`);
-        serverLogger.log(`  - localhost: ws://localhost:${port} (только на этой машине)`);
-        serverLogger.log(`  - 127.0.0.1: ws://127.0.0.1:${port} (только на этой машине)`);
-
-        // Выводим все локальные IP-адреса
-        const addresses: string[] = [];
-        Object.keys(interfaces).forEach((iface) => {
-            interfaces[iface]?.forEach((addr: any) => {
-                if (addr.family === 'IPv4' && !addr.internal) {
-                    addresses.push(addr.address);
-                    serverLogger.log(`  - ${iface}: ws://${addr.address}:${port} (для подключения с других ПК)`);
-                }
-            });
-        });
-
-        if (addresses.length === 0) {
-            serverLogger.log(`  ⚠️  Локальные IP-адреса не найдены. Используйте localhost для подключения на этой машине.`);
-        } else {
-            serverLogger.log(`\n[Server] Для подключения с другого ПК используйте один из адресов выше.`);
-        }
+        // Фиксированный адрес для простоты
+        serverLogger.log(`\n[Server] Адрес для подключения:`);
+        serverLogger.log(`  - ws://127.0.0.1:${port} (localhost)`);
         serverLogger.log(``);
     }
 
@@ -241,7 +222,7 @@ export class GameServer {
     // Обработка подключений
     private setupConnectionHandler(): void {
         this.wss.on("connection", (ws: WebSocket, req: any) => {
-            serverLogger.log("[Server] New client connected from:", req.socket.remoteAddress || "unknown");
+            // serverLogger.log("[Server] New client connected from:", req.socket.remoteAddress || "unknown");
 
             ws.on("message", (data: Buffer) => {
                 try {
@@ -309,6 +290,12 @@ export class GameServer {
             } else if (message.type === "monitoring_disconnect") {
                 // Monitoring client disconnecting
                 this.monitoringClients.delete(ws);
+                return;
+            } else if (message.type === "admin_command") {
+                // Admin command from monitoring
+                if (this.monitoringClients.has(ws)) {
+                    this.handleAdminCommand(ws, message.command, message.args);
+                }
                 return;
             }
 
@@ -415,8 +402,74 @@ export class GameServer {
                 if (player) this.handlePing(player, message.data);
                 break;
 
+            case ClientMessageType.CHANGE_ROOM_SETTINGS:
+                if (player) this.handleChangeRoomSettings(player, message.data);
+                break;
+
             default:
                 serverLogger.warn(`[Server] Unknown message type: ${message.type}`);
+        }
+    }
+
+    private handleAdminCommand(ws: WebSocket, command: string, args: any): void {
+        serverLogger.log(`[Server] 👮 Admin Command: ${command} ${JSON.stringify(args || {})}`);
+
+        switch (command) {
+            case 'kick': {
+                const playerId = args.playerId;
+                if (!playerId) return;
+
+                const playerToKick = this.players.get(playerId);
+                if (playerToKick) {
+                    this.sendError(playerToKick.socket, "KICKED", "You have been kicked by an admin.");
+                    playerToKick.socket.close();
+                    serverLogger.log(`[Server] 👢 Kicked player: ${playerId}`);
+                }
+                break;
+            }
+            case 'say': {
+                const text = args.text;
+                if (!text) return;
+
+                // Broadcast chat message as 'Server' or 'Admin'
+                const chatMsg = createServerMessage(ServerMessageType.CHAT_MESSAGE, {
+                    playerId: "0",
+                    playerName: "Admin",
+                    text: text,
+                    isSystem: true
+                });
+
+                // Broadcast to all rooms and all players
+                // We don't have a global broadcast for chat easily, so iterate rooms or players
+                // Iterating players is safer to ensure everyone gets it
+                for (const player of this.players.values()) {
+                    if (player.connected) {
+                        this.send(player.socket, chatMsg);
+                    }
+                }
+                break;
+            }
+            case 'restart': {
+                // Send restart warning
+                const restartMsg = createServerMessage(ServerMessageType.CHAT_MESSAGE, {
+                    playerId: "0",
+                    playerName: "System",
+                    text: "Server is restarting in 3 seconds...",
+                    isSystem: true
+                });
+
+                for (const player of this.players.values()) {
+                    if (player.connected) {
+                        this.send(player.socket, restartMsg);
+                    }
+                }
+
+                setTimeout(() => {
+                    serverLogger.log(`[Server] 🔄 Admin requested restart.`);
+                    process.exit(0);
+                }, 3000);
+                break;
+            }
         }
     }
 
@@ -532,7 +585,8 @@ export class GameServer {
 
     private handleCreateRoom(player: ServerPlayer, data: any): void {
         const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType, enableBots, botCount, customMapData } = data;
-        const { chassisType, cannonType, trackType, tankColor, turretColor, playerName } = data; // Extract customization
+
+        const { chassisType, cannonType, trackType, tankColor, turretColor, playerName, modules } = data; // Extract customization
 
         // Update player name if provided
         if (playerName) player.name = playerName;
@@ -543,6 +597,7 @@ export class GameServer {
         if (trackType) player.trackType = trackType;
         if (tankColor) player.tankColor = tankColor;
         if (turretColor) player.turretColor = turretColor;
+        if (modules && Array.isArray(modules)) player.modules = modules;
 
         // Генерируем простой ID комнаты (0001, 0002, и т.д.)
         this.roomCounter++;
@@ -586,8 +641,30 @@ export class GameServer {
                 roomId: room.id,
                 mode: room.mode,
                 worldSeed: room.worldSeed,
-                isCreator: true
+                isCreator: true,
+                enableBots: room.enableBots, // Передаём настройки ботов
+                botCount: room.botCount
             }));
+
+            // АВТОСТАРТ ДЛЯ КОМНАТ С БОТАМИ: Если enableBots=true, сразу запускаем игру
+            if (room.enableBots && !room.isActive) {
+                serverLogger.log(`[Server] 🤖 АВТОСТАРТ с ботами: Запускаем игру в комнате ${room.id}...`);
+                room.startMatch();
+                const enemyData = room.getEnemyData();
+                serverLogger.log(`[Server] ✅ Игра с ботами запущена: ${enemyData.length} ботов`);
+                
+                // Отправляем сигнал старта игры создателю
+                this.send(player.socket, createServerMessage(ServerMessageType.GAME_START, {
+                    roomId: room.id,
+                    mode: room.mode,
+                    gameTime: 0,
+                    worldSeed: room.worldSeed,
+                    mapType: room.mapType,
+                    customMapData: room.customMapData,
+                    players: room.getPlayerData(),
+                    enemies: enemyData
+                }));
+            }
 
             // Отправляем обновленный список комнат всем подключенным клиентам
             this.broadcastRoomListToAll();
@@ -599,7 +676,8 @@ export class GameServer {
 
     private handleJoinRoom(player: ServerPlayer, data: any): void {
         const { roomId, password } = data;
-        const { chassisType, cannonType, trackType, tankColor, turretColor, playerName } = data; // Extract customization
+
+        const { chassisType, cannonType, trackType, tankColor, turretColor, playerName, modules } = data; // Extract customization
 
         // Update player name if provided
         if (playerName) player.name = playerName;
@@ -610,6 +688,7 @@ export class GameServer {
         if (trackType) player.trackType = trackType;
         if (tankColor) player.tankColor = tankColor;
         if (turretColor) player.turretColor = turretColor;
+        if (modules && Array.isArray(modules)) player.modules = modules;
         serverLogger.log(`[Server] 🔍 JOIN_ROOM запрос от ${player.id} (${player.name}): roomId=${roomId}`);
         const room = this.rooms.get(roomId);
 
@@ -688,10 +767,11 @@ export class GameServer {
                 player: player.toPlayerData()
             }), player.id);
 
-            // АВТОСТАРТ: Запускаем игру когда 2+ игрока присоединились к комнате
-            serverLogger.log(`[Server] 🔍 Проверка АВТОСТАРТА: room.isActive=${room.isActive}, players.size=${room.players.size}, mode=${room.mode}`);
-            if (!room.isActive && room.players.size >= 2) {
-                serverLogger.log(`[Server] 🚀 АВТОСТАРТ: Запускаем игру в комнате ${room.id}...`);
+            // АВТОСТАРТ: Запускаем игру когда 2+ игрока присоединились ИЛИ когда 1 игрок с ботами
+            serverLogger.log(`[Server] 🔍 Проверка АВТОСТАРТА: room.isActive=${room.isActive}, players.size=${room.players.size}, mode=${room.mode}, enableBots=${room.enableBots}`);
+            const canAutoStart = room.players.size >= 2 || (room.players.size >= 1 && room.enableBots);
+            if (!room.isActive && canAutoStart) {
+                serverLogger.log(`[Server] 🚀 АВТОСТАРТ: Запускаем игру в комнате ${room.id} (enableBots=${room.enableBots})...`);
                 room.startMatch();
                 const enemyData = room.getEnemyData();
                 serverLogger.log(`[Server] ✅ АВТОСТАРТ (join): Игра запущена в комнате ${room.id} (${room.players.size} игроков, ботов: ${enemyData.length})`);
@@ -794,6 +874,23 @@ export class GameServer {
             players: room.getPlayerData(),
             enemies: enemyData // Отправляем данные о ботах для синхронизации
         }));
+    }
+
+    private handleChangeRoomSettings(player: ServerPlayer, settings: any): void {
+        if (!player.roomId) return;
+
+        const room = this.rooms.get(player.roomId);
+        if (!room) return;
+
+        // Only host can change settings
+        // If room has no creator (orphaned), anyone can change? No, secure it.
+        if (room.creatorId && room.creatorId !== player.id) {
+            this.sendError(player.socket, "NOT_AUTHORIZED", "Only host can change room settings");
+            return;
+        }
+
+        serverLogger.log(`[Server] Player ${player.name} updating room settings for ${room.id}`);
+        room.updateSettings(settings);
     }
 
     private handleQuickPlay(player: ServerPlayer, data: any): void {
@@ -948,7 +1045,7 @@ export class GameServer {
             mapType: room.mapType || "normal"
         }));
 
-        serverLogger.log(`[Server] Запрос списка комнат от ${player.id} (${player.name}): найдено ${filteredRooms.length} комнат${mode ? ` (режим: ${mode})` : ''}`);
+        // serverLogger.log(`[Server] Запрос списка комнат от ${player.id} (${player.name}): найдено ${filteredRooms.length} комнат${mode ? ` (режим: ${mode})` : ''}`);
 
         this.send(player.socket, createServerMessage(ServerMessageType.ROOM_LIST, {
             rooms: roomsList
@@ -960,8 +1057,8 @@ export class GameServer {
         const allPlayers = Array.from(this.players.values());
         const connectedPlayers = allPlayers.filter(p => p.connected);
 
-        serverLogger.log(`[Server] 📋 Запрос списка игроков онлайн от ${player.id} (${player.name})`);
-        serverLogger.log(`[Server] 📋 Всего игроков в системе: ${allPlayers.length}, подключено: ${connectedPlayers.length}`);
+        // serverLogger.log(`[Server] 📋 Запрос списка игроков онлайн от ${player.id} (${player.name})`);
+        // serverLogger.log(`[Server] 📋 Всего игроков в системе: ${allPlayers.length}, подключено: ${connectedPlayers.length}`);
 
         const onlinePlayers = connectedPlayers.map(p => {
             const room = p.roomId ? this.rooms.get(p.roomId) : null;
@@ -972,11 +1069,11 @@ export class GameServer {
                 roomMode: room ? room.mode : null,
                 isInRoom: !!p.roomId
             };
-            serverLogger.log(`[Server] 📋   - ${p.name} (${p.id})${p.roomId ? ` в комнате ${p.roomId}` : ' (в лобби)'}`);
+            // serverLogger.log(`[Server] 📋   - ${p.name} (${p.id})${p.roomId ? ` в комнате ${p.roomId}` : ' (в лобби)'}`);
             return playerData;
         });
 
-        serverLogger.log(`[Server] ✅ Отправка списка из ${onlinePlayers.length} игроков игроку ${player.id}`);
+        // serverLogger.log(`[Server] ✅ Отправка списка из ${onlinePlayers.length} игроков игроку ${player.id}`);
 
         this.send(player.socket, createServerMessage(ServerMessageType.ONLINE_PLAYERS_LIST, {
             players: onlinePlayers
@@ -1229,6 +1326,11 @@ export class GameServer {
     }
 
     private handlePlayerRespawnRequest(player: ServerPlayer, data: any): void {
+        // Update modules on respawn if provided
+        if (data && data.modules && Array.isArray(data.modules)) {
+            player.modules = data.modules;
+            serverLogger.log(`[Server] Player ${player.name} updated modules on respawn: ${player.modules.join(', ')}`);
+        }
         serverLogger.log(`[Server] 🔄 RESPAWN_REQUEST received from ${player.name} (${player.id}), status=${player.status}`);
 
         if (!player.roomId) {
@@ -1386,7 +1488,7 @@ export class GameServer {
                 if (player.roomId) {
                     const room = this.rooms.get(player.roomId);
                     if (room) {
-                        this.broadcastToTeam(room, player.team,
+                        this.broadcastToTeam(room, player.team?.toString(),
                             createServerMessage(ServerMessageType.CHAT_MESSAGE, chatData)
                         );
                     }

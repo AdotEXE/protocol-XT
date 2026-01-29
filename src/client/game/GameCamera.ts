@@ -1128,7 +1128,7 @@ export class GameCamera {
         // Если расстояние слишком маленькое, пропускаем
         if (currentDistance < 0.5) return;
 
-        direction.normalize();
+        const directionNormalized = direction.normalize();
 
         // Параметры зависят от режима
         const isAiming = t > 0.01;
@@ -1137,13 +1137,32 @@ export class GameCamera {
         const reactionSpeed = isAiming ? 0.98 : 0.9; // УВЕЛИЧЕНА скорость реакции для более быстрого предотвращения коллизий (было 0.95 и 0.85)
         const returnSpeed = isAiming ? 0.1 : 0.05; // Скорость возвращения к нормальному радиусу
 
-        // ИСПРАВЛЕНО: Проверяем коллизию с увеличенным диапазоном и несколькими лучами для надежности
-        const ray = new Ray(rayOrigin, direction, currentDistance + 2);
-        const hit = this.scene.pickWithRay(ray, (mesh) => this.cameraCollisionMeshFilter(mesh));
+        // ИСПРАВЛЕНО: Проверяем коллизию с несколькими лучами для надежности
+        // Используем несколько лучей в небольшом конусе для более точного определения коллизий
+        const rayCount = 5; // Количество лучей для проверки
+        let minHitDistance = currentDistance;
+        let hasCollision = false;
 
-        if (hit && hit.hit && hit.distance !== null && hit.distance < currentDistance) {
+        for (let i = 0; i < rayCount; i++) {
+            // Создаем небольшой конус лучей вокруг основного направления
+            const angle = (i - (rayCount - 1) / 2) * 0.1; // Небольшой угол отклонения
+            const right = Vector3.Cross(directionNormalized, Vector3.Up()).normalize();
+            const up = Vector3.Cross(right, directionNormalized).normalize();
+            const offset = right.scale(Math.sin(angle)).add(up.scale(Math.cos(angle) - 1));
+            const rayDir = directionNormalized.add(offset).normalize();
+            
+            const ray = new Ray(rayOrigin, rayDir, currentDistance + 2);
+            const hit = this.scene.pickWithRay(ray, (mesh) => this.cameraCollisionMeshFilter(mesh));
+
+            if (hit && hit.hit && hit.distance !== null && hit.distance < minHitDistance) {
+                minHitDistance = hit.distance;
+                hasCollision = true;
+            }
+        }
+
+        if (hasCollision && minHitDistance < currentDistance) {
             // Есть коллизия - вычисляем безопасный радиус с увеличенным буфером
-            const safeDistance = Math.max(minDistance, hit.distance - wallBuffer);
+            const safeDistance = Math.max(minDistance, minHitDistance - wallBuffer);
 
             // ИСПРАВЛЕНО: Корректно работаем с ArcRotateCamera через radius
             const targetRadius = safeDistance;

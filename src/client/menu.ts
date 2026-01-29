@@ -90,6 +90,8 @@ export { DEFAULT_SETTINGS } from "./menu/settings";
 // === LANGUAGE STRINGS ===
 import { LANG, getLang } from "./localization";
 import { SettingsPanel } from "./settingsPanel";
+import { MultiplayerManager } from "./multiplayer";
+import { SocialSystem } from "./socialSystem";
 
 
 export interface TankConfig {
@@ -187,6 +189,13 @@ export class MainMenu {
     // МОДУЛИ (рефакторинг)
     private progressPanelModule: ProgressPanelModule | null = null;
 
+    // УПРАВЛЕНИЕ ИНТЕРВАЛАМИ И ТАЙМЕРАМИ (для предотвращения утечек памяти)
+    private animationIntervals: NodeJS.Timeout[] = []; // Периодические обновления анимаций
+    private uiTimeouts: NodeJS.Timeout[] = []; // Одноразовые задержки для UI
+    private connectionIntervals: NodeJS.Timeout[] = []; // Интервалы проверки подключений
+    private statusUpdateIntervals: NodeJS.Timeout[] = []; // Интервалы обновления статуса
+    private roomListInterval: NodeJS.Timeout | null = null; // Интервал обновления списка комнат
+
     constructor() {
 
         this.settings = this.loadSettings();
@@ -197,10 +206,13 @@ export class MainMenu {
         // Загружаем список друзей
         this.loadFriendsList();
 
+        // ИСПРАВЛЕНО: Настраиваем универсальное закрытие меню по клику вне и ESC
+        this.setupUniversalMenuCloseHandlers();
+
         // Initialize Custom Map Bridge for interaction with Map Editor
         try {
             initCustomMapBridge((mapData, autoPlay) => {
-                debugLog(`[Menu] Received custom map from editor: ${mapData.name}`);
+                debugLog(`[Menu] Received custom map from editor: ${mapData.name}, autoPlay: ${autoPlay}`);
                 logger.info("Main", `Loaded custom map from editor: ${mapData.name}`);
 
                 // Show notification safely
@@ -224,27 +236,58 @@ export class MainMenu {
                     <div style="font-size: 14px">📥 DATA RECEIVED</div>
                     <div style="font-size: 18px">MAP: ${mapData.name}</div>
                     <div style="font-size: 12px; opacity: 0.8">Objects: ${mapData.placedObjects.length}</div>
-                    <div style="font-size: 12px; margin-top: 5px">Auto-switching to Custom Map...</div>
+                    <div style="font-size: 12px; margin-top: 5px">${autoPlay ? 'TEST MODE: Starting game...' : 'Auto-switching to Custom Map...'}</div>
                 `;
                 document.body.appendChild(notification);
 
                 // Auto-hide
-                setTimeout(() => notification.remove(), 3000);
+                const timeoutId = setTimeout(() => notification.remove(), 3000);
+                this.uiTimeouts.push(timeoutId);
 
                 // Auto-select custom map
                 this.selectedMapType = 'custom';
                 this.updateCustomMapsUI();
 
                 if (autoPlay) {
-                    logger.info("Main", "Auto-playing custom map");
-
-                    // Collapse editor if it's open (Test Mode)
+                    logger.info("Main", "TEST MODE: Auto-playing custom map");
+                    
+                    // КРИТИЧНО: Сохраняем в tx_test_map для TEST режима
+                    localStorage.setItem('tx_test_map', JSON.stringify(mapData));
+                    
+                    // КРИТИЧНО: Скрываем редактор (не закрываем, а сворачиваем)
                     if (this.editorContainer) {
-                        this.collapseMapEditor();
+                        this.editorContainer.style.display = 'none';
+                        this.editorContainer.style.visibility = 'hidden';
+                        this.editorContainer.style.pointerEvents = 'none';
+                        this.editorContainer.classList.add('polygen-minimized');
+                        console.log('[Menu] ✅ TEST MODE: Editor minimized');
                     }
+                    
+                    // Создаем кнопку восстановления редактора
+                    this.createExpandEditorButton();
 
                     // Small delay to ensure UI updates finish
-                    setTimeout(() => this.onStartGame('custom'), 100);
+                    const timeoutId = setTimeout(() => {
+                        if (this.game) {
+                            this.game.currentMapType = 'custom';
+                            this.container.classList.add('hidden');
+                            
+                            if (this.game.gameInitialized && this.game.gameStarted) {
+                                // Игра уже запущена - просто перезагружаем карту
+                                this.game.reloadMap('custom').catch((e: any) => {
+                                    console.error('[Menu] ❌ Failed to reload map:', e);
+                                });
+                            } else {
+                                // Запускаем игру
+                                this.game.init().then(() => {
+                                    this.game!.startGame();
+                                }).catch((e: any) => {
+                                    console.error("[Menu] ❌ Failed to start test game:", e);
+                                });
+                            }
+                        }
+                    }, 100);
+                    this.uiTimeouts.push(timeoutId);
                 }
             });
         } catch (e) {
@@ -555,9 +598,10 @@ export class MainMenu {
         this.updatePlayerInfo(true);
 
         // Также обновляем через небольшую задержку для гарантии (на случай если DOM еще не готов)
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             this.updatePlayerInfo(true);
         }, 100);
+        this.uiTimeouts.push(timeoutId);
 
         // Обновляем панель навыков, если она видима
         if (this.skillsPanel && this.skillsPanel.classList.contains("visible")) {
@@ -1858,7 +1902,7 @@ export class MainMenu {
                 border-radius: 5px;
                 padding: 10px;
                 z-index: 100001;
-                display: flex;
+                display: none; /* Скрыт по умолчанию */
                 flex-direction: column;
                 box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
                 font-family: 'Press Start 2P', monospace;
@@ -4910,20 +4954,21 @@ export class MainMenu {
 
         blockCanvas();
         // Повторяем несколько раз для надежности
-        setTimeout(blockCanvas, 0);
-        setTimeout(blockCanvas, 50);
-        setTimeout(blockCanvas, 100);
-        setTimeout(blockCanvas, 500);
+        this.uiTimeouts.push(setTimeout(blockCanvas, 0));
+        this.uiTimeouts.push(setTimeout(blockCanvas, 50));
+        this.uiTimeouts.push(setTimeout(blockCanvas, 100));
+        this.uiTimeouts.push(setTimeout(blockCanvas, 500));
 
         // Сохраняем ссылку на обработчик для возможности переустановки
         this.setupMenuEventHandlers();
 
         // ДОПОЛНИТЕЛЬНО: Добавляем обработчики напрямую на кнопки для надежности
         // Используем одну попытку с небольшой задержкой для надежности
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             this.attachDirectButtonHandlers();
             this.setupLobbyHandlers();
         }, 100);
+        this.uiTimeouts.push(timeoutId);
 
         // КРИТИЧНО: Создаем MultiplayerManager при создании меню, если его еще нет
         this.ensureMultiplayerManager();
@@ -5061,7 +5106,7 @@ export class MainMenu {
         // MultiplayerManager будет создан автоматически
 
         try {
-            const { MultiplayerManager } = await import("./multiplayer");
+            // MultiplayerManager уже импортирован статически
             const multiplayerManager = new MultiplayerManager(undefined, true); // autoConnect = true
             game.multiplayerManager = multiplayerManager;
 
@@ -5072,14 +5117,26 @@ export class MainMenu {
                 attempts++;
                 if (multiplayerManager.isConnected()) {
                     clearInterval(checkConnection);
+                    // Удаляем из массива
+                    const index = this.connectionIntervals.indexOf(checkConnection);
+                    if (index > -1) {
+                        this.connectionIntervals.splice(index, 1);
+                    }
                     // Запрашиваем список игроков сразу после подключения
-                    setTimeout(() => {
+                    const timeoutId = setTimeout(() => {
                         multiplayerManager.getOnlinePlayers();
                     }, 500);
+                    this.uiTimeouts.push(timeoutId);
                 } else if (attempts >= maxAttempts) {
                     clearInterval(checkConnection);
+                    // Удаляем из массива
+                    const index = this.connectionIntervals.indexOf(checkConnection);
+                    if (index > -1) {
+                        this.connectionIntervals.splice(index, 1);
+                    }
                 }
             }, 500);
+            this.connectionIntervals.push(checkConnection);
         } catch (error) {
             console.error("[Menu] ❌ Ошибка при создании MultiplayerManager:", error);
         }
@@ -5648,15 +5705,19 @@ export class MainMenu {
     }
 
     private startAnimations(): void {
+        // Останавливаем предыдущие анимации если есть
+        this.stopAnimations();
+
         // Первое немедленное обновление при старте (если playerProgression уже установлен)
         if (this.playerProgression) {
-            setTimeout(() => {
+            const timeoutId = setTimeout(() => {
                 this.updatePlayerInfo(true);
             }, 0);
+            this.uiTimeouts.push(timeoutId);
         }
 
         // Периодическое обновление статистики в реальном времени (каждые 100мс для плавной анимации XP-бара)
-        setInterval(() => {
+        const animationInterval1 = setInterval(() => {
             if (this.playerProgression) {
                 this.updatePlayerInfo();
                 if (this.statsPanel && this.statsPanel.classList.contains("visible")) {
@@ -5664,13 +5725,21 @@ export class MainMenu {
                 }
             }
         }, 100); // Обновляем каждые 100мс для плавной анимации
+        this.animationIntervals.push(animationInterval1);
 
         // Fallback обновление раз в 5 секунд (на случай если события не работают)
-        setInterval(() => {
+        const animationInterval2 = setInterval(() => {
             if (this.container && !this.container.classList.contains('hidden')) {
                 this.updatePlayerInfo();
             }
         }, 5000);
+        this.animationIntervals.push(animationInterval2);
+    }
+
+    private stopAnimations(): void {
+        // Останавливаем все анимационные интервалы
+        this.animationIntervals.forEach(id => clearInterval(id));
+        this.animationIntervals = [];
     }
 
     private createSettingsUI(): void {
@@ -7495,64 +7564,59 @@ transition: all 0.2s;
 
         // Если MultiplayerManager не найден, пытаемся создать его
         if (!multiplayerManager && game) {
-            // MultiplayerManager не найден, создаём автоматически
+            // MultiplayerManager уже импортирован статически
             try {
-                // Импортируем и создаем MultiplayerManager
-                import("./multiplayer").then(({ MultiplayerManager }) => {
-                    multiplayerManager = new MultiplayerManager(undefined, true);
-                    game.multiplayerManager = multiplayerManager;
+                multiplayerManager = new MultiplayerManager(undefined, true);
+                game.multiplayerManager = multiplayerManager;
 
-                    // Настраиваем колбэки если gameMultiplayerCallbacks существует
-                    if (game.gameMultiplayerCallbacks) {
-                        try {
-                            const gameInstance = (window as any).gameInstance;
-                            game.gameMultiplayerCallbacks.updateDependencies({
-                                multiplayerManager: multiplayerManager,
-                                mainMenu: this,
-                                // Добавляем callbacks для запуска игры через gameInstance
-                                startGame: async () => {
-                                    if (gameInstance && typeof gameInstance.startGame === 'function') {
-                                        try {
-                                            // Проверяем инициализацию
-                                            if (!gameInstance.gameInitialized) {
-                                                debugLog("[Menu] Game not initialized, initializing...");
-                                                await gameInstance.init();
-                                                gameInstance.gameInitialized = true;
-                                            }
-                                            // Убеждаемся, что canvas виден
-                                            if (gameInstance.canvas) {
-                                                gameInstance.canvas.style.display = "block";
-                                                gameInstance.canvas.style.visibility = "visible";
-                                                gameInstance.canvas.style.opacity = "1";
-                                            }
-                                            // Запускаем игру
-                                            gameInstance.startGame();
-                                        } catch (error) {
-                                            console.error("[Menu] Error starting game:", error);
+                // Настраиваем колбэки если gameMultiplayerCallbacks существует
+                if (game.gameMultiplayerCallbacks) {
+                    try {
+                        const gameInstance = (window as any).gameInstance;
+                        game.gameMultiplayerCallbacks.updateDependencies({
+                            multiplayerManager: multiplayerManager,
+                            mainMenu: this,
+                            // Добавляем callbacks для запуска игры через gameInstance
+                            startGame: async () => {
+                                if (gameInstance && typeof gameInstance.startGame === 'function') {
+                                    try {
+                                        // Проверяем инициализацию
+                                        if (!gameInstance.gameInitialized) {
+                                            debugLog("[Menu] Game not initialized, initializing...");
+                                            await gameInstance.init();
+                                            gameInstance.gameInitialized = true;
                                         }
+                                        // Убеждаемся, что canvas виден
+                                        if (gameInstance.canvas) {
+                                            gameInstance.canvas.style.display = "block";
+                                            gameInstance.canvas.style.visibility = "visible";
+                                            gameInstance.canvas.style.opacity = "1";
+                                        }
+                                        // Запускаем игру
+                                        gameInstance.startGame();
+                                    } catch (error) {
+                                        console.error("[Menu] Error starting game:", error);
                                     }
-                                },
-                                isGameInitialized: () => {
-                                    return gameInstance ? gameInstance.gameInitialized : false;
-                                },
-                                isGameStarted: () => {
-                                    return gameInstance ? gameInstance.gameStarted : false;
                                 }
-                            });
-                            game.gameMultiplayerCallbacks.setup();
-                            debugLog(`[Menu] ✅ MultiplayerManager создан и настроен`);
-                        } catch (callbackError) {
-                            debugWarn(`[Menu] ⚠️ Не удалось настроить callbacks:`, callbackError);
-                        }
+                            },
+                            isGameInitialized: () => {
+                                return gameInstance ? gameInstance.gameInitialized : false;
+                            },
+                            isGameStarted: () => {
+                                return gameInstance ? gameInstance.gameStarted : false;
+                            }
+                        });
+                        game.gameMultiplayerCallbacks.setup();
+                        debugLog(`[Menu] ✅ MultiplayerManager создан и настроен`);
+                    } catch (callbackError) {
+                        debugWarn(`[Menu] ⚠️ Не удалось настроить callbacks:`, callbackError);
                     }
+                }
 
-                    // Настраиваем список комнат после создания
-                    this.setupRoomListUpdates(multiplayerManager);
-                }).catch(error => {
-                    console.error(`[Menu] ❌ Ошибка создания MultiplayerManager:`, error);
-                });
+                // Настраиваем список комнат после создания
+                this.setupRoomListUpdates(multiplayerManager);
             } catch (error) {
-                console.error(`[Menu] ❌ Ошибка импорта MultiplayerManager:`, error);
+                console.error(`[Menu] ❌ Ошибка создания MultiplayerManager:`, error);
             }
         }
 
@@ -7768,8 +7832,7 @@ transition: all 0.2s;
             }
 
             try {
-                // Попытка проверить Firebase
-                const { firebaseService } = await import("./firebaseService");
+                // Проверка Firebase (уже импортирован статически)
                 const isConnected = firebaseService && firebaseService.isInitialized();
 
                 if (statusEl) {
@@ -7845,6 +7908,8 @@ transition: all 0.2s;
                     this._updateMultiplayerStatus();
                     // Обновляем счетчик игроков в панели комнаты
                     this.refreshRoomPanelPlayers();
+                    // ИСПРАВЛЕНО: Автоматически обновляем список комнат при входе игрока
+                    this.refreshLobbyData();
                 }, 200);
             });
 
@@ -7854,6 +7919,8 @@ transition: all 0.2s;
                     this._updateMultiplayerStatus();
                     // Обновляем счетчик игроков в панели комнаты
                     this.refreshRoomPanelPlayers();
+                    // ИСПРАВЛЕНО: Автоматически обновляем список комнат при выходе игрока
+                    this.refreshLobbyData();
                 }, 200);
             });
         }
@@ -7866,14 +7933,24 @@ transition: all 0.2s;
         this.setupRoomFilters();
 
         // Обновляем статус каждые 1 секунду (чаще для лучшей отзывчивости)
+        // Останавливаем предыдущий интервал если есть
+        this.statusUpdateIntervals.forEach(id => clearInterval(id));
+        this.statusUpdateIntervals = [];
+
         const statusUpdateInterval = setInterval(() => {
             const mpWindow = document.getElementById("play-window-multiplayer");
             if (mpWindow && mpWindow.style.display !== "none") {
                 this._updateMultiplayerStatus();
             } else {
                 clearInterval(statusUpdateInterval);
+                // Удаляем из массива
+                const index = this.statusUpdateIntervals.indexOf(statusUpdateInterval);
+                if (index > -1) {
+                    this.statusUpdateIntervals.splice(index, 1);
+                }
             }
         }, 1000);
+        this.statusUpdateIntervals.push(statusUpdateInterval);
     }
 
     private startQueueTimer(): void {
@@ -7968,7 +8045,7 @@ transition: all 0.2s;
                 const hintEl = document.getElementById("mp-server-hint");
                 if (hintEl) {
                     if (cleanUrl.includes("localhost") || cleanUrl.includes("127.0.0.1")) {
-                        hintEl.textContent = "⚠️ Для подключения с другого ПК используйте IP-адрес сервера (например: ws://192.168.1.100:8080)";
+                        hintEl.textContent = "⚠️ Для подключения с другого ПК используйте IP-адрес сервера (например: ws://192.168.1.100:8000)";
                         hintEl.style.color = "#fa0";
                     } else {
                         hintEl.textContent = `✅ Адрес сервера: ${cleanUrl} (можно использовать с других ПК в той же сети)`;
@@ -8403,9 +8480,8 @@ transition: all 0.2s;
         if (!multiplayerManager) {
             debugLog("[Menu] MultiplayerManager not found, attempting to initialize...");
 
-            // Создаем новый MultiplayerManager
+            // Создаем новый MultiplayerManager (уже импортирован статически)
             try {
-                const { MultiplayerManager } = await import("./multiplayer");
                 multiplayerManager = new MultiplayerManager(undefined, true);
                 game.multiplayerManager = multiplayerManager;
 
@@ -8606,11 +8682,11 @@ transition: all 0.2s;
 
             // Обновляем список каждые 3 секунды (улучшено для более быстрого обновления)
             // Очищаем предыдущий интервал если есть
-            const intervalKey = 'mp-room-list-interval';
-            if ((window as any)[intervalKey]) {
-                clearInterval((window as any)[intervalKey]);
+            if (this.roomListInterval) {
+                clearInterval(this.roomListInterval);
+                this.roomListInterval = null;
             }
-            (window as any)[intervalKey] = setInterval(() => {
+            this.roomListInterval = setInterval(() => {
                 if (multiplayerManager.isConnected()) {
                     multiplayerManager.requestRoomList();
                 }
@@ -8694,21 +8770,21 @@ transition: all 0.2s;
             const mapType = room.mapType || "normal";
 
             roomItem.innerHTML = `
-    < div style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
-        <div style="font-weight: bold; color: #fff; font-size: 13px;" > Комната ${room.id} </div>
-            < div style = "font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;" > ${statusText} </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-weight: bold; color: #fff; font-size: 13px;">Комната ${room.id}</div>
+                    <div style="font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;">${statusText}</div>
                 </div>
-                < div style = "display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;" >
-                    <span>Режим: <span style="color: #fff;" > ${room.mode.toUpperCase()} </span></span >
-                        <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};" > ${room.players} /${room.maxPlayers}</span > </span>
-                            </div>
-                            < div style = "font-size: 11px; color: #aaa;" >
-                                <span>Карта: <span style="color: #fbbf24;" > ${mapType} </span></span >
-                                    </div>
-                                    < div style = "margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;" >
-                                        Клик — детали • Двойной клик — войти
-                                            </div>
-                                                `;
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;">
+                    <span>Режим: <span style="color: #fff;">${room.mode.toUpperCase()}</span></span>
+                    <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};">${room.players}/${room.maxPlayers}</span></span>
+                </div>
+                <div style="font-size: 11px; color: #aaa;">
+                    <span>Карта: <span style="color: #fbbf24;">${mapType}</span></span>
+                </div>
+                <div style="margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;">
+                    Клик — детали • Двойной клик — войти
+                </div>
+            `;
 
             roomsContainer.appendChild(roomItem);
         });
@@ -8971,8 +9047,8 @@ transition: all 0.2s;
                         }
                     };
                     debugLog("[Menu] Saving room settings:", settings);
-                    // TODO: Отправить настройки на сервер
-                    this.showMultiplayerNotification("Настройки сохранены!", "#4ade80");
+                    // FIXED: Отправляем настройки через менеджер
+                    game.multiplayerManager.updateRoomSettings(settings);
                 }
             };
         }
@@ -9228,11 +9304,41 @@ transition: all 0.2s;
         const kickPlayerBtn = document.getElementById("mp-room-panel-kick-player");
         if (kickPlayerBtn) {
             kickPlayerBtn.onclick = () => {
-                // Показываем список игроков для выбора кого кикнуть
+                // ИСПРАВЛЕНО: Показываем список игроков для выбора кого кикнуть
                 const game = (window as any).gameInstance;
                 if (game?.multiplayerManager) {
-                    // TODO: Реализовать выбор игрока и кик через сервер
-                    alert("Функция кика игроков будет реализована позже. Выберите игрока из списка для кика.");
+                    const multiplayerManager = game.multiplayerManager;
+                    const networkPlayers = multiplayerManager.getNetworkPlayers();
+                    const currentPlayerId = multiplayerManager.getPlayerId();
+                    
+                    // Создаем список игроков для выбора
+                    const playersList: Array<{ id: string; name: string }> = [];
+                    if (networkPlayers && networkPlayers.size > 0) {
+                        networkPlayers.forEach((player: any, playerId: string) => {
+                            if (playerId !== currentPlayerId) {
+                                playersList.push({
+                                    id: playerId,
+                                    name: player.name || `Player_${playerId.substring(0, 6)}`
+                                });
+                            }
+                        });
+                    }
+                    
+                    if (playersList.length === 0) {
+                        alert("Нет игроков для кика");
+                        return;
+                    }
+                    
+                    // Показываем диалог выбора игрока
+                    const playerName = prompt(`Выберите игрока для кика:\n${playersList.map((p, i) => `${i + 1}. ${p.name}`).join('\n')}`);
+                    if (playerName) {
+                        const selectedPlayer = playersList.find(p => p.name === playerName);
+                        if (selectedPlayer) {
+                            multiplayerManager.kickPlayer(selectedPlayer.id);
+                        } else {
+                            alert("Игрок не найден");
+                        }
+                    }
                 }
             };
         }
@@ -9268,7 +9374,10 @@ transition: all 0.2s;
                 const playerId = inviteIdInput.value.trim();
                 if (playerId) {
                     debugLog("[Menu] Sending invite to player:", playerId);
-                    // TODO: Отправить приглашение на сервер
+                    // FIXED: Отправка приглашения через сервер
+                    if (game?.multiplayerManager) {
+                        game.multiplayerManager.sendInvite(playerId); // Corrected from friend.id to playerId
+                    }
                     this.addRoomSystemMessage(`Приглашение отправлено игроку ${playerId} `);
                     inviteIdInput.value = "";
                 }
@@ -9347,6 +9456,28 @@ transition: all 0.2s;
                     }
                 }
             });
+
+            // HOT RELOAD: Обработка изменений настроек комнаты (если метод существует)
+            if (typeof multiplayerManager.onRoomSettingsChanged === 'function') {
+                multiplayerManager.onRoomSettingsChanged((data: any) => {
+                    debugLog("[Menu] Room settings updated:", data);
+                    const { settings } = data;
+
+                    // 1. Уведомление в чат
+                    let changes = [];
+                    if (settings.maxPlayers) changes.push(`Макс. игроков: ${settings.maxPlayers}`);
+                    // Add other settings checks here if needed
+
+                    const changeMsg = changes.length > 0 ? `: ${changes.join(", ")}` : "";
+                    this.addRoomSystemMessage(`Настройки комнаты обновлены хостом${changeMsg}`);
+
+                    // 2. Всплывающее уведомление
+                    this.showMultiplayerNotification("Настройки применены на лету!", "#4ade80");
+
+                    // 3. Обновление UI если открыта панель настроек
+                    // (Здесь можно добавить код для обновления конкретных слайдеров, если они открыты)
+                });
+            }
         }
     }
 
@@ -9390,7 +9521,7 @@ transition: all 0.2s;
         if (type === "system") {
             messageDiv.style.background = "rgba(74, 222, 128, 0.1)";
             messageDiv.style.borderLeft = "2px solid #4ade80";
-            messageDiv.innerHTML = `< span style = "color: #4ade80; font-style: italic;" > ${escapeHtml(message)} </span>`;
+            messageDiv.innerHTML = `<span style="color: #4ade80; font-style: italic;">${escapeHtml(message)}</span>`;
         } else {
             messageDiv.style.background = "rgba(0, 0, 0, 0.2)";
             messageDiv.innerHTML = `<span style="color: #4ade80; font-weight: bold;">${escapeHtml(playerName)}:</span> <span style="color: #0f0;">${escapeHtml(message)}</span>`;
@@ -9457,7 +9588,10 @@ transition: all 0.2s;
                         const friendId = inviteBtn.getAttribute("data-friend-id");
                         if (friendId) {
                             debugLog("[Menu] Inviting friend:", friendId);
-                            // TODO: Отправить приглашение на сервер
+                            // FIXED: Отправка приглашения через сервер
+                            if (game?.multiplayerManager) {
+                                game.multiplayerManager.sendInvite(friend.id);
+                            }
                             this.addRoomSystemMessage(`Приглашение отправлено ${friendName}`);
                         }
                     };
@@ -10739,9 +10873,8 @@ transition: all 0.2s;
         // Проверяем, есть ли SocialSystem
         let socialSystem = game?.socialSystem;
         if (!socialSystem) {
-            // Пытаемся импортировать и создать SocialSystem
+            // SocialSystem уже импортирован статически
             try {
-                const { SocialSystem } = await import("./socialSystem");
                 socialSystem = new SocialSystem();
                 await socialSystem.initialize();
                 game.socialSystem = socialSystem;
@@ -10799,16 +10932,31 @@ transition: all 0.2s;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager) {
-            debugLog("[Menu] MultiplayerManager не готов, ожидаем...");
+            debugWarn("[Menu] ❌ MultiplayerManager не готов!");
+            // Показываем уведомление пользователю
+            window.dispatchEvent(new CustomEvent('tx:notification', {
+                detail: { message: "❌ Не удалось подключиться: MultiplayerManager не готов", type: 'error' }
+            }));
             return;
         }
 
         if (!multiplayerManager.isConnected()) {
-            debugLog("[Menu] Ожидаем подключения к серверу...");
+            debugWarn("[Menu] ❌ Не подключено к серверу!");
+            // Показываем уведомление пользователю
+            window.dispatchEvent(new CustomEvent('tx:notification', {
+                detail: { message: "❌ Не подключено к серверу. Переподключение...", type: 'error' }
+            }));
+            // Пробуем переподключиться
+            multiplayerManager.connect();
             return;
         }
 
-        debugLog(`[Menu] Присоединение к комнате ${roomId} `);
+        debugLog(`[Menu] ✅ Присоединение к комнате ${roomId}...`);
+        
+        // Показываем уведомление о попытке присоединения
+        window.dispatchEvent(new CustomEvent('tx:notification', {
+            detail: { message: `🔄 Присоединение к комнате ${roomId}...`, type: 'info' }
+        }));
 
         // Находим информацию о комнате из списка
         const room = this.allRooms.find(r => r.id === roomId);
@@ -11082,9 +11230,10 @@ transition: all 0.2s;
 
         const menuContent = document.querySelector(".menu-content");
 
-        // Загружаем состояние из localStorage (по умолчанию - открыто)
+        // Загружаем состояние из localStorage (по умолчанию - скрыто)
         const savedState = localStorage.getItem("bannerCollapsed");
-        const isCollapsed = savedState === "true";
+        // По умолчанию баннер скрыт (если нет сохраненного состояния, считаем что скрыт)
+        const isCollapsed = savedState === null || savedState === "true";
 
         // Отключаем анимацию при первой загрузке
         bannerPanel.style.transition = "none";
@@ -11092,9 +11241,11 @@ transition: all 0.2s;
 
         if (isCollapsed) {
             bannerPanel.classList.add("collapsed");
+            bannerPanel.style.display = "none"; // Скрываем баннер
             if (menuContent) menuContent.classList.remove("banner-open");
         } else {
             bannerPanel.classList.remove("collapsed");
+            bannerPanel.style.display = "flex"; // Показываем баннер
             if (menuContent) menuContent.classList.add("banner-open");
         }
 
@@ -11165,15 +11316,19 @@ transition: all 0.2s;
         const menuContent = document.querySelector(".menu-content");
         if (!panel) return;
 
-        const isCollapsed = panel.classList.contains("collapsed");
+        const isCollapsed = panel.classList.contains("collapsed") || panel.style.display === "none";
 
         if (isCollapsed) {
+            // Разворачиваем баннер
             panel.classList.remove("collapsed");
+            panel.style.display = "flex";
             if (menuContent) menuContent.classList.add("banner-open");
             localStorage.setItem("bannerCollapsed", "false");
             debugLog("[Menu] Баннер развернут");
         } else {
+            // Сворачиваем баннер
             panel.classList.add("collapsed");
+            panel.style.display = "none";
             if (menuContent) menuContent.classList.remove("banner-open");
             localStorage.setItem("bannerCollapsed", "true");
             debugLog("[Menu] Баннер свернут");
@@ -11519,10 +11674,10 @@ transition: all 0.2s;
         const msgEl = document.createElement("div");
         msgEl.className = "lobby-chat-message";
         msgEl.innerHTML = `
-    < span class="lobby-chat-time" > ${time} </span>
-        < span class="lobby-chat-sender ${isSelf ? "self" : ""}" > ${this.escapeHtml(playerName)}: </span>
-            < span class="lobby-chat-text" > ${this.escapeHtml(message)} </span>
-                `;
+            <span class="lobby-chat-time">${time}</span>
+            <span class="lobby-chat-sender ${isSelf ? "self" : ""}">${this.escapeHtml(playerName)}:</span>
+            <span class="lobby-chat-text">${this.escapeHtml(message)}</span>
+        `;
 
         chatMessages.appendChild(msgEl);
 
@@ -11740,9 +11895,19 @@ line - height: 1.4;
                     // debugLog("[Menu] ✅ MultiplayerManager подключен, запрашиваем список игроков");
                     requestPlayers();
                     clearInterval(checkConnection);
+                    // Удаляем из массива
+                    const index = this.connectionIntervals.indexOf(checkConnection);
+                    if (index > -1) {
+                        this.connectionIntervals.splice(index, 1);
+                    }
                 } else if (attempts >= maxAttempts) {
                     // debugWarn("[Menu] ⚠️ Превышено время ожидания подключения");
                     clearInterval(checkConnection);
+                    // Удаляем из массива
+                    const index = this.connectionIntervals.indexOf(checkConnection);
+                    if (index > -1) {
+                        this.connectionIntervals.splice(index, 1);
+                    }
                 } else {
                     // Only log every 5 attempts to reduce spam
                     if (attempts % 5 === 0) {
@@ -11750,6 +11915,7 @@ line - height: 1.4;
                     }
                 }
             }, 500);
+            this.connectionIntervals.push(checkConnection);
         }
 
         // Настраиваем умное автообновление
@@ -12025,16 +12191,36 @@ line - height: 1.4;
         const copyBtn = document.getElementById("mp-room-details-copy-id");
         const closeBtn = document.getElementById("mp-room-details-close");
 
-        // Удаляем старые обработчики
-        if (joinBtn) {
-            joinBtn.onclick = null;
-            joinBtn.onclick = () => {
-                // Используем единый метод joinRoom(), который уже содержит всю логику показа панели
-                debugLog(`[Menu] Присоединение к комнате ${room.id} из модального окна`);
-                this.joinRoom(room.id);
-            };
-        }
+        debugLog(`[Menu] showRoomDetails: кнопки найдены - join=${!!joinBtn}, copy=${!!copyBtn}, close=${!!closeBtn}`);
 
+        // Настраиваем кнопку "Присоединиться" - сохраняем room.id в closure
+        if (joinBtn) {
+            const roomIdToJoin = room.id; // Сохраняем в локальную переменную для closure
+            
+            // Убираем все старые обработчики
+            (joinBtn as HTMLElement).onclick = null;
+            joinBtn.removeEventListener('click', (joinBtn as any)._clickHandler);
+            
+            // Создаём новый обработчик
+            const clickHandler = (e: Event) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log(`[Menu] 🎮 Кнопка "Присоединиться" нажата! room.id = ${roomIdToJoin}`);
+                debugLog(`[Menu] 🎮 Кнопка "Присоединиться" нажата! room.id = ${roomIdToJoin}`);
+                this.joinRoom(roomIdToJoin);
+            };
+            
+            // Сохраняем ссылку на обработчик для возможности удаления
+            (joinBtn as any)._clickHandler = clickHandler;
+            joinBtn.addEventListener('click', clickHandler);
+            
+            // Также добавляем onclick как fallback
+            (joinBtn as HTMLElement).onclick = clickHandler as any;
+            
+            debugLog(`[Menu] ✅ Обработчик кнопки установлен для комнаты ${roomIdToJoin}`);
+        } else {
+            debugWarn("[Menu] ⚠️ Кнопка mp-room-details-join НЕ НАЙДЕНА!");
+        }
 
         if (copyBtn) {
             copyBtn.onclick = null;
@@ -13807,6 +13993,21 @@ line - height: 1.4;
     private async openMapEditor(): Promise<void> {
         debugLog("[Menu] Opening PolyGenStudio Map Editor...");
 
+        // КРИТИЧНО: Удаляем ВСЕ существующие экраны загрузки перед открытием редактора
+        // Это предотвращает появление множественных экранов загрузки
+        const existingLoadingScreens = document.querySelectorAll(
+            '#loading-screen, .loading-screen, #simple-loading-screen, .simple-loading-screen, #tx-loading-screen, #loading-indicator'
+        );
+        existingLoadingScreens.forEach(screen => {
+            console.log('[Menu] 🧹 Removing existing loading screen before editor');
+            screen.remove();
+        });
+        
+        // Также скрываем экран загрузки через функцию игры если она есть
+        if (this.game && typeof this.game.hideLoadingScreen === 'function') {
+            this.game.hideLoadingScreen();
+        }
+
         // Hide menu
         this.container.classList.add("hidden");
 
@@ -13818,6 +14019,16 @@ line - height: 1.4;
         if (gameCanvas) {
             gameCanvas.style.display = 'none';
         }
+
+        // КРИТИЧНО: Удаляем ВСЕ экраны загрузки из родительского окна перед созданием iframe
+        // Это предотвращает конфликт с экранами загрузки внутри iframe
+        const parentLoadingScreens = document.querySelectorAll(
+            '#loading-screen, .loading-screen, #simple-loading-screen, .simple-loading-screen, #tx-loading-screen, #loading-indicator'
+        );
+        parentLoadingScreens.forEach(screen => {
+            console.log('[Menu] 🧹 Removing parent loading screen before editor iframe');
+            screen.remove();
+        });
 
         // Create container for PolyGenStudio Map Editor
         const editorContainer = document.createElement("div");
@@ -13835,6 +14046,24 @@ line - height: 1.4;
         // Create iframe for PolyGenStudio
         const iframe = document.createElement("iframe");
         iframe.id = "polygen-map-iframe";
+        
+        // КРИТИЧНО: После загрузки iframe, удаляем любые экраны загрузки которые могли появиться
+        iframe.onload = () => {
+            console.log('[Menu] ✅ Editor iframe loaded, cleaning up any loading screens');
+            setTimeout(() => {
+                const postLoadScreens = document.querySelectorAll(
+                    '#loading-screen, .loading-screen, #simple-loading-screen, .simple-loading-screen, #tx-loading-screen, #loading-indicator'
+                );
+                postLoadScreens.forEach(screen => {
+                    // Проверяем что это не экран загрузки внутри iframe
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+                    if (!iframeDoc || !iframeDoc.contains(screen)) {
+                        console.log('[Menu] 🧹 Removing post-load screen');
+                        screen.remove();
+                    }
+                });
+            }, 100);
+        };
 
         // Determine Editor URL
         const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
@@ -13889,6 +14118,29 @@ line - height: 1.4;
             if (event.data && event.data.type === 'CLOSE_EDITOR') {
                 window.removeEventListener('message', messageHandler);
                 closeEditor();
+            }
+
+            // КРИТИЧНО: Обработка сворачивания редактора (не закрытия)
+            if (event.data && event.data.type === 'MINIMIZE_EDITOR') {
+                console.log('[Menu] 📦 Received MINIMIZE_EDITOR - collapsing editor');
+                if (this.editorContainer) {
+                    this.editorContainer.style.display = 'none';
+                    this.editorContainer.style.visibility = 'hidden';
+                    this.editorContainer.style.pointerEvents = 'none';
+                    this.editorContainer.classList.add('polygen-minimized');
+                }
+                
+                // Показываем кнопку восстановления
+                this.createExpandEditorButton();
+                
+                // Показываем canvas игры
+                const gameCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+                if (gameCanvas) {
+                    gameCanvas.style.display = 'block';
+                }
+                
+                // НЕ удаляем обработчик сообщений - редактор может быть развернут обратно
+                return;
             }
 
             // Handle TEST mode from PolyGen editor
@@ -14109,47 +14361,73 @@ line - height: 1.4;
      * Create floating button to expand editor
      */
     private createExpandEditorButton(): void {
-        // Remove old button if exists
+        // Remove old button if exists (check both instance variable and DOM)
         if (this.expandEditorBtn) {
             this.expandEditorBtn.remove();
+            this.expandEditorBtn = null;
+        }
+        
+        // Also check for buttons with IDs
+        const oldBtn = document.getElementById('expand-editor-btn') || 
+                       document.getElementById('map-editor-restore-btn') ||
+                       document.getElementById('polygen-restore-btn');
+        if (oldBtn) {
+            oldBtn.remove();
         }
 
         const btn = document.createElement('button');
-        btn.id = 'expand-editor-btn';
-        btn.innerHTML = '📝 РЕДАКТОР';
+        btn.id = 'map-editor-restore-btn';
+        btn.innerHTML = '🔧 РАЗВЕРНУТЬ РЕДАКТОР';
         btn.style.cssText = `
             position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 100000;
-            padding: 12px 20px;
-            background: linear-gradient(135deg, #0f0 0%, #0a0 100%);
-            color: #000;
-            border: 2px solid #0f0;
+            top: 10px;
+            right: 10px;
+            z-index: 9999;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            color: white;
+            border: none;
             border-radius: 8px;
-            font-family: 'Consolas', monospace;
-            font-size: 14px;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
-            transition: all 0.3s ease;
+            font-size: 14px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: all 0.2s;
         `;
 
         btn.onmouseenter = () => {
             btn.style.transform = 'scale(1.05)';
-            btn.style.boxShadow = '0 0 30px rgba(0, 255, 0, 0.8)';
+            btn.style.boxShadow = '0 6px 12px rgba(0,0,0,0.4)';
         };
         btn.onmouseleave = () => {
             btn.style.transform = 'scale(1)';
-            btn.style.boxShadow = '0 0 20px rgba(0, 255, 0, 0.5)';
+            btn.style.boxShadow = '0 4px 6px rgba(0,0,0,0.3)';
         };
 
         btn.onclick = () => {
-            this.expandMapEditor();
+            // Разворачиваем редактор
+            if (this.editorContainer) {
+                this.editorContainer.style.display = 'block';
+                this.editorContainer.style.visibility = 'visible';
+                this.editorContainer.style.pointerEvents = 'auto';
+                this.editorContainer.classList.remove('polygen-minimized');
+            }
+            
+            // Скрываем кнопку восстановления
+            btn.style.display = 'none';
+            
+            // Скрываем canvas игры
+            const gameCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+            if (gameCanvas) {
+                gameCanvas.style.display = 'none';
+            }
         };
 
         document.body.appendChild(btn);
         this.expandEditorBtn = btn;
+        
+        // Сохраняем ссылку для глобального доступа
+        (window as any).__polygenRestoreButton = btn;
     }
 
     private saveTankConfig(): void {
@@ -14218,6 +14496,9 @@ line - height: 1.4;
     public dispose(): void {
         debugLog("[Menu] dispose() called - cleaning up event listeners");
 
+        // Останавливаем все таймеры и интервалы
+        this.stopAllTimers();
+
         // Отменяем все слушатели событий, зарегистрированные с signal
         this.abortController.abort();
 
@@ -14230,12 +14511,56 @@ line - height: 1.4;
             this.canvasPointerEventsCheckInterval = null;
         }
 
+        // Очищаем интервал обновления списка комнат
+        if (this.roomListInterval) {
+            clearInterval(this.roomListInterval);
+            this.roomListInterval = null;
+        }
+
         // Очищаем подписку на прогресс
         if (this.experienceSubscription) {
             this.experienceSubscription = null;
         }
 
         debugLog("[Menu] dispose() completed");
+    }
+
+    /**
+     * Останавливает все таймеры и интервалы для предотвращения утечек памяти
+     */
+    private stopAllTimers(): void {
+        // Останавливаем анимации
+        this.stopAnimations();
+
+        // Очищаем все UI таймауты
+        this.uiTimeouts.forEach(id => clearTimeout(id));
+        this.uiTimeouts = [];
+
+        // Очищаем все интервалы подключений
+        this.connectionIntervals.forEach(id => clearInterval(id));
+        this.connectionIntervals = [];
+
+        // Очищаем все интервалы обновления статуса
+        this.statusUpdateIntervals.forEach(id => clearInterval(id));
+        this.statusUpdateIntervals = [];
+
+        // Очищаем интервал обновления списка комнат
+        if (this.roomListInterval) {
+            clearInterval(this.roomListInterval);
+            this.roomListInterval = null;
+        }
+
+        // Очищаем интервал лобби
+        if (this.lobbyAutoRefreshInterval) {
+            clearInterval(this.lobbyAutoRefreshInterval);
+            this.lobbyAutoRefreshInterval = null;
+        }
+
+        // Очищаем интервал очереди
+        if (this.queueTimerInterval) {
+            clearInterval(this.queueTimerInterval);
+            this.queueTimerInterval = null;
+        }
     }
 
     // === AUTH METHODS ===
@@ -14898,6 +15223,67 @@ line - height: 1.4;
 
         // НАВИГАЦИЯ КЛАВИАТУРОЙ: Стрелки, Tab, Enter
         this.setupKeyboardNavigation();
+    }
+
+    /**
+     * ИСПРАВЛЕНО: Универсальная функция для закрытия меню по клику вне окна или ESC
+     */
+    private setupUniversalMenuCloseHandlers(): void {
+        // Обработчик ESC для всех открытых overlay
+        const escHandler = (e: KeyboardEvent) => {
+            if (e.key === "Escape" || e.key === "Esc") {
+                // Закрываем все открытые overlay
+                const overlays = document.querySelectorAll('.panel-overlay:not(.hidden)');
+                overlays.forEach(overlay => {
+                    const panel = overlay.querySelector('.panel');
+                    if (panel && (panel as HTMLElement).offsetParent !== null) {
+                        // Ищем кнопку закрытия или вызываем hide
+                        const closeBtn = panel.querySelector('.panel-close, .garage-close, [data-nav="close"]');
+                        if (closeBtn) {
+                            (closeBtn as HTMLElement).click();
+                        } else {
+                            // Если нет кнопки, просто скрываем overlay
+                            (overlay as HTMLElement).style.display = 'none';
+                            (overlay as HTMLElement).classList.add('hidden');
+                        }
+                    }
+                });
+
+                // Закрываем play menu panel
+                const playMenuPanel = document.getElementById('play-menu-panel');
+                if (playMenuPanel && playMenuPanel.offsetParent !== null) {
+                    playMenuPanel.classList.remove('visible');
+                }
+            }
+        };
+
+        // Обработчик клика вне окна для всех overlay
+        const clickOutsideHandler = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            if (!target) return;
+
+            // Проверяем все overlay
+            const overlays = document.querySelectorAll('.panel-overlay:not(.hidden)');
+            overlays.forEach(overlay => {
+                const panel = overlay.querySelector('.panel');
+                if (panel && (panel as HTMLElement).offsetParent !== null) {
+                    // Если клик был вне панели, закрываем
+                    if (!panel.contains(target) && overlay === target) {
+                        const closeBtn = panel.querySelector('.panel-close, .garage-close, [data-nav="close"]');
+                        if (closeBtn) {
+                            (closeBtn as HTMLElement).click();
+                        } else {
+                            (overlay as HTMLElement).style.display = 'none';
+                            (overlay as HTMLElement).classList.add('hidden');
+                        }
+                    }
+                }
+            });
+        };
+
+        // Добавляем обработчики
+        document.addEventListener('keydown', escHandler, { signal: this.abortController.signal });
+        document.addEventListener('click', clickOutsideHandler, { signal: this.abortController.signal });
     }
 
     /**

@@ -29,7 +29,7 @@ async function closeOldTerminals(): Promise<void> {
         // Method 2: Use Win32 API to find and close windows by title
         const titles = [
             'Protocol TX - Monitoring',
-            'Protocol TX - Server (port 8080)',
+            'Protocol TX - Server (port 8000)',
             'Protocol TX - Client (Vite, port 3000)',
             'Protocol TX - System Logs'
         ];
@@ -64,17 +64,17 @@ public class Win32 {
 }
 
 async function killAllProcesses(): Promise<void> {
-    console.log('Stopping processes on ports 8080 and 3000...\n');
+    console.log('Stopping processes on ports 8000 and 3000...\n');
     
     const isWindows = process.platform === 'win32';
     
     if (isWindows) {
         const currentPid = process.pid;
         
-        // Close only processes on ports 8080 and 3000 (server and client)
-        console.log('  Closing processes on port 8080 (server)...');
+        // Close only processes on ports 8000 and 3000 (server and client)
+        console.log('  Closing processes on port 8000 (server)...');
         await new Promise<void>((resolve) => {
-            exec(`powershell -NoProfile -Command "try { Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue | Where-Object { $_.OwningProcess -ne ${currentPid} } | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } } catch {}"`, () => {
+            exec(`powershell -NoProfile -Command "try { Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Where-Object { $_.OwningProcess -ne ${currentPid} } | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } } catch {}"`, () => {
                 resolve();
             });
         });
@@ -93,9 +93,9 @@ async function killAllProcesses(): Promise<void> {
         console.log('[OK] All processes stopped!\n');
     } else {
         // For Linux/Mac - close only processes on ports
-        console.log('  Closing processes on port 8080 (server)...');
+        console.log('  Closing processes on port 8000 (server)...');
         await new Promise<void>((resolve) => {
-            exec('lsof -ti:8080 | xargs kill -9 2>/dev/null || true', () => {
+            exec('lsof -ti:8000 | xargs kill -9 2>/dev/null || true', () => {
                 resolve();
             });
         });
@@ -437,7 +437,7 @@ async function main() {
         // 2. Start server (top right corner)
         console.log('Starting server...');
         await startInNewWindow(
-            'Protocol TX - Server (port 8080)',
+            'Protocol TX - Server (port 8000)',
             `${npmCmd} run server:dev`,
             workingDir,
             positions.topRight
@@ -445,7 +445,7 @@ async function main() {
 
         // Wait for server to become available
         console.log('Waiting for server to be ready...');
-        const serverReady = await waitForServer('localhost', 8080, 30, 2000);
+        const serverReady = await waitForServer('localhost', 8000, 30, 2000);
         
         if (serverReady) {
             console.log('Server is ready!\n');
@@ -473,7 +473,7 @@ async function main() {
 
         console.log('\n[OK] All systems restarted in separate windows!');
         console.log('Monitoring: top left corner');
-        console.log('Server: top right corner (http://localhost:8080)');
+        console.log('Server: top right corner (http://localhost:8000)');
         console.log('Client: bottom left corner (http://localhost:3000)');
         console.log('System Logs: bottom right corner');
         console.log('\nClose terminal windows to stop systems\n');

@@ -3,7 +3,10 @@
  * @description Object Pool для BinaryWriter и BinaryReader - переиспользование объектов для снижения GC нагрузки
  */
 
-import { BinaryWriter, BinaryReader } from "./protocol";
+import { BinaryWriter, BinaryReader as ProtoBinaryReader } from "./protocol";
+
+// Re-export for convenience if needed, otherwise just use it
+export { ProtoBinaryReader as BinaryReader };
 
 /**
  * ObjectPool - универсальный пул объектов для переиспользования
@@ -33,11 +36,11 @@ class ObjectPool<T> {
 
     release(obj: T): void {
         if (!obj) return;
-        
+
         if (this.resetFn) {
             this.resetFn(obj);
         }
-        
+
         if (this.pool.length < this.maxSize) {
             this.pool.push(obj);
         }

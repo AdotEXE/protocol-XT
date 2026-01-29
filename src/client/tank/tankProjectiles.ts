@@ -48,8 +48,10 @@ export class TankProjectilesModule {
         const casingMat = new StandardMaterial("shellCasingMat", this.tank.scene);
         casingMat.diffuseColor = new Color3(0.8, 0.7, 0.4); // Латунный цвет
         casingMat.specularColor = new Color3(0.5, 0.5, 0.3);
+        // ИСПРАВЛЕНИЕ: Убираем renderingGroupId чтобы гильзы правильно рендерились с depth testing
+        // Гильзы должны быть видны только когда они перед объектами, а не поверх всего
         casing.material = casingMat;
-        casing.renderingGroupId = 2;
+        casing.renderingGroupId = 0; // Стандартный рендеринг с depth testing
         
         // Физика гильзы
         const shape = new PhysicsShape({

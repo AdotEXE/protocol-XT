@@ -3,6 +3,12 @@
  * @description Главный UI для Workshop Editor
  * 
  * Объединяет все редакторы в единый интерфейс
+ * 
+ * TODO: ТРЕБУЕТСЯ ДОРАБОТКА
+ * - Реализовать выделение объектов для трансформации (как в редакторе карт > WORKSHOP)
+ * - Добавить функционал трансформации объектов (перемещение, вращение, масштабирование)
+ * - Интегрировать весь функционал из редактора карт > WORKSHOP в редактор танков
+ * - Добавить возможность сохранения/загрузки кастомных конфигураций танков
  */
 
 import { Scene } from '@babylonjs/core';
@@ -20,26 +26,26 @@ export class WorkshopUI {
     private overlay: HTMLDivElement | null = null;
     private previewScene: PreviewScene | null = null;
     private previewTank: PreviewTank | null = null;
-    
+
     private modelSelector: ModelSelector | null = null;
     private parameterEditor: ParameterEditor | null = null;
     private attachmentEditor: AttachmentPointEditor | null = null;
     private visualEditor: VisualEditor | null = null;
-    
+
     private currentConfig: Partial<CustomTankConfiguration> = {};
-    
+
     constructor(private scene: Scene) {
         this.createUI();
     }
-    
+
     private createUI(): void {
         // Используем тот же стиль что и Garage
         CommonStyles.initialize();
-        
+
         this.overlay = document.createElement('div');
         this.overlay.className = 'panel-overlay';
         this.overlay.id = 'workshop-overlay';
-        
+
         const html = `
             <div class="panel" style="max-width: 1400px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
                 <div class="panel-header">
@@ -70,65 +76,65 @@ export class WorkshopUI {
                 </div>
             </div>
         `;
-        
+
         this.overlay.innerHTML = html;
         document.body.appendChild(this.overlay);
-        
+
         // Инициализируем preview сцену
         this.initPreview();
-        
+
         // Инициализируем компоненты
         this.initComponents();
-        
+
         // Обработчики
         this.setupHandlers();
     }
-    
+
     private initPreview(): void {
         const container = document.getElementById('preview-container');
         if (!container) return;
-        
+
         // Очищаем контейнер
         container.innerHTML = '';
-        
+
         // Инициализируем preview сцену (используем garage/preview.ts)
         this.previewScene = initPreviewScene(container);
-        
+
         if (!this.previewScene) {
             console.error('[Workshop] Failed to initialize preview scene');
             return;
         }
     }
-    
+
     private initComponents(): void {
         const modelContainer = document.getElementById('model-selector-container');
         const paramContainer = document.getElementById('parameter-editor-container');
         const attachContainer = document.getElementById('attachment-editor-container');
         const visualContainer = document.getElementById('visual-editor-container');
-        
+
         if (modelContainer) {
-            this.modelSelector = new ModelSelector(modelContainer);
+            this.modelSelector = new ModelSelector(modelContainer as HTMLDivElement);
             this.modelSelector.setOnSelect((chassisId, cannonId, trackId) => {
                 this.loadModel(chassisId, cannonId, trackId);
             });
         }
-        
+
         if (paramContainer) {
-            this.parameterEditor = new ParameterEditor(paramContainer);
+            this.parameterEditor = new ParameterEditor(paramContainer as HTMLDivElement);
         }
-        
+
         if (attachContainer && this.previewScene) {
-            this.attachmentEditor = new AttachmentPointEditor(attachContainer, this.previewScene);
+            this.attachmentEditor = new AttachmentPointEditor(attachContainer as HTMLDivElement, this.previewScene);
         }
-        
+
         if (visualContainer) {
-            this.visualEditor = new VisualEditor(visualContainer, this.previewTank);
+            this.visualEditor = new VisualEditor(visualContainer as HTMLDivElement, this.previewTank);
         }
     }
-    
+
     private loadModel(chassisId: string, cannonId: string, trackId: string): void {
         if (!this.previewScene) return;
-        
+
         // Обновляем preview (используем garage/preview.ts)
         this.previewTank = updatePreviewTank(
             this.previewTank,
@@ -137,21 +143,20 @@ export class WorkshopUI {
             trackId,
             this.previewScene.scene
         );
-        
-        // Обновляем attachment editor
+
         if (this.attachmentEditor) {
-            this.attachmentEditor.updatePreviewTank();
+            this.attachmentEditor.updatePreviewTank(this.previewTank);
         }
-        
+
         // Обновляем visual editor
         if (this.visualEditor && this.previewTank) {
             this.visualEditor.setPreviewTank(this.previewTank);
         }
-        
+
         // Загружаем параметры по умолчанию из типов
         const chassis = getChassisById(chassisId);
         const cannon = getCannonById(cannonId);
-        
+
         // Используем значения по умолчанию из типов
         this.currentConfig = {
             baseModel: { chassisId, cannonId, trackId },
@@ -190,11 +195,11 @@ export class WorkshopUI {
                 barrelColor: '#888888'
             }
         };
-        
+
         if (this.parameterEditor) {
             this.parameterEditor.setConfiguration(this.currentConfig);
         }
-        
+
         if (this.visualEditor) {
             this.visualEditor.setColors(this.currentConfig.visual || {
                 chassisColor: '#00ff00',
@@ -203,20 +208,20 @@ export class WorkshopUI {
             });
         }
     }
-    
+
     private setupHandlers(): void {
         // Close button
         document.getElementById('workshop-close')?.addEventListener('click', () => this.hide());
-        
+
         // Save button
         document.getElementById('save-tank')?.addEventListener('click', () => this.saveTank());
-        
+
         // Load button
         document.getElementById('load-tank')?.addEventListener('click', () => this.loadTank());
-        
+
         // Test button
         document.getElementById('test-tank')?.addEventListener('click', () => this.testTank());
-        
+
         // Закрытие по клику на overlay (но не на панель)
         if (this.overlay) {
             this.overlay.addEventListener('click', (e) => {
@@ -226,16 +231,16 @@ export class WorkshopUI {
             });
         }
     }
-    
+
     private saveTank(): void {
         const nameInput = document.getElementById('tank-name') as HTMLInputElement;
         const name = nameInput?.value || 'Custom Tank';
-        
+
         if (!name.trim()) {
             alert('Введите имя танка!');
             return;
         }
-        
+
         // Собираем все данные из редакторов
         const paramConfig = this.parameterEditor?.getConfiguration() || {};
         const attachmentPoints = this.attachmentEditor?.getAttachmentPoints() || {
@@ -247,9 +252,9 @@ export class WorkshopUI {
             turretColor: '#00ff00',
             barrelColor: '#888888'
         };
-        
+
         const id = `custom_${Date.now()}`;
-        
+
         const config: CustomTankConfiguration = {
             id,
             name,
@@ -291,7 +296,7 @@ export class WorkshopUI {
             createdAt: Date.now(),
             modifiedAt: Date.now()
         };
-        
+
         try {
             ConfigurationManager.save(config);
             alert(`Танк "${name}" сохранён!`);
@@ -301,46 +306,46 @@ export class WorkshopUI {
             alert('Ошибка при сохранении!');
         }
     }
-    
+
     private loadTank(): void {
         const all = ConfigurationManager.loadAll();
         if (all.length === 0) {
             alert('Нет сохранённых танков');
             return;
         }
-        
+
         // Простой список для выбора
         const list = all.map((t, i) => `${i + 1}. ${t.name} (${t.id})`).join('\n');
         const selected = prompt(`Выберите танк (введите номер 1-${all.length}):\n${list}`);
         if (!selected) return;
-        
+
         const index = parseInt(selected) - 1;
         if (isNaN(index) || index < 0 || index >= all.length) {
             alert('Неверный номер!');
             return;
         }
-        
+
         const config = all[index];
         if (config) {
             this.loadConfiguration(config);
         }
     }
-    
+
     private loadConfiguration(config: CustomTankConfiguration): void {
         this.currentConfig = config;
-        
+
         // Загружаем модель
         this.loadModel(
             config.baseModel.chassisId,
             config.baseModel.cannonId,
             config.baseModel.trackId
         );
-        
+
         // Применяем параметры
         if (this.parameterEditor) {
             this.parameterEditor.setConfiguration(config);
         }
-        
+
         // Применяем attachment points
         if (this.attachmentEditor) {
             this.attachmentEditor.setAttachmentPoints(
@@ -348,19 +353,19 @@ export class WorkshopUI {
                 config.barrelMount
             );
         }
-        
+
         // Применяем цвета
         if (this.visualEditor && config.visual) {
             this.visualEditor.setColors(config.visual);
         }
-        
+
         // Устанавливаем имя
         const nameInput = document.getElementById('tank-name') as HTMLInputElement;
         if (nameInput) {
             nameInput.value = config.name;
         }
     }
-    
+
     private testTank(): void {
         // Собираем текущую конфигурацию
         const paramConfig = this.parameterEditor?.getConfiguration() || {};
@@ -373,10 +378,10 @@ export class WorkshopUI {
             turretColor: '#00ff00',
             barrelColor: '#888888'
         };
-        
+
         const nameInput = document.getElementById('tank-name') as HTMLInputElement;
         const name = nameInput?.value || 'Test Tank';
-        
+
         const config: CustomTankConfiguration = {
             id: `test_${Date.now()}`,
             name,
@@ -418,37 +423,37 @@ export class WorkshopUI {
             createdAt: Date.now(),
             modifiedAt: Date.now()
         };
-        
+
         // Сохраняем во временное хранилище для теста
         localStorage.setItem('testCustomTank', JSON.stringify(config));
         alert('Танк сохранён для теста. Перезапустите игру (респавн) чтобы применить изменения.');
         console.log('[Workshop] Test tank saved:', config);
     }
-    
+
     show(): void {
         if (this.overlay) {
             this.overlay.classList.remove('hidden');
             this.overlay.classList.add('visible');
         }
     }
-    
+
     hide(): void {
         if (this.overlay) {
             this.overlay.classList.add('hidden');
             this.overlay.classList.remove('visible');
         }
     }
-    
+
     dispose(): void {
         if (this.attachmentEditor) {
             this.attachmentEditor.dispose();
         }
-        
+
         if (this.previewScene) {
             cleanupPreviewScene(this.previewScene);
             this.previewScene = null;
         }
-        
+
         if (this.overlay) {
             this.overlay.remove();
             this.overlay = null;

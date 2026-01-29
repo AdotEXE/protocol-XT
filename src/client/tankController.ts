@@ -98,6 +98,36 @@ export class TankController {
     private respawnCountdown = 0; // Секунды до респавна
     private respawnIntervalId: string | null = null;
 
+    /**
+     * Очищает все таймеры и интервалы для предотвращения утечек памяти
+     * Публичный метод для вызова из Game.stopGame()
+     */
+    public cleanupTimers(): void {
+        // Останавливаем интервал респавна
+        if (this.respawnIntervalId !== null) {
+            timerManager.clear(this.respawnIntervalId);
+            this.respawnIntervalId = null;
+        }
+
+        // Очищаем все таймауты
+        this.tankTimeouts.forEach(id => clearTimeout(id));
+        this.tankTimeouts = [];
+
+        // Очищаем таймауты траекторий
+        this.trajectoryTimeoutIds.forEach(id => clearTimeout(id));
+        this.trajectoryTimeoutIds = [];
+
+        // Очищаем таймауты модулей
+        if (this.module7Timeout !== null) {
+            clearTimeout(this.module7Timeout);
+            this.module7Timeout = null;
+        }
+        if (this.module8Timeout !== null) {
+            clearTimeout(this.module8Timeout);
+            this.module8Timeout = null;
+        }
+    }
+
     // Модули
     private healthModule: TankHealthModule;
     private movementModule: TankMovementModule;
@@ -115,6 +145,21 @@ export class TankController {
         shieldActive?: boolean;
         energyBoosters?: Mesh[];
     } = { animationTime: 0 };
+
+    // ============================================
+    // TRIGGER SYSTEM
+    // ============================================
+    private _lastTriggerCheck: number = 0;
+    private _cachedTriggerMeshes: AbstractMesh[] = [];
+    private _triggerCacheDirty: boolean = true; // Flag to rebuild cache periodically
+
+    // ============================================
+    // CHASSIS ACCELERATION TILT (Visual Feedback)
+    // ============================================
+    private _lastThrottleInput: number = 0;
+    private _tiltTimer: number = 0;
+    private readonly TILT_DURATION: number = 600; // ms (Increased for weightier feel)
+    private _targetTiltTorque: number = 0;
 
     // ============================================
     // SECONDARY STATS (Modules & Progression)
@@ -392,6 +437,9 @@ export class TankController {
     private module8Cooldown = 20000; // Кулдаун модуля 8 (20 секунд)
     private module8LastUse = 0; // Время последнего использования модуля 8
     private module8LastAutoFire = 0; // Время последнего автострельбы
+
+    // УПРАВЛЕНИЕ ТАЙМЕРАМИ (для предотвращения утечек памяти)
+    private tankTimeouts: NodeJS.Timeout[] = []; // Одноразовые задержки для логики танка
     // Модуль 9: Платформа (поднимающаяся платформа под танком)
     private module9Active = false; // Платформа существует
     private module9Platform: Mesh | null = null; // Меш платформы
@@ -591,9 +639,13 @@ export class TankController {
         this.projectilesModule = new TankProjectilesModule(this);
         this.visualsModule = new TankVisualsModule(this);
         this.equipment = new TankEquipmentModule(this);
+        // Note: Equipment visuals are NOT created yet. We must wait for rebuildTankVisuals.
 
         // 6. Build visuals and load configuration
         this.rebuildTankVisuals(position);
+
+        // 6.1 Initialize Equipment (Now that visuals exist)
+        this.equipment.initialize();
 
         // 7. Loop & Inputs (Run ONCE)
         scene.onBeforePhysicsObservable.add(() => this.updatePhysics());
@@ -608,6 +660,25 @@ export class TankController {
 
         // 4. Inputs
         this.setupInput();
+
+        // 5. Connect Upgrade System
+        // Listen for upgrades and level ups to apply bonuses immediately
+        upgradeManager.onUpgrade((category, elementId, newLevel) => {
+            logger.log(`[Tank] Upgrade applied: ${category} ${elementId} -> Lv${newLevel}`);
+            this.applyUpgrades();
+            if (this.hud) {
+                this.hud.showNotification(`Upgrade Complete: ${elementId} Lv.${newLevel}`);
+            }
+        });
+
+        upgradeManager.onPlayerLevelUp((newLevel) => {
+            logger.log(`[Tank] Level Up: ${newLevel}`);
+            this.applyUpgrades();
+            // HUD notification is handled by UpgradeUI listeners, but we can add effects here
+            if (this.effectsManager) {
+                // TODO: Add level up particle effect
+            }
+        });
 
         logger.log("TankController: Init Success");
     }
@@ -1006,18 +1077,8 @@ export class TankController {
         this.resetBaseStats();
 
         // Применяем улучшения (они модифицируют базовые характеристики)
+        // applyUpgrades теперь сама обновляет _initial* статы ПЕРЕД применением оборудования
         this.applyUpgrades();
-
-        // Сохраняем начальные характеристики для последующих сбросов
-        this._initialMaxHealth = this.maxHealth;
-        this._initialMoveSpeed = this.moveSpeed;
-        this._initialDamage = this.damage;
-        this._initialCooldown = this.cooldown;
-        this._initialProjectileSpeed = this.projectileSpeed;
-        this._initialTurretSpeed = this.turretSpeed;
-        this._initialBaseTurretSpeed = this.baseTurretSpeed;
-        this._characteristicsInitialized = true;
-        logger.log(`[TANK-REBUILD] Stats updated: HP=${this._initialMaxHealth}, Speed=${this._initialMoveSpeed}, Damage=${this._initialDamage}`);
 
         // 1. Visuals - создаём уникальные формы для каждого типа корпуса
 
@@ -1423,17 +1484,9 @@ export class TankController {
     }
 
     die() {
-        // In multiplayer, use the server-based respawn flow
-        if (this.onRespawnRequest) {
-            return this.healthModule.die(() => {
-                console.log("[TankController] Death timer finished, requesting respawn from server...");
-                if (this.hud) this.hud.hideDeathScreen();
-                if (this.onRespawnRequest) {
-                    this.onRespawnRequest();
-                }
-            });
-        }
-        // Fallback to garage respawn for single-player
+        // ALWAYS use healthModule.die() to ensure death animation and garage assembly sequence runs.
+        // In MP, TankHealthModule will call onRespawnRequest (if set) to notify server, 
+        // but will continue local animation sequence.
         return this.healthModule.die();
     }
 
@@ -1566,10 +1619,39 @@ export class TankController {
             // === 5. БОНУСЫ ОТ СИСТЕМЫ ПРОКАЧКИ (UpgradeManager) ===
             this.applyUpgradeManagerBonuses();
 
-            // Обновляем текущее здоровье
+            // Обновляем текущее здоровье (чтобы оно соответствовало новому максимуму)
+            // ПРИМЕЧАНИЕ: Если мы хотим сохранить "текущее здоровье" процентно, нужно другое решение.
+            // Но при applyUpgrades (обычно в гараже или респавне) полный хил логичен.
             this.currentHealth = this.maxHealth;
 
-            logger.log(`[Tank] Final stats: HP=${this.maxHealth}, Speed=${this.moveSpeed.toFixed(1)}, Damage=${this.damage}, Reload=${this.cooldown}ms, ProjSpeed=${this.projectileSpeed}`);
+            // КРИТИЧНО: Сохраняем "Базовые + Прогресс" характеристики перед применением оборудования!
+            // EquipmentModule использует _initial* значения для наложения мультипликаторов.
+            // Если не обновить их здесь, equipment будет использовать старые значения (от предыдущего шасси/жизни).
+            this._initialMaxHealth = this.maxHealth;
+            this._initialMoveSpeed = this.moveSpeed;
+            this._initialDamage = this.damage;
+            this._initialCooldown = this.cooldown;
+            // Cooldown может быть меньше baseCooldown. Обновляем и baseCooldown если нужно?
+            // baseCooldown используется как база для speed multipliers.
+            // this.baseCooldown = this.cooldown; 
+
+            this._initialProjectileSpeed = this.projectileSpeed;
+            this._initialTurretSpeed = this.turretSpeed;
+            this._initialBaseTurretSpeed = this.baseTurretSpeed;
+            this._characteristicsInitialized = true;
+            logger.log(`[Tank] Base+Progression Stats captured: HP=${this._initialMaxHealth}, Speed=${this._initialMoveSpeed.toFixed(1)}, Damage=${this._initialDamage}`);
+
+            // Обновляем визуализацию модулей
+            this.updateModuleVisuals();
+
+            // REFRESH EQUIPMENT VISUALS (Fix for "Parent mesh not ready")
+            // Now that new chassis/turret/barrel meshes exist, re-attach equipment
+            if (this.equipment) {
+                // This will apply multipliers on top of the _initial* stats we just captured
+                this.equipment.refreshVisuals();
+            }
+
+            logger.log(`[Tank] Final stats (with Equipment): HP=${this.maxHealth}, Speed=${this.moveSpeed.toFixed(1)}, Damage=${this.damage}, Reload=${this.cooldown}ms, ProjSpeed=${this.projectileSpeed}`);
         } catch (e) {
             logger.warn("[Tank] Failed to apply upgrades:", e);
         }
@@ -1976,17 +2058,18 @@ export class TankController {
             this.physicsBody.setAngularVelocity(Vector3.Zero());
 
             // Шаг 7: Восстанавливаем disablePreStep после одного кадра
-            setTimeout(() => {
+            const timeoutId1 = setTimeout(() => {
                 if (this.physicsBody) {
                     this.physicsBody.disablePreStep = true;
                 }
             }, 0);
+            this.tankTimeouts.push(timeoutId1);
 
             // 6. Активируем защиту от урона
             this.activateInvulnerability();
 
             // 7. Дополнительная проверка через задержку (SAFETY CHECK)
-            setTimeout(() => {
+            const timeoutId2 = setTimeout(() => {
                 if (this.physicsBody && this.chassis) {
                     // А. Проверяем не провалился ли танк в пол
                     const rayOrigin = this.chassis.absolutePosition.clone();
@@ -2003,9 +2086,10 @@ export class TankController {
                         this.chassis.computeWorldMatrix(true);
                         this.physicsBody.setTargetTransform(this.chassis.position, this.chassis.rotationQuaternion || Quaternion.Identity());
 
-                        setTimeout(() => {
+                        const timeoutId3 = setTimeout(() => {
                             if (this.physicsBody) this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
                         }, 50);
+                        this.tankTimeouts.push(timeoutId3);
                     }
 
                     // Б. Проверяем ориентацию (переворот)
@@ -2036,12 +2120,15 @@ export class TankController {
                         this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
                         this.physicsBody.setLinearVelocity(Vector3.Zero());
 
-                        setTimeout(() => {
-                            if (this.physicsBody) this.physicsBody.disablePreStep = true;
-                        }, 50);
+                        // FIX: Do NOT disable PreStep again. Keep it false (enabled) for active movement.
+                        if (this.physicsBody) {
+                            this.physicsBody.disablePreStep = false;
+                        }
+
                     }
                 }
             }, 500); // Check after 500ms physics settling
+            this.tankTimeouts.push(timeoutId2);
         } else {
             logger.error("[TANK] Cannot complete respawn - chassis missing!");
         }
@@ -2196,7 +2283,8 @@ export class TankController {
 
         // КРИТИЧНО: Отправляем событие ТОЛЬКО ОДИН РАЗ!
         // Повторная отправка сбрасывает cameraYaw и вызывает дёрганье башни к центру
-        setTimeout(sendRespawnEvent, 0);
+        const timeoutId = setTimeout(sendRespawnEvent, 0);
+        this.tankTimeouts.push(timeoutId);
 
         // Сообщение в чат о респавне (БЕЗ визуальных эффектов - пункт 16!)
         if (this.chatSystem) {
@@ -2376,14 +2464,12 @@ export class TankController {
                     this.physicsBody.setLinearVelocity(Vector3.Zero());
                     this.physicsBody.setAngularVelocity(Vector3.Zero());
 
-                    // Восстанавливаем disablePreStep после синхронизации
-                    setTimeout(() => {
-                        if (this.physicsBody) {
-                            this.physicsBody.disablePreStep = true;
-                            this.physicsBody.setLinearVelocity(Vector3.Zero());
-                            this.physicsBody.setAngularVelocity(Vector3.Zero());
-                        }
-                    }, 10);
+                    // DisablePreStep freezing REMOVED to fix movement regression
+                    // The tank must have PreStep ENABLED to move physically (apply forces)
+                    if (this.physicsBody) {
+                        this.physicsBody.disablePreStep = false;
+                    }
+
 
                     logger.log(`[TANK] Physics re-enabled at garage position`);
                 }
@@ -2836,12 +2922,9 @@ export class TankController {
             this.lastShotTime = now;
             this.isReloading = true;
 
-
-
-            // Start reload on HUD
-            // Start reload on HUD - REMOVED (logic moved to updateHUD)
+            // ИСПРАВЛЕНО: Запускаем перезарядку на HUD
             if (this.hud) {
-                // this.hud.startReload(this.cooldown); // Removed
+                this.hud.startReload(this.cooldown);
                 this.hud.notifyPlayerShot(); // Tutorial notification
             }
 
@@ -4644,6 +4727,60 @@ export class TankController {
         }
     }
 
+    /**
+     * Check map triggers (custom map zones)
+     */
+    private checkTriggers(dt: number): void {
+        const now = performance.now();
+        if (now - this._lastTriggerCheck < 200) return; // Chech every 200ms
+        this._lastTriggerCheck = now;
+
+        if (!this.chassis || this.chassis.isDisposed()) return;
+
+        // Rebuild cache if needed (e.g. every 5 seconds or if empty)
+        if (this._triggerCacheDirty || (now % 5000 < 200 && this._cachedTriggerMeshes.length === 0)) {
+            this._cachedTriggerMeshes = [];
+            this.scene.meshes.forEach(mesh => {
+                if (mesh.metadata && mesh.metadata.isTrigger && mesh.isEnabled()) {
+                    this._cachedTriggerMeshes.push(mesh);
+                }
+            });
+            this._triggerCacheDirty = false;
+        }
+
+        for (const trigger of this._cachedTriggerMeshes) {
+            if (trigger.isDisposed()) {
+                this._triggerCacheDirty = true;
+                continue;
+            }
+
+            if (trigger.intersectsMesh(this.chassis, false)) { // AABB check is faster
+                const type = trigger.metadata.triggerType;
+
+                if (type === 'damage') {
+                    // Deal 10 damage per second (2dmg per 0.2s tick)
+                    if (this.healthModule) {
+                        this.takeDamage(2);
+                        if (this.effectsManager) {
+                            // Visual feedback?
+                        }
+                    }
+                } else if (type === 'heal') {
+                    // Heal 10 HP per second
+                    if (this.healthModule) {
+                        this.heal(2);
+                    }
+                } else if (type === 'teleport') {
+                    // Teleport logic requires destination. 
+                    // For now, just log interaction.
+                    // Ideally metadata has targetPos.
+                    // If no target, maybe random jump?
+                    // console.log("Teleport trigger hit!");
+                }
+            }
+        }
+    }
+
     updatePhysics() {
         // Защитные проверки для предотвращения крашей
         if (!this.chassis || !this.physicsBody) return;
@@ -4726,7 +4863,56 @@ export class TankController {
             // Update Health (Passive repair, Invulnerability)
             this.healthModule.update(dt);
 
-            this.updateInputs();
+            // Check Map Triggers
+            this.checkTriggers(dt);
+
+            // === CHASSIS ACCELERATION TILT ===
+            // Detect start of movement
+            const currentThrottle = this.throttleTarget; // -1 to 1
+            const throttleDelta = currentThrottle - this._lastThrottleInput;
+
+            // Trigger tilt only on significant input change (acceleration start)
+            // e.g. 0 -> 1 (Start Forward) or 0 -> -1 (Start Backward)
+            // OR -1 -> 1 (Quick Reverse) -> Allows "Rocking" the tank!
+            if (Math.abs(throttleDelta) > 0.5) {
+                // Forward Start (0 -> 1): Lift Front -> Negative Pitch Torque (Babylon)
+                // Backward Start (0 -> -1): Lift Rear (Nose Down) -> Positive Pitch Torque
+                const tiltDirection = Math.sign(currentThrottle);
+                // Force Magnitude - Increased to 15000 for physical aim impact
+                this._targetTiltTorque = -tiltDirection * 15000;
+                this._tiltTimer = this.TILT_DURATION;
+            }
+
+            // Apply Tilt Torque
+            if (this._tiltTimer > 0) {
+                this._tiltTimer -= (dt * 1000);
+
+                // Fade out effect
+                const intensity = Math.max(0, this._tiltTimer / this.TILT_DURATION);
+                const currentTorque = this._targetTiltTorque * intensity;
+
+                // Apply torque around Local X axis (Pitch)
+                // Use a temporary vector to transform local X to world space
+                const localX = this.chassis.getDirection(new Vector3(1, 0, 0));
+                const torqueVector = localX.scale(currentTorque);
+                this.applyTorque(torqueVector);
+            }
+
+            this._lastThrottleInput = currentThrottle;
+            // =================================
+
+            // Disable inputs if menu is open
+            const game = (window as any).gameInstance;
+            if (game && game.isMenuOpen) {
+                // Zero out inputs to prevent stuck controls
+                this.movementModule.setInputs(0, 0); // Assuming movementModule handles state
+                // If inputs are stored on this, reset them too (safe bet)
+                (this as any).throttleTarget = 0;
+                (this as any).steerTarget = 0;
+                (this as any).turretTurnTarget = 0;
+            } else {
+                this.updateInputs();
+            }
 
             const body = this.physicsBody;
 
@@ -8220,17 +8406,19 @@ export class TankController {
                 frame++;
                 shield.scaling.setAll(Math.sin(frame * 0.1) * 0.05 + 1.0);
                 shield.rotation.y += 0.02;
-                setTimeout(animate, 50);
+                const timeoutId = setTimeout(animate, 50);
+                this.tankTimeouts.push(timeoutId);
             };
             animate();
             (this.chassisAnimationElements as any).shieldVisual = shield;
         }
         if (this.hud) this.hud.addActiveEffect("Энергощит", "🛡️", "#0f5", 8000);
         if (this.chatSystem) this.chatSystem.success("🛡️ Энергощит активирован!");
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             this.chassisAnimationElements.shieldActive = false;
             if (this.hud) this.hud.removeActiveEffect("Энергощит");
         }, 8000);
+        this.tankTimeouts.push(timeoutId);
     }
 
     private activateDrones(): void {
@@ -8257,12 +8445,14 @@ export class TankController {
                     t += 0.1;
                     drone.position.y = this.chassis.absolutePosition.y + 2 + Math.sin(t) * 0.3;
                     drone.rotation.y += 0.1;
-                    setTimeout(animate, 50);
+                    const timeoutId = setTimeout(animate, 50);
+                    this.tankTimeouts.push(timeoutId);
                 };
                 animate();
             }
         }
-        setTimeout(() => { if (this.hud) this.hud.removeActiveEffect("Дроны"); }, 15000);
+        const timeoutId = setTimeout(() => { if (this.hud) this.hud.removeActiveEffect("Дроны"); }, 15000);
+        this.tankTimeouts.push(timeoutId);
     }
 
     private activateCommandAura(): void {

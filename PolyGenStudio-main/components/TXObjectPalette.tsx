@@ -3,7 +3,7 @@
  * UI for selecting and placing TX map objects
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
     TX_OBJECTS_BY_CATEGORY,
     TX_CATEGORY_NAMES,
@@ -14,26 +14,121 @@ import {
 import { CubeElement } from '../types';
 
 interface TXObjectPaletteProps {
-    onPlaceObject: (cubes: CubeElement[]) => void;
-    isMapMode: boolean;
+    onPlaceObject?: (cubes: CubeElement[]) => void;
+    isMapMode?: boolean; // Сделаем опциональным с дефолтным значением
     onDragStart?: (itemType: string) => void;
 }
 
-export const TXObjectPalette: React.FC<TXObjectPaletteProps> = ({ onPlaceObject, isMapMode, onDragStart }) => {
+export const TXObjectPalette: React.FC<TXObjectPaletteProps> = ({ 
+    onPlaceObject, 
+    isMapMode = false, // Дефолтное значение
+    onDragStart 
+}) => {
     const [selectedCategory, setSelectedCategory] = useState<TXObjectCategory>('buildings');
     const [hoveredObject, setHoveredObject] = useState<TXObjectDefinition | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
+    // КРИТИЧНО: Ранний возврат если не в режиме карты
     if (!isMapMode) {
         return null;
     }
 
     const handleObjectClick = (def: TXObjectDefinition) => {
         // Place object at origin, user will move it
-        const cubes = txObjectToCubes(def, { x: 0, y: 0, z: 0 });
-        onPlaceObject(cubes);
+        if (!onPlaceObject) {
+            console.warn('[TXObjectPalette] onPlaceObject is not defined');
+            return;
+        }
+        try {
+            if (!def || !def.id) {
+                console.warn('[TXObjectPalette] Invalid object definition:', def);
+                return;
+            }
+            const cubes = txObjectToCubes(def, { x: 0, y: 0, z: 0 });
+            if (cubes && Array.isArray(cubes) && cubes.length > 0) {
+                onPlaceObject(cubes);
+            }
+        } catch (error) {
+            console.error('[TXObjectPalette] Error placing object:', error);
+            setError(error instanceof Error ? error.message : 'Unknown error');
+        }
     };
 
-    const categories = Object.keys(TX_OBJECTS_BY_CATEGORY) as TXObjectCategory[];
+    // Защитная проверка - если данные не загружены, показываем заглушку
+    if (!TX_OBJECTS_BY_CATEGORY || !TX_CATEGORY_NAMES) {
+        return (
+            <div className="tx-object-palette">
+                <div style={{ color: '#f00', padding: '20px', textAlign: 'center' }}>
+                    ⚠️ Ошибка загрузки объектов
+                </div>
+            </div>
+        );
+    }
+
+    // Обработка ошибок
+    if (error) {
+        return (
+            <div className="tx-object-palette">
+                <div style={{ color: '#f00', padding: '20px', textAlign: 'center' }}>
+                    ⚠️ Ошибка: {error}
+                </div>
+            </div>
+        );
+    }
+
+    // КРИТИЧНО: Используем useMemo для безопасного вычисления категорий
+    const categories = useMemo(() => {
+        try {
+            if (!TX_OBJECTS_BY_CATEGORY || !TX_CATEGORY_NAMES) {
+                console.warn('[TXObjectPalette] TX_OBJECTS_BY_CATEGORY or TX_CATEGORY_NAMES is undefined');
+                return [];
+            }
+            const validCategories = Object.keys(TX_OBJECTS_BY_CATEGORY).filter(
+                cat => {
+                    try {
+                        const category = cat as TXObjectCategory;
+                        const objects = TX_OBJECTS_BY_CATEGORY[category];
+                        const names = TX_CATEGORY_NAMES[category];
+                        return !!(objects && Array.isArray(objects) && objects.length > 0 && names && names.icon);
+                    } catch (e) {
+                        console.warn('[TXObjectPalette] Error filtering category:', cat, e);
+                        return false;
+                    }
+                }
+            ) as TXObjectCategory[];
+            return validCategories.length > 0 ? validCategories : ['buildings']; // Fallback
+        } catch (error) {
+            console.error('[TXObjectPalette] Error computing categories:', error);
+            return ['buildings']; // Fallback к первой категории
+        }
+    }, []);
+    
+    // КРИТИЧНО: Проверяем что selectedCategory валидный, иначе используем первую доступную
+    const validSelectedCategory = useMemo(() => {
+        if (categories.length === 0) return 'buildings';
+        return categories.includes(selectedCategory) ? selectedCategory : categories[0];
+    }, [categories, selectedCategory]);
+    
+    const currentCategoryObjects = useMemo(() => {
+        try {
+            return TX_OBJECTS_BY_CATEGORY[validSelectedCategory] || [];
+        } catch (error) {
+            console.error('[TXObjectPalette] Error getting category objects:', error);
+            return [];
+        }
+    }, [validSelectedCategory]);
+    
+    // Фильтруем объекты без id (защита от undefined)
+    const validObjects = useMemo(() => {
+        try {
+            return currentCategoryObjects.filter((obj): obj is TXObjectDefinition => {
+                return !!(obj && obj.id && typeof obj.id === 'string');
+            });
+        } catch (error) {
+            console.error('[TXObjectPalette] Error filtering objects:', error);
+            return [];
+        }
+    }, [currentCategoryObjects]);
 
     return (
         <div className="tx-object-palette">
@@ -43,60 +138,126 @@ export const TXObjectPalette: React.FC<TXObjectPaletteProps> = ({ onPlaceObject,
             </div>
 
             <div className="category-tabs">
-                {categories.map(cat => (
-                    <button
-                        key={cat}
-                        className={`category-tab ${selectedCategory === cat ? 'active' : ''}`}
-                        onClick={() => setSelectedCategory(cat)}
-                        title={TX_CATEGORY_NAMES[cat].ru}
-                    >
-                        {TX_CATEGORY_NAMES[cat].icon}
-                    </button>
-                ))}
+                {categories && Array.isArray(categories) && categories.length > 0 ? (
+                    categories
+                        .filter(cat => {
+                            try {
+                                // КРИТИЧНО: Фильтруем только валидные категории с полной информацией
+                                if (!cat || !TX_CATEGORY_NAMES) return false;
+                                const catInfo = TX_CATEGORY_NAMES[cat];
+                                return !!(catInfo && catInfo.icon && typeof catInfo.icon === 'string');
+                            } catch (e) {
+                                console.warn('[TXObjectPalette] Error filtering category:', cat, e);
+                                return false;
+                            }
+                        })
+                        .map(cat => {
+                            try {
+                                if (!cat || !TX_CATEGORY_NAMES) return null;
+                                const catInfo = TX_CATEGORY_NAMES[cat];
+                                if (!catInfo || !catInfo.icon) {
+                                    console.warn('[TXObjectPalette] Invalid category info:', cat);
+                                    return null;
+                                }
+                                // КРИТИЧНО: Проверяем что icon это строка, не React элемент
+                                const iconDisplay = typeof catInfo.icon === 'string' ? catInfo.icon : String(catInfo.icon || '📁');
+                                const titleText = (catInfo.ru || catInfo.en || cat || '').toString();
+                                return (
+                                    <button
+                                        key={cat}
+                                        className={`category-tab ${validSelectedCategory === cat ? 'active' : ''}`}
+                                        onClick={() => setSelectedCategory(cat)}
+                                        title={titleText}
+                                    >
+                                        {iconDisplay}
+                                    </button>
+                                );
+                            } catch (e) {
+                                console.error('[TXObjectPalette] Error rendering category button:', cat, e);
+                                return null;
+                            }
+                        })
+                        .filter((item): item is JSX.Element => item !== null && item !== undefined)
+                ) : (
+                    <div style={{ color: '#888', padding: '10px', textAlign: 'center' }}>
+                        Нет доступных категорий
+                    </div>
+                )}
             </div>
+            
+            {categories.length === 0 && (
+                <div style={{ color: '#f00', padding: '10px', textAlign: 'center' }}>
+                    ⚠️ Категории не загружены
+                </div>
+            )}
 
             {/* Category Label */}
             <div className="category-label">
-                {TX_CATEGORY_NAMES[selectedCategory].ru}
+                {TX_CATEGORY_NAMES[validSelectedCategory]?.ru || TX_CATEGORY_NAMES[validSelectedCategory]?.en || validSelectedCategory || 'Unknown'}
             </div>
 
             {/* Objects Grid */}
             <div className="objects-grid">
-                {TX_OBJECTS_BY_CATEGORY[selectedCategory].map(obj => (
-                    <div
-                        key={obj.id}
-                        className="object-item"
-                        draggable={true}
-                        onDragStart={(e) => {
-                            if (onDragStart) onDragStart(obj.id);
-                            e.dataTransfer.effectAllowed = 'copy';
-                            // Use empty image to prevent default drag ghost (we render our own in 3D)
-                            const img = new Image();
-                            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-                            e.dataTransfer.setDragImage(img, 0, 0);
-                        }}
-                        onClick={() => handleObjectClick(obj)}
-                        onDoubleClick={() => handleObjectClick(obj)}
-                        onMouseEnter={() => setHoveredObject(obj)}
-                        onMouseLeave={() => setHoveredObject(null)}
-                        title={`${obj.description} - Двойной клик для быстрого спавна`}
-                    >
-                        <span className="object-icon">{obj.icon}</span>
-                        <span className="object-name">{obj.nameRu}</span>
+                {validObjects.length === 0 ? (
+                    <div style={{ color: '#888', padding: '10px', textAlign: 'center', gridColumn: 'span 2' }}>
+                        Нет объектов в категории
                     </div>
-                ))}
+                ) : validObjects
+                    .filter((obj): obj is TXObjectDefinition => {
+                        // КРИТИЧНО: Строгая проверка что объект валидный
+                        return !!(obj && obj.id && typeof obj.id === 'string');
+                    })
+                    .map(obj => {
+                        // КРИТИЧНО: Проверяем что icon это строка, не React элемент
+                        const iconDisplay = typeof obj.icon === 'string' ? obj.icon : String(obj.icon || '📦');
+                        const nameDisplay = (obj.nameRu || obj.name || 'Object').toString();
+                        const descDisplay = (obj.description || '').toString();
+                        
+                        return (
+                            <div
+                                key={obj.id}
+                                className="object-item"
+                                draggable={true}
+                                onDragStart={(e) => {
+                                    try {
+                                        if (onDragStart && obj && obj.id) {
+                                            onDragStart(obj.id);
+                                        }
+                                        e.dataTransfer.effectAllowed = 'copy';
+                                        // Use empty image to prevent default drag ghost (we render our own in 3D)
+                                        const img = new Image();
+                                        img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+                                        e.dataTransfer.setDragImage(img, 0, 0);
+                                    } catch (error) {
+                                        console.error('[TXObjectPalette] Error in onDragStart:', error);
+                                    }
+                                }}
+                                onClick={() => handleObjectClick(obj)}
+                                onDoubleClick={() => handleObjectClick(obj)}
+                                onMouseEnter={() => setHoveredObject(obj)}
+                                onMouseLeave={() => setHoveredObject(null)}
+                                title={`${descDisplay} - Двойной клик для быстрого спавна`}
+                            >
+                                <span className="object-icon">{iconDisplay}</span>
+                                <span className="object-name">{nameDisplay}</span>
+                            </div>
+                        );
+                    })
+                    .filter((item): item is JSX.Element => item !== null && item !== undefined)}
             </div>
 
             {/* Hover Preview */}
             {hoveredObject && (
                 <div className="object-preview">
                     <div className="preview-header">
-                        <span className="preview-icon">{hoveredObject.icon}</span>
-                        <span className="preview-name">{hoveredObject.nameRu}</span>
+                        <span className="preview-icon">{typeof hoveredObject.icon === 'string' ? hoveredObject.icon : String(hoveredObject.icon || '📦')}</span>
+                        <span className="preview-name">{hoveredObject.nameRu || hoveredObject.name || 'Object'}</span>
                     </div>
-                    <div className="preview-desc">{hoveredObject.description}</div>
+                    <div className="preview-desc">{hoveredObject.description || ''}</div>
                     <div className="preview-stats">
-                        <div>📏 {hoveredObject.size.x}x{hoveredObject.size.y}x{hoveredObject.size.z}</div>
+                        {hoveredObject.size && (
+                            <div>📏 {hoveredObject.size.x}x{hoveredObject.size.y}x{hoveredObject.size.z}</div>
+                        )}
                         <div>
                             {hoveredObject.hasCollision ? '🛡️ Коллизия' : '👻 Без коллизии'}
                         </div>

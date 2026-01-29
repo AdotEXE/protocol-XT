@@ -42,7 +42,7 @@ export class ConfigManager {
         return {
             server: {
                 host: 'localhost',
-                port: 8080,
+                port: 8000,
                 reconnectInterval: 5000
             },
             client: {

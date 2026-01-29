@@ -54,7 +54,7 @@ export class FreeLookZone {
     private indicatorText: TextBlock | null = null;
 
     // Состояние
-    private isActive: boolean = false;
+    private _isActive: boolean = false;
     private pointerId: number | null = null;
     private lastX: number = 0;
     private lastY: number = 0;
@@ -153,7 +153,7 @@ export class FreeLookZone {
             // Проверяем, попало ли касание в зону free-look
             if (this.isPointInZone(x, y, canvasWidth, canvasHeight)) {
                 e.preventDefault();
-                this.isActive = true;
+                this._isActive = true;
                 this.pointerId = touch.identifier;
                 this.lastX = x;
                 this.lastY = y;
@@ -180,7 +180,7 @@ export class FreeLookZone {
      * Обработка движения касания
      */
     private handleTouchMove(e: TouchEvent): void {
-        if (!this.isActive || this.pointerId === null) return;
+        if (!this._isActive || this.pointerId === null) return;
 
         const canvas = this.guiTexture.getScene()?.getEngine().getRenderingCanvas();
         if (!canvas) return;
@@ -215,7 +215,7 @@ export class FreeLookZone {
      * Обработка окончания касания
      */
     private handleTouchEnd(e: TouchEvent): void {
-        if (!this.isActive || this.pointerId === null) return;
+        if (!this._isActive || this.pointerId === null) return;
 
         for (let i = 0; i < e.changedTouches.length; i++) {
             const touch = e.changedTouches[i];
@@ -226,7 +226,7 @@ export class FreeLookZone {
                 this.indicator.alpha = 0;
             }
 
-            this.isActive = false;
+            this._isActive = false;
             this.pointerId = null;
             this.deltaX = 0;
             this.deltaY = 0;
@@ -267,7 +267,7 @@ export class FreeLookZone {
      * Проверить, активна ли зона
      */
     isActive(): boolean {
-        return this.isActive;
+        return this._isActive;
     }
 
     /**
@@ -275,8 +275,8 @@ export class FreeLookZone {
      */
     setEnabled(enabled: boolean): void {
         // Можно добавить логику для полного отключения зоны
-        if (!enabled && this.isActive) {
-            this.isActive = false;
+        if (!enabled && this._isActive) {
+            this._isActive = false;
             this.pointerId = null;
             if (this.indicator) {
                 this.indicator.alpha = 0;

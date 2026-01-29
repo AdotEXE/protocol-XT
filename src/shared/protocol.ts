@@ -1,5 +1,6 @@
 import { ClientMessageType, ServerMessageType } from "./messages";
 import type { ClientMessage, ServerMessage } from "./messages";
+import { binaryWriterPool } from "./protocolPool";
 // Dynamic import for MessagePack (only loaded when USE_BINARY_SERIALIZATION is true)
 // import { encode, decode } from "@msgpack/msgpack";
 
@@ -116,7 +117,7 @@ export class BinaryWriter {
 /**
  * Binary Reader Helper
  */
-class BinaryReader {
+export class BinaryReader {
     private view: DataView;
     private offset = 0;
     private decoder = new TextDecoder();
@@ -336,6 +337,13 @@ function serializePlayerStates(writer: BinaryWriter, data: any): void {
         writer.writeString(p.name || "");
         writer.writeString(p.chassisType || "");
         writer.writeString(p.cannonType || "");
+
+        // Modules serialization
+        const modules = p.modules || [];
+        writer.writeUint8(modules.length);
+        for (const module of modules) {
+            writer.writeString(module);
+        }
     }
 }
 
@@ -385,6 +393,13 @@ function deserializePlayerStates(reader: BinaryReader): any {
         const chassisType = reader.readString();
         const cannonType = reader.readString();
 
+        // Modules deserialization
+        const modulesCount = reader.readUint8();
+        const modules: string[] = [];
+        for (let m = 0; m < modulesCount; m++) {
+            modules.push(reader.readString());
+        }
+
         players.push({
             id,
             position,
@@ -402,7 +417,8 @@ function deserializePlayerStates(reader: BinaryReader): any {
             team,
             name,
             chassisType,
-            cannonType
+            cannonType,
+            modules // Add modules to player data
         });
     }
 
@@ -768,6 +784,18 @@ export function deserializeMessage<T extends ClientMessage | ServerMessage>(data
 
             // Quick heuristic: If packetType is > 5 (likely a legacy TYPE_MARKER), treat whole buffer as legacy
             if (packetType > 5) {
+                // HANDLE JSON FALLBACK: If marker is 123 ('{'), it's likely a JSON string sent as buffer
+                if (packetType === 123) {
+                    try {
+                        const decoder = new TextDecoder();
+                        const jsonStr = decoder.decode(buffer);
+                        const parsed = JSON.parse(jsonStr);
+                        return plainObjectToMessage<T>(parsed);
+                    } catch (e) {
+                        // Not JSON, continue to legacy binary
+                    }
+                }
+
                 // Rewind and read whole buffer as legacy
                 const decoded = deserializeFromBinary(buffer);
                 return plainObjectToMessage<T>(decoded);

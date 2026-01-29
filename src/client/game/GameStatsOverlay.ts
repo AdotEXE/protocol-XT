@@ -162,6 +162,46 @@ export class GameStatsOverlay {
         accuracy: string;
         playTime: string;
     } {
+        // ИСПРАВЛЕНО: Используем статистику только для текущей комнаты/матча
+        const tracker = this.deps.realtimeStatsTracker;
+        const currentRoomId = this.deps.multiplayerManager?.getRoomId?.() || null;
+        const trackerRoomId = tracker?.getCurrentRoomId?.() || null;
+
+        // Если есть RealtimeStatsTracker и roomId совпадает - используем статистику матча
+        if (tracker && currentRoomId && trackerRoomId === currentRoomId) {
+            const localStats = tracker.getLocalPlayerStats();
+            if (localStats) {
+                const playerKD = localStats.deaths > 0
+                    ? (localStats.kills / localStats.deaths).toFixed(2)
+                    : localStats.kills.toFixed(2);
+
+                // Общая статистика (level, credits, playTime) берем из playerProgression
+                let playerLevel = 1;
+                let playerCredits = 0;
+                let playerPlayTime = "0h 0m";
+                if (this.deps.playerProgression) {
+                    const stats = this.deps.playerProgression.getStats();
+                    playerLevel = stats.level || 1;
+                    playerPlayTime = this.deps.playerProgression.getPlayTimeFormatted();
+                }
+                if (this.deps.currencyManager) {
+                    playerCredits = this.deps.currencyManager.getCurrency();
+                }
+
+                return {
+                    kills: localStats.kills,
+                    deaths: localStats.deaths,
+                    credits: playerCredits,
+                    kd: playerKD,
+                    level: playerLevel,
+                    damage: Math.round(localStats.damageDealt || 0),
+                    accuracy: "0%", // TODO: Добавить расчет точности для матча
+                    playTime: playerPlayTime
+                };
+            }
+        }
+
+        // FALLBACK: Используем общую статистику если нет данных матча
         let playerKills = 0;
         let playerDeaths = 0;
         let playerCredits = 0;

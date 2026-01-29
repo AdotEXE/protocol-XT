@@ -3,7 +3,7 @@
  */
 
 import { TankPart } from "./GarageTypes";
-import { CHASSIS_TYPES, CANNON_TYPES } from "../tankTypes";
+import { CHASSIS_TYPES, CANNON_TYPES, calculateDPS } from "../tankTypes";
 import { TRACK_TYPES } from "../trackTypes";
 import { MODULE_PRESETS } from "../tank/modules";
 import { SUPPLY_PRESETS } from "../tank/supplies";
@@ -109,8 +109,8 @@ export function generateCannonParts(): TankPart[] {
         const damageMultiplier = 8;
         const dpsMultiplier = 50;
         
-        // Calculate DPS (damage per second)
-        const dps = (cannon.damage / (cannon.cooldown / 1000));
+        // ИСПРАВЛЕНО: Используем calculateDPS для единообразного расчета DPS
+        const dps = calculateDPS(cannon);
         
         let cost = baseCost + (cannon.damage * damageMultiplier) + (dps * dpsMultiplier);
         

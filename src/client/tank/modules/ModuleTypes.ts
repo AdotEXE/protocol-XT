@@ -8,6 +8,23 @@ export interface ModuleType {
     cost: number;
     unlocked: boolean;
     type: "module";
+    /**
+     * Точка крепления модуля на танке (визуальный/геймплейный якорь).
+     * Используется в enemyTank/createModuleVisuals.
+     */
+    attachmentPoint?: string;
+    /**
+     * Цвет модуля в HEX формате (#rrggbb).
+     */
+    color?: string;
+    /**
+     * Масштаб визуальной модели модуля.
+     */
+    scale?: number;
+    /**
+     * Идентификатор модели/пресета для отрисовки (box_small, cylinder_pair, и т.п.).
+     */
+    modelPath?: string;
     stats: {
         armor?: number;
         speed?: number;

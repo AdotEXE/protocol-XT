@@ -61,7 +61,7 @@ JSON файл будет выглядеть примерно так:
 FIREBASE_PROJECT_ID=your-project-id
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n"
 FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com
-PORT=8080
+PORT=8000
 ```
 
 **⚠️ ВАЖНО для FIREBASE_PRIVATE_KEY:**
@@ -82,7 +82,7 @@ PORT=8080
 $env:FIREBASE_PROJECT_ID="your-project-id"
 $env:FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n"
 $env:FIREBASE_CLIENT_EMAIL="firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com"
-$env:PORT="8080"
+$env:PORT="8000"
 ```
 
 **Примечание:** Эти переменные действуют только в текущей сессии PowerShell.
@@ -95,7 +95,7 @@ $env:PORT="8080"
 [System.Environment]::SetEnvironmentVariable('FIREBASE_PROJECT_ID', 'your-project-id', 'User')
 [System.Environment]::SetEnvironmentVariable('FIREBASE_PRIVATE_KEY', '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC...\n-----END PRIVATE KEY-----\n', 'User')
 [System.Environment]::SetEnvironmentVariable('FIREBASE_CLIENT_EMAIL', 'firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com', 'User')
-[System.Environment]::SetEnvironmentVariable('PORT', '8080', 'User')
+[System.Environment]::SetEnvironmentVariable('PORT', '8000', 'User')
 ```
 
 После этого **перезапустите PowerShell**.
@@ -173,7 +173,7 @@ FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFA
 FIREBASE_CLIENT_EMAIL=firebase-adminsdk-abc123@my-awesome-game-project.iam.gserviceaccount.com
 
 # Server
-PORT=8080
+PORT=8000
 
 # Client Firebase (для клиента)
 VITE_FIREBASE_API_KEY=AIzaSyC...

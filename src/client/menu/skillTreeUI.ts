@@ -3,11 +3,11 @@
  * UI логика скил-дерева из menu.ts
  */
 
-import { 
-    SKILL_TREE_NODES, 
-    SKILL_TREE_EDGES, 
-    SKILL_BRANCHES, 
-    isNodeUnlocked, 
+import {
+    SKILL_TREE_NODES,
+    SKILL_TREE_EDGES,
+    SKILL_BRANCHES,
+    isNodeUnlocked,
     getSkillCost,
     calculateAllNodePositions,
     BRANCH_CATEGORIES,
@@ -82,24 +82,24 @@ export function updateSkillTreeDisplay(
         console.error("[Skills] skill-tree element not found!");
         return;
     }
-    
+
     // Проверяем что конфиг загружен
     if (!SKILL_TREE_NODES || SKILL_TREE_NODES.length === 0) {
         console.error("[Skills] SKILL_TREE_NODES is not loaded or empty!");
         skillTree.innerHTML = `<div class="skill-empty">Ошибка: конфиг навыков не загружен. Проверьте импорт.</div>`;
         return;
     }
-    
+
     const wrapper = skillTree.closest(".skill-tree-wrapper") as HTMLElement | null;
-    
+
     if (skillPointsDisplay) {
         skillPointsDisplay.textContent = `ОЧКОВ НАВЫКОВ: ${stats.skillPoints}`;
     }
-    
+
     // Обновляем легенду веток с кликабельностью
     const legend = document.getElementById("skill-tree-legend");
     if (legend) {
-        legend.innerHTML = SKILL_BRANCHES.map(branch => 
+        legend.innerHTML = SKILL_BRANCHES.map(branch =>
             `<span class="skill-branch-filter" data-branch-id="${branch.id}" style="border-color: ${branch.color}; color: ${branch.color}; cursor: pointer;">
                 ${branch.icon} ${branch.name}
             </span>`
@@ -139,7 +139,7 @@ export function updateSkillTreeDisplay(
 
     // Вычисляем позиции всех узлов используя новую систему трех деревьев
     const calculatedPositions = calculateAllNodePositions();
-    
+
     // Находим границы дерева для определения размера
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     calculatedPositions.forEach((pos) => {
@@ -148,16 +148,16 @@ export function updateSkillTreeDisplay(
         minY = Math.min(minY, pos.y);
         maxY = Math.max(maxY, pos.y + layout.height);
     });
-    
+
     // Добавляем отступы для трех деревьев
     const padding = 150;
     const treeWidth = (maxX - minX) + padding * 2;
     const treeHeight = (maxY - minY) + padding * 2;
-    
+
     // Смещаем все позиции так, чтобы начало было в левом верхнем углу (учитываем отрицательные координаты)
     const offsetX = -minX + padding;
     const offsetY = -minY + padding;
-    
+
     const nodePositions = new Map<string, { left: number; top: number; centerX: number; centerY: number }>();
     calculatedPositions.forEach((pos, nodeId) => {
         const left = pos.x + offsetX;
@@ -169,25 +169,25 @@ export function updateSkillTreeDisplay(
             centerY: top + layout.height / 2
         });
     });
-    
+
     // Упрощённая проверка на пересечения (с новым структурированным алгоритмом коллизии должны быть редкими)
     const nodeSize = { width: 220, height: 130 };
     const minNodeDistance = 250; // Минимальное расстояние между узлами
-    
+
     const nodeIds: string[] = Array.from(nodePositions.keys());
     let totalCollisions = 0;
-    
+
     // Простая однопроходная проверка коллизий (для диагностики)
     for (let i = 0; i < nodeIds.length; i++) {
         for (let j = i + 1; j < nodeIds.length; j++) {
             const pos1 = nodePositions.get(nodeIds[i]!);
             const pos2 = nodePositions.get(nodeIds[j]!);
             if (!pos1 || !pos2) continue;
-            
+
             const dx = pos1.centerX - pos2.centerX;
             const dy = pos1.centerY - pos2.centerY;
             const distance = Math.sqrt(dx * dx + dy * dy);
-            
+
             if (distance < minNodeDistance) {
                 totalCollisions++;
                 // С новым структурированным алгоритмом коллизии не должны возникать
@@ -198,16 +198,16 @@ export function updateSkillTreeDisplay(
             }
         }
     }
-    
+
     if (totalCollisions > 0) {
         console.warn(`[Skills] Found ${totalCollisions} potential collisions. This should not happen with structured layout.`);
     } else {
         console.log(`[Skills] No collisions detected - structured layout working correctly`);
     }
-    
+
     skillTree.style.minWidth = `${treeWidth}px`;
     skillTree.style.minHeight = `${treeHeight}px`;
-    
+
     console.log(`[Skills] Tree size: ${treeWidth}x${treeHeight}, calculated positions: ${calculatedPositions.size}`);
     skillTree.innerHTML = "";
 
@@ -243,20 +243,20 @@ export function updateSkillTreeDisplay(
     // Функция для получения цвета ветки узла (branchColor)
     const getNodeBranchColor = (nodeId: string, depth: number = 0): string => {
         if (depth > 50) return "#0f0"; // Защита от бесконечной рекурсии
-        
+
         const node = SKILL_TREE_NODES.find(n => n.id === nodeId);
         if (!node) return "#0f0"; // Зелёный по умолчанию
-        
+
         // Если у узла есть branchColor - возвращаем его
         if (node.branchColor) {
             return node.branchColor;
         }
-        
+
         // Иначе ищем у родителя
         if (node.parentId) {
             return getNodeBranchColor(node.parentId, depth + 1);
         }
-        
+
         return "#0f0"; // Зелёный по умолчанию
     };
 
@@ -265,20 +265,20 @@ export function updateSkillTreeDisplay(
         const nodeCategory = getNodeCategory(nodeId);
         return nodeCategory === category;
     };
-    
+
     // Функция для проверки, принадлежит ли узел к ветке
     const isNodeInBranch = (nodeId: string, branchId: string): boolean => {
         const node = SKILL_TREE_NODES.find(n => n.id === nodeId);
         if (!node) return false;
-        
+
         // Проверяем, является ли узел хабом этой ветки
         if (nodeId === `${branchId}Hub`) return true;
-        
+
         // Проверяем родителя рекурсивно
         if (node.parentId) {
             return isNodeInBranch(node.parentId, branchId);
         }
-        
+
         return false;
     };
 
@@ -325,7 +325,7 @@ export function updateSkillTreeDisplay(
     svg.style.left = "0";
     svg.style.pointerEvents = "none";
     svg.style.zIndex = "0";
-    
+
     edges.forEach((edge) => {
         const from = nodePositions.get(edge.from);
         const to = nodePositions.get(edge.to);
@@ -363,20 +363,20 @@ export function updateSkillTreeDisplay(
             // Горизонтальные сегменты делят оставшуюся длину пополам
             const horizontalPart = (Math.abs(dx) - absDy) / 2;
             const dirY = dy > 0 ? 1 : -1;
-            
+
             // Точка начала диагонали
             const diag1X = from.centerX + horizontalPart;
             const diag1Y = from.centerY;
-            
+
             // Точка конца диагонали (смещение на |dy| по X и dy по Y)
             const diag2X = diag1X + absDy;
             const diag2Y = from.centerY + dy;
-            
+
             pathData += ` L ${diag1X} ${diag1Y}`; // Горизонтально до начала диагонали
             pathData += ` L ${diag2X} ${diag2Y}`; // Диагонально под 45°
             pathData += ` L ${to.centerX} ${to.centerY}`; // Горизонтально до конца
         }
-        
+
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
         path.setAttribute("d", pathData);
         path.setAttribute("stroke", lineColor);
@@ -385,7 +385,7 @@ export function updateSkillTreeDisplay(
         path.setAttribute("opacity", "0.4");
         svg.appendChild(path);
     });
-    
+
     const connectors = document.createDocumentFragment();
     connectors.appendChild(svg);
 
@@ -406,12 +406,12 @@ export function updateSkillTreeDisplay(
         const cost = node.skillId ? getSkillCost(nextLevel, node.cost || 1) : 0;
         const canAfford = stats.skillPoints >= cost;
         const canUpgrade = node.skillId && isUnlocked && canAfford && level < maxLevel;
-        
+
         const pips = node.skillId
             ? Array(maxLevel)
-                  .fill(0)
-                  .map((_, i) => `<div class="skill-pip ${i < level ? "filled" : ""}"></div>`)
-                  .join("")
+                .fill(0)
+                .map((_, i) => `<div class="skill-pip ${i < level ? "filled" : ""}"></div>`)
+                .join("")
             : "";
 
         // Определяем цвет границы по категории
@@ -424,7 +424,7 @@ export function updateSkillTreeDisplay(
                 borderColor = node.type === "hub" ? "#0f0" : node.type === "meta" ? "#5cf" : "#0f0";
             }
         }
-        
+
         // Скрываем центральный узел commandCore
         if (node.id === "commandCore") {
             return; // Пропускаем центральный узел
@@ -440,15 +440,15 @@ export function updateSkillTreeDisplay(
                 return; // Пропускаем узлы не выбранной категории
             }
         }
-        
+
         const isLocked = !isUnlocked && node.type !== "hub";
-        
+
         const nodeEl = document.createElement("div");
         nodeEl.className = `skill-node${node.type === "hub" ? " is-hub" : ""}${node.type === "meta" ? " is-meta" : ""}${isLocked ? " is-locked" : ""}`;
         nodeEl.style.left = `${pos.left}px`;
         nodeEl.style.top = `${pos.top}px`;
         nodeEl.style.borderColor = borderColor;
-        
+
         let moduleInfo = "";
         if (node.moduleId && isUnlocked) {
             moduleInfo = `<div class="skill-module-info">🔓 Модуль: ${node.moduleId}</div>`;
@@ -466,9 +466,8 @@ export function updateSkillTreeDisplay(
             </div>
             <div class="skill-node-desc">${node.desc}</div>
             ${moduleInfo}
-            ${
-                node.skillId
-                    ? `
+            ${node.skillId
+                ? `
                         <div class="skill-node-level">
                             Уровень ${level}/${maxLevel}
                             ${cost > 0 && level < maxLevel ? `<span class="skill-cost">Стоимость: ${cost} SP</span>` : ""}
@@ -478,7 +477,7 @@ export function updateSkillTreeDisplay(
                             ${level >= maxLevel ? "MAX" : isLocked ? "Заблокировано" : canAfford ? `Улучшить (${cost})` : `Нужно ${cost} SP`}
                         </button>
                       `
-                    : ""
+                : ""
             }
             ${node.type === "meta" && (node as any).meta ? `<div class="skill-node-meta">${(node as any).meta}</div>` : ""}
             ${node.effects && node.effects.length > 0 ? `<div class="skill-effects">${node.effects.map(e => `• ${e}`).join("<br>")}</div>` : ""}
@@ -500,11 +499,11 @@ export function updateSkillTreeDisplay(
         headerEl.style.top = `${headerInfo.y}px`;
         headerEl.style.borderColor = CATEGORY_COLORS[headerInfo.category];
         headerEl.style.color = CATEGORY_COLORS[headerInfo.category];
-        
+
         if (selectedCategory === headerInfo.category) {
             headerEl.classList.add("active");
         }
-        
+
         headerEl.innerHTML = `${categoryInfo.icon} ${categoryInfo.name}`;
         headersFragment.appendChild(headerEl);
     });
@@ -512,55 +511,55 @@ export function updateSkillTreeDisplay(
     skillTree.appendChild(connectors);
     skillTree.appendChild(headersFragment);
     skillTree.appendChild(nodesFragment);
-    
+
     console.log(`[Skills] Created ${nodesCreated} nodes, ${connectors.children.length} connectors`);
     console.log(`[Skills] skillTree children count: ${skillTree.children.length}`);
-    
+
     // Проверяем что узлы действительно в DOM
     const renderedNodes = skillTree.querySelectorAll('.skill-node');
     console.log(`[Skills] Rendered nodes in DOM: ${renderedNodes.length}`);
-    
+
     // Функция плавного перемещения камеры к позиции
     const smoothScrollTo = (targetX: number, targetY: number, duration: number = 600) => {
         if (!wrapper) return;
-        
+
         const startX = wrapper.scrollLeft;
         const startY = wrapper.scrollTop;
         const distanceX = targetX - startX;
         const distanceY = targetY - startY;
         const startTime = performance.now();
-        
+
         const animate = (currentTime: number) => {
             const elapsed = currentTime - startTime;
             const progress = Math.min(elapsed / duration, 1);
-            
+
             // Easing функция (ease-out)
             const easeOut = 1 - Math.pow(1 - progress, 3);
-            
+
             wrapper!.scrollLeft = startX + distanceX * easeOut;
             wrapper!.scrollTop = startY + distanceY * easeOut;
-            
+
             if (progress < 1) {
                 requestAnimationFrame(animate);
             }
         };
-        
+
         requestAnimationFrame(animate);
     };
-    
+
     // Добавляем обработчики кликов на заголовки категорий
     skillTree.querySelectorAll(".skill-category-header").forEach((headerEl) => {
         headerEl.addEventListener("click", () => {
             const category = (headerEl as HTMLElement).dataset.category as "combat" | "defense" | "utility" | undefined;
             if (!category) return;
-            
+
             // Переключаем выбранную категорию
             if (selectedCategory === category) {
                 selectedCategory = null; // Снимаем выбор
             } else {
                 selectedCategory = category;
             }
-            
+
             // Находим позицию для перемещения камеры
             const headerInfo = categoryHeaders.find(h => h.category === category);
             if (headerInfo && wrapper) {
@@ -577,12 +576,12 @@ export function updateSkillTreeDisplay(
                     }
                 }
             }
-            
+
             // Перерисовываем дерево с фильтрацией
             updateSkillTreeDisplay(stats, callbacks);
         });
     });
-    
+
     // Добавляем обработчики кликов для веток в легенде
     if (legend) {
         legend.querySelectorAll(".skill-branch-filter").forEach((el) => {
@@ -650,10 +649,10 @@ export function updateSkillTreeDisplay(
     });
 
     setupSkillTreeNavigation(wrapper);
-    
+
     // Настройка обработчиков вкладок категорий
     setupCategoryTabs(stats, callbacks);
-    
+
     // Инициализация активной вкладки при первой загрузке
     const tabsContainer = document.getElementById("skill-category-tabs");
     if (tabsContainer) {
@@ -674,7 +673,7 @@ export function updateSkillTreeDisplay(
             }
         }
     }
-    
+
     // === ПОЗИЦИОНИРОВАНИЕ КАМЕРЫ ПРИ ПЕРВОМ ОТКРЫТИИ ===
     // Если это первое открытие и нет сохранённой позиции - центрируем на выбранной ветке
     if (wrapper && savedSkillTreeScrollX === null && savedSkillTreeScrollY === null) {
@@ -684,19 +683,19 @@ export function updateSkillTreeDisplay(
             const targetBranch = selectedBranch || "attack";
             const hubId = `${targetBranch}Hub`;
             const hubPos = nodePositions.get(hubId);
-            
+
             if (hubPos && wrapper) {
                 // Центрируем view на хабе выбранной ветки
                 const targetX = Math.max(0, hubPos.centerX - wrapper.clientWidth / 2);
                 const targetY = Math.max(0, hubPos.centerY - wrapper.clientHeight / 2);
-                
+
                 wrapper.scrollLeft = targetX;
                 wrapper.scrollTop = targetY;
-                
+
                 // Сохраняем начальную позицию
                 savedSkillTreeScrollX = targetX;
                 savedSkillTreeScrollY = targetY;
-                
+
                 console.log(`[Skills] Initial camera positioned on ${hubId}: ${targetX}, ${targetY}`);
             }
         });
@@ -712,11 +711,11 @@ function setupCategoryTabs(
 ): void {
     const tabsContainer = document.getElementById("skill-category-tabs");
     if (!tabsContainer) return;
-    
+
     const flag = "_categoryTabsBound";
     if ((tabsContainer as any)[flag]) return;
     (tabsContainer as any)[flag] = true;
-    
+
     const tabs = tabsContainer.querySelectorAll(".skill-category-tab");
     tabs.forEach((tab) => {
         tab.addEventListener("click", () => {
@@ -724,7 +723,7 @@ function setupCategoryTabs(
             tabs.forEach(t => t.classList.remove("active"));
             // Добавляем активный класс к выбранной вкладке
             tab.classList.add("active");
-            
+
             const category = (tab as HTMLElement).dataset.category;
             if (category) {
                 // Маппинг веток к категориям для фильтрации
@@ -736,10 +735,10 @@ function setupCategoryTabs(
                     "stealth": "utility",
                     "leadership": "utility"
                 };
-                
+
                 selectedCategory = branchToCategoryMap[category] || null;
                 selectedBranch = category;
-                
+
                 // Перерисовываем дерево с фильтрацией
                 updateSkillTreeDisplay(stats, callbacks);
             }
@@ -767,51 +766,57 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
     const ZOOM_STEP = 0.1;
     const ZOOM_SPEED = 0.075; // 7.5% за прокрутку (средняя скорость)
 
+    // Save scroll position on scroll
+    wrapper.addEventListener("scroll", () => {
+        savedSkillTreeScrollX = wrapper.scrollLeft;
+        savedSkillTreeScrollY = wrapper.scrollTop;
+    }, { passive: true });
+
     // Функция зума к точке с плавной анимацией
     let zoomAnimationId: number | null = null;
     let zoomLevelDisplayUpdateFrame: number | null = null;
     let lastZoomMouseX = 0;
     let lastZoomMouseY = 0;
-    
+
     const updateZoomDisplay = () => {
         const zoomLevel = wrapper.parentElement?.querySelector(".skill-zoom-level") as HTMLElement;
         if (zoomLevel) {
             zoomLevel.textContent = `${Math.round(currentZoom * 100)}%`;
         }
     };
-    
+
     const applyZoom = (zoom: number, mouseX: number, mouseY: number) => {
         if (!wrapper || !skillTree) return;
-        
+
         const wrapperRect = wrapper.getBoundingClientRect();
         const relativeMouseX = mouseX - wrapperRect.left;
         const relativeMouseY = mouseY - wrapperRect.top;
-        
+
         const scrollX = wrapper.scrollLeft;
         const scrollY = wrapper.scrollTop;
-        
+
         // Вычисляем позицию контента под курсором до зума
         const contentX = (scrollX + relativeMouseX) / currentZoom;
         const contentY = (scrollY + relativeMouseY) / currentZoom;
-        
+
         // Применяем новый зум
         currentZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
         skillTree.style.transform = `scale(${currentZoom})`;
         skillTree.style.transformOrigin = "top left";
-        
+
         // Вычисляем новую позицию скролла чтобы точка под курсором осталась на месте
         const newScrollX = contentX * currentZoom - relativeMouseX;
         const newScrollY = contentY * currentZoom - relativeMouseY;
-        
+
         const maxScrollX = Math.max(0, skillTree.scrollWidth * currentZoom - wrapper.clientWidth);
         const maxScrollY = Math.max(0, skillTree.scrollHeight * currentZoom - wrapper.clientHeight);
-        
+
         wrapper.scrollLeft = Math.max(0, Math.min(maxScrollX, newScrollX));
         wrapper.scrollTop = Math.max(0, Math.min(maxScrollY, newScrollY));
-        
+
         updateZoomDisplay();
     };
-    
+
     // Плавная анимация зума
     const animateZoom = () => {
         const diff = targetZoom - currentZoom;
@@ -826,19 +831,19 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
             zoomAnimationId = null;
         }
     };
-    
+
     const zoomAtPoint = (clientX: number, clientY: number, newTargetZoom: number) => {
         if (!wrapper || !skillTree) return;
-        
+
         // Сохраняем позицию курсора для анимации
         lastZoomMouseX = clientX;
         lastZoomMouseY = clientY;
-        
+
         targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newTargetZoom));
-        
+
         // Немедленно обновляем зум относительно курсора
         applyZoom(targetZoom, clientX, clientY);
-        
+
         // Запускаем плавную анимацию если нужно
         if (zoomAnimationId === null && Math.abs(targetZoom - currentZoom) > 0.001) {
             zoomAnimationId = requestAnimationFrame(animateZoom);
@@ -856,12 +861,12 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
             <button class="skill-zoom-btn" id="zoom-in">+</button>
         `;
         wrapper.parentElement?.appendChild(zoomControls);
-        
+
         zoomControls.querySelector("#zoom-in")?.addEventListener("click", () => {
             const wrapperRect = wrapper.getBoundingClientRect();
             zoomAtPoint(wrapperRect.left + wrapperRect.width / 2, wrapperRect.top + wrapperRect.height / 2, targetZoom + ZOOM_STEP);
         });
-        
+
         zoomControls.querySelector("#zoom-out")?.addEventListener("click", () => {
             const wrapperRect = wrapper.getBoundingClientRect();
             zoomAtPoint(wrapperRect.left + wrapperRect.width / 2, wrapperRect.top + wrapperRect.height / 2, targetZoom - ZOOM_STEP);
@@ -871,21 +876,21 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
     // Wheel zoom - всегда работает как зум
     wrapper.addEventListener("wheel", (e: WheelEvent) => {
         e.preventDefault();
-        
+
         // Вычисляем изменение зума
         const delta = e.deltaY > 0 ? -ZOOM_SPEED * 1.5 : ZOOM_SPEED * 1.5;
         const newTargetZoom = targetZoom + delta;
-        
+
         // Обновляем targetZoom и применяем зум относительно курсора
         targetZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, newTargetZoom));
-        
+
         // Немедленно применяем зум
         const wrapperRect = wrapper.getBoundingClientRect();
         const mouseX = e.clientX;
         const mouseY = e.clientY;
-        
+
         applyZoom(targetZoom, mouseX, mouseY);
-        
+
         // Запускаем плавную анимацию если нужно
         if (zoomAnimationId === null && Math.abs(targetZoom - currentZoom) > 0.001) {
             zoomAnimationId = requestAnimationFrame(animateZoom);
@@ -915,9 +920,9 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
                 break;
         }
     };
-    
+
     window.addEventListener("keydown", onKey);
-    
+
     // Drag для перетаскивания дерева - оптимизированная версия
     let isDown = false;
     let startX = 0;
@@ -931,7 +936,7 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
         if (target.closest('button') || target.closest('.skill-upgrade-btn') || target.closest('.skill-category-header')) {
             return;
         }
-        
+
         isDown = true;
         wrapper.classList.add("dragging");
         startX = e.clientX;
@@ -943,11 +948,11 @@ export function setupSkillTreeNavigation(wrapper: HTMLElement | null): void {
     const onMouseMove = (e: MouseEvent) => {
         if (!isDown) return;
         e.preventDefault();
-        
+
         // Прямое обновление позиции для максимальной отзывчивости
         const deltaX = e.clientX - startX;
         const deltaY = e.clientY - startY;
-        
+
         wrapper.scrollLeft = scrollLeft - deltaX;
         wrapper.scrollTop = scrollTop - deltaY;
     };

@@ -388,14 +388,8 @@ export class GameInput {
             return true;
         }
 
-        // Ctrl+8: Network Menu
-        if (e.code === "Digit8" || e.code === "Numpad8") {
-            e.preventDefault();
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-            this.handleNetworkMenu();
-            return true;
-        }
+        // F9: Network Menu (обрабатывается в game.ts)
+        // Удалено отсюда, чтобы не конфликтовать с обработчиком в game.ts
 
         // Ctrl+9: World Generation Menu
         if (e.code === "Digit9" || e.code === "Numpad9") {
@@ -605,11 +599,12 @@ export class GameInput {
     }
 
     /**
-     * Обработка Network Menu (Ctrl+8)
+     * Обработка Network Menu (F9)
+     * @deprecated Обработка перенесена в game.ts для консистентности с F7/F8
      */
     private handleNetworkMenu(): void {
         // Будет реализовано в Game.ts
-        logger.log("[GameInput] Network Menu requested (Ctrl+8)");
+        logger.log("[GameInput] Network Menu requested (F9)");
     }
 
     /**

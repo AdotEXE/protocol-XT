@@ -77,7 +77,7 @@ Follow these instructions to set up the project locally for development and test
 3.  **Environment Setup**
     Create a `.env` file in the root directory. You can start with the defaults or copy `.env.example` if available.
     ```env
-    VITE_WS_SERVER_URL=ws://localhost:8080
+    VITE_WS_SERVER_URL=ws://localhost:8000
     ```
 
 ### Running the Project
@@ -86,7 +86,7 @@ Follow these instructions to set up the project locally for development and test
     ```bash
     npm run server
     ```
-    This will start the WebSocket server on port `8080`.
+    This will start the WebSocket server on port `8000`.
 
 2.  **Start the Client**
     ```bash

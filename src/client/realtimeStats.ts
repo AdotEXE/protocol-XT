@@ -26,6 +26,7 @@ export interface KDHistoryPoint {
 export class RealtimeStatsTracker {
     private matchStartTime: number = 0;
     private isTracking: boolean = false;
+    private currentRoomId: string | null = null; // ИСПРАВЛЕНО: Храним ID текущей комнаты/матча
     
     // Current player stats
     private playerStats: Map<string, PlayerMatchStats> = new Map();
@@ -41,16 +42,24 @@ export class RealtimeStatsTracker {
     /**
      * Start tracking stats for a match
      */
-    startMatch(localPlayerId: string): void {
+    startMatch(localPlayerId: string, roomId?: string): void {
         this.matchStartTime = Date.now();
         this.isTracking = true;
         this.localPlayerId = localPlayerId;
+        this.currentRoomId = roomId || null; // ИСПРАВЛЕНО: Сохраняем ID комнаты
         this.playerStats.clear();
         this.localPlayerKDHistory = [];
         this.lastHistoryUpdate = 0;
         
         // Add initial point
         this.addKDHistoryPoint(0, 0, 0);
+    }
+
+    /**
+     * ИСПРАВЛЕНО: Получить ID текущей комнаты
+     */
+    getCurrentRoomId(): string | null {
+        return this.currentRoomId;
     }
 
     /**

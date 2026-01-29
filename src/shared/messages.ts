@@ -177,6 +177,7 @@ export interface CreateRoomData {
     playerName?: string;
     // Map Data
     customMapData?: any; // Full JSON data for custom maps
+    modules?: string[]; // Equipped modules
 }
 
 export interface JoinRoomData {

@@ -26,6 +26,7 @@ import {
 } from "@babylonjs/core";
 import { CONSUMABLE_TYPES, ConsumableType } from "./consumables";
 import { nanoid } from "nanoid";
+import { MAP_SIZES, isPositionInMapBounds, type MapType } from "./maps/MapConstants";
 
 /**
  * Точка дропа (из редактора или случайная)
@@ -125,7 +126,7 @@ export class SupplyDropSystem {
     /**
      * Инициализировать систему с данными карты
      */
-    initialize(mapData?: any, mapSize: number = 500): void {
+    initialize(mapData?: any, mapSize: number = 500, mapType?: MapType | string): void {
         // Очистить предыдущее состояние
         this.clear();
 
@@ -134,10 +135,10 @@ export class SupplyDropSystem {
 
         if (editorPoints.length > 0) {
             console.log(`[SupplyDrop] Loading ${editorPoints.length} drop points from map editor`);
-            this.loadDropPointsFromEditor(editorPoints);
+            this.loadDropPointsFromEditor(editorPoints, mapType);
         } else {
             console.log(`[SupplyDrop] No editor points, generating ${this.config.autoSpawnCount} random points`);
-            this.generateRandomDropPoints(mapSize);
+            this.generateRandomDropPoints(mapSize, mapType);
         }
 
         // Запустить проверку спавна
@@ -150,15 +151,23 @@ export class SupplyDropSystem {
     /**
      * Загрузить точки из редактора карт
      */
-    private loadDropPointsFromEditor(editorPoints: any[]): void {
+    private loadDropPointsFromEditor(editorPoints: any[], mapType?: MapType | string): void {
         for (const point of editorPoints) {
+            const pos = new Vector3(
+                point.position?.x || point.x || 0,
+                point.position?.y || point.y || 0,
+                point.position?.z || point.z || 0
+            );
+            
+            // КРИТИЧНО: Проверяем границы карты перед добавлением точки
+            if (mapType && !isPositionInMapBounds(mapType, pos.x, pos.z)) {
+                console.warn(`[SupplyDrop] Skipping drop point outside map bounds: (${pos.x.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                continue;
+            }
+            
             const dropPoint: DropPoint = {
                 id: point.id || nanoid(),
-                position: new Vector3(
-                    point.position?.x || point.x || 0,
-                    point.position?.y || point.y || 0,
-                    point.position?.z || point.z || 0
-                ),
+                position: pos,
                 types: point.dropTypes || [],
                 respawnTime: point.dropRespawnTime || 30000,
                 lastSpawnTime: 0,
@@ -171,17 +180,54 @@ export class SupplyDropSystem {
     /**
      * Генерировать случайные точки дропа
      */
-    private generateRandomDropPoints(mapSize: number): void {
+    private generateRandomDropPoints(mapSize: number, mapType?: MapType | string): void {
         const count = this.config.autoSpawnCount;
-        const margin = mapSize * 0.1; // 10% отступ от края
+        
+        // КРИТИЧНО: Используем границы карты если они доступны
+        let minX = -mapSize / 2;
+        let maxX = mapSize / 2;
+        let minZ = -mapSize / 2;
+        let maxZ = mapSize / 2;
+        
+        if (mapType && MAP_SIZES[mapType]) {
+            const bounds = MAP_SIZES[mapType];
+            minX = bounds.minX;
+            maxX = bounds.maxX;
+            minZ = bounds.minZ;
+            maxZ = bounds.maxZ;
+        }
+        
+        const margin = (maxX - minX) * 0.1; // 10% отступ от края
+        const safeMinX = minX + margin;
+        const safeMaxX = maxX - margin;
+        const safeMinZ = minZ + margin;
+        const safeMaxZ = maxZ - margin;
 
-        for (let i = 0; i < count; i++) {
-            const x = (Math.random() - 0.5) * (mapSize - margin * 2);
-            const z = (Math.random() - 0.5) * (mapSize - margin * 2);
+        let validPoints = 0;
+        let attempts = 0;
+        const maxAttempts = count * 10; // Увеличено количество попыток
+
+        while (validPoints < count && attempts < maxAttempts) {
+            attempts++;
+
+            const x = safeMinX + Math.random() * (safeMaxX - safeMinX);
+            const z = safeMinZ + Math.random() * (safeMaxZ - safeMinZ);
+            
+            // КРИТИЧНО: Проверяем границы карты перед проверкой высоты
+            if (mapType && !isPositionInMapBounds(mapType, x, z)) {
+                continue;
+            }
+            
             const y = this.getGroundHeight(x, z);
 
+            // КРИТИЧНО: Проверяем высоту валидной поверхности
+            // Если высота < -5, это скорее всего "безопасная плоскость" или пустота
+            if (y < -5) {
+                continue;
+            }
+
             const dropPoint: DropPoint = {
-                id: `random_${i}_${nanoid(6)}`,
+                id: `random_${validPoints}_${nanoid(6)}`,
                 position: new Vector3(x, y, z),
                 types: [], // Любой тип
                 respawnTime: this.config.minSpawnInterval +
@@ -190,9 +236,10 @@ export class SupplyDropSystem {
                 isActive: true
             };
             this.dropPoints.set(dropPoint.id, dropPoint);
+            validPoints++;
         }
 
-        console.log(`[SupplyDrop] Generated ${count} random drop points`);
+        console.log(`[SupplyDrop] Generated ${validPoints} drop points within map bounds (attempts: ${attempts})`);
     }
 
     /**
@@ -240,6 +287,13 @@ export class SupplyDropSystem {
         // Позиция
         const groundY = point.position.y > 0 ? point.position.y :
             this.getGroundHeight(point.position.x, point.position.z);
+
+        // SAFETY: Abort if ground height is invalid (void/safety plane)
+        if (groundY < -5) {
+            // console.warn(`[SupplyDrop] Aborting spawn: invalid ground height ${groundY}`);
+            return null;
+        }
+
         const startY = groundY + this.config.dropHeight;
 
         // Создать контейнер
@@ -293,7 +347,7 @@ export class SupplyDropSystem {
 
         if (available.length === 0) return null;
 
-        return available[Math.floor(Math.random() * available.length)];
+        return available[Math.floor(Math.random() * available.length)] || null;
     }
 
     /**
@@ -377,6 +431,12 @@ export class SupplyDropSystem {
         const toRemove: string[] = [];
 
         for (const [id, drop] of this.activeDrops) {
+            // Пропускаем собранные дропы - они должны быть удалены сразу
+            if (drop.state === "collected") {
+                toRemove.push(id);
+                continue;
+            }
+
             if (drop.state === "falling") {
                 // Анимация падения
                 drop.position.y -= drop.fallSpeed * deltaTime;
@@ -424,8 +484,6 @@ export class SupplyDropSystem {
                 if (now - drop.landedTime >= drop.despawnTime) {
                     toRemove.push(id);
                 }
-            } else if (drop.state === "collected") {
-                toRemove.push(id);
             }
         }
 
@@ -453,18 +511,23 @@ export class SupplyDropSystem {
      */
     checkPickup(tankPosition: Vector3): ConsumableType | null {
         for (const [id, drop] of this.activeDrops) {
+            // Проверяем только приземлённые дропы (не падающие)
             if (drop.state !== "landed") continue;
 
             const distance = Vector3.Distance(tankPosition, drop.position);
             if (distance <= this.config.pickupRadius) {
+                // Помечаем как собранный
                 drop.state = "collected";
 
                 console.log(`[SupplyDrop] Picked up ${drop.type.id}`);
 
-                // Callback
+                // Вызываем callback для добавления в инвентарь
                 if (this.onPickupCallback) {
                     this.onPickupCallback(drop.type);
                 }
+
+                // Сразу удаляем дроп визуально
+                this.removeDrop(id);
 
                 return drop.type;
             }

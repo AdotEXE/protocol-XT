@@ -275,7 +275,7 @@ This file defines specialized skills that the Cursor AI agent can discover and a
    - Check `docs/SETUP.md` for detailed setup instructions
    - Run `npm install` to install dependencies
    - Create `.env` file with required variables
-   - Set `VITE_WS_SERVER_URL=ws://localhost:8080` for local development
+   - Set `VITE_WS_SERVER_URL=ws://localhost:8000` for local development
 
 3. **Firebase Configuration**:
    - See `docs/FIREBASE_*.md` for Firebase setup
@@ -292,7 +292,7 @@ This file defines specialized skills that the Cursor AI agent can discover and a
    - See `docs/DEPLOY_SERVER.md` for server deployment
    - Configure environment variables
    - Set up networking and public domain
-   - Configure port (default: 8080)
+   - Configure port (default: 8000)
 
 6. **Testing Setup**:
    - Use `npm run start:all` for local testing

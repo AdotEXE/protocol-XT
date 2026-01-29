@@ -22,16 +22,16 @@ const App: React.FC = () => {
     dataSizeMB: 0
   });
   const [genState, setGenState] = useState<GenerationState>(GenerationState.IDLE);
-  
+
   // Initialize with Tartu defaults (Approx 30k buildings in real Tartu)
   const [cityMetadata, setCityMetadata] = useState<LocationMetadata | null>({
-      estimatedBuildingCount: 32000 
+    estimatedBuildingCount: 32000
   });
 
-  const handleSeedUpdate = useCallback((seed: string, type: 'mountain' | 'plain' | 'urban' | 'coast', coords?: {lat: number, lng: number}, meta?: LocationMetadata) => {
-    
+  const handleSeedUpdate = useCallback((seed: string, type: 'mountain' | 'plain' | 'urban' | 'coast', coords?: { lat: number, lng: number }, meta?: LocationMetadata) => {
+
     if (meta) {
-        setCityMetadata(meta);
+      setCityMetadata(meta);
     }
 
     setConfig(prev => {
@@ -39,13 +39,13 @@ const App: React.FC = () => {
       let buildDensity = 5;
       let treeDensity = 5;
       let water = 0;
-      
+
       // Strict 1:1 Scale for Realism
-      const heightScale = 1.0; 
+      const heightScale = 1.0;
 
       // Adjust presets based on Gemini analysis
-      switch(type) {
-        case 'mountain': 
+      switch (type) {
+        case 'mountain':
           roughness = 1.8; buildDensity = 1; treeDensity = 10; water = -2;
           break;
         case 'urban':
@@ -77,39 +77,55 @@ const App: React.FC = () => {
     });
   }, []);
 
+  const [isEditorVisible, setIsEditorVisible] = useState(true);
+
+  // Restore editor when tank mode is disabled
+  useEffect(() => {
+    if (!config.enableTank) {
+      setIsEditorVisible(true);
+    }
+  }, [config.enableTank]);
+
   return (
     <div className="flex w-screen h-screen bg-black overflow-hidden">
       {/* 3D Viewport Area */}
       <div className="flex-1 h-full relative">
-        <SceneViewer 
-          config={config} 
-          onStatsUpdate={setStats} 
+        <SceneViewer
+          config={config}
+          onStatsUpdate={setStats}
           onStateChange={setGenState}
+          isEditorVisible={isEditorVisible}
+          onToggleUI={() => setIsEditorVisible(!isEditorVisible)}
         />
-        
-        {/* Overlay Title */}
-        <div className="absolute top-0 right-0 p-6 pointer-events-none text-right">
-           <h1 className="text-4xl font-black text-white/10 tracking-tighter">HAVOK ENGINE</h1>
-           <p className="text-white/20 font-mono text-sm">
-             {config.mode === 'REAL' ? `REAL DATA (1:1 SCALE): ${config.seed.toUpperCase()}` : 'LOW-POLY GEOSPATIAL SIMULATION'}
-           </p>
-        </div>
+
+        {/* Overlay Title - Only visible when Editor is visible */}
+        {isEditorVisible && (
+          <div className="absolute top-0 right-0 p-6 pointer-events-none text-right z-10">
+            <h1 className="text-4xl font-black text-white/10 tracking-tighter">HAVOK ENGINE</h1>
+            <p className="text-white/20 font-mono text-sm">
+              {config.mode === 'REAL' ? `REAL DATA (1:1 SCALE): ${config.seed.toUpperCase()}` : 'LOW-POLY GEOSPATIAL SIMULATION'}
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Sidebar Controls */}
-      <div className="w-80 h-full flex flex-col border-l border-slate-800 bg-slate-900 z-10 shadow-xl">
-        <div className="flex-1 overflow-hidden">
-           <ControlPanel 
-             config={config} 
-             setConfig={setConfig} 
-             stats={stats} 
-             status={genState}
-             onLocationSelect={handleSeedUpdate}
-             cityMetadata={cityMetadata}
-           />
+      {/* Sidebar Controls - Hidden when isEditorVisible is false */}
+      {isEditorVisible && (
+        <div className="w-80 h-full flex flex-col border-l border-slate-800 bg-slate-900 z-10 shadow-xl">
+          <div className="flex-1 overflow-hidden">
+            <ControlPanel
+              config={config}
+              setConfig={setConfig}
+              stats={stats}
+              status={genState}
+              onLocationSelect={handleSeedUpdate}
+              cityMetadata={cityMetadata}
+              onTestStart={() => setIsEditorVisible(false)}
+            />
+          </div>
+          <AIChat currentConfig={config} onUpdateSeed={handleSeedUpdate} />
         </div>
-        <AIChat currentConfig={config} onUpdateSeed={handleSeedUpdate} />
-      </div>
+      )}
     </div>
   );
 };

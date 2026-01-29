@@ -71,6 +71,18 @@ export class ChatSystem {
         room: "#fff"     // White - room
     };
     private channelSelector: HTMLSelectElement | null = null;
+    
+    // Voice Chat Controls
+    private voiceMuteButton: HTMLButtonElement | null = null;
+    private voiceIndicator: HTMLDivElement | null = null;
+    private voiceChatUpdateInterval: NodeJS.Timeout | null = null;
+    
+    // Cleanup timer
+    private cleanupTimerInterval: NodeJS.Timeout | null = null;
+    
+    // Event handlers for cleanup
+    private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
+    private mouseUpHandler: (() => void) | null = null;
 
     constructor(scene: Scene) {
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("ChatUI", false, scene);
@@ -386,6 +398,69 @@ export class ChatSystem {
         `;
         chatInputWrapper.appendChild(commandInput);
         this.commandInput = commandInput;
+
+        // === VOICE CHAT CONTROLS ===
+        const voiceControlsWrapper = document.createElement("div");
+        voiceControlsWrapper.style.cssText = `
+            display: flex;
+            gap: ${4 * scaleFactor}px;
+            align-items: center;
+            padding: 0 ${4 * scaleFactor}px;
+        `;
+        
+        // Voice indicator (shows when talking)
+        const voiceIndicator = document.createElement("div");
+        voiceIndicator.id = "voice-indicator";
+        voiceIndicator.style.cssText = `
+            width: ${12 * scaleFactor}px;
+            height: ${12 * scaleFactor}px;
+            border-radius: 50%;
+            background: rgba(255, 0, 0, 0.3);
+            border: 1px solid rgba(255, 0, 0, 0.6);
+            transition: all 0.2s ease;
+        `;
+        voiceIndicator.title = "Голосовой чат неактивен";
+        voiceControlsWrapper.appendChild(voiceIndicator);
+        this.voiceIndicator = voiceIndicator;
+        
+        // Mute button
+        const muteButton = document.createElement("button");
+        muteButton.id = "voice-mute-button";
+        muteButton.innerHTML = "🎤";
+        muteButton.style.cssText = `
+            width: ${24 * scaleFactor}px;
+            height: ${24 * scaleFactor}px;
+            background: rgba(0, 10, 0, 0.9);
+            border: 1px solid rgba(0, 255, 4, 0.4);
+            color: #0f0;
+            cursor: pointer;
+            font-size: ${12 * scaleFactor}px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            transition: all 0.2s ease;
+        `;
+        muteButton.title = "Заглушить микрофон";
+        muteButton.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.toggleVoiceMute();
+        });
+        muteButton.addEventListener("mouseenter", () => {
+            muteButton.style.background = "rgba(0, 255, 4, 0.2)";
+            muteButton.style.borderColor = "#0ff";
+        });
+        muteButton.addEventListener("mouseleave", () => {
+            muteButton.style.background = "rgba(0, 10, 0, 0.9)";
+            muteButton.style.borderColor = "rgba(0, 255, 4, 0.4)";
+        });
+        voiceControlsWrapper.appendChild(muteButton);
+        this.voiceMuteButton = muteButton;
+        
+        chatInputWrapper.appendChild(voiceControlsWrapper);
+        
+        // Start voice chat status updates
+        this.startVoiceChatUpdates();
 
         // Обработка ввода команд
         commandInput.addEventListener("keydown", async (e) => {
@@ -713,6 +788,10 @@ export class ChatSystem {
             document.body.style.userSelect = "";
         };
 
+        // Сохраняем обработчики для последующего удаления
+        this.mouseMoveHandler = handleMouseMove;
+        this.mouseUpHandler = handleMouseUp;
+        
         document.addEventListener("mousemove", handleMouseMove);
         document.addEventListener("mouseup", handleMouseUp);
 
@@ -1143,7 +1222,7 @@ export class ChatSystem {
             // Если сообщение не начинается с /, считаем его чатом
             if (!command.startsWith('/') && !command.startsWith('theme ') && !command.startsWith('script ') && !command.startsWith('macro ')) {
                 if (this.onMessageSent) {
-                    this.onMessageSent(command);
+                    this.onMessageSent(command, this.currentChannel);
                     // Добавляем сообщение локально для мгновенного отклика (опционально, сервер пришлет обратно)
                     // Но лучше ждать сервер
                     return;
@@ -1592,7 +1671,12 @@ export class ChatSystem {
 
     // Удалить старые сообщения
     private startCleanupTimer(): void {
-        setInterval(() => {
+        // Очищаем предыдущий интервал если есть
+        if (this.cleanupTimerInterval) {
+            clearInterval(this.cleanupTimerInterval);
+        }
+        
+        this.cleanupTimerInterval = setInterval(() => {
             const now = Date.now();
             const toRemove: number[] = [];
 
@@ -1625,6 +1709,16 @@ export class ChatSystem {
                 this.updateMessages();
             }
         }, 5000); // Проверяем каждые 5 секунд
+    }
+    
+    /**
+     * Stop cleanup timer
+     */
+    private stopCleanupTimer(): void {
+        if (this.cleanupTimerInterval) {
+            clearInterval(this.cleanupTimerInterval);
+            this.cleanupTimerInterval = null;
+        }
     }
 
     // Удобные методы для разных типов сообщений
@@ -1698,6 +1792,167 @@ export class ChatSystem {
     importMessages(messages: ChatMessage[]): void {
         this.messages = [...this.messages, ...messages];
         this.updateMessages();
+    }
+
+    /**
+     * Toggle voice mute
+     */
+    private toggleVoiceMute(): void {
+        try {
+            const { getVoiceChatManager } = require("./voiceChat");
+            const voiceChat = getVoiceChatManager();
+            
+            if (voiceChat && voiceChat.isEnabled()) {
+                const config = voiceChat.getConfig();
+                voiceChat.setConfig({ mute: !config.mute });
+                this.updateVoiceChatUI();
+            }
+        } catch (error) {
+            console.warn("[ChatSystem] Failed to toggle voice mute:", error);
+        }
+    }
+
+    /**
+     * Start voice chat status updates
+     */
+    private startVoiceChatUpdates(): void {
+        if (this.voiceChatUpdateInterval) {
+            clearInterval(this.voiceChatUpdateInterval);
+        }
+        
+        this.voiceChatUpdateInterval = setInterval(() => {
+            this.updateVoiceChatUI();
+        }, 100); // Update every 100ms for smooth indicator
+    }
+
+    /**
+     * Update voice chat UI (indicator and mute button)
+     */
+    private updateVoiceChatUI(): void {
+        try {
+            const { getVoiceChatManager } = require("./voiceChat");
+            const voiceChat = getVoiceChatManager();
+            
+            if (!voiceChat || !voiceChat.isEnabled()) {
+                // Voice chat disabled
+                if (this.voiceIndicator) {
+                    this.voiceIndicator.style.background = "rgba(128, 128, 128, 0.3)";
+                    this.voiceIndicator.style.borderColor = "rgba(128, 128, 128, 0.6)";
+                    this.voiceIndicator.title = "Голосовой чат выключен";
+                }
+                if (this.voiceMuteButton) {
+                    this.voiceMuteButton.style.opacity = "0.5";
+                    this.voiceMuteButton.style.cursor = "not-allowed";
+                }
+                return;
+            }
+
+            const config = voiceChat.getConfig();
+            const isTalking = voiceChat.isTalkingNow();
+            
+            // Update mute button
+            if (this.voiceMuteButton) {
+                this.voiceMuteButton.style.opacity = "1";
+                this.voiceMuteButton.style.cursor = "pointer";
+                this.voiceMuteButton.innerHTML = config.mute ? "🔇" : "🎤";
+                this.voiceMuteButton.title = config.mute ? "Включить микрофон" : "Заглушить микрофон";
+            }
+            
+            // Update indicator
+            if (this.voiceIndicator) {
+                if (config.mute) {
+                    this.voiceIndicator.style.background = "rgba(255, 255, 0, 0.3)";
+                    this.voiceIndicator.style.borderColor = "rgba(255, 255, 0, 0.6)";
+                    this.voiceIndicator.title = "Микрофон заглушен";
+                } else if (isTalking) {
+                    this.voiceIndicator.style.background = "rgba(0, 255, 0, 0.6)";
+                    this.voiceIndicator.style.borderColor = "rgba(0, 255, 0, 1)";
+                    this.voiceIndicator.style.boxShadow = "0 0 8px rgba(0, 255, 0, 0.8)";
+                    this.voiceIndicator.title = "Говорите...";
+                } else {
+                    this.voiceIndicator.style.background = "rgba(255, 0, 0, 0.3)";
+                    this.voiceIndicator.style.borderColor = "rgba(255, 0, 0, 0.6)";
+                    this.voiceIndicator.style.boxShadow = "none";
+                    this.voiceIndicator.title = config.pushToTalk ? "Нажмите V для разговора" : "Голосовой чат активен";
+                }
+            }
+        } catch (error) {
+            // Voice chat not available
+            if (this.voiceIndicator) {
+                this.voiceIndicator.style.background = "rgba(128, 128, 128, 0.3)";
+                this.voiceIndicator.style.borderColor = "rgba(128, 128, 128, 0.6)";
+            }
+        }
+    }
+
+    /**
+     * Cleanup voice chat updates
+     */
+    private cleanupVoiceChatUpdates(): void {
+        if (this.voiceChatUpdateInterval) {
+            clearInterval(this.voiceChatUpdateInterval);
+            this.voiceChatUpdateInterval = null;
+        }
+    }
+
+    /**
+     * Cleanup all resources
+     */
+    dispose(): void {
+        this.stopCleanupTimer();
+        this.cleanupVoiceChatUpdates();
+        
+        // Remove document event listeners
+        if (this.mouseMoveHandler) {
+            document.removeEventListener("mousemove", this.mouseMoveHandler);
+            this.mouseMoveHandler = null;
+        }
+        if (this.mouseUpHandler) {
+            document.removeEventListener("mouseup", this.mouseUpHandler);
+            this.mouseUpHandler = null;
+        }
+        
+        // Clear messages
+        this.messages = [];
+        this.messageElements.forEach(element => element.dispose());
+        this.messageElements.clear();
+        this.messageGroups.clear();
+        
+        // Remove HTML container and all its event listeners
+        if (this.htmlContainer) {
+            // Remove all child elements which will remove their event listeners
+            this.htmlContainer.innerHTML = "";
+            this.htmlContainer.remove();
+            this.htmlContainer = null;
+        }
+        
+        // Clear references
+        this.commandInput = null;
+        this.channelSelector = null;
+        this.voiceMuteButton = null;
+        this.voiceIndicator = null;
+        
+        // Dispose GUI elements
+        if (this.chatContainer) {
+            this.chatContainer.dispose();
+            this.chatContainer = null;
+        }
+        
+        if (this.scrollViewer) {
+            this.scrollViewer.dispose();
+            this.scrollViewer = null;
+        }
+        
+        if (this.messagesArea) {
+            this.messagesArea.dispose();
+            this.messagesArea = null;
+        }
+        
+        // Clear command system
+        if (this.commandSystem) {
+            // CommandSystem doesn't have dispose, but we can clear references
+            this.commandSystem = null;
+        }
     }
 
 

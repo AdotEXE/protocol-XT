@@ -1,5 +1,5 @@
 /**
- * Network Menu (F8) - Меню настроек сети и мультиплеера
+ * Network Menu (F9) - Меню настроек сети и мультиплеера
  */
 
 import { Game } from "./game";
@@ -21,6 +21,10 @@ export interface NetworkSettings {
     showPlayers: boolean;
     voiceChat: boolean;
     textChat: boolean;
+    // Voice Chat Settings
+    voicePushToTalk: boolean;
+    voiceMute: boolean;
+    voiceVolume: number; // 0-100
 }
 
 export class NetworkMenu {
@@ -88,7 +92,7 @@ export class NetworkMenu {
             multiplayerEnabled: false,
             autoConnect: false,
             serverAddress: "localhost",
-            port: 8080,
+            port: 8000,
             reconnectAttempts: 5,
             reconnectDelay: 3000,
             pingInterval: 1000,
@@ -98,7 +102,11 @@ export class NetworkMenu {
             showPing: true,
             showPlayers: true,
             voiceChat: false,
-            textChat: true
+            textChat: true,
+            // Voice Chat defaults
+            voicePushToTalk: false, // Always-on mode by default
+            voiceMute: false,
+            voiceVolume: 70
         };
     }
 
@@ -117,7 +125,7 @@ export class NetworkMenu {
         const html = `
             <div class="panel">
                 <div class="panel-header">
-                    <div class="panel-title">NETWORK MENU [Ctrl+8]</div>
+                    <div class="panel-title">NETWORK MENU [F9]</div>
                     <button class="panel-close" id="network-close">×</button>
                 </div>
                 <div class="panel-content">
@@ -219,6 +227,26 @@ export class NetworkMenu {
                         </div>
                     </div>
                     
+                    <div class="panel-section" id="network-voice-settings-section" style="display: none;">
+                        <div class="panel-section-title">НАСТРОЙКИ ГОЛОСОВОГО ЧАТА</div>
+                        <div class="panel-control">
+                            <label class="panel-label">
+                                <input type="checkbox" id="network-voice-push-to-talk" class="panel-checkbox">
+                                Push-to-talk (клавиша V)
+                            </label>
+                        </div>
+                        <div class="panel-control">
+                            <label class="panel-label">
+                                <input type="checkbox" id="network-voice-mute" class="panel-checkbox">
+                                Заглушить микрофон
+                            </label>
+                        </div>
+                        <div class="panel-control">
+                            <label class="panel-label">Громкость: <span class="panel-value" id="network-voice-volume-value">${this.settings.voiceVolume}</span>%</label>
+                            <input type="range" class="panel-slider" id="network-voice-volume" min="0" max="100" step="1" value="${this.settings.voiceVolume}">
+                        </div>
+                    </div>
+                    
                     <div class="panel-section">
                         <div class="panel-section-title">СТАТУС ПОДКЛЮЧЕНИЯ</div>
                         <div class="panel-control">
@@ -278,7 +306,7 @@ export class NetworkMenu {
         // Навигация клавиатурой и закрытие по ESC
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!this.isVisible()) return;
-            
+
             // Закрытие по ESC
             if (e.code === "Escape") {
                 e.preventDefault();
@@ -287,23 +315,23 @@ export class NetworkMenu {
                 this.hide();
                 return;
             }
-            
+
             // Игнорируем если пользователь вводит текст
             const activeEl = document.activeElement;
             if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || (activeEl as HTMLElement).isContentEditable)) {
                 return;
             }
-            
+
             // Получаем все фокусируемые элементы
             const focusableElements = this.container.querySelectorAll<HTMLElement>(
                 'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
             );
-            
+
             if (focusableElements.length === 0) return;
-            
+
             const currentIndex = Array.from(focusableElements).findIndex(el => el === document.activeElement);
             const hasFocus = currentIndex >= 0 || document.activeElement === document.body;
-            
+
             // Если нет фокуса, фокусируем первый элемент при нажатии стрелок
             if (!hasFocus && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
                 e.preventDefault();
@@ -315,19 +343,19 @@ export class NetworkMenu {
                 }
                 return;
             }
-            
+
             // Стрелки вверх/вниз для навигации
             if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                 e.preventDefault();
                 e.stopPropagation();
-                
+
                 let nextIndex: number;
                 if (e.key === "ArrowDown") {
                     nextIndex = currentIndex < focusableElements.length - 1 ? currentIndex + 1 : 0;
                 } else {
                     nextIndex = currentIndex > 0 ? currentIndex - 1 : focusableElements.length - 1;
                 }
-                
+
                 const nextElement = focusableElements[nextIndex] as HTMLElement;
                 if (nextElement) {
                     nextElement.focus();
@@ -335,7 +363,7 @@ export class NetworkMenu {
                 }
                 return;
             }
-            
+
             // Enter для активации кнопок
             if (e.key === "Enter" && document.activeElement instanceof HTMLElement) {
                 const activeEl = document.activeElement;
@@ -384,6 +412,37 @@ export class NetworkMenu {
             this.settings.voiceChat = (e.target as HTMLInputElement).checked;
             this.saveSettings();
             this.applySettings();
+            // Показываем/скрываем настройки голосового чата
+            const voiceSettingsSection = document.getElementById("network-voice-settings-section");
+            if (voiceSettingsSection) {
+                voiceSettingsSection.style.display = this.settings.voiceChat ? "block" : "none";
+            }
+        });
+
+        // Voice Chat Settings
+        document.getElementById("network-voice-push-to-talk")?.addEventListener("change", (e) => {
+            this.settings.voicePushToTalk = (e.target as HTMLInputElement).checked;
+            this.saveSettings();
+            this.applyVoiceChatSettings();
+        });
+
+        document.getElementById("network-voice-mute")?.addEventListener("change", (e) => {
+            this.settings.voiceMute = (e.target as HTMLInputElement).checked;
+            this.saveSettings();
+            this.applyVoiceChatSettings();
+        });
+
+        // Voice volume slider
+        const voiceVolumeSlider = document.getElementById("network-voice-volume") as HTMLInputElement;
+        const voiceVolumeValue = document.getElementById("network-voice-volume-value");
+        voiceVolumeSlider?.addEventListener("input", () => {
+            const value = parseInt(voiceVolumeSlider.value);
+            this.settings.voiceVolume = value;
+            if (voiceVolumeValue) {
+                voiceVolumeValue.textContent = value.toString();
+            }
+            this.saveSettings();
+            this.applyVoiceChatSettings();
         });
 
         // Слайдеры
@@ -445,6 +504,21 @@ export class NetworkMenu {
         (document.getElementById("network-show-players") as HTMLInputElement).checked = this.settings.showPlayers;
         (document.getElementById("network-text-chat") as HTMLInputElement).checked = this.settings.textChat;
         (document.getElementById("network-voice-chat") as HTMLInputElement).checked = this.settings.voiceChat;
+
+        // Voice Chat Settings
+        (document.getElementById("network-voice-push-to-talk") as HTMLInputElement).checked = this.settings.voicePushToTalk;
+        (document.getElementById("network-voice-mute") as HTMLInputElement).checked = this.settings.voiceMute;
+        (document.getElementById("network-voice-volume") as HTMLInputElement).value = this.settings.voiceVolume.toString();
+        const voiceVolumeValue = document.getElementById("network-voice-volume-value");
+        if (voiceVolumeValue) {
+            voiceVolumeValue.textContent = this.settings.voiceVolume.toString();
+        }
+
+        // Показываем/скрываем настройки голосового чата
+        const voiceSettingsSection = document.getElementById("network-voice-settings-section");
+        if (voiceSettingsSection) {
+            voiceSettingsSection.style.display = this.settings.voiceChat ? "block" : "none";
+        }
     }
 
     private connect(): void {
@@ -543,10 +617,35 @@ export class NetworkMenu {
             }
         }
 
+        // Применяем настройки голосового чата
+        this.applyVoiceChatSettings();
+
         if (this.game && this.game.hud) {
             this.game.hud.showMessage("Настройки сети применены", "#0f0", 2000);
         }
         logger.log("[NetworkMenu] Settings applied:", this.settings);
+    }
+
+    private applyVoiceChatSettings(): void {
+        try {
+            const { getVoiceChatManager } = require("./voiceChat");
+            const voiceChat = getVoiceChatManager();
+
+            if (voiceChat && voiceChat.isEnabled()) {
+                voiceChat.setConfig({
+                    pushToTalk: this.settings.voicePushToTalk,
+                    mute: this.settings.voiceMute,
+                    volume: this.settings.voiceVolume
+                });
+                logger.log("[NetworkMenu] Voice chat settings applied:", {
+                    pushToTalk: this.settings.voicePushToTalk,
+                    mute: this.settings.voiceMute,
+                    volume: this.settings.voiceVolume
+                });
+            }
+        } catch (error) {
+            logger.warn("[NetworkMenu] Failed to apply voice chat settings:", error);
+        }
     }
 
     updateConnectionStatus(): void {
@@ -778,7 +877,7 @@ export class NetworkMenu {
     }
 
     private setupToggle(): void {
-        // F8 обработчик управляется в game.ts для консистентности
+        // F9 обработчик управляется в game.ts для консистентности
         // Этот метод оставлен для возможного будущего использования
     }
 
@@ -797,11 +896,16 @@ export class NetworkMenu {
         this.container.classList.remove("hidden");
         this.container.style.display = "";
 
-        // Показываем курсор и выходим из pointer lock
-        if (document.pointerLockElement) {
-            document.exitPointerLock();
+        // Показываем курсор и выходим из pointer lock через setMenuMode
+        if (this.game) {
+            this.game.setMenuMode(true);
+        } else {
+            // Fallback
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+            document.body.style.cursor = 'default';
         }
-        document.body.style.cursor = 'default';
 
         this.updateUI();
         this.updateConnectionStatus();
@@ -837,7 +941,7 @@ export class NetworkMenu {
                 }
             }
         }, 500);
-        
+
         // Автофокус первого элемента для навигации клавиатурой
         setTimeout(() => {
             const focusableElements = this.container.querySelectorAll<HTMLElement>(
@@ -854,6 +958,10 @@ export class NetworkMenu {
         this.visible = false;
         this.container.classList.add("hidden");
         this.container.style.display = "none";
+
+        if (this.game) {
+            this.game.setMenuMode(false);
+        }
 
         if (this.statusUpdateInterval) {
             clearInterval(this.statusUpdateInterval);
@@ -989,7 +1097,7 @@ export class NetworkMenu {
         });
 
         portInput?.addEventListener("change", () => {
-            this.settings.port = parseInt(portInput.value) || 8080;
+            this.settings.port = parseInt(portInput.value) || 8000;
             this.saveSettings();
         });
 

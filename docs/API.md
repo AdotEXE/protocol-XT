@@ -474,7 +474,7 @@ const leaderboard = await firebaseService.getLeaderboard("kills", 10);
 ### Connection
 
 ```
-ws://localhost:8080
+ws://localhost:8000
 ```
 
 ### Message Serialization
@@ -510,7 +510,7 @@ switch (message.type) {
 ```typescript
 import { MultiplayerManager } from "./multiplayer";
 
-const multiplayer = new MultiplayerManager("ws://localhost:8080");
+const multiplayer = new MultiplayerManager("ws://localhost:8000");
 
 multiplayer.onConnected(() => {
     console.log("Connected to server");
@@ -533,7 +533,7 @@ multiplayer.onPlayerStates((players) => {
 ```typescript
 import { GameServer } from "./gameServer";
 
-const server = new GameServer(8080);
+const server = new GameServer(8000);
 server.start();
 
 // Server automatically handles:

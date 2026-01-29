@@ -28,6 +28,7 @@ import {
 } from "@babylonjs/core";
 import { PhysicsAggregate, PhysicsShapeType } from "@babylonjs/core/Physics";
 import { logger } from "./utils/logger";
+import { EnemyTank } from "./enemyTank";
 import earcut from "earcut";
 
 /** Интерфейс для объекта из карты */
@@ -267,11 +268,11 @@ export class CustomMapRunner {
         );
         if (spawnObj) {
             const pos = spawnObj.position || { x: 0, y: 0, z: 0 };
-            
+
             // Используем findSafeSpawnPositionAt() для пересчёта Y координаты
             const game = (window as any).gameInstance;
             let safePos: Vector3 | null = null;
-            
+
             if (game && typeof game.findSafeSpawnPositionAt === 'function') {
                 safePos = game.findSafeSpawnPositionAt(pos.x, pos.z, 2.0, 5);
             }
@@ -314,10 +315,77 @@ export class CustomMapRunner {
         };
     }
 
+
+
     /**
      * Создать один объект из данных редактора
      */
     private createObject(obj: PlacedObject): Mesh | null {
+        // Handle Enemy Spawning
+        if (obj.type === 'enemy_tank' || obj.type === 'enemy_turret' || obj.type === 'npc') {
+            const game = (window as any).gameInstance;
+            if (game && game.soundManager && game.effectsManager) {
+                const pos = new Vector3(obj.position.x, obj.position.y || 2, obj.position.z);
+                try {
+                    // Spawn EnemyTank
+                    const enemy = new EnemyTank(
+                        this.scene,
+                        pos,
+                        game.soundManager,
+                        game.effectsManager,
+                        "medium", // Default difficulty
+                        1
+                    );
+
+                    if (obj.type === 'enemy_turret') {
+                        // TODO: Immobilize logic if available
+                    }
+
+                    console.log(`[CustomMapRunner] Spawned enemy ${obj.type} at ${pos}`);
+
+                    if (enemy.chassis) {
+                        return enemy.chassis;
+                    }
+                } catch (e) {
+                    console.error(`[CustomMapRunner] Failed to spawn enemy:`, e);
+                }
+            }
+            return null;
+        }
+
+        // Handle Triggers (Zones)
+        if (obj.type.startsWith('zone_')) {
+            const scale = obj.scale || { x: 1, y: 1, z: 1 };
+            const pos = obj.position || { x: 0, y: 0, z: 0 };
+            const meshName = `trigger_${obj.type}_${obj.id}`;
+
+            const mesh = MeshBuilder.CreateBox(meshName, {
+                width: scale.x,
+                height: scale.y,
+                depth: scale.z
+            }, this.scene);
+
+            mesh.position = new Vector3(pos.x, pos.y, pos.z);
+            mesh.visibility = 0.3;
+
+            const mat = new StandardMaterial(`triggerMat_${obj.id}`, this.scene);
+            if (obj.type === 'zone_damage') mat.diffuseColor = new Color3(1, 0, 0);
+            else if (obj.type === 'zone_heal') mat.diffuseColor = new Color3(0, 1, 0);
+            else if (obj.type === 'zone_teleport') mat.diffuseColor = new Color3(0, 0.5, 1);
+            else mat.diffuseColor = new Color3(1, 1, 0);
+
+            mat.alpha = 0.3;
+            mesh.material = mat;
+
+            mesh.metadata = {
+                isTrigger: true,
+                triggerType: obj.type.replace('zone_', ''),
+                customMapObject: true
+            };
+
+            return mesh;
+        }
+
         const pos = obj.position || { x: 0, y: 0, z: 0 };
         const scale = obj.scale || { x: 1, y: 1, z: 1 };
         const rot = obj.rotation || { x: 0, y: 0, z: 0 };
@@ -335,7 +403,6 @@ export class CustomMapRunner {
         let mesh: Mesh;
 
         // SIMPLIFIED: Всегда используем BOX для надёжности
-        // ExtrudePolygon удалён - часто вызывал невидимые меши
         const width = Math.max(0.5, scale.x);
         const height = Math.max(0.5, scale.y);
         const depth = Math.max(0.5, scale.z);

@@ -14,7 +14,8 @@ import {
     Animation,
     PointLight,
     EdgesRenderer,
-    Matrix
+    Matrix,
+    Ray
 } from "@babylonjs/core";
 import { ThinInstanceManager, InstanceableObjectType, InstanceConfig } from "./optimization/ThinInstanceManager";
 import { MaterialManager } from "./optimization/MaterialManager";
@@ -279,6 +280,37 @@ export class ChunkSystem {
         }
 
         return this.mapBounds;
+    }
+
+    /**
+     * Получить высоту ландшафта в точке
+     * Используется для спавна объектов, дропов и позиционирования игрока
+     */
+    public getHeightAt(x: number, z: number): number {
+        // Если это custom карта - используем raycasting для точности
+        if (this.config.mapType === "custom" || !this.terrainGenerator) {
+            // Raycast vertically downwards from high up
+            const origin = new Vector3(x, 1000, z);
+            const direction = new Vector3(0, -1, 0);
+            const ray = new THREE.Ray(origin, direction); // Wait, this is Babylon.js Project, not Three.js!
+            // Correct BabylonJS Ray:
+            const babylonRay = new Ray(origin, direction, 2000);
+
+            // Limit pick to static meshes (ground/buildings)
+            const hit = this.scene.pickWithRay(babylonRay, (mesh) => {
+                return mesh.isPickable && mesh.isEnabled();
+            });
+
+            if (hit && hit.hit && hit.pickedPoint) {
+                return hit.pickedPoint.y;
+            }
+
+            return 0; // Fallback to 0 if no ground found
+        }
+
+        // Используем 'grass' как дефолтный биом для получения высоты
+        // В большинстве случаев высота не сильно зависит от биома, или TerrainGenerator справится
+        return this.terrainGenerator.getHeight(x, z, "grass");
     }
 
     /**

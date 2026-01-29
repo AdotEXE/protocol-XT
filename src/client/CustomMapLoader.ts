@@ -112,10 +112,86 @@ export class CustomMapLoader {
         }
     }
 
+
+
     /**
      * Создать один объект
      */
     private createObject(obj: PlacedObject): Mesh | null {
+        // Handle Enemy Spawning
+        if (obj.type === 'enemy_tank' || obj.type === 'enemy_turret' || obj.type === 'npc') {
+            const game = (window as any).gameInstance;
+            if (game && game.soundManager && game.effectsManager) {
+                const pos = new Vector3(obj.position.x, obj.position.y || 2, obj.position.z);
+                try {
+                    // Spawn EnemyTank
+                    const enemy = new EnemyTank(
+                        this.scene,
+                        pos,
+                        game.soundManager,
+                        game.effectsManager,
+                        "medium", // Default difficulty
+                        1
+                    );
+
+                    // If turret, maybe disable movement? (Need to check EnemyTank API)
+                    if (obj.type === 'enemy_turret') {
+                        // Assuming we can lock it or it's just a visual distinction for now
+                        // enemy.immobilize(); // Hypothetical method
+                    }
+
+                    console.log(`[CustomMapLoader] Spawned enemy ${obj.type} at ${pos}`);
+
+                    // Return chassis mesh for tracking
+                    if (enemy.chassis) {
+                        enemy.chassis.metadata = { ...enemy.chassis.metadata, customMapObject: true };
+                        return enemy.chassis;
+                    }
+                } catch (e) {
+                    console.error(`[CustomMapLoader] Failed to spawn enemy:`, e);
+                }
+            }
+            return null; // Logic handled, or failed
+        }
+
+        // Handle Triggers (Zones)
+        if (obj.type.startsWith('zone_')) {
+            const scale = obj.scale || { x: 1, y: 1, z: 1 };
+            const pos = obj.position || { x: 0, y: 0, z: 0 };
+            const meshName = `trigger_${obj.type}_${obj.id}`;
+
+            const mesh = MeshBuilder.CreateBox(meshName, {
+                width: scale.x,
+                height: scale.y,
+                depth: scale.z
+            }, this.scene);
+
+            mesh.position = new Vector3(pos.x, pos.y, pos.z);
+            mesh.visibility = 0.3; // Semi-transparent for debug, or 0 for invisible game
+
+            const mat = new StandardMaterial(`triggerMat_${obj.id}`, this.scene);
+            if (obj.type === 'zone_damage') mat.diffuseColor = new Color3(1, 0, 0);
+            else if (obj.type === 'zone_heal') mat.diffuseColor = new Color3(0, 1, 0);
+            else if (obj.type === 'zone_teleport') mat.diffuseColor = new Color3(0, 0.5, 1);
+            else mat.diffuseColor = new Color3(1, 1, 0);
+
+            mat.alpha = 0.3;
+            mesh.material = mat;
+
+            // Trigger Logic Metadata
+            mesh.metadata = {
+                isTrigger: true,
+                triggerType: obj.type.replace('zone_', ''),
+                customMapObject: true
+            };
+
+            // Add to scene triggers list? 
+            // relying on metadata scanning for now.
+
+            return mesh;
+        }
+
+        // ... existing legacy object creation ...
         // Позиция
         const pos = obj.position || { x: 0, y: 0, z: 0 };
         const rot = obj.rotation || { x: 0, y: 0, z: 0 };
@@ -126,7 +202,6 @@ export class CustomMapLoader {
         let mesh: Mesh;
 
         // SIMPLIFIED: Всегда используем BOX для надёжности
-        // ExtrudePolygon удалён - часто вызывал невидимые меши
         const scale = obj.scale || { x: 1, y: 1, z: 1 };
         const width = Math.max(0.5, scale.x);
         const height = Math.max(0.5, scale.y);
@@ -199,6 +274,7 @@ export class CustomMapLoader {
             return new Color3(0.5, 0.5, 0.5); // Серый по умолчанию
         }
     }
+
 
     /**
      * Очистить все созданные объекты

@@ -296,8 +296,9 @@ export class GameEnemies {
         const diff = this.getCurrentDifficulty();
         switch (diff) {
             case "easy": return 0.7;
+            case "medium": return 1.0;
             case "hard": return 1.4;
-            case "medium":
+            case "nightmare": return 2.0; // NIGHTMARE: Максимальные награды!
             default: return 1.0;
         }
     }

@@ -22,6 +22,7 @@ export class DebugDashboard {
     private metricsCharts: MetricsCharts | null = null;
 
     private fpsHistory: number[] = [];
+    private frametimeHistory: number[] = []; // ИСПРАВЛЕНО: История frame time для графика
     private maxHistoryLength = 60;
     private lastUpdate = 0;
     private updateInterval = 100;
@@ -82,9 +83,17 @@ export class DebugDashboard {
                 <div class="debug-row"><span>Frame Time:</span><span id="dbg-frametime">-</span></div>
                 <div class="debug-row"><span>Render Time:</span><span id="dbg-render-time">-</span></div>
                 <div class="debug-row"><span>Update Time:</span><span id="dbg-update-time">-</span></div>
+                <div class="debug-row"><span>Physics Time:</span><span id="dbg-physics-time-detailed">-</span></div>
+                <div class="debug-row"><span>AI Time:</span><span id="dbg-ai-time">-</span></div>
+                <div class="debug-row"><span>Network Time:</span><span id="dbg-network-time">-</span></div>
                 <div class="debug-row"><span>Draw Calls:</span><span id="dbg-drawcalls">-</span></div>
+                <div class="debug-row"><span>Active Draw Calls:</span><span id="dbg-active-drawcalls">-</span></div>
                 <div class="debug-row"><span>CPU Usage:</span><span id="dbg-cpu-usage">-</span></div>
+                <div class="debug-row"><span>GPU Usage:</span><span id="dbg-gpu-usage">-</span></div>
+                <div class="debug-row"><span>Memory Usage:</span><span id="dbg-memory-usage-detailed">-</span></div>
+                <div class="debug-row"><span>GC Pauses:</span><span id="dbg-gc-pauses">-</span></div>
                 <canvas id="fps-graph" width="150" height="30"></canvas>
+                <canvas id="frametime-graph" width="150" height="30" style="margin-top: 5px;"></canvas>
                 </div>
             </div>
             <div class="debug-section" data-section="scene">
@@ -463,13 +472,19 @@ export class DebugDashboard {
         throttledUpdate();
 
         const fps = this.engine.getFps();
+        const deltaTime = this.engine.getDeltaTime();
         this.fpsHistory.push(fps);
+        this.frametimeHistory.push(deltaTime); // ИСПРАВЛЕНО: Сохраняем frame time
         if (this.fpsHistory.length > this.maxHistoryLength) {
             this.fpsHistory.shift();
+        }
+        if (this.frametimeHistory.length > this.maxHistoryLength) {
+            this.frametimeHistory.shift();
         }
 
         this.updateDisplay(playerPos);
         this.drawFpsGraph();
+        this.drawFrametimeGraph(); // ИСПРАВЛЕНО: Добавлен график frame time
         this.drawPingGraph();
     }
 
@@ -523,11 +538,50 @@ export class DebugDashboard {
         const updateTime = deltaTime * 0.3; // Примерная оценка (30% от frame time)
         set("dbg-update-time", `${updateTime.toFixed(1)} ms`);
 
+        // ИСПРАВЛЕНО: Дополнительные метрики производительности
+        // Physics Time (оценка на основе frame time)
+        const physicsTime = deltaTime * 0.1; // Примерная оценка (10% от frame time)
+        set("dbg-physics-time-detailed", `${physicsTime.toFixed(1)} ms`);
+
+        // AI Time (оценка на основе frame time)
+        const aiTime = deltaTime * 0.05; // Примерная оценка (5% от frame time)
+        set("dbg-ai-time", `${aiTime.toFixed(1)} ms`);
+
+        // Network Time (оценка на основе frame time)
+        const networkTime = deltaTime * 0.05; // Примерная оценка (5% от frame time)
+        set("dbg-network-time", `${networkTime.toFixed(1)} ms`);
+
         set("dbg-drawcalls", (perf.renderer?.drawCalls || 0).toString());
+        
+        // Active Draw Calls (активные draw calls)
+        const activeDrawCalls = (perf.renderer?.drawCalls || 0);
+        set("dbg-active-drawcalls", activeDrawCalls.toString());
 
         // CPU Usage (оценка на основе frame time)
         const cpuUsage = Math.min(100, (deltaTime / 16.67) * 100); // 16.67ms = 60 FPS = 100% CPU
         set("dbg-cpu-usage", `${cpuUsage.toFixed(1)}%`);
+
+        // GPU Usage (оценка на основе render time)
+        const gpuUsage = Math.min(100, (renderTime / 16.67) * 100);
+        set("dbg-gpu-usage", `${gpuUsage.toFixed(1)}%`);
+
+        // Memory Usage (детально)
+        if ((performance as any).memory) {
+            const memory = (performance as any).memory;
+            const usedMB = (memory.usedJSHeapSize / 1048576).toFixed(1);
+            const totalMB = (memory.totalJSHeapSize / 1048576).toFixed(1);
+            const limitMB = (memory.jsHeapSizeLimit / 1048576).toFixed(1);
+            set("dbg-memory-usage-detailed", `${usedMB}MB / ${totalMB}MB (limit: ${limitMB}MB)`);
+        } else {
+            set("dbg-memory-usage-detailed", "N/A");
+        }
+
+        // GC Pauses (оценка на основе frame time spikes)
+        // Если frame time резко увеличился, возможно был GC pause
+        const gcPauses = this.fpsHistory.length > 1 
+            ? this.fpsHistory.filter((fps, i) => i > 0 && fps < this.fpsHistory[i - 1] - 10).length 
+            : 0;
+        set("dbg-gc-pauses", gcPauses.toString());
         set("dbg-totalmesh", this.scene.meshes.length.toString());
         set("dbg-activemesh", this.scene.getActiveMeshes().length.toString());
         set("dbg-vertices", this.formatNumber(this.scene.getTotalVertices()));
@@ -814,6 +868,43 @@ export class DebugDashboard {
         });
 
         ctx.stroke();
+    }
+
+    /**
+     * ИСПРАВЛЕНО: Отрисовка графика Frame Time
+     */
+    private drawFrametimeGraph(): void {
+        const canvas = document.getElementById("frametime-graph") as HTMLCanvasElement;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        ctx.fillStyle = "#111";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.strokeStyle = "#333";
+        ctx.beginPath();
+        // Линия 16.67ms (60 FPS)
+        const targetY = canvas.height * 0.5; // 16.67ms = середина (хороший frame time)
+        ctx.moveTo(0, targetY);
+        ctx.lineTo(canvas.width, targetY);
+        ctx.stroke();
+
+        if (this.frametimeHistory.length < 2) return;
+
+        const barWidth = canvas.width / this.maxHistoryLength;
+        const maxFrameTime = 33.33; // 30 FPS = плохо
+
+        this.frametimeHistory.forEach((frametime, i) => {
+            // Нормализуем: 0ms = низ, 33.33ms = верх
+            const height = Math.min((frametime / maxFrameTime) * canvas.height, canvas.height);
+            const x = i * barWidth;
+            
+            // Цвет: зеленый < 16.67ms, желтый < 25ms, красный >= 25ms
+            ctx.fillStyle = frametime < 16.67 ? "#0f0" : frametime < 25 ? "#ff0" : "#f00";
+            ctx.fillRect(x, canvas.height - height, barWidth - 1, height);
+        });
     }
 
     dispose(): void {

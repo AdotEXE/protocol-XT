@@ -5,15 +5,19 @@
  * Использует ту же логику создания, что и локальный танк, но с уникальными именами мешей.
  */
 
-import { Scene, Vector3, Mesh, MeshBuilder, StandardMaterial, Color3, PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, Quaternion } from "@babylonjs/core";
+import { Scene, Vector3, Mesh, AbstractMesh, Node, MeshBuilder, StandardMaterial, Color3, PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, Ray, Matrix, Quaternion, DynamicTexture } from "@babylonjs/core";
 import type { NetworkPlayer } from "./multiplayer";
 import { vector3Pool } from "./optimization/Vector3Pool";
+
 import { getChassisById, getCannonById, getTrackById, type ChassisType, type CannonType, type TrackType } from "./tankTypes";
 import { createUniqueCannon, type CannonAnimationElements } from "./tank/tankCannon";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { MaterialFactory } from "./garage/materials";
 import type { EffectsManager } from "./effects";
-import { createUniqueChassis, type ChassisAnimationElements } from "./tank/tankChassis";
+import { createUniqueChassis, type ChassisAnimationElements, CHASSIS_SIZE_MULTIPLIERS } from "./tank/tankChassis";
+import { getAttachmentOffset } from "./tank/tankEquipment";
+import { getModuleById } from "./config/moduleRegistry";
+import type { TankModule } from "../shared/types/moduleTypes";
 // createVisualTracks removed - using createVisualWheels with trackType instead
 
 export class NetworkPlayerTank {
@@ -72,6 +76,16 @@ export class NetworkPlayerTank {
     // КРИТИЧНО: Флаг для мгновенной телепортации при респавне
     needsRespawnTeleport: boolean = false;
 
+    // Animation State
+    private isSpawning: boolean = false;
+    private destroyedParts: {
+        mesh: AbstractMesh;
+        name: string;
+        originalParent: Node | null;
+        originalLocalPos: Vector3;
+        originalLocalRot: Quaternion | null;
+    }[] = [];
+
     // Cubic interpolation state
     private useCubicInterpolation: boolean = true; // Enable cubic interpolation
     private interpolationStartTime: number = 0;
@@ -85,6 +99,12 @@ export class NetworkPlayerTank {
     private maxHealth: number = 100;
     private healthBar: Mesh | null = null;
     private healthBarBackground: Mesh | null = null;
+
+    // HP Bar Refactor: Temporary on-hit display with distance
+    private lastHitTime: number = 0;
+    private readonly HP_BAR_VISIBLE_DURATION = 3000; // 3 seconds
+    private distanceTextPlane: Mesh | null = null;
+    private distanceTexture: DynamicTexture | null = null;
 
     // Unique ID for this tank (to avoid mesh name conflicts)
     private uniqueId: string;
@@ -199,11 +219,14 @@ export class NetworkPlayerTank {
         }
 
         // Инициализируем полоску здоровья
-        this.createHealthBar();
-        this.updateHealthBar();
+        this.createHealthBarVisuals();
+        this.updateHealthBarVisuals();
 
         // Mark network update time
         this.lastNetworkUpdateTime = Date.now();
+
+        // Apply modules
+        this.updateModules(networkPlayer.modules);
     }
 
     /**
@@ -377,8 +400,98 @@ export class NetworkPlayerTank {
         }
 
         // Restore health bar
-        this.createHealthBar();
-        this.updateHealthBar();
+        this.createHealthBarVisuals();
+        this.updateHealthBarVisuals();
+
+        // Restore modules
+        this.updateModules(this.networkPlayer.modules);
+    }
+
+    /**
+     * Update attached visual modules
+     */
+    updateModules(moduleIds?: string[]): void {
+        console.log(`[NetworkPlayerTank] Updating modules for ${this.playerId}:`, moduleIds);
+
+        // Clear existing
+        for (const mesh of this.attachedModules.values()) {
+            mesh.dispose();
+        }
+        this.attachedModules.clear();
+
+        if (!moduleIds || !Array.isArray(moduleIds)) return;
+
+        // Create new visuals
+        for (const modId of moduleIds) {
+            const module = getModuleById(modId);
+            if (module) {
+                this.createModuleVisual(module);
+            }
+        }
+    }
+
+    private createModuleVisual(module: TankModule): void {
+        // ДИНАМИЧЕСКИЙ расчёт offset на основе реальных размеров танка
+        const offset = getAttachmentOffset(module.attachmentPoint, this.chassisType);
+        if (offset.length() === 0 && module.attachmentPoint !== "barrel_mount") {
+            console.warn(`[NetworkPlayerTank] ⚠️ Unknown attachment point: ${module.attachmentPoint} for module ${module.id}`);
+            return;
+        }
+
+        // Determine parent
+        let parent: Mesh;
+        if (module.attachmentPoint.startsWith("turret")) {
+            parent = this.turret;
+        } else if (module.attachmentPoint.startsWith("barrel")) {
+            parent = this.barrel;
+        } else {
+            parent = this.chassis;
+        }
+
+        if (!parent) {
+            console.warn(`[NetworkPlayerTank] ⚠️ Parent mesh not ready for module ${module.id}`);
+            return;
+        }
+
+        // Create Mesh (Placeholder logic similar to TankEquipmentModule)
+        let mesh: Mesh;
+        const color = Color3.FromHexString(module.color || "#ffffff");
+        const scale = module.scale || 1;
+
+        if (module.modelPath === "cylinder_pair") {
+            mesh = new Mesh("netMod_" + module.id + "_" + this.uniqueId, this.scene);
+            const pipe1 = MeshBuilder.CreateCylinder("p1", { height: 1, diameter: 0.3 }, this.scene);
+            const pipe2 = MeshBuilder.CreateCylinder("p2", { height: 1, diameter: 0.3 }, this.scene);
+            pipe1.position.x = 0.3; pipe1.rotation.x = Math.PI / 2;
+            pipe2.position.x = -0.3; pipe2.rotation.x = Math.PI / 2;
+            pipe1.parent = mesh;
+            pipe2.parent = mesh;
+
+            const mat = new StandardMaterial("mat_" + module.id + "_" + this.uniqueId, this.scene);
+            mat.diffuseColor = color;
+            pipe1.material = mat;
+            pipe2.material = mat;
+        } else if (module.modelPath === "box_small") {
+            mesh = MeshBuilder.CreateBox("netMod_" + module.id + "_" + this.uniqueId, { size: 0.4 * scale }, this.scene);
+            const mat = new StandardMaterial("mat_" + module.id + "_" + this.uniqueId, this.scene);
+            mat.diffuseColor = color;
+            mat.emissiveColor = color.scale(0.5);
+            mesh.material = mat;
+        } else {
+            mesh = MeshBuilder.CreateBox("netMod_" + module.id + "_" + this.uniqueId, {
+                width: 0.8 * scale,
+                height: 0.2 * scale,
+                depth: 0.8 * scale
+            }, this.scene);
+            const mat = new StandardMaterial("mat_" + module.id + "_" + this.uniqueId, this.scene);
+            mat.diffuseColor = color;
+            mesh.material = mat;
+        }
+
+        // Прикрепляем модуль НАПРЯМУЮ к родительскому мешу
+        mesh.parent = parent;
+        mesh.position = offset;
+        this.attachedModules.set(module.id, mesh);
     }
 
     /**
@@ -628,6 +741,9 @@ export class NetworkPlayerTank {
         const targetZ = typeof np.position?.z === 'number' ? np.position.z : 0;
         const targetRotation = typeof np.rotation === 'number' ? np.rotation : 0;
 
+        // Update health bar visibility and distance text
+        this.updateHealthBarVisibilityAndDistance();
+
         // КРИТИЧНО: При первом обновлении - МГНОВЕННАЯ телепортация к серверной позиции
         if (this.needsInitialSync) {
             this.chassis.position.x = targetX;
@@ -682,8 +798,8 @@ export class NetworkPlayerTank {
         }
 
         // ОПТИМИЗАЦИЯ: Кэшируем усреднённую позицию - вычисляем только при изменении буфера
-        const bufferHash = this.positionBuffer.length + (this.positionBuffer.length > 0 ?
-            Math.floor(this.positionBuffer[this.positionBuffer.length - 1].x * 100) : 0);
+        const lastPos = this.positionBuffer[this.positionBuffer.length - 1];
+        const bufferHash = this.positionBuffer.length + (lastPos ? Math.floor(lastPos.x * 100) : 0);
         const bufferChanged = bufferHash !== this._lastBufferHash;
 
         let avgX = 0, avgY = 0, avgZ = 0, avgRot = 0;
@@ -1070,9 +1186,17 @@ export class NetworkPlayerTank {
      * Установить здоровье танка и обновить визуальную полоску
      */
     setHealth(health: number, maxHealth: number = 100): void {
+        const prevHealth = this.health;
         this.health = Math.max(0, Math.min(health, maxHealth));
         this.maxHealth = maxHealth;
-        this.updateHealthBar();
+
+        // Show HP bar on damage (if health decreased)
+        if (this.health < prevHealth) {
+            this.lastHitTime = Date.now();
+            this.updateHealthBarVisibilityAndDistance(); // Force update visibility immediately
+        }
+
+        this.updateHealthBarVisuals();
     }
 
     /**
@@ -1086,23 +1210,19 @@ export class NetworkPlayerTank {
      * Установить танк в состояние живого (показать)
      */
     setAlive(position?: Vector3): void {
-        // console.log(`[NetworkPlayerTank] 🟢 setAlive called for ${this.playerId}, position=${position ? position.toString() : 'none'}`);
-        // console.log(`[NetworkPlayerTank] 🟢 Chassis state: exists=${!!this.chassis}, disposed=${this.chassis?.isDisposed()}, enabled=${this.chassis?.isEnabled()}, visible=${this.chassis?.isVisible}`);
-
         // КРИТИЧНО: Устанавливаем флаг для мгновенной телепортации при респавне
         this.needsRespawnTeleport = true;
 
         if (position && this.chassis) {
             this.chassis.position.copyFrom(position);
 
-            // FIX: Также обновляем позицию в networkPlayer, чтобы update() не телепортировал танк обратно
+            // Также обновляем позицию в networkPlayer
             if (this.networkPlayer) {
                 if (this.networkPlayer.position instanceof Vector3) {
                     this.networkPlayer.position.set(position.x, position.y, position.z);
                 } else {
                     (this.networkPlayer.position as any) = new Vector3(position.x, position.y, position.z);
                 }
-
                 // Сбрасываем буфер интерполяции с новой позицией
                 this.positionBuffer = [{
                     x: position.x,
@@ -1115,18 +1235,33 @@ export class NetworkPlayerTank {
         }
 
         if (this.chassis) {
-            if (this.chassis.isDisposed()) {
-                console.error(`[NetworkPlayerTank] ❌ CRITICAL: Chassis was DISPOSED for ${this.playerId}! Cannot restore.`);
-                return;
+            if (this.chassis.isDisposed()) return;
+
+            // Trigger assembly animation if we have destroyed parts
+            if (this.destroyedParts.length > 0) {
+                this.isSpawning = true;
+                this.animateReassembly(() => {
+                    // Ensure visibility is correct after animation
+                    this.chassis.isVisible = true;
+                    this.chassis.setEnabled(true);
+                });
+                // Note: animateReassembly handles enabling/visiblity of parts as they lerp
+            } else {
+                // Determine if this is a "first spawn" or "respawn without death"
+                // Just show it if no animation data
+                this.chassis.isVisible = true;
+                this.chassis.setEnabled(true);
+                const children = this.chassis.getChildMeshes();
+                children.forEach(child => {
+                    child.isVisible = true;
+                    child.setEnabled(true);
+                });
             }
 
-            this.chassis.isVisible = true;
-            this.chassis.setEnabled(true);
             this.chassis.checkCollisions = true;
 
-            // КРИТИЧНО: Заново создаем физику при респавне
+            // Re-create physics if needed logic (same as before)
             if (!this.physicsAggregate) {
-                console.log(`[NetworkPlayerTank] 🟢 Recreating physics for ${this.playerId}`);
                 this.physicsAggregate = new PhysicsAggregate(
                     this.chassis,
                     PhysicsShapeType.BOX,
@@ -1136,18 +1271,6 @@ export class NetworkPlayerTank {
                 this.physicsAggregate.body.setMotionType(PhysicsMotionType.ANIMATED);
                 this.physicsAggregate.body.disablePreStep = false;
             }
-
-            const children = this.chassis.getChildMeshes();
-            // console.log(`[NetworkPlayerTank] 🟢 Restoring ${children.length} child meshes for ${this.playerId}`);
-            children.forEach(child => {
-                child.isVisible = true;
-                child.setEnabled(true);
-                child.checkCollisions = true;
-            });
-
-            // console.log(`[NetworkPlayerTank] ✅ setAlive COMPLETE for ${this.playerId}: visible=${this.chassis.isVisible}, enabled=${this.chassis.isEnabled()}, childCount=${children.length}`);
-        } else {
-            console.error(`[NetworkPlayerTank] ❌ setAlive FAILED - no chassis for ${this.playerId}`);
         }
 
         // Сбрасываем здоровье
@@ -1160,42 +1283,19 @@ export class NetworkPlayerTank {
 
     /**
      * Установить танк в состояние мертвого (скрыть и показать эффект)
+     * IMPLEMENTATION MOVED TO LINE ~1670 to support scattering
      */
-    setDead(): void {
-        // console.log(`[NetworkPlayerTank] 💀 setDead for ${this.playerId}`);
-
-        this.playDeathEffect();
-
-        if (this.chassis) {
-            this.chassis.isVisible = false;
-            this.chassis.setEnabled(false);
-
-            // Отключаем коллизии
-            this.chassis.checkCollisions = false;
-            const children = this.chassis.getChildMeshes();
-            children.forEach(child => {
-                child.isVisible = false;
-                child.setEnabled(false);
-                child.checkCollisions = false;
-            });
-
-            // Удаляем физику чтобы танк не мешал (будет пересоздана в setAlive)
-            if (this.physicsAggregate) {
-                this.physicsAggregate.dispose();
-                this.physicsAggregate = null;
-            }
-        }
-
-        if (this.healthBar) this.healthBar.isVisible = false;
-        if (this.healthBarBackground) this.healthBarBackground.isVisible = false;
-    }
+    // setDead removed to fix duplicate identifier error
 
 
 
     /**
      * Создать визуальную полоску здоровья над танком
      */
-    private createHealthBar(): void {
+    /**
+     * Создать визуальную полоску здоровья над танком
+     */
+    private createHealthBarVisuals(): void {
         if (this.healthBar) return; // Уже создана
 
         const barWidth = 2.5;
@@ -1211,11 +1311,13 @@ export class NetworkPlayerTank {
         this.healthBarBackground.position = new Vector3(0, barY, 0);
         this.healthBarBackground.parent = this.chassis;
         this.healthBarBackground.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        this.healthBarBackground.isVisible = false;
 
         const bgMat = new StandardMaterial(`healthBgMat_${this.uniqueId}`, this.scene);
         bgMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
         bgMat.emissiveColor = new Color3(0.15, 0.15, 0.15);
         bgMat.backFaceCulling = false;
+        bgMat.disableLighting = true;
         this.healthBarBackground.material = bgMat;
 
         // Полоска здоровья (зелёная/жёлтая/красная)
@@ -1227,21 +1329,51 @@ export class NetworkPlayerTank {
         this.healthBar.position = new Vector3(0, barY, -0.01); // Чуть впереди фона
         this.healthBar.parent = this.chassis;
         this.healthBar.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        this.healthBar.isVisible = false;
 
         const barMat = new StandardMaterial(`healthBarMat_${this.uniqueId}`, this.scene);
         barMat.diffuseColor = new Color3(0.2, 0.8, 0.2); // Зелёный
         barMat.emissiveColor = new Color3(0.1, 0.4, 0.1);
         barMat.backFaceCulling = false;
+        barMat.disableLighting = true;
         this.healthBar.material = barMat;
+
+        // Текст дистанции (над полоской)
+        // Плоскость 1.5x0.5, текстура 128x64 (2:1 aspect ratio match)
+        this.distanceTextPlane = MeshBuilder.CreatePlane(
+            `distText_${this.uniqueId}`,
+            { width: 1.5, height: 0.5 },
+            this.scene
+        );
+        // Позиция: Справа от полоски (barWidth/2 + offset)
+        this.distanceTextPlane.position = new Vector3(barWidth / 2 + 0.9, barY, 0);
+        this.distanceTextPlane.parent = this.chassis;
+        this.distanceTextPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+        this.distanceTextPlane.isVisible = false;
+
+        this.distanceTexture = new DynamicTexture(`distTex_${this.uniqueId}`, { width: 256, height: 85 }, this.scene, false); // Increased resolution
+        this.distanceTexture.hasAlpha = true;
+
+        const textMat = new StandardMaterial(`distTextMat_${this.uniqueId}`, this.scene);
+        textMat.diffuseTexture = this.distanceTexture;
+        textMat.emissiveColor = Color3.White();
+        textMat.diffuseColor = Color3.White();
+        textMat.backFaceCulling = false;
+        textMat.disableLighting = true;
+        textMat.useAlphaFromDiffuseTexture = true;
+        this.distanceTextPlane.material = textMat;
     }
 
     /**
      * Обновить визуальную полоску здоровья
      */
-    private updateHealthBar(): void {
+    /**
+     * Обновить визуальную полоску здоровья (ТОЛЬКО ЦВЕТ И ШКАЛА)
+     */
+    private updateHealthBarVisuals(): void {
         // Создаём полоску если ещё не создана
         if (!this.healthBar) {
-            this.createHealthBar();
+            this.createHealthBarVisuals();
         }
 
         if (!this.healthBar) return;
@@ -1271,11 +1403,347 @@ export class NetworkPlayerTank {
                 mat.emissiveColor = new Color3(0.45, 0.1, 0.1);
             }
         }
+    }
 
-        // Скрываем если здоровье полное
-        const shouldShow = this.health < this.maxHealth && this.health > 0;
-        if (this.healthBar) this.healthBar.isVisible = shouldShow;
-        if (this.healthBarBackground) this.healthBarBackground.isVisible = shouldShow;
+    /**
+     * Обновляет видимость и текст дистанции (вызывать в loop)
+     */
+    public updateHealthBarVisibilityAndDistance(): void {
+        // If bar not created yet, don't create it here (wait for first damage)
+        // But if lastHitTime is set, we might need to create it?
+        // Actually setHealth calls updateHealthBarVisuals which creates it.
+        // So just check existence.
+        if (!this.healthBar || !this.healthBarBackground || !this.distanceTextPlane || !this.chassis) return;
+
+        const now = Date.now();
+        // Visible if hit recently AND health < max AND health > 0
+        const isVisible = (now - this.lastHitTime < this.HP_BAR_VISIBLE_DURATION) && this.health < this.maxHealth && this.health > 0;
+
+        if (this.healthBar.isVisible !== isVisible) {
+            this.healthBar.isVisible = isVisible;
+            this.healthBarBackground.isVisible = isVisible;
+            this.distanceTextPlane.isVisible = isVisible;
+        }
+
+        if (isVisible) {
+            // Update distance text
+            const camera = this.scene.activeCamera;
+            if (camera) {
+                const dist = Vector3.Distance(camera.position, this.chassis.absolutePosition);
+
+                // Throttling updates? Simple integer check is enough
+                const distInt = Math.round(dist);
+                // We could cache distInt to avoid canvas repaint
+                if ((this as any)._lastDistInt !== distInt) {
+                    (this as any)._lastDistInt = distInt;
+                    const ctx = this.distanceTexture?.getContext() as unknown as CanvasRenderingContext2D;
+                    if (ctx && this.distanceTexture) {
+                        ctx.clearRect(0, 0, 256, 85);
+                        // ctx.fillStyle = "rgba(0,0,0,0.5)";
+                        // ctx.fillRect(0,0,128,64);
+                        ctx.font = "bold 48px Consolas";
+                        ctx.fillStyle = "white";
+                        ctx.textAlign = "left";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText(`${distInt}m`, 10, 42);
+                        this.distanceTexture.update();
+                    }
+                }
+            }
+        }
+    }
+
+    // === ANIMATION METHODS ===
+
+    /**
+     * Визуальная анимация разброса части (без физики)
+     * Ported from TankHealthModule
+     */
+    private animatePartScatter(mesh: AbstractMesh, velocity: Vector3, angularVelocity: Vector3, duration: number): void {
+        const startTime = Date.now();
+        const startPos = mesh.position.clone();
+        const gravity = -15; // Гравитация
+
+        const animate = () => {
+            if (mesh.isDisposed()) return;
+
+            const elapsed = (Date.now() - startTime) / 1000; // в секундах
+            const progress = Math.min(elapsed / (duration / 1000), 1.0);
+
+            // Позиция с гравитацией: pos = startPos + vel*t + 0.5*g*t^2
+            const newPos = startPos.add(velocity.scale(elapsed));
+            newPos.y += 0.5 * gravity * elapsed * elapsed;
+
+            // Не даём уйти под землю (локальная симуляция)
+            // Note: Since positions are relative if parented, checking world Y is hard if not absolute.
+            // But we unparent them before calling this.
+            if (newPos.y < 0.1) {
+                newPos.y = 0.1;
+                velocity.y = 0;
+                velocity.x *= 0.9; // Затухание
+                velocity.z *= 0.9;
+            }
+
+            mesh.position.copyFrom(newPos);
+
+            // Вращение
+            if (mesh.rotationQuaternion) {
+                const rotDelta = Quaternion.FromEulerAngles(
+                    angularVelocity.x * 0.016,
+                    angularVelocity.y * 0.016,
+                    angularVelocity.z * 0.016
+                );
+                mesh.rotationQuaternion = mesh.rotationQuaternion.multiply(rotDelta);
+            }
+
+            // Затухание угловой скорости
+            angularVelocity.scaleInPlace(0.98);
+
+            // Прозрачность в конце
+            if (progress > 0.7 && mesh.material) {
+                const fadeProgress = (progress - 0.7) / 0.3;
+                (mesh.material as any).alpha = 1 - fadeProgress * 0.3;
+            }
+
+            if (progress < 1.0) {
+                requestAnimationFrame(animate);
+            }
+        };
+
+        requestAnimationFrame(animate);
+    }
+
+    /**
+     * Анимирует сборку танка
+     */
+    private animateReassembly(onComplete?: () => void): void {
+        if (this.destroyedParts.length === 0) {
+            // Если частей нет, просто включаем видимость
+            this.setHierarchyVisibility(this.chassis, 1);
+            if (onComplete) onComplete();
+            return;
+        }
+
+        const duration = 1500;
+        const startTime = Date.now();
+
+        // Текущие позиции частей (разбросанные)
+        const startPositions = this.destroyedParts.map(p => p.mesh.position.clone());
+        const startRotations = this.destroyedParts.map(p => p.mesh.rotationQuaternion ? p.mesh.rotationQuaternion.clone() : Quaternion.Identity());
+
+        // Целевые позиции (локальные относительно шасси, которое уже в точке респавна)
+        // Но так как части сейчас detached, нам нужно пересчитать их целевые world позиции
+        // Или проще: приаттачить их обратно СРАЗУ, но задать им локальные оффсеты, и интерполировать к 0?
+        // Нет, лучше анимировать в мировых координатах, а в конце приаттачить.
+
+        const targetPositions: Vector3[] = [];
+        const targetRotations: Quaternion[] = [];
+
+        const chassisPos = this.chassis.absolutePosition; // Шасси уже перемещено в точку респавна (невидимое)
+
+        // Восстанавливаем иерархию виртуально для расчета позиций
+        for (const part of this.destroyedParts) {
+            let targetWorldPos: Vector3;
+            const originalLocal = part.originalLocalPos;
+
+            // Расчет позиции относительно текущего положения шасси (респавн)
+            // Упрощено: предполагаем что оригинальные локальные позиции были относительно шасси или его детей
+            // Если иерархия сложная (barrel -> turret -> chassis), нужно учитывать всю цепочку.
+            // Но мы сохранили originalParent.
+
+            // Самый надежный способ: просто вернуть их в их оригинальные ЛОКАЛЬНЫЕ координаты и приаттачить к шасси?
+            // Но мы хотим анимацию "полета" к танку.
+
+            // 1. Анимируем к chassis.position + originalLocalPos (с учетом поворота шасси)
+            // Шасси при респавне обычно имеет rotation (0,0,0) или заданный.
+
+            const worldMatrix = this.chassis.computeWorldMatrix(true);
+
+            if (part.name === "chassis") {
+                targetWorldPos = chassisPos.clone();
+            } else if (part.name === "turret" || part.name === "barrel" || part.name.includes("Track")) {
+                // Для упрощения: анимируем все к центру танка + смещение
+                // Это может быть неточно, но выглядит как "сборка"
+                targetWorldPos = chassisPos.add(originalLocal);
+                // Корректнее было бы использовать матрицу трансформации, но originalLocalPos сохранен относительно родителя.
+                // Если родитель был шасси, то local -> world conversion через матрицу шасси.
+            } else {
+                targetWorldPos = chassisPos.clone();
+            }
+            targetPositions.push(targetWorldPos);
+
+            // Вращение: хотим вернуть в Identity (или оригинальное локальное)
+            // Но так как они detached, нужно world rotation.
+            // Если родитель (шасси) имеет Identity rotation, то local = world.
+            targetRotations.push(part.originalLocalRot || Quaternion.Identity());
+        }
+
+        const animate = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / duration, 1.0);
+
+            // Easing
+            const easedProgress = progress < 0.5
+                ? 4 * progress * progress * progress
+                : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+            for (let i = 0; i < this.destroyedParts.length; i++) {
+                const part = this.destroyedParts[i];
+                if (!part) continue;
+                const mesh = part.mesh;
+                if (mesh.isDisposed()) continue;
+
+                // Lerp
+                if (startPositions[i] && targetPositions[i]) {
+                    const currentPos = Vector3.Lerp(startPositions[i]!, targetPositions[i]!, easedProgress);
+                    mesh.position.copyFrom(currentPos);
+                }
+
+                if (startRotations[i] && targetRotations[i]) {
+                    const currentRot = Quaternion.Slerp(startRotations[i]!, targetRotations[i]!, easedProgress);
+                    if (mesh.rotationQuaternion) {
+                        mesh.rotationQuaternion.copyFrom(currentRot);
+                    } else {
+                        mesh.rotationQuaternion = currentRot.clone();
+                    }
+                }
+
+                if (mesh.material && (mesh.material as any).alpha < 1) {
+                    (mesh.material as any).alpha = Math.min(1, (mesh.material as any).alpha + 0.05);
+                }
+            }
+
+            if (Date.now() - startTime < duration) {
+                requestAnimationFrame(animate);
+            } else {
+                // Complete
+                if (onComplete) onComplete();
+            }
+        };
+
+        requestAnimationFrame(animate);
+    }
+
+    /**
+     * Set visibility for a hierarchy
+     */
+    private setHierarchyVisibility(node: Node, alpha: number): void {
+        if (node instanceof AbstractMesh) {
+            node.isVisible = alpha > 0;
+            if (node.material) {
+                // Force alpha mode if needed
+                if (alpha < 1) {
+                    node.material.needDepthPrePass = true;
+                }
+                (node.material as any).alpha = alpha;
+            }
+        }
+
+        const children = node.getChildMeshes();
+        for (const child of children) {
+            child.isVisible = alpha > 0;
+            if (child.material) {
+                if (alpha < 1) {
+                    child.material.needDepthPrePass = true;
+                }
+                (child.material as any).alpha = alpha;
+            }
+        }
+    }
+
+    private finishReassembly(): void {
+        this.isSpawning = false;
+
+        // Restore hierarchy
+        for (const part of this.destroyedParts) {
+            if (part && part.mesh && !part.mesh.isDisposed()) {
+                const mesh = part.mesh;
+                if (part.originalParent) {
+                    mesh.setParent(part.originalParent);
+                }
+                // Restore precise locals
+                mesh.position.copyFrom(part.originalLocalPos);
+                if (part.originalLocalRot) {
+                    mesh.rotationQuaternion = part.originalLocalRot.clone();
+                } else {
+                    mesh.rotationQuaternion = Quaternion.Identity();
+                }
+                mesh.setEnabled(true);
+                mesh.isVisible = true;
+                // Restore alpha
+                if (mesh.material) (mesh.material as any).alpha = 1;
+            }
+        }
+        this.destroyedParts = [];
+        this.updateVisibility();
+    }
+
+    /**
+     * Установить танк в состояние мертвого
+     */
+    setDead(): void {
+        this.playDeathEffect();
+
+        if (this.chassis && !this.chassis.isDisposed()) {
+            // Prepare parts for scattering
+            const parts: { mesh: AbstractMesh; name: string }[] = [];
+            parts.push({ mesh: this.chassis, name: "chassis" });
+
+            if (this.turret) parts.push({ mesh: this.turret, name: "turret" });
+            if (this.barrel) parts.push({ mesh: this.barrel, name: "barrel" });
+            if (this.leftTrack) parts.push({ mesh: this.leftTrack, name: "leftTrack" });
+            if (this.rightTrack) parts.push({ mesh: this.rightTrack, name: "rightTrack" });
+
+            // Scatter them
+            for (const part of parts) {
+                const mesh = part.mesh;
+                const originalParent = mesh.parent;
+                const originalLocalPos = mesh.position.clone();
+                const originalLocalRot = mesh.rotationQuaternion ? mesh.rotationQuaternion.clone() : null;
+
+                // Detach
+                mesh.setParent(null);
+
+                // Calculate scatter velocity
+                const direction = new Vector3(
+                    (Math.random() - 0.5) * 2,
+                    Math.random() * 0.5 + 0.5,
+                    (Math.random() - 0.5) * 2
+                ).normalize();
+
+                const velocity = direction.scale(10 + Math.random() * 5);
+                const angularVelocity = new Vector3(
+                    (Math.random() - 0.5) * 5,
+                    (Math.random() - 0.5) * 5,
+                    (Math.random() - 0.5) * 5
+                );
+
+                this.animatePartScatter(mesh, velocity, angularVelocity, 2000);
+
+                this.destroyedParts.push({
+                    mesh,
+                    name: part.name,
+                    originalParent,
+                    originalLocalPos,
+                    originalLocalRot
+                });
+            }
+        }
+
+        // Hide health bar
+        if (this.healthBar) this.healthBar.isVisible = false;
+        if (this.healthBarBackground) this.healthBarBackground.isVisible = false;
+        if (this.distanceTextPlane) this.distanceTextPlane.isVisible = false;
+
+        // Disable collisions / physics on chassis if it remains
+        if (this.chassis) {
+            this.chassis.checkCollisions = false;
+            // Disable physics body
+            if (this.physicsAggregate) {
+                this.physicsAggregate.dispose();
+                this.physicsAggregate = null;
+            }
+        }
     }
 
     // === МЕТОДЫ ДЛЯ РАБОТЫ С МОДУЛЯМИ (ПОДГОТОВКА ДЛЯ БУДУЩЕГО) ===
@@ -1377,14 +1845,25 @@ export class NetworkPlayerTank {
         // Добавляем новые модули
         for (const moduleData of modules) {
             if (!currentModuleIds.has(moduleData.id)) {
+                // Create mesh from config
+                const config = moduleData.visualConfig || {
+                    width: 0.5,
+                    height: 0.5,
+                    depth: 0.5,
+                    color: '#FFD700'
+                };
+                const mesh = MeshBuilder.CreateBox(moduleData.id, {
+                    width: config.width || 0.5,
+                    height: config.height || 0.5,
+                    depth: config.depth || 0.5
+                }, this.scene);
+                const mat = new StandardMaterial(moduleData.id + "_mat", this.scene);
+                mat.diffuseColor = Color3.FromHexString(config.color || '#FFD700');
+                mesh.material = mat;
+
                 this.attachModule(
                     moduleData.id,
-                    moduleData.visualConfig || {
-                        width: 0.5,
-                        height: 0.5,
-                        depth: 0.5,
-                        color: '#FFD700' // Золотой цвет по умолчанию
-                    },
+                    mesh,
                     moduleData.attachTo,
                     moduleData.position
                 );
@@ -1422,6 +1901,14 @@ export class NetworkPlayerTank {
         if (this.healthBarBackground) {
             this.healthBarBackground.dispose();
             this.healthBarBackground = null;
+        }
+        if (this.distanceTextPlane) {
+            this.distanceTextPlane.dispose();
+            this.distanceTextPlane = null;
+        }
+        if (this.distanceTexture) {
+            this.distanceTexture.dispose();
+            this.distanceTexture = null;
         }
 
         // Удаляем гусеницы

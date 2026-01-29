@@ -15,13 +15,13 @@ export class ParameterEditor {
     private valueDisplays: Map<string, HTMLSpanElement> = new Map();
     private activeTab: string = 'movement';
     private tabs: Map<string, HTMLButtonElement> = new Map();
-    
+
     constructor(container: HTMLDivElement) {
         this.container = container;
         this.createUI();
         this.setupTabs();
     }
-    
+
     private createUI(): void {
         const html = `
             <div class="parameter-editor">
@@ -53,25 +53,25 @@ export class ParameterEditor {
         this.container.innerHTML = html;
         this.setupInputs();
     }
-    
+
     private setupTabs(): void {
         const tabButtons = this.container.querySelectorAll('.tab');
         tabButtons.forEach(btn => {
             const button = btn as HTMLButtonElement;
             const tabName = button.dataset.tab || '';
             this.tabs.set(tabName, button);
-            
+
             button.addEventListener('click', () => {
                 this.switchTab(tabName);
             });
         });
-        
+
         this.switchTab(this.activeTab);
     }
-    
+
     private switchTab(tabName: string): void {
         this.activeTab = tabName;
-        
+
         // Update tab buttons
         this.tabs.forEach((btn, name) => {
             if (name === tabName) {
@@ -86,7 +86,7 @@ export class ParameterEditor {
                 btn.style.color = '#7f7';
             }
         });
-        
+
         // Update content
         this.container.querySelectorAll('.tab-content').forEach(content => {
             const contentTab = (content as HTMLElement).id.replace('-tab', '');
@@ -97,7 +97,7 @@ export class ParameterEditor {
             }
         });
     }
-    
+
     private createSlider(
         id: string,
         label: string,
@@ -116,7 +116,7 @@ export class ParameterEditor {
             </div>
         `;
     }
-    
+
     private createMovementTab(): string {
         const movement = this.config.movement || {
             maxForwardSpeed: 24,
@@ -126,7 +126,7 @@ export class ParameterEditor {
             turnSpeed: 60,
             pivotTurnMultiplier: 1.5
         };
-        
+
         return `
             <div class="param-section" style="margin-bottom: 20px; padding: 15px; background: rgba(0, 20, 0, 0.2); border: 1px solid rgba(0, 255, 0, 0.2); border-radius: 4px;">
                 <div class="section-title" style="color: #ff0; font-weight: bold; margin-bottom: 12px; font-size: 14px; text-transform: uppercase;">Параметры движения</div>
@@ -139,7 +139,7 @@ export class ParameterEditor {
             </div>
         `;
     }
-    
+
     private createCombatTab(): string {
         const combat = this.config.combat || {
             damage: 25,
@@ -148,7 +148,7 @@ export class ParameterEditor {
             projectileSize: 0.2,
             maxRange: 200
         };
-        
+
         return `
             <div class="param-section" style="margin-bottom: 20px; padding: 15px; background: rgba(0, 20, 0, 0.2); border: 1px solid rgba(0, 255, 0, 0.2); border-radius: 4px;">
                 <div class="section-title" style="color: #ff0; font-weight: bold; margin-bottom: 12px; font-size: 14px; text-transform: uppercase;">Параметры боя</div>
@@ -160,14 +160,14 @@ export class ParameterEditor {
             </div>
         `;
     }
-    
+
     private createPhysicsTab(): string {
         const physics = this.config.physics || {
             mass: 50000,
             hoverHeight: 1.0,
             hoverStiffness: 7000
         };
-        
+
         return `
             <div class="param-section" style="margin-bottom: 20px; padding: 15px; background: rgba(0, 20, 0, 0.2); border: 1px solid rgba(0, 255, 0, 0.2); border-radius: 4px;">
                 <div class="section-title" style="color: #ff0; font-weight: bold; margin-bottom: 12px; font-size: 14px; text-transform: uppercase;">Физические параметры</div>
@@ -182,13 +182,13 @@ export class ParameterEditor {
             </div>
         `;
     }
-    
+
     private createTurretTab(): string {
         const turret = this.config.turret || {
             turretSpeed: 0.08,
             barrelPitchSpeed: 0.05
         };
-        
+
         return `
             <div class="param-section" style="margin-bottom: 20px; padding: 15px; background: rgba(0, 20, 0, 0.2); border: 1px solid rgba(0, 255, 0, 0.2); border-radius: 4px;">
                 <div class="section-title" style="color: #ff0; font-weight: bold; margin-bottom: 12px; font-size: 14px; text-transform: uppercase;">Параметры башни</div>
@@ -199,15 +199,15 @@ export class ParameterEditor {
             </div>
         `;
     }
-    
+
     private createSpecialTab(): string {
         const special = this.config.special || {
             modules: []
         };
-        
+
         // Получаем список доступных способностей из chassis
         const abilityOptions = ['stealth', 'hover', 'siege', 'racer', 'amphibious', 'shield', 'drone', 'artillery', 'destroyer', 'command'];
-        
+
         return `
             <div class="param-section" style="margin-bottom: 20px; padding: 15px; background: rgba(0, 20, 0, 0.2); border: 1px solid rgba(0, 255, 0, 0.2); border-radius: 4px;">
                 <div class="section-title" style="color: #ff0; font-weight: bold; margin-bottom: 12px; font-size: 14px; text-transform: uppercase;">Особые возможности</div>
@@ -243,7 +243,7 @@ export class ParameterEditor {
             </div>
         `;
     }
-    
+
     private setupInputs(): void {
         // Находим все слайдеры и связываем их с number inputs
         this.container.querySelectorAll('input[type="range"]').forEach(slider => {
@@ -251,10 +251,10 @@ export class ParameterEditor {
             const id = sliderEl.id;
             const numInput = document.getElementById(`${id}-num`) as HTMLInputElement;
             const valueDisplay = document.getElementById(`${id}-value`) as HTMLSpanElement;
-            
+
             if (sliderEl && numInput) {
                 this.inputs.set(id, sliderEl);
-                
+
                 // Синхронизация слайдера и number input
                 const updateValue = (value: number) => {
                     sliderEl.value = value.toString();
@@ -265,11 +265,11 @@ export class ParameterEditor {
                     }
                     this.updateConfig(id, value);
                 };
-                
+
                 sliderEl.addEventListener('input', () => {
                     updateValue(parseFloat(sliderEl.value));
                 });
-                
+
                 numInput.addEventListener('input', () => {
                     const value = parseFloat(numInput.value) || 0;
                     const min = parseFloat(sliderEl.min);
@@ -279,7 +279,7 @@ export class ParameterEditor {
                 });
             }
         });
-        
+
         // Обработка select для способностей
         const abilitySelect = document.getElementById('special.ability') as HTMLSelectElement;
         if (abilitySelect) {
@@ -287,7 +287,7 @@ export class ParameterEditor {
                 this.updateConfig('special.ability', abilitySelect.value);
             });
         }
-        
+
         // Обработка модулей
         const modulesInput = document.getElementById('special.modules') as HTMLInputElement;
         if (modulesInput) {
@@ -297,23 +297,23 @@ export class ParameterEditor {
             });
         }
     }
-    
+
     private updateConfig(path: string, value: any): void {
         const parts = path.split('.');
         let current: any = this.config;
-        
+
         for (let i = 0; i < parts.length - 1; i++) {
-            const part = parts[i];
+            const part = parts[i] || "";
             if (!current[part]) {
                 current[part] = {};
             }
             current = current[part];
         }
-        
-        const lastPart = parts[parts.length - 1];
+
+        const lastPart = parts[parts.length - 1] || "";
         current[lastPart] = value;
     }
-    
+
     getConfiguration(): Partial<CustomTankConfiguration> {
         // Собираем все значения из input полей
         const config: Partial<CustomTankConfiguration> = {
@@ -355,15 +355,15 @@ export class ParameterEditor {
                 modules: ((document.getElementById('special.modules') as HTMLInputElement)?.value || '').split(',').map(m => m.trim()).filter(m => m)
             }
         };
-        
+
         return config;
     }
-    
+
     setConfiguration(config: Partial<CustomTankConfiguration>): void {
         this.config = config;
         this.updateInputs();
     }
-    
+
     private updateInputs(): void {
         // Обновляем все input поля из конфигурации
         if (this.config.movement) {
@@ -374,7 +374,7 @@ export class ParameterEditor {
             this.setInputValue('movement.turnSpeed', this.config.movement.turnSpeed);
             this.setInputValue('movement.pivotTurnMultiplier', this.config.movement.pivotTurnMultiplier);
         }
-        
+
         if (this.config.combat) {
             this.setInputValue('combat.damage', this.config.combat.damage);
             this.setInputValue('combat.cooldown', this.config.combat.cooldown);
@@ -382,7 +382,7 @@ export class ParameterEditor {
             this.setInputValue('combat.projectileSize', this.config.combat.projectileSize);
             this.setInputValue('combat.maxRange', this.config.combat.maxRange);
         }
-        
+
         if (this.config.physics) {
             this.setInputValue('physics.mass', this.config.physics.mass);
             this.setInputValue('physics.hoverHeight', this.config.physics.hoverHeight);
@@ -393,14 +393,14 @@ export class ParameterEditor {
             if (this.config.physics.uprightForce) this.setInputValue('physics.uprightForce', this.config.physics.uprightForce);
             if (this.config.physics.stabilityForce) this.setInputValue('physics.stabilityForce', this.config.physics.stabilityForce);
         }
-        
+
         if (this.config.turret) {
             this.setInputValue('turret.turretSpeed', this.config.turret.turretSpeed);
             if (this.config.turret.baseTurretSpeed) this.setInputValue('turret.baseTurretSpeed', this.config.turret.baseTurretSpeed);
             if (this.config.turret.turretLerpSpeed) this.setInputValue('turret.turretLerpSpeed', this.config.turret.turretLerpSpeed);
             this.setInputValue('turret.barrelPitchSpeed', this.config.turret.barrelPitchSpeed);
         }
-        
+
         if (this.config.special) {
             const abilitySelect = document.getElementById('special.ability') as HTMLSelectElement;
             if (abilitySelect && this.config.special.ability) {
@@ -414,12 +414,12 @@ export class ParameterEditor {
             }
         }
     }
-    
+
     private setInputValue(id: string, value: number): void {
         const slider = document.getElementById(id) as HTMLInputElement;
         const numInput = document.getElementById(`${id}-num`) as HTMLInputElement;
         const valueDisplay = document.getElementById(`${id}-value`) as HTMLSpanElement;
-        
+
         if (slider) {
             slider.value = value.toString();
             // Триггерим событие для обновления связанных элементов

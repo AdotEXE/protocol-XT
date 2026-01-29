@@ -7,7 +7,7 @@ import { handleUpgradeRequest } from "./upgrade";
 
 const DEFAULT_WS_PORT = 8000;  // WebSocket сервер
 const DEFAULT_HTTP_PORT = 7000; // HTTP мониторинг
-const HOST = process.env.HOST || "0.0.0.0"; // 0.0.0.0 = слушать на всех интерфейсах
+const HOST = process.env.HOST || "127.0.0.1"; // Фиксированный адрес localhost
 
 /**
  * Проверяет, свободен ли порт
@@ -82,9 +82,9 @@ function createHTTPServer(gameServer: GameServer): http.Server {
     });
 
     httpServer.listen(httpPort, HOST, () => {
-        serverLogger.log(`[Server] ✅ HTTP server started on http://${HOST}:${httpPort}`);
-        serverLogger.log(`[Server]    - Health: http://localhost:${httpPort}/health`);
-        serverLogger.log(`[Server]    - Stats: http://localhost:${httpPort}/api/stats`);
+        serverLogger.log(`[Server] ✅ HTTP server started on http://127.0.0.1:${httpPort}`);
+        serverLogger.log(`[Server]    - Health: http://127.0.0.1:${httpPort}/health`);
+        serverLogger.log(`[Server]    - Stats: http://127.0.0.1:${httpPort}/api/stats`);
     });
 
     httpServer.on('error', (error: NodeJS.ErrnoException) => {
@@ -150,7 +150,7 @@ async function startServer(): Promise<GameServer> {
         });
 
         io.listen(udpPort);
-        serverLogger.log(`[Server] 🦎 UDP Signaling server started on http://${HOST}:${udpPort}`);
+        serverLogger.log(`[Server] 🦎 UDP Signaling server started on http://127.0.0.1:${udpPort}`);
         serverLogger.log(`[Server] 🦎 UDP Data port: ${udpPort}`); // Geckos uses same port number for UDP usually if using node-datachannel
 
         gameServer.setGeckosServer(io);

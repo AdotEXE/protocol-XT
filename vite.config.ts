@@ -169,7 +169,7 @@ export default defineConfig({
   },
   server: {
     port: 5000,
-    host: '0.0.0.0', // Доступен для других устройств в сети
+    host: '127.0.0.1', // Фиксированный адрес localhost
     headers: {
       // Правильный MIME type для WASM файлов
       '*.wasm': {

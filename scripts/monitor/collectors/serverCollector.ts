@@ -87,7 +87,7 @@ export class ServerCollector {
         } catch (error) {
             // If initial connection fails, schedule reconnect
             // This allows monitor to start even if server is not ready yet
-            console.log('[ServerCollector] Initial connection failed, will retry...');
+            // console.log('[ServerCollector] Initial connection failed, will retry...');
             this.scheduleReconnect();
         }
     }
@@ -166,7 +166,7 @@ export class ServerCollector {
             this.ws.on('open', () => {
                 this.connected = true;
                 this.connectTime = Date.now();
-                console.log(`[ServerCollector] Connected to ${url}`);
+                // console.log(`[ServerCollector] Connected to ${url}`);
 
                 // Clear any pending reconnect timer
                 if (this.reconnectTimer) {
@@ -235,7 +235,7 @@ export class ServerCollector {
 
             this.ws.on('close', () => {
                 if (this.connected) {
-                    console.log('[ServerCollector] Disconnected, reconnecting...');
+                    // console.log('[ServerCollector] Disconnected, reconnecting...');
                 }
                 this.connected = false;
                 this.scheduleReconnect();
@@ -245,7 +245,7 @@ export class ServerCollector {
                 // Only log error if we were previously connected
                 // Initial connection errors are expected if server is not ready
                 if (this.connected) {
-                    console.error('[ServerCollector] WebSocket error:', error.message);
+                    // console.error('[ServerCollector] WebSocket error:', error.message);
                 }
                 this.connected = false;
                 // Don't schedule reconnect here - close event will handle it
@@ -281,6 +281,27 @@ export class ServerCollector {
 
     isConnected(): boolean {
         return this.connected;
+    }
+
+    /**
+     * Send an admin command to the server
+     */
+    sendCommand(command: string, args: any = {}): void {
+        if (!this.connected || !this.ws) {
+            // console.warn('[ServerCollector] Cannot send command: not connected');
+            return;
+        }
+
+        try {
+            this.ws.send(JSON.stringify({
+                type: 'admin_command',
+                command,
+                args,
+                timestamp: Date.now()
+            }));
+        } catch (error) {
+            // console.error('[ServerCollector] Failed to send command:', error);
+        }
     }
 }
 

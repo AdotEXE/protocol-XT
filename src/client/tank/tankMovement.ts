@@ -209,6 +209,20 @@ export class TankMovementModule {
     }
 
     /**
+     * Set inputs manually (used for disabling controls)
+     */
+    public setInputs(throttle: number, steer: number): void {
+        this.tank.throttleTarget = throttle;
+        this.tank.steerTarget = steer;
+        this.tank.turretTurnTarget = 0;
+
+        // Also reset internal flags
+        (this.tank as any).smoothThrottle = 0;
+        (this.tank as any).smoothSteer = 0;
+        (this.tank as any).turretTurnSmooth = 0;
+    }
+
+    /**
      * Update movement state (physics forces are currently handled in TankController)
      * This method is called from TankController.updatePhysics loop
      */

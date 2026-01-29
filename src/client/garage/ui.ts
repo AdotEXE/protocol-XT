@@ -3,7 +3,7 @@
  * HTML/CSS UI логика гаража из garage.ts
  */
 
-export type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop" | "skins" | "presets";
+export type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop" | "skins" | "presets" | "upgrade";
 
 export interface GarageUIState {
     currentCategory: CategoryType;
@@ -18,7 +18,7 @@ export interface GarageUIState {
  */
 export function injectGarageStyles(): void {
     if (document.getElementById('garage-styles')) return;
-    
+
     const style = document.createElement('style');
     style.id = 'garage-styles';
     style.textContent = `
@@ -472,6 +472,7 @@ export function createGarageOverlay(
                 <div class="garage-tab ${state.currentCategory === 'modules' ? 'active' : ''}" data-cat="modules">[4] MODULES</div>
                 <div class="garage-tab ${state.currentCategory === 'supplies' ? 'active' : ''}" data-cat="supplies">[5] SUPPLIES</div>
                 <div class="garage-tab ${state.currentCategory === 'shop' ? 'active' : ''}" data-cat="shop">[6] SHOP</div>
+                <div class="garage-tab ${state.currentCategory === 'upgrade' ? 'active' : ''}" data-cat="upgrade" style="color: #ffd700; font-weight: bold;">[7] UPGRADES</div>
             </div>
             <div class="garage-content">
                 <div class="garage-left">
@@ -501,15 +502,17 @@ export function createGarageOverlay(
                         <div class="garage-details-title">[ SELECT AN ITEM ]</div>
                     </div>
                 </div>
+                <!-- Container for Upgrade UI -->
+                <div id="garage-upgrade-content" style="display: none; width: 100%; height: 100%; position: relative;"></div>
             </div>
             <div class="garage-footer">
                 [↑↓] Navigate | [Enter] Select | [1-6] Categories | [ESC] Close
             </div>
         </div>
     `;
-    
+
     setupGarageEventListeners(overlay, callbacks, state);
-    
+
     return overlay;
 }
 
@@ -523,7 +526,7 @@ function setupGarageEventListeners(
 ): void {
     // Close button
     overlay.querySelector('.garage-close')?.addEventListener('click', callbacks.onClose);
-    
+
     // Tabs
     overlay.querySelectorAll('.garage-tab').forEach(tab => {
         tab.addEventListener('click', (e) => {
@@ -531,7 +534,7 @@ function setupGarageEventListeners(
             if (cat) callbacks.onCategoryChange(cat);
         });
     });
-    
+
     // Filters
     overlay.querySelectorAll('.garage-filter-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -543,20 +546,20 @@ function setupGarageEventListeners(
             }
         });
     });
-    
+
     // Sort button
     const sortBtn = overlay.querySelector('#garage-sort-btn');
     sortBtn?.addEventListener('click', () => {
         callbacks.onSortChange();
         (sortBtn as HTMLElement).textContent = `SORT: ${state.sortBy.toUpperCase()}`;
     });
-    
+
     // Search
     const searchInput = overlay.querySelector('#garage-search-input') as HTMLInputElement;
     searchInput?.addEventListener('input', () => {
         callbacks.onSearchChange(searchInput.value);
     });
-    
+
     // Click outside to close
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) callbacks.onClose();
@@ -615,10 +618,10 @@ export function refreshGarageItemList(
             ((item as TankPart).type === 'module' && item.id === state.currentTrackId)
         );
         const selected = i === state.selectedItemIndex;
-        
+
         const statsStr = formatStatsFn(item);
         const priceStr = owned && !isUpgrade ? 'OWNED' : `${item.cost} CR`;
-        
+
         return `
             <div class="garage-item ${selected ? 'selected' : ''} ${owned ? 'owned' : ''} ${equipped ? 'equipped' : ''}" data-index="${i}">
                 <div class="garage-item-name">${item.name} ${equipped ? '[EQUIPPED]' : ''}</div>
@@ -628,7 +631,7 @@ export function refreshGarageItemList(
             </div>
         `;
     }).join('');
-    
+
     // Add click listeners
     container.querySelectorAll('.garage-item').forEach(el => {
         el.addEventListener('click', () => {
@@ -664,10 +667,10 @@ export function getComparisonHTML(
             </div>
         `;
     }
-    
+
     const part = item as TankPart;
     let rows = '';
-    
+
     if (part.type === 'chassis') {
         const current = getChassisById(currentChassisId);
         const next = getChassisById(part.id);
@@ -739,7 +742,7 @@ export function getComparisonHTML(
             </div>
         `;
     }
-    
+
     return rows;
 }
 
@@ -762,10 +765,10 @@ export function showGarageItemDetails(
         ((item as TankPart).type === 'barrel' && item.id === state.currentCannonId) ||
         ((item as TankPart).type === 'module' && trackParts.find(t => t.id === item.id) && item.id === state.currentTrackId)
     );
-    
+
     let btnText = '';
     let btnDisabled = false;
-    
+
     if (isUpgrade) {
         if ((item as TankUpgrade).level >= (item as TankUpgrade).maxLevel) { btnText = 'MAX LEVEL'; btnDisabled = true; }
         else if (!canAfford) { btnText = `NEED ${item.cost} CR`; btnDisabled = true; }
@@ -777,14 +780,14 @@ export function showGarageItemDetails(
         } else if (!canAfford) { btnText = `NEED ${item.cost} CR`; btnDisabled = true; }
         else btnText = `BUY (${item.cost} CR)`;
     }
-    
+
     container.innerHTML = `
         <div class="garage-details-title">[ ${item.name.toUpperCase()} ]</div>
         <div class="garage-details-desc">${item.description}</div>
         ${getComparisonHTML(item, state.currentChassisId, state.currentCannonId, getChassisById, getCannonById)}
         <button class="garage-action-btn" ${btnDisabled ? 'disabled' : ''} id="garage-action">${btnText}</button>
     `;
-    
+
     container.querySelector('#garage-action')?.addEventListener('click', () => {
         if (!btnDisabled) callbacks.onAction(item);
     });
@@ -833,12 +836,12 @@ export function setupGarageKeyboardNavigation(
 ): () => void {
     const handler = (e: KeyboardEvent) => {
         if (!isOpen()) return;
-        
+
         // ИГНОРИРУЕМ Ctrl+комбинации - они используются для меню настроек
         if (e.ctrlKey || e.altKey || e.metaKey) {
             return;
         }
-        
+
         // Закрытие гаража: Escape, G или B
         if (e.code === 'Escape' || e.code === 'KeyG' || e.code === 'KeyB') {
             e.preventDefault();
@@ -847,7 +850,7 @@ export function setupGarageKeyboardNavigation(
             callbacks.onEscape();
             return;
         }
-        
+
         const cats: CategoryType[] = ['chassis', 'cannons', 'tracks', 'modules', 'supplies', 'shop'];
         for (let i = 1; i <= 6; i++) {
             if (e.code === `Digit${i}` || e.code === `Numpad${i}`) {
@@ -857,7 +860,7 @@ export function setupGarageKeyboardNavigation(
                 return;
             }
         }
-        
+
         if (e.code === 'ArrowUp') {
             e.preventDefault();
             callbacks.onNavigateUp();
@@ -865,15 +868,15 @@ export function setupGarageKeyboardNavigation(
             e.preventDefault();
             callbacks.onNavigateDown();
         }
-        
+
         if ((e.code === 'Enter' || e.code === 'Space')) {
             e.preventDefault();
             callbacks.onSelect();
         }
     };
-    
+
     window.addEventListener('keydown', handler);
-    
+
     // Возвращаем функцию для очистки
     return () => {
         window.removeEventListener('keydown', handler);

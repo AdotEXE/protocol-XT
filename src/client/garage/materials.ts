@@ -4,6 +4,7 @@
  */
 
 import { StandardMaterial, Scene, Color3 } from "@babylonjs/core";
+import { logger } from "../utils/logger";
 
 export class MaterialFactory {
     private static materialCache: Map<string, StandardMaterial> = new Map();
@@ -608,6 +609,36 @@ export class MaterialFactory {
     static clearCache(): void {
         this.materialCache.forEach(mat => mat.dispose());
         this.materialCache.clear();
+    }
+
+    /**
+     * Очистка ТОЛЬКО материалов превью (начинаются с "preview")
+     * Используется при закрытии гаража, чтобы не ломать материалы игры
+     */
+    static clearPreviewCache(): void {
+        const keysToRemove: string[] = [];
+
+        this.materialCache.forEach((mat, key) => {
+            if (key.startsWith("preview")) {
+                try {
+                    if (!(mat as any)._isDisposed) {
+                        mat.dispose(true, true); // force dispose
+                    }
+                } catch (e) {
+                    // Логируем только если это реальная ошибка, а не просто уже удаленный материал
+                    if (e instanceof Error && !e.message.includes("disposed") && !e.message.includes("dispose")) {
+                        logger.warn("[MaterialFactory] Error disposing preview material:", e);
+                    }
+                }
+                keysToRemove.push(key);
+            }
+        });
+
+        keysToRemove.forEach(key => this.materialCache.delete(key));
+        // Логируем только если были материалы для очистки
+        if (keysToRemove.length > 0) {
+            logger.log(`[MaterialFactory] Cleared ${keysToRemove.length} preview materials`);
+        }
     }
 }
 

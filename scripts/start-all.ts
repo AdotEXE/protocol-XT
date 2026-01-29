@@ -322,7 +322,7 @@ async function main() {
         // 1. Запускаем сервер ПЕРВЫМ
         console.log('🖥️  Запуск сервера...');
         await startInNewWindow(
-            windowConfig?.server?.title || 'Protocol TX - Сервер (порт 8080)',
+            windowConfig?.server?.title || 'Protocol TX - Сервер (порт 8000)',
             `${npmCmd} run server:dev`,
             workingDir,
             windowConfig?.server
@@ -330,7 +330,7 @@ async function main() {
 
         // Ждем, пока сервер станет доступен
         console.log('⏳ Ожидание готовности сервера...');
-        const serverReady = await waitForServer('localhost', 8080, 30, 2000);
+        const serverReady = await waitForServer('localhost', 8000, 30, 2000);
         
         if (serverReady) {
             console.log('✅ Сервер готов!\n');
@@ -361,7 +361,7 @@ async function main() {
 
         console.log('\n✅ Все системы запущены в отдельных окнах!');
         console.log('📊 Мониторинг: отдельное окно терминала');
-        console.log('🖥️  Сервер: http://localhost:8080');
+        console.log('🖥️  Сервер: http://localhost:8000');
         console.log('🌐 Клиент: http://localhost:3000');
         console.log('\n💡 Закройте окна терминалов для остановки систем\n');
         

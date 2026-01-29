@@ -1,372 +1,143 @@
 /**
  * @module LoadingScreen
- * @description Экран загрузки с прогрессом и статусами
- * 
- * Показывает:
- * - Анимированный прогресс-бар
- * - Текущий этап загрузки
- * - Подсказки для игрока
+ * @description Экран загрузки: Просто вращающийся зеленый квадрат
  */
 
-// Подсказки для игрока
-const LOADING_TIPS = [
-    "💡 Используй WASD для движения танка",
-    "💡 Правая кнопка мыши — прицеливание",
-    "💡 Shift — ускорение (расходует топливо)",
-    "💡 R — перезарядка орудия",
-    "💡 E — использовать расходник",
-    "💡 Tab — открыть таблицу лидеров",
-    "💡 Нажми ~ для терминала команд",
-    "💡 /iddqd — режим бога (для тестирования)",
-    "💡 Укрытия защищают от взрывов",
-    "💡 Стена (Q) блокирует снаряды",
-    "💡 Модули усиливают танк",
-    "💡 F — подобрать предмет рядом",
-];
+const LOADING_SCREEN_TEMPLATE = `
+<style>
+    #simple-loading-screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #000;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 999999;
+        font-family: 'Press Start 2P', cursive;
+        color: #0f0;
+    }
 
-export interface LoadingStage {
-    name: string;
-    weight: number; // Вес этапа в общем прогрессе
-}
+    .loader-content {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+    }
 
-export const DEFAULT_STAGES: LoadingStage[] = [
-    { name: "Инициализация движка", weight: 5 },
-    { name: "Загрузка ассетов", weight: 30 },
-    { name: "Создание мира", weight: 25 },
-    { name: "Настройка физики", weight: 15 },
-    { name: "Загрузка танков", weight: 10 },
-    { name: "Подключение к серверу", weight: 10 },
-    { name: "Готово!", weight: 5 },
-];
+    .spinner-square {
+        width: 30px;
+        height: 30px;
+        background-color: transparent;
+        border: 4px solid #0f0;
+        /* Pixelated look: No shadows/glows, strictly sharp */
+        image-rendering: pixelated; 
+        /* Jerky animation: One axis (Z), One direction (+360deg), with overshoot (back-bow) */
+        animation: spin-jerky 1.2s infinite cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes spin-jerky {
+        0% { transform: rotate(0deg); }
+        /* The overshoot is handled by the cubic-bezier */
+        100% { transform: rotate(90deg); }
+    }
+    
+    /* Wait, rotating 90deg effectively resets it for a square. Perfect loop. 
+       "Jerky" means it snaps to the next 90deg.
+       User said: "КРУТИТЬСЯ РЫВКАМИ" (Jerky) "ПО ОДНОЙ ОСИ" (One axis).
+       I will basically do: 0 -> 90 with a slam.
+    */
+
+    .loading-text {
+        font-size: 24px;
+        font-weight: bold;
+        letter-spacing: 2px;
+        font-family: 'Press Start 2P', cursive;
+        text-shadow: none;
+        /* Синхронизировано с вращением квадратика - та же длительность 1.2s */
+        animation: blink 1.2s infinite cubic-bezier(0.4, 0.0, 0.6, 1.0);
+    }
+
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.2; }
+    }
+</style>
+<div class="loader-content">
+    <div class="spinner-square"></div>
+    <div class="loading-text" id="simple-loading-text">LOADING...</div>
+</div>
+`;
 
 export class LoadingScreen {
     private container: HTMLDivElement | null = null;
-    private progressBar: HTMLDivElement | null = null;
-    private progressFill: HTMLDivElement | null = null;
-    private statusText: HTMLDivElement | null = null;
-    private tipText: HTMLDivElement | null = null;
-    private percentText: HTMLDivElement | null = null;
-
-    private stages: LoadingStage[];
-    private currentStageIndex: number = 0;
-    private stageProgress: number = 0; // 0-100 внутри текущего этапа
-    private tipInterval: NodeJS.Timeout | null = null;
     private isVisible: boolean = false;
 
-    constructor(stages: LoadingStage[] = DEFAULT_STAGES) {
-        this.stages = stages;
-    }
-
-    /**
-     * Показать экран загрузки
-     */
     show(): void {
-        if (this.isVisible) return;
-        this.isVisible = true;
+        // КРИТИЧНО: Удаляем ВСЕ существующие экраны загрузки перед созданием нового
+        // Это гарантирует что будет только один экран загрузки
+        const allLoadingScreens = document.querySelectorAll(
+            '#simple-loading-screen, #loading-screen, .loading-screen, #tx-loading-screen, #loading-indicator'
+        );
+        allLoadingScreens.forEach(screen => {
+            screen.remove();
+        });
+        
+        // Сбрасываем состояние
+        this.isVisible = false;
+        this.container = null;
 
-        this.createDOM();
-        this.startTipRotation();
+        // Создаем новый экран загрузки
+        this.container = document.createElement('div');
+        this.container.id = 'simple-loading-screen';
+        this.container.innerHTML = LOADING_SCREEN_TEMPLATE;
+        document.body.appendChild(this.container);
+        this.isVisible = true;
     }
 
-    /**
-     * Скрыть экран загрузки с анимацией
-     */
     hide(fadeOut: boolean = true): void {
-        if (!this.isVisible || !this.container) return;
-
-        this.stopTipRotation();
+        if (!this.container) return;
 
         if (fadeOut) {
             this.container.style.transition = 'opacity 0.5s ease-out';
             this.container.style.opacity = '0';
-
-            setTimeout(() => {
-                this.removeDOM();
-            }, 500);
+            setTimeout(() => this.removeDOM(), 500);
         } else {
             this.removeDOM();
         }
+    }
 
+    setStatus(status: string): void {
+        const text = document.getElementById('simple-loading-text');
+        if (text) text.textContent = status.toUpperCase();
+    }
+
+    // Legacy methods stubbed to keep API compatible
+    setStage(i: number, p: number = 0): void { }
+    setStageProgress(p: number): void { }
+    nextStage(): void { }
+
+    private removeDOM(): void {
+        if (this.container) {
+            this.container.remove();
+            this.container = null;
+        }
         this.isVisible = false;
     }
-
-    /**
-     * Установить текущий этап загрузки
-     */
-    setStage(stageIndex: number, stageProgress: number = 0): void {
-        this.currentStageIndex = Math.min(stageIndex, this.stages.length - 1);
-        this.stageProgress = Math.min(100, Math.max(0, stageProgress));
-        this.updateProgress();
-    }
-
-    /**
-     * Установить прогресс внутри текущего этапа (0-100)
-     */
-    setStageProgress(progress: number): void {
-        this.stageProgress = Math.min(100, Math.max(0, progress));
-        this.updateProgress();
-    }
-
-    /**
-     * Перейти к следующему этапу
-     */
-    nextStage(): void {
-        if (this.currentStageIndex < this.stages.length - 1) {
-            this.currentStageIndex++;
-            this.stageProgress = 0;
-            this.updateProgress();
-        }
-    }
-
-    /**
-     * Установить произвольный статус
-     */
-    setStatus(status: string): void {
-        if (this.statusText) {
-            this.statusText.textContent = status;
-        }
-    }
-
-    /**
-     * Вычислить общий прогресс
-     */
-    private calculateTotalProgress(): number {
-        let totalWeight = 0;
-        let completedWeight = 0;
-
-        for (let i = 0; i < this.stages.length; i++) {
-            const weight = this.stages[i].weight;
-            totalWeight += weight;
-
-            if (i < this.currentStageIndex) {
-                completedWeight += weight;
-            } else if (i === this.currentStageIndex) {
-                completedWeight += (weight * this.stageProgress) / 100;
-            }
-        }
-
-        return totalWeight > 0 ? (completedWeight / totalWeight) * 100 : 0;
-    }
-
-    /**
-     * Обновить отображение прогресса
-     */
-    private updateProgress(): void {
-        const totalProgress = this.calculateTotalProgress();
-        const currentStage = this.stages[this.currentStageIndex];
-
-        if (this.progressFill) {
-            this.progressFill.style.width = `${totalProgress}%`;
-        }
-
-        if (this.percentText) {
-            this.percentText.textContent = `${Math.round(totalProgress)}%`;
-        }
-
-        if (this.statusText && currentStage) {
-            this.statusText.textContent = currentStage.name;
-        }
-    }
-
-    /**
-     * Создать DOM элементы
-     */
-    private createDOM(): void {
-        // Контейнер
-        this.container = document.createElement('div');
-        this.container.id = 'tx-loading-screen';
-        this.container.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3a 50%, #0a0a1a 100%);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 99999;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #ffffff;
-        `;
-
-        // Логотип/Заголовок
-        const title = document.createElement('div');
-        title.innerHTML = `
-            <div style="
-                font-size: 72px;
-                font-weight: bold;
-                background: linear-gradient(90deg, #00ff88, #00aaff, #ff00aa);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
-                text-shadow: 0 0 30px rgba(0,255,136,0.5);
-                margin-bottom: 20px;
-                animation: pulse 2s ease-in-out infinite;
-            ">TX</div>
-            <style>
-                @keyframes pulse {
-                    0%, 100% { transform: scale(1); }
-                    50% { transform: scale(1.05); }
-                }
-                @keyframes shimmer {
-                    0% { background-position: -200% 0; }
-                    100% { background-position: 200% 0; }
-                }
-            </style>
-        `;
-        this.container.appendChild(title);
-
-        // Прогресс-бар контейнер
-        this.progressBar = document.createElement('div');
-        this.progressBar.style.cssText = `
-            width: 400px;
-            max-width: 80%;
-            height: 12px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 6px;
-            overflow: hidden;
-            margin: 30px 0 15px 0;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
-        `;
-
-        // Заполнение прогресс-бара
-        this.progressFill = document.createElement('div');
-        this.progressFill.style.cssText = `
-            width: 0%;
-            height: 100%;
-            background: linear-gradient(90deg, #00ff88, #00aaff);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s linear infinite;
-            border-radius: 6px;
-            transition: width 0.3s ease-out;
-            box-shadow: 0 0 10px rgba(0,255,136,0.5);
-        `;
-        this.progressBar.appendChild(this.progressFill);
-        this.container.appendChild(this.progressBar);
-
-        // Процент
-        this.percentText = document.createElement('div');
-        this.percentText.style.cssText = `
-            font-size: 24px;
-            font-weight: bold;
-            color: #00ff88;
-            margin-bottom: 10px;
-        `;
-        this.percentText.textContent = '0%';
-        this.container.appendChild(this.percentText);
-
-        // Статус текст
-        this.statusText = document.createElement('div');
-        this.statusText.style.cssText = `
-            font-size: 18px;
-            color: rgba(255,255,255,0.8);
-            margin-bottom: 40px;
-        `;
-        this.statusText.textContent = this.stages[0]?.name || 'Загрузка...';
-        this.container.appendChild(this.statusText);
-
-        // Подсказка
-        this.tipText = document.createElement('div');
-        this.tipText.style.cssText = `
-            font-size: 14px;
-            color: rgba(255,255,255,0.5);
-            position: absolute;
-            bottom: 40px;
-            text-align: center;
-            max-width: 80%;
-            transition: opacity 0.3s ease;
-        `;
-        this.tipText.textContent = LOADING_TIPS[0];
-        this.container.appendChild(this.tipText);
-
-        document.body.appendChild(this.container);
-    }
-
-    /**
-     * Удалить DOM элементы
-     */
-    private removeDOM(): void {
-        if (this.container && this.container.parentNode) {
-            this.container.parentNode.removeChild(this.container);
-        }
-        this.container = null;
-        this.progressBar = null;
-        this.progressFill = null;
-        this.statusText = null;
-        this.tipText = null;
-        this.percentText = null;
-    }
-
-    /**
-     * Запустить ротацию подсказок
-     */
-    private startTipRotation(): void {
-        let tipIndex = 0;
-
-        this.tipInterval = setInterval(() => {
-            tipIndex = (tipIndex + 1) % LOADING_TIPS.length;
-
-            if (this.tipText) {
-                this.tipText.style.opacity = '0';
-
-                setTimeout(() => {
-                    if (this.tipText) {
-                        this.tipText.textContent = LOADING_TIPS[tipIndex];
-                        this.tipText.style.opacity = '1';
-                    }
-                }, 300);
-            }
-        }, 4000);
-    }
-
-    /**
-     * Остановить ротацию подсказок
-     */
-    private stopTipRotation(): void {
-        if (this.tipInterval) {
-            clearInterval(this.tipInterval);
-            this.tipInterval = null;
-        }
-    }
 }
 
-// Singleton instance
-let _loadingScreenInstance: LoadingScreen | null = null;
-
-/**
- * Получить или создать экземпляр LoadingScreen
- */
+// Singleton
+let _instance: LoadingScreen | null = null;
 export function getLoadingScreen(): LoadingScreen {
-    if (!_loadingScreenInstance) {
-        _loadingScreenInstance = new LoadingScreen();
-    }
-    return _loadingScreenInstance;
+    if (!_instance) _instance = new LoadingScreen();
+    return _instance;
 }
 
-/**
- * Удобные функции для быстрого использования
- */
-export function showLoading(): void {
-    getLoadingScreen().show();
-}
-
-export function hideLoading(fadeOut: boolean = true): void {
-    getLoadingScreen().hide(fadeOut);
-}
-
-export function setLoadingStage(stageIndex: number, progress: number = 0): void {
-    getLoadingScreen().setStage(stageIndex, progress);
-}
-
-export function setLoadingProgress(progress: number): void {
-    getLoadingScreen().setStageProgress(progress);
-}
-
-export function setLoadingStatus(status: string): void {
-    getLoadingScreen().setStatus(status);
-}
-
-export function nextLoadingStage(): void {
-    getLoadingScreen().nextStage();
-}
+export function showLoading(): void { getLoadingScreen().show(); }
+export function hideLoading(fadeOut: boolean = true): void { getLoadingScreen().hide(fadeOut); }
+export function setLoadingStage(i: number, p: number = 0): void { getLoadingScreen().setStage(i, p); }
+export function setLoadingProgress(p: number): void { getLoadingScreen().setStageProgress(p); }
+export function setLoadingStatus(s: string): void { getLoadingScreen().setStatus(s); }
+export function nextLoadingStage(): void { getLoadingScreen().nextStage(); }

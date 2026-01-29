@@ -8,6 +8,7 @@ export interface GameModeRules {
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null;
     getMaxScore(): number;
     getRespawnDelay(): number;
+    update?(deltaTime: number, room: GameRoom): void;
 }
 
 export class FFAMode implements GameModeRules {
@@ -107,9 +108,21 @@ export class CoopPVEMode implements GameModeRules {
         );
     }
 
-    checkWinCondition(_room: GameRoom): { winner: string | null; reason: string } | null {
-        // Co-op: Survive X waves or kill all enemies
-        // This will be handled by AI system
+    checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
+        // Co-op: Win if all enemies are defeated
+        if (!room.enemies || room.enemies.size === 0) {
+            // Ensure match started and enemies were actually spawned
+            if (room.gameTime > 5000) { // Should have spawned by now
+                return { winner: "players", reason: "All enemies defeated" };
+            }
+        }
+
+        // Lose if all players dead
+        const alivePlayers = room.getAllPlayers().filter(p => p.status === "alive");
+        if (alivePlayers.length === 0) {
+            return { winner: null, reason: "All players eliminated" };
+        }
+
         return null;
     }
 
@@ -299,25 +312,105 @@ export class ControlPointMode implements GameModeRules {
             this.initializeControlPoints(room);
         }
 
-        let team0Points = 0;
-        let team1Points = 0;
+        // Win Condition: First to 1000 points
+        const MAX_SCORE = 1000;
 
-        for (const point of this.controlPoints) {
-            if (point.team === 0) team0Points++;
-            if (point.team === 1) team1Points++;
+        if (this.team0Score >= MAX_SCORE) {
+            return { winner: "team0", reason: `Team 0 reached ${MAX_SCORE} points` };
         }
-
-        const totalPoints = this.controlPoints.length;
-        const requiredPoints = Math.ceil(totalPoints / 2);
-
-        if (team0Points >= requiredPoints) {
-            return { winner: "team0", reason: `Team 0 captured ${team0Points}/${totalPoints} control points` };
-        }
-        if (team1Points >= requiredPoints) {
-            return { winner: "team1", reason: `Team 1 captured ${team1Points}/${totalPoints} control points` };
+        if (this.team1Score >= MAX_SCORE) {
+            return { winner: "team1", reason: `Team 1 reached ${MAX_SCORE} points` };
         }
 
         return null;
+    }
+
+    // Score counters
+    private team0Score: number = 0;
+    private team1Score: number = 0;
+    private lastScoreTick: number = 0;
+
+    update(deltaTime: number, room: GameRoom): void {
+        if (this.controlPoints.length === 0) {
+            this.initializeControlPoints(room);
+        }
+
+        const captureRadius = 15;
+        const captureSpeed = 25; // % per second (faster capture)
+        const dtSeconds = deltaTime / 1000;
+        const now = Date.now();
+
+        // 1. Update Capture Progress
+        for (const point of this.controlPoints) {
+            let team0Count = 0;
+            let team1Count = 0;
+
+            for (const player of room.getAllPlayers()) {
+                if (player.status !== "alive") continue;
+                if (Vector3.Distance(player.position, point.position) <= captureRadius) {
+                    if (player.team === 0) team0Count++;
+                    if (player.team === 1) team1Count++;
+                }
+            }
+
+            // Determine state
+            const isContested = team0Count > 0 && team1Count > 0;
+            let capturingTeam: number | null = null;
+
+            if (!isContested) {
+                if (team0Count > team1Count) capturingTeam = 0;
+                else if (team1Count > team0Count) capturingTeam = 1;
+            }
+
+            // Capture Logic
+            if (capturingTeam !== null) {
+                // If point belongs to enemy, neutralize it first
+                if (point.team !== null && point.team !== capturingTeam) {
+                    point.captureProgress -= captureSpeed * dtSeconds;
+                    if (point.captureProgress <= 0) {
+                        point.team = null; // Neutralized
+                        point.captureProgress = 0;
+                    }
+                }
+                // If neutral or own, capture/reinforce
+                else {
+                    point.captureProgress += captureSpeed * dtSeconds;
+                    if (point.captureProgress >= 100) {
+                        point.captureProgress = 100;
+                        point.team = capturingTeam;
+                    }
+                }
+            } else if (!isContested && point.team === null && point.captureProgress > 0) {
+                // Decay if neutral and abandoned
+                point.captureProgress = Math.max(0, point.captureProgress - (captureSpeed * 0.3) * dtSeconds);
+            }
+        }
+
+        // 2. Score Ticking (Every 1 second)
+        if (now - this.lastScoreTick >= 1000) {
+            let team0Owned = 0;
+            let team1Owned = 0;
+
+            for (const point of this.controlPoints) {
+                if (point.team === 0 && point.captureProgress >= 100) team0Owned++;
+                if (point.team === 1 && point.captureProgress >= 100) team1Owned++;
+            }
+
+            // Points per second = number of owned zones
+            // Bonus for holding ALL zones (+2 extra)
+            const bonus0 = team0Owned === this.controlPoints.length ? 2 : 0;
+            const bonus1 = team1Owned === this.controlPoints.length ? 2 : 0;
+
+            this.team0Score += team0Owned + bonus0;
+            this.team1Score += team1Owned + bonus1;
+
+            this.lastScoreTick = now;
+
+            // Optional: Log score periodically
+            if (this.team0Score % 50 === 0 || this.team1Score % 50 === 0) {
+                // room.broadcastMessage(...) // Implementation of broadcast would be good here
+            }
+        }
     }
 
     getMaxScore(): number {
@@ -363,28 +456,81 @@ export class EscortMode implements GameModeRules {
     }
 
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
-        if (!this.escortTarget) {
-            this.escortTarget = {
-                position: this.escortStart.clone(),
-                health: 1000,
-                maxHealth: 1000,
-                progress: 0
-            };
+        if (!this.escortTarget) this.initializeEscort();
+
+        // 1. Attackers Win (Destination Reached)
+        if (this.escortTarget!.progress >= 1.0) {
+            return { winner: "team0", reason: "Payload delivered!" };
         }
 
-        // Attacking team (team 0) wins if escort reaches destination
-        const distanceToEnd = Vector3.Distance(this.escortTarget.position, this.escortEnd);
-        if (distanceToEnd < 10) {
-            return { winner: "team0", reason: "Escort target reached destination" };
+        // 2. Defenders Win (Time Limit & Not Overtime)
+        // Time is handled mostly by room, but if we track "payload health" as limit:
+        if (this.escortTarget!.health <= 0) {
+            return { winner: "team1", reason: "Payload destroyed!" };
         }
 
-        // Defending team (team 1) wins if escort is destroyed
-        if (this.escortTarget.health <= 0) {
-            return { winner: "team1", reason: "Escort target destroyed" };
-        }
-
-        return null;
+        return null; // Continue playing
     }
+
+    private initializeEscort() {
+        this.escortTarget = {
+            position: this.escortStart.clone(),
+            health: 2500, // Increased HP
+            maxHealth: 2500,
+            progress: 0
+        };
+    }
+
+    update(deltaTime: number, room: GameRoom): void {
+        if (!this.escortTarget) this.initializeEscort();
+        const target = this.escortTarget!;
+
+        const pushRadius = 15;
+        const maxSpeed = 4;
+        const dtSeconds = deltaTime / 1000;
+
+        let attackers = 0;
+        let defenders = 0;
+
+        for (const player of room.getAllPlayers()) {
+            if (player.status !== "alive") continue;
+            const dist = Vector3.Distance(player.position, target.position);
+            if (dist < pushRadius) {
+                if (player.team === 0) attackers++;
+                else if (player.team === 1) defenders++;
+            }
+        }
+
+        // --- Payload Mechanics ---
+
+        // 1. Movement
+        if (attackers > 0 && defenders === 0) {
+            // Push forward logic
+            const speedMult = Math.min(1.5, 1.0 + (attackers - 1) * 0.2); // +20% per extra player
+            const moveStep = (maxSpeed * speedMult * dtSeconds) / Vector3.Distance(this.escortStart, this.escortEnd);
+            target.progress = Math.min(1.0, target.progress + moveStep);
+
+            // Payload HEALS attackers nearby (10 HP/sec)
+            if (room.gameTime % 1000 < dtSeconds * 1000) { // Approx once per second
+                for (const player of room.getAllPlayers()) {
+                    if (player.team === 0 && player.status === "alive" && Vector3.Distance(player.position, target.position) < pushRadius) {
+                        player.health = Math.min(player.maxHealth, player.health + 10);
+                        // No easy way to sync HP update purely from here without room broadcasting full state, 
+                        // but player.health is authoritative on server. Update will naturally sync on next tick.
+                    }
+                }
+            }
+
+        } else if (defenders > 0 && attackers === 0) {
+            // Push back (slowly rewinds progress if abandoned)
+            const rewindSpeed = (maxSpeed * 0.3 * dtSeconds) / Vector3.Distance(this.escortStart, this.escortEnd);
+            target.progress = Math.max(0, target.progress - rewindSpeed);
+        }
+
+        // 2. Update Position
+        Vector3.LerpToRef(this.escortStart, this.escortEnd, target.progress, target.position);
+    }
+
 
     getMaxScore(): number {
         return 100; // Progress percentage
@@ -398,8 +544,9 @@ export class EscortMode implements GameModeRules {
 // Survival Mode - волны врагов (PvE кооператив)
 export class SurvivalMode implements GameModeRules {
     private currentWave: number = 1;
-    private enemiesKilled: number = 0;
-    private enemiesPerWave: number = 10;
+    private enemiesPerWave: number = 5;
+    private waveState: "FIGHTING" | "RESTING" = "RESTING";
+    private restTimer: number = 10000; // 10 sec prep time
     private waveStartTime: number = 0;
 
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
@@ -408,7 +555,7 @@ export class SurvivalMode implements GameModeRules {
         // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
         const spawnIndex = Array.from(room.getAllPlayers()).indexOf(player);
         const angle = (spawnIndex / room.getAllPlayers().length) * Math.PI * 2;
-        const radius = 15;
+        const radius = 10;
 
         return new Vector3(
             Math.cos(angle) * radius,
@@ -418,30 +565,82 @@ export class SurvivalMode implements GameModeRules {
     }
 
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
-        // Survival: Players win if they survive X waves
-        // Players lose if all are dead
         const alivePlayers = room.getAllPlayers().filter(p => p.status === "alive");
-
-        if (alivePlayers.length === 0) {
-            return { winner: null, reason: "All players eliminated" };
-        }
-
-        // Win condition: Survive 10 waves
-        if (this.currentWave > 10) {
-            return { winner: "players", reason: `Survived ${this.currentWave - 1} waves` };
-        }
-
+        if (alivePlayers.length === 0) return { winner: null, reason: "Team eliminated" };
+        if (this.currentWave > 20) return { winner: "players", reason: "Survived 20 waves!" };
         return null;
     }
 
-    getMaxScore(): number {
-        return 10; // Waves to survive
+    getMaxScore(): number { return 20; }
+    getRespawnDelay(): number { return 999999; } // One life per wave? Or just long delay?
+
+    update(deltaTime: number, room: GameRoom): void {
+        const activeEnemies = room.enemies.size;
+
+        if (this.waveState === "FIGHTING") {
+            // Wave Clear Condition
+            if (activeEnemies === 0) {
+                this.waveState = "RESTING";
+                this.restTimer = 10000; // 10s rest
+                // console.log("Wave Cleared! Resting...");
+
+                // REWARD: Heal all players
+                room.getAllPlayers().forEach(p => {
+                    if (p.status === "alive") p.health = p.maxHealth;
+                    else p.respawn(this.getSpawnPosition(p, room)); // Revive dead players between waves
+                });
+            }
+        } else if (this.waveState === "RESTING") {
+            this.restTimer -= deltaTime;
+            if (this.restTimer <= 0) {
+                // START NEXT WAVE
+                this.waveState = "FIGHTING";
+                this.currentWave++;
+
+                // Scaling: +2 enemies per wave, +10% HP every round, +5% Dmg
+                this.enemiesPerWave = 5 + (this.currentWave * 2);
+
+                // Elite Wave every 5th round
+                const isElite = this.currentWave % 5 === 0;
+                if (isElite) this.enemiesPerWave = Math.floor(this.enemiesPerWave / 2); // Fewer but stronger
+
+                this.spawnWave(room, isElite);
+            }
+        }
     }
 
-    getRespawnDelay(): number {
-        return 10000; // 10 seconds
+    private spawnWave(room: GameRoom, isElite: boolean) {
+        room.botCount = this.enemiesPerWave; // Sync prop
+
+        const spawnRadius = 40 + Math.random() * 20; // varied distance
+
+        // We utilize the room's internal spawner by hacking it via botCount
+        // But to set "Elite" status we need access to the enemy objects AFTER spawn
+        // Since room.spawnEnemies() clears old enemies and spawns new ones
+        // We can just call it (as it uses botCount)
+        // Spawn using public method
+        room.spawnEnemies();
+
+
+        // Apply Stats Multipliers
+        const hpMult = 1.0 + (this.currentWave * 0.1);
+        const dmgMult = 1.0 + (this.currentWave * 0.05);
+
+        for (const enemy of room.enemies.values()) {
+            enemy.maxHealth *= hpMult;
+            enemy.health = enemy.maxHealth;
+            // enemy.damage *= dmgMult; // If enemy has damage prop exposed
+
+            if (isElite) {
+                enemy.maxHealth *= 3;
+                enemy.health = enemy.maxHealth;
+                // Visual indicator? Scale?
+                // enemy.scale *= 1.5; // If visual scale supported
+            }
+        }
     }
 }
+
 
 // Raid Mode - PvE с боссами
 export class RaidMode implements GameModeRules {
@@ -486,6 +685,70 @@ export class RaidMode implements GameModeRules {
 
     getRespawnDelay(): number {
         return 15000; // 15 seconds (longer in raids)
+    }
+
+    update(deltaTime: number, room: GameRoom): void {
+        const bosses = Array.from(room.enemies.values());
+
+        // 1. Check Win/Phase State
+        if (bosses.length === 0 && this.bossesDefeated < this.totalBosses) {
+            // Spawn next boss
+            this.spawnBoss(room, this.bossesDefeated + 1);
+            this.bossesDefeated++;
+        }
+
+        // 2. Boss Logic (Phases)
+        // Find the boss (highest max health enemy)
+        let mainBoss: any = null;
+        let maxHP = 0;
+
+        for (const enemy of room.enemies.values()) {
+            if (enemy.maxHealth > maxHP) {
+                maxHP = enemy.maxHealth;
+                mainBoss = enemy;
+            }
+        }
+
+        if (mainBoss) {
+            // Check Phase based on HP %
+            const hpPercent = mainBoss.health / mainBoss.maxHealth;
+
+            // Phase 2: Enrage / Minions at 50% HP
+            // We use a custom flag on the object if possible, or just a state map in this class?
+            // Since ServerEnemy class isn't easily extensible here without editing it, we'll use a local Set
+            if (hpPercent < 0.5 && !this.enragedBosses.has(mainBoss.id)) {
+                this.enragedBosses.add(mainBoss.id);
+                // console.log("BOSS ENRAGED! SPAWNING MINIONS!");
+
+                // Spawn Minions
+                room.botCount = 3 + this.bossesDefeated; // More minions for later bosses
+                room.spawnEnemies(); // This ADDS enemies, doesn't clear if we don't clear map
+                // Wait, room.spawnEnemies usually adds to the map.
+                // But check room.ts: `this.enemies.set(enemy.id, enemy);` - it adds.
+                // So calling it will add minions. Perfect.
+            }
+        }
+    }
+
+    private enragedBosses: Set<string> = new Set();
+
+    private spawnBoss(room: GameRoom, level: number) {
+        // Cleanup existing (remove old minions/corpses)
+        room.enemies.clear();
+        this.enragedBosses.clear(); // Reset for new boss
+
+        // Spawn ONE big enemy
+        room.botCount = 1;
+        room.spawnEnemies();
+
+        // Buff the boss
+        const boss = room.enemies.values().next().value;
+        if (boss) {
+            // Scale HP significantly: 5000 * 2^(level-1) -> 5k, 10k, 20k...
+            boss.maxHealth = 5000 * Math.pow(2, level - 1);
+            boss.health = boss.maxHealth;
+            boss.difficulty = "hard";
+        }
     }
 }
 

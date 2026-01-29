@@ -82,7 +82,7 @@ export interface TerrainEdit {
  */
 export interface PlacedObject {
     id: string;
-    type: "building" | "tree" | "rock" | "spawn" | "garage" | "custom" | "tank_chassis" | "tank_cannon" | "tank_track" | "tank_module" | "drop_point";
+    type: "building" | "tree" | "rock" | "spawn" | "garage" | "custom" | "tank_chassis" | "tank_cannon" | "tank_track" | "tank_module" | "drop_point" | "npc" | "enemy_tank" | "enemy_turret" | "zone_damage" | "zone_heal" | "zone_teleport";
     position: { x: number; y: number; z: number };
     rotation?: { x: number; y: number; z: number };
     scale?: { x: number; y: number; z: number };
@@ -551,6 +551,11 @@ export class MapEditor {
                                 <option value="tank_module">📦 Модуль</option>
                                 <option value="drop_point">📦 Точка дропа</option>
                                 <option value="npc">🤖 Бот (NPC)</option>
+                                <option value="enemy_tank">😈 Вражеский Танк</option>
+                                <option value="enemy_turret">🏰 Вражеская Турель</option>
+                                <option value="zone_damage">🔥 Зона Урона</option>
+                                <option value="zone_heal">💚 Зона Лечения</option>
+                                <option value="zone_teleport">🌀 Зона Телепорта</option>
                                 <option value="custom">Пользовательский</option>
                             </select>
                             
@@ -5422,6 +5427,30 @@ export class MapEditor {
                     break;
                 case "heal":
                     material.emissiveColor = new Color3(1, 1, 0); // Желтый
+                    break;
+                case 'npc':
+                    material.emissiveColor = new Color3(1, 0, 0); // Red marker
+                    material.alpha = 0.5; // Semi-transparent marker
+                    break;
+                case 'enemy_tank':
+                    material.diffuseColor = new Color3(0.8, 0.2, 0.2); // Redish
+                    material.specularColor = new Color3(0.1, 0.1, 0.1);
+                    break;
+                case 'enemy_turret':
+                    material.diffuseColor = new Color3(0.8, 0.4, 0); // Orange
+                    material.specularColor = new Color3(0.1, 0.1, 0.1);
+                    break;
+                case 'zone_damage':
+                    material.diffuseColor = new Color3(1, 0, 0);
+                    material.alpha = 0.3;
+                    break;
+                case 'zone_heal':
+                    material.diffuseColor = new Color3(0, 1, 0);
+                    material.alpha = 0.3;
+                    break;
+                case 'zone_teleport':
+                    material.diffuseColor = new Color3(0, 0.5, 1);
+                    material.alpha = 0.3;
                     break;
                 default:
                     material.emissiveColor = new Color3(1, 1, 1); // Белый

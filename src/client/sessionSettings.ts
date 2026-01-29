@@ -34,11 +34,25 @@ export interface EnemyTypeConfig {
 
 export type GameMode = "normal" | "survival" | "capture" | "raid" | "sandbox";
 
+export interface AIBotsSettings {
+    /** Включить глобальный общий интеллект для всех ботов (shared intelligence) */
+    globalIntelligenceEnabled: boolean;
+    /** Базовое значение global intelligence (старт) */
+    globalIntelligenceBase: number;
+    /** Максимальное значение global intelligence (потолок) */
+    globalIntelligenceMax: number;
+    /** Интервал роста global intelligence (мс) */
+    globalIntelligenceGrowthIntervalMs: number;
+    /** Шаг роста global intelligence */
+    globalIntelligenceGrowthAmount: number;
+}
+
 export interface SessionSettingsData {
     gameMode: GameMode;            // Режим игры
     enemyCount: number;           // 0-50
     spawnInterval: number;         // 1-60 секунд
     aiDifficulty: "easy" | "medium" | "hard" | "nightmare";
+    aiBots: AIBotsSettings;
     enemyTypes: EnemyTypeConfig[]; // Расширенная конфигурация типов
     spawnZones: SpawnZone[];       // Зоны спавна
     spawnPattern: SpawnPattern;    // Паттерн спавна
@@ -79,12 +93,16 @@ export class SessionSettings {
     private worldManager: WorldManager | null = null;
     private waveEditor: WaveEditor | null = null;
     private embedded: boolean = false;
-    
+
     // ОПТИМИЗАЦИЯ: AbortController для управления слушателями событий
     private abortController: AbortController = new AbortController();
 
+    private static readonly STORAGE_KEY = "tx:sessionSettings";
+
     constructor(embedded: boolean = false) {
         this.settings = this.getDefaultSettings();
+        // ИСПРАВЛЕНО: Загружаем сохранённые настройки (localStorage)
+        this.loadSettingsFromStorage();
         this.embedded = embedded;
 
         // Не создаём overlay UI если панель будет встроена в другое меню
@@ -119,6 +137,13 @@ export class SessionSettings {
             enemyCount: 7,
             spawnInterval: 30,
             aiDifficulty: "nightmare",
+            aiBots: {
+                globalIntelligenceEnabled: false,
+                globalIntelligenceBase: 3.0,
+                globalIntelligenceMax: 6.0,
+                globalIntelligenceGrowthIntervalMs: 2000,
+                globalIntelligenceGrowthAmount: 0.7
+            },
             enemyTypes: [
                 { id: "basic", name: "Базовый", enabled: true, weight: 5, minLevel: 1, maxLevel: 3 },
                 { id: "heavy", name: "Тяжёлый", enabled: true, weight: 3, minLevel: 2, maxLevel: 5 },
@@ -157,6 +182,84 @@ export class SessionSettings {
                 difficulty: 5
             }
         };
+    }
+
+    private clamp(n: number, min: number, max: number): number {
+        return Math.max(min, Math.min(max, n));
+    }
+
+    private loadSettingsFromStorage(): void {
+        try {
+            const raw = localStorage.getItem(SessionSettings.STORAGE_KEY);
+            if (!raw) return;
+            const parsed = JSON.parse(raw) as Partial<SessionSettingsData> | null;
+            if (!parsed || typeof parsed !== "object") return;
+
+            const defaults = this.getDefaultSettings();
+            const merged: SessionSettingsData = {
+                ...defaults,
+                ...parsed,
+                // глубокие блоки
+                enemyLevels: { ...defaults.enemyLevels, ...(parsed as any).enemyLevels },
+                waveSystem: { ...defaults.waveSystem, ...(parsed as any).waveSystem },
+                worldSettings: { ...defaults.worldSettings, ...(parsed as any).worldSettings },
+                spawnPattern: { ...defaults.spawnPattern, ...(parsed as any).spawnPattern },
+                aiBots: { ...defaults.aiBots, ...(parsed as any).aiBots }
+            };
+
+            // валидация/клампы
+            merged.enemyCount = this.clamp(Number(merged.enemyCount) || defaults.enemyCount, 0, 50);
+            merged.spawnInterval = this.clamp(Number(merged.spawnInterval) || defaults.spawnInterval, 1, 60);
+
+            const diff = merged.aiDifficulty;
+            if (diff !== "easy" && diff !== "medium" && diff !== "hard" && diff !== "nightmare") {
+                merged.aiDifficulty = defaults.aiDifficulty;
+            }
+
+            merged.aiBots.globalIntelligenceEnabled = Boolean(merged.aiBots.globalIntelligenceEnabled);
+            merged.aiBots.globalIntelligenceBase = this.clamp(Number(merged.aiBots.globalIntelligenceBase) || defaults.aiBots.globalIntelligenceBase, 1, 10);
+            merged.aiBots.globalIntelligenceMax = this.clamp(Number(merged.aiBots.globalIntelligenceMax) || defaults.aiBots.globalIntelligenceMax, 1, 10);
+            if (merged.aiBots.globalIntelligenceMax < merged.aiBots.globalIntelligenceBase) {
+                merged.aiBots.globalIntelligenceMax = merged.aiBots.globalIntelligenceBase;
+            }
+            merged.aiBots.globalIntelligenceGrowthIntervalMs = this.clamp(
+                Number(merged.aiBots.globalIntelligenceGrowthIntervalMs) || defaults.aiBots.globalIntelligenceGrowthIntervalMs,
+                200,
+                10000
+            );
+            merged.aiBots.globalIntelligenceGrowthAmount = this.clamp(
+                Number(merged.aiBots.globalIntelligenceGrowthAmount) || defaults.aiBots.globalIntelligenceGrowthAmount,
+                0.05,
+                2.0
+            );
+
+            this.settings = merged;
+
+            // Обновляем конфигурацию глобального интеллекта после загрузки
+            try {
+                const { GlobalIntelligenceManager } = require("./ai/GlobalIntelligenceManager");
+                const globalIntel = GlobalIntelligenceManager.getInstance();
+                globalIntel.setConfig({
+                    enabled: merged.aiBots.globalIntelligenceEnabled,
+                    base: merged.aiBots.globalIntelligenceBase,
+                    max: merged.aiBots.globalIntelligenceMax,
+                    growthIntervalMs: merged.aiBots.globalIntelligenceGrowthIntervalMs,
+                    growthAmount: merged.aiBots.globalIntelligenceGrowthAmount
+                });
+            } catch (e) {
+                // Игнорируем ошибки при обновлении конфигурации
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    private saveSettingsToStorage(): void {
+        try {
+            localStorage.setItem(SessionSettings.STORAGE_KEY, JSON.stringify(this.settings));
+        } catch (e) {
+            // ignore
+        }
     }
 
     private createUI(): void {
@@ -439,6 +542,38 @@ export class SessionSettings {
                         </select>
                     </div>
                 </div>
+
+                <div class="session-section">
+                    <div class="session-section-title">AI BOTS (ADVANCED)</div>
+                    <div class="session-control">
+                        <label class="session-label">
+                            <input type="checkbox" class="session-checkbox" id="ai-global-intel-enabled" ${this.settings.aiBots.globalIntelligenceEnabled ? "checked" : ""}>
+                            Глобальный общий интеллект (shared intelligence) на всю сессию
+                        </label>
+                        <div style="color:#888; font-size:11px; margin-top:6px;">
+                            Если включено — все боты используют один общий уровень интеллекта, который растёт во время боя.
+                        </div>
+                    </div>
+                    <div class="session-control">
+                        <label class="session-label">База: <span class="session-value" id="ai-global-intel-base-value">${this.settings.aiBots.globalIntelligenceBase.toFixed(1)}</span></label>
+                        <input type="range" class="session-slider" id="ai-global-intel-base" min="1" max="10" step="0.1" value="${this.settings.aiBots.globalIntelligenceBase}">
+                    </div>
+                    <div class="session-control">
+                        <label class="session-label">Максимум: <span class="session-value" id="ai-global-intel-max-value">${this.settings.aiBots.globalIntelligenceMax.toFixed(1)}</span></label>
+                        <input type="range" class="session-slider" id="ai-global-intel-max" min="1" max="10" step="0.1" value="${this.settings.aiBots.globalIntelligenceMax}">
+                    </div>
+                    <div class="session-control">
+                        <label class="session-label">Интервал роста (мс): <span class="session-value" id="ai-global-intel-interval-value">${this.settings.aiBots.globalIntelligenceGrowthIntervalMs}</span></label>
+                        <input type="range" class="session-slider" id="ai-global-intel-interval" min="200" max="10000" step="100" value="${this.settings.aiBots.globalIntelligenceGrowthIntervalMs}">
+                    </div>
+                    <div class="session-control">
+                        <label class="session-label">Шаг роста: <span class="session-value" id="ai-global-intel-amount-value">${this.settings.aiBots.globalIntelligenceGrowthAmount.toFixed(2)}</span></label>
+                        <input type="range" class="session-slider" id="ai-global-intel-amount" min="0.05" max="2.0" step="0.05" value="${this.settings.aiBots.globalIntelligenceGrowthAmount}">
+                    </div>
+                    <div class="session-control">
+                        <button class="panel-btn secondary" id="ai-global-intel-reset">Сбросить глобальный интеллект</button>
+                    </div>
+                </div>
                 
                 <div class="session-section">
                     <div class="session-section-title">СИСТЕМА ВОЛН</div>
@@ -524,17 +659,79 @@ export class SessionSettings {
             this.settings.aiDifficulty = (e.target as HTMLSelectElement).value as "easy" | "medium" | "hard" | "nightmare";
         });
 
+        // AI Bots (Advanced)
+        const globalIntelEnabled = document.getElementById("ai-global-intel-enabled") as HTMLInputElement | null;
+        globalIntelEnabled?.addEventListener("change", (e) => {
+            this.settings.aiBots.globalIntelligenceEnabled = (e.target as HTMLInputElement).checked;
+        }, { signal: this.abortController.signal });
+
+        const baseSlider = document.getElementById("ai-global-intel-base") as HTMLInputElement | null;
+        const baseValue = document.getElementById("ai-global-intel-base-value");
+        baseSlider?.addEventListener("input", (e) => {
+            const value = parseFloat((e.target as HTMLInputElement).value);
+            this.settings.aiBots.globalIntelligenceBase = value;
+            if (this.settings.aiBots.globalIntelligenceMax < value) {
+                this.settings.aiBots.globalIntelligenceMax = value;
+                const maxSlider = document.getElementById("ai-global-intel-max") as HTMLInputElement | null;
+                const maxValue = document.getElementById("ai-global-intel-max-value");
+                if (maxSlider) maxSlider.value = value.toFixed(1);
+                if (maxValue) maxValue.textContent = value.toFixed(1);
+            }
+            if (baseValue) baseValue.textContent = value.toFixed(1);
+        }, { signal: this.abortController.signal });
+
+        const maxSlider = document.getElementById("ai-global-intel-max") as HTMLInputElement | null;
+        const maxValue = document.getElementById("ai-global-intel-max-value");
+        maxSlider?.addEventListener("input", (e) => {
+            let value = parseFloat((e.target as HTMLInputElement).value);
+            if (value < this.settings.aiBots.globalIntelligenceBase) {
+                value = this.settings.aiBots.globalIntelligenceBase;
+                (e.target as HTMLInputElement).value = value.toFixed(1);
+            }
+            this.settings.aiBots.globalIntelligenceMax = value;
+            if (maxValue) maxValue.textContent = value.toFixed(1);
+        }, { signal: this.abortController.signal });
+
+        const intervalSlider = document.getElementById("ai-global-intel-interval") as HTMLInputElement | null;
+        const intervalValue = document.getElementById("ai-global-intel-interval-value");
+        intervalSlider?.addEventListener("input", (e) => {
+            const value = parseInt((e.target as HTMLInputElement).value, 10);
+            this.settings.aiBots.globalIntelligenceGrowthIntervalMs = value;
+            if (intervalValue) intervalValue.textContent = value.toString();
+        }, { signal: this.abortController.signal });
+
+        const amountSlider = document.getElementById("ai-global-intel-amount") as HTMLInputElement | null;
+        const amountValue = document.getElementById("ai-global-intel-amount-value");
+        amountSlider?.addEventListener("input", (e) => {
+            const value = parseFloat((e.target as HTMLInputElement).value);
+            this.settings.aiBots.globalIntelligenceGrowthAmount = value;
+            if (amountValue) amountValue.textContent = value.toFixed(2);
+        }, { signal: this.abortController.signal });
+
+        document.getElementById("ai-global-intel-reset")?.addEventListener("click", () => {
+            try {
+                const { GlobalIntelligenceManager } = require("./ai/GlobalIntelligenceManager");
+                const globalIntel = GlobalIntelligenceManager.getInstance();
+                globalIntel.reset();
+                if (this.game?.hud) {
+                    this.game.hud.showMessage("Глобальный интеллект сброшен", "#ff0", 2000);
+                }
+            } catch (e) {
+                logger.warn("[SessionSettings] Failed to reset global intelligence:", e);
+            }
+        }, { signal: this.abortController.signal });
+
         // Wave system - ИСПРАВЛЕНИЕ: Объединенный обработчик
         const waveEnabledCheckbox = document.getElementById("wave-enabled") as HTMLInputElement;
         const waveControls = document.getElementById("wave-controls");
         const waveIntervalControls = document.getElementById("wave-interval-controls");
         const waveEditorContainer = document.getElementById("wave-editor-embedded");
-        
+
         waveEnabledCheckbox?.addEventListener("change", (e) => {
             this.settings.waveSystem.enabled = (e.target as HTMLInputElement).checked;
             if (waveControls) waveControls.style.display = this.settings.waveSystem.enabled ? "block" : "none";
             if (waveIntervalControls) waveIntervalControls.style.display = this.settings.waveSystem.enabled ? "block" : "none";
-            
+
             // ИСПРАВЛЕНИЕ: Показываем/скрываем встроенный редактор волн
             if (waveEditorContainer) {
                 waveEditorContainer.style.display = this.settings.waveSystem.enabled ? "block" : "none";
@@ -573,6 +770,7 @@ export class SessionSettings {
         // Buttons
         document.getElementById("session-reset")?.addEventListener("click", () => {
             this.settings = this.getDefaultSettings();
+            this.saveSettingsToStorage();
             this.updateUI();
         });
 
@@ -591,13 +789,13 @@ export class SessionSettings {
             }
         });
     }
-    
+
     /**
      * Настройка обработчиков для встроенного редактора волн
      */
     private setupEmbeddedWaveEditor(): void {
         if (!this.waveEditor) return;
-        
+
         // Добавление волны
         const addBtn = document.getElementById("wave-add");
         if (addBtn) {
@@ -618,7 +816,7 @@ export class SessionSettings {
                 }
             });
         }
-        
+
         // Экспорт волн
         const exportBtn = document.getElementById("wave-export");
         if (exportBtn) {
@@ -633,7 +831,7 @@ export class SessionSettings {
                 URL.revokeObjectURL(url);
             });
         }
-        
+
         // Импорт волн
         const importBtn = document.getElementById("wave-import");
         if (importBtn) {
@@ -644,7 +842,7 @@ export class SessionSettings {
                 input.onchange = (e) => {
                     const file = (e.target as HTMLInputElement).files?.[0];
                     if (!file) return;
-                    
+
                     const reader = new FileReader();
                     reader.onload = (event) => {
                         try {
@@ -661,7 +859,7 @@ export class SessionSettings {
                 input.click();
             });
         }
-        
+
         // Обработчики для редактирования волн (делегирование событий)
         const waveEditorContainer = document.getElementById("wave-editor-embedded");
         if (waveEditorContainer) {
@@ -670,7 +868,7 @@ export class SessionSettings {
                 const target = e.target as HTMLElement;
                 const waveEditor = this.waveEditor as any;
                 if (!waveEditor.currentWave) return;
-                
+
                 if (target.id === "wave-name") {
                     waveEditor.currentWave.name = (target as HTMLInputElement).value;
                 } else if (target.id === "wave-delay") {
@@ -678,17 +876,17 @@ export class SessionSettings {
                 } else if (target.id === "wave-pattern") {
                     waveEditor.currentWave.spawnPattern = (target as HTMLSelectElement).value;
                 }
-                
+
                 waveEditor.saveWaves();
                 this.waveEditor!.renderEmbeddedEditor();
             });
-            
+
             // Добавление/удаление врагов
             waveEditorContainer.addEventListener("click", (e) => {
                 const target = e.target as HTMLElement;
                 const waveEditor = this.waveEditor as any;
                 if (!waveEditor.currentWave) return;
-                
+
                 if (target.id === "enemy-add") {
                     const newEnemy = {
                         type: "basic",
@@ -708,13 +906,13 @@ export class SessionSettings {
                     }
                 }
             });
-            
+
             // Изменение параметров врагов
             waveEditorContainer.addEventListener("change", (e) => {
                 const target = e.target as HTMLElement;
                 const waveEditor = this.waveEditor as any;
                 if (!waveEditor.currentWave) return;
-                
+
                 const match = target.id?.match(/^enemy-(\d+)-(type|count|level|delay)$/);
                 if (match) {
                     const index = parseInt(match[1]!, 10);
@@ -736,7 +934,7 @@ export class SessionSettings {
                 }
             });
         }
-        
+
         // Первоначальная отрисовка редактора
         if (this.settings.waveSystem.enabled && this.waveEditor) {
             this.waveEditor.renderEmbeddedEditor();
@@ -758,6 +956,30 @@ export class SessionSettings {
         const aiDifficultySelect = document.getElementById("ai-difficulty") as HTMLSelectElement;
         if (aiDifficultySelect) aiDifficultySelect.value = this.settings.aiDifficulty;
 
+        // AI Bots (Advanced)
+        const globalIntelEnabled = document.getElementById("ai-global-intel-enabled") as HTMLInputElement | null;
+        if (globalIntelEnabled) globalIntelEnabled.checked = this.settings.aiBots.globalIntelligenceEnabled;
+
+        const baseSlider = document.getElementById("ai-global-intel-base") as HTMLInputElement | null;
+        const baseValue = document.getElementById("ai-global-intel-base-value");
+        if (baseSlider) baseSlider.value = this.settings.aiBots.globalIntelligenceBase.toFixed(1);
+        if (baseValue) baseValue.textContent = this.settings.aiBots.globalIntelligenceBase.toFixed(1);
+
+        const maxSlider = document.getElementById("ai-global-intel-max") as HTMLInputElement | null;
+        const maxValue = document.getElementById("ai-global-intel-max-value");
+        if (maxSlider) maxSlider.value = this.settings.aiBots.globalIntelligenceMax.toFixed(1);
+        if (maxValue) maxValue.textContent = this.settings.aiBots.globalIntelligenceMax.toFixed(1);
+
+        const intervalSlider = document.getElementById("ai-global-intel-interval") as HTMLInputElement | null;
+        const intervalValue = document.getElementById("ai-global-intel-interval-value");
+        if (intervalSlider) intervalSlider.value = String(this.settings.aiBots.globalIntelligenceGrowthIntervalMs);
+        if (intervalValue) intervalValue.textContent = String(this.settings.aiBots.globalIntelligenceGrowthIntervalMs);
+
+        const amountSlider = document.getElementById("ai-global-intel-amount") as HTMLInputElement | null;
+        const amountValue = document.getElementById("ai-global-intel-amount-value");
+        if (amountSlider) amountSlider.value = this.settings.aiBots.globalIntelligenceGrowthAmount.toFixed(2);
+        if (amountValue) amountValue.textContent = this.settings.aiBots.globalIntelligenceGrowthAmount.toFixed(2);
+
         const waveEnabledCheckbox = document.getElementById("wave-enabled") as HTMLInputElement;
         const waveControls = document.getElementById("wave-controls");
         const waveIntervalControls = document.getElementById("wave-interval-controls");
@@ -774,7 +996,7 @@ export class SessionSettings {
         const waveIntervalValue = document.getElementById("wave-interval-value");
         if (waveIntervalSlider) waveIntervalSlider.value = this.settings.waveSystem.waveInterval.toString();
         if (waveIntervalValue) waveIntervalValue.textContent = this.settings.waveSystem.waveInterval.toString();
-        
+
         // ИСПРАВЛЕНИЕ: Обновляем встроенный редактор волн
         const waveEditorContainer = document.getElementById("wave-editor-embedded");
         if (waveEditorContainer) {
@@ -792,9 +1014,26 @@ export class SessionSettings {
         if (this.game) {
             // Сохраняем настройки в game
             (this.game as any).sessionSettings = this.settings;
+            this.saveSettingsToStorage();
 
             // Применяем настройки к спавну врагов
             logger.log("[SessionSettings] Applied settings:", this.settings);
+
+            // Обновляем конфигурацию глобального интеллекта ботов
+            try {
+                const { GlobalIntelligenceManager } = require("./ai/GlobalIntelligenceManager");
+                const globalIntel = GlobalIntelligenceManager.getInstance();
+                globalIntel.setConfig({
+                    enabled: this.settings.aiBots.globalIntelligenceEnabled,
+                    base: this.settings.aiBots.globalIntelligenceBase,
+                    max: this.settings.aiBots.globalIntelligenceMax,
+                    growthIntervalMs: this.settings.aiBots.globalIntelligenceGrowthIntervalMs,
+                    growthAmount: this.settings.aiBots.globalIntelligenceGrowthAmount
+                });
+                logger.log("[SessionSettings] Global intelligence config updated");
+            } catch (e) {
+                logger.warn("[SessionSettings] Failed to update global intelligence:", e);
+            }
 
             if (this.game.hud) {
                 this.game.hud.showMessage("Настройки сессии применены!", "#0f0", 2000);
@@ -835,7 +1074,7 @@ export class SessionSettings {
         document.body.style.cursor = 'default';
 
         this.updateUI();
-        
+
         // ИСПРАВЛЕНИЕ: Обновляем встроенный редактор волн при показе настроек сессии
         if (this.settings.waveSystem.enabled && this.waveEditor) {
             // Небольшая задержка, чтобы DOM успел обновиться
@@ -861,7 +1100,7 @@ export class SessionSettings {
         // ОПТИМИЗАЦИЯ: Очищаем все слушатели событий
         this.abortController.abort();
         this.abortController = new AbortController();
-        
+
         this.container.remove();
     }
 
@@ -949,6 +1188,45 @@ export class SessionSettings {
                         </select>
                     </div>
                 </div>
+
+                <div class="session-section-emb">
+                    <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
+                        AI BOTS (ADVANCED)
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="color: #aaa; font-size: 11px; display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" class="ss-global-intel-enabled" ${this.settings.aiBots.globalIntelligenceEnabled ? "checked" : ""}>
+                            Глобальный общий интеллект
+                        </label>
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="color:#aaa; font-size:11px; display:block; margin-bottom:5px;">
+                            База: <span class="ss-global-intel-base-val" style="color:#0f0; font-weight:bold;">${this.settings.aiBots.globalIntelligenceBase.toFixed(1)}</span>
+                        </label>
+                        <input type="range" class="ss-global-intel-base" min="1" max="10" step="0.1" value="${this.settings.aiBots.globalIntelligenceBase}" style="width: 100%;">
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="color:#aaa; font-size:11px; display:block; margin-bottom:5px;">
+                            Максимум: <span class="ss-global-intel-max-val" style="color:#0f0; font-weight:bold;">${this.settings.aiBots.globalIntelligenceMax.toFixed(1)}</span>
+                        </label>
+                        <input type="range" class="ss-global-intel-max" min="1" max="10" step="0.1" value="${this.settings.aiBots.globalIntelligenceMax}" style="width: 100%;">
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="color:#aaa; font-size:11px; display:block; margin-bottom:5px;">
+                            Интервал роста (мс): <span class="ss-global-intel-interval-val" style="color:#0f0; font-weight:bold;">${this.settings.aiBots.globalIntelligenceGrowthIntervalMs}</span>
+                        </label>
+                        <input type="range" class="ss-global-intel-interval" min="200" max="10000" step="100" value="${this.settings.aiBots.globalIntelligenceGrowthIntervalMs}" style="width: 100%;">
+                    </div>
+                    <div style="margin-bottom: 10px;">
+                        <label style="color:#aaa; font-size:11px; display:block; margin-bottom:5px;">
+                            Шаг роста: <span class="ss-global-intel-amount-val" style="color:#0f0; font-weight:bold;">${this.settings.aiBots.globalIntelligenceGrowthAmount.toFixed(2)}</span>
+                        </label>
+                        <input type="range" class="ss-global-intel-amount" min="0.05" max="2.0" step="0.05" value="${this.settings.aiBots.globalIntelligenceGrowthAmount}" style="width: 100%;">
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <button class="panel-btn secondary ss-global-intel-reset" style="width:100%; padding:8px;">Сбросить глобальный интеллект</button>
+                    </div>
+                </div>
                 
                 <div class="session-section-emb">
                     <div style="color: #ff0; font-size: 13px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid rgba(0, 255, 4, 0.3); padding-bottom: 5px;">
@@ -992,6 +1270,17 @@ export class SessionSettings {
         const applyBtn = container.querySelector(".ss-apply-btn");
         const resetBtn = container.querySelector(".ss-reset-btn");
 
+        const globalIntelEnabled = container.querySelector(".ss-global-intel-enabled") as HTMLInputElement | null;
+        const baseSlider = container.querySelector(".ss-global-intel-base") as HTMLInputElement | null;
+        const baseVal = container.querySelector(".ss-global-intel-base-val");
+        const maxSlider = container.querySelector(".ss-global-intel-max") as HTMLInputElement | null;
+        const maxVal = container.querySelector(".ss-global-intel-max-val");
+        const intervalSlider = container.querySelector(".ss-global-intel-interval") as HTMLInputElement | null;
+        const intervalVal = container.querySelector(".ss-global-intel-interval-val");
+        const amountSlider = container.querySelector(".ss-global-intel-amount") as HTMLInputElement | null;
+        const amountVal = container.querySelector(".ss-global-intel-amount-val");
+        const globalResetBtn = container.querySelector(".ss-global-intel-reset");
+
         enemyCountSlider?.addEventListener("input", () => {
             if (enemyCountVal) enemyCountVal.textContent = enemyCountSlider.value;
             this.settings.enemyCount = parseInt(enemyCountSlider.value);
@@ -1010,6 +1299,47 @@ export class SessionSettings {
             this.settings.gameMode = gamemodeSelect.value as GameMode;
         });
 
+        globalIntelEnabled?.addEventListener("change", () => {
+            this.settings.aiBots.globalIntelligenceEnabled = globalIntelEnabled.checked;
+        });
+
+        baseSlider?.addEventListener("input", () => {
+            const v = parseFloat(baseSlider.value);
+            this.settings.aiBots.globalIntelligenceBase = v;
+            if (this.settings.aiBots.globalIntelligenceMax < v) {
+                this.settings.aiBots.globalIntelligenceMax = v;
+                if (maxSlider) maxSlider.value = v.toFixed(1);
+                if (maxVal) maxVal.textContent = v.toFixed(1);
+            }
+            if (baseVal) baseVal.textContent = v.toFixed(1);
+        });
+
+        maxSlider?.addEventListener("input", () => {
+            let v = parseFloat(maxSlider.value);
+            if (v < this.settings.aiBots.globalIntelligenceBase) {
+                v = this.settings.aiBots.globalIntelligenceBase;
+                maxSlider.value = v.toFixed(1);
+            }
+            this.settings.aiBots.globalIntelligenceMax = v;
+            if (maxVal) maxVal.textContent = v.toFixed(1);
+        });
+
+        intervalSlider?.addEventListener("input", () => {
+            const v = parseInt(intervalSlider.value, 10);
+            this.settings.aiBots.globalIntelligenceGrowthIntervalMs = v;
+            if (intervalVal) intervalVal.textContent = String(v);
+        });
+
+        amountSlider?.addEventListener("input", () => {
+            const v = parseFloat(amountSlider.value);
+            this.settings.aiBots.globalIntelligenceGrowthAmount = v;
+            if (amountVal) amountVal.textContent = v.toFixed(2);
+        });
+
+        globalResetBtn?.addEventListener("click", () => {
+            window.dispatchEvent(new CustomEvent("aiBots:resetGlobalIntelligence"));
+        });
+
         applyBtn?.addEventListener("click", () => {
             this.applySettings();
             if (this.game?.hud) {
@@ -1019,6 +1349,7 @@ export class SessionSettings {
 
         resetBtn?.addEventListener("click", () => {
             this.settings = this.getDefaultSettings();
+            this.saveSettingsToStorage();
             // Обновляем UI
             if (enemyCountSlider) enemyCountSlider.value = String(this.settings.enemyCount);
             if (enemyCountVal) enemyCountVal.textContent = String(this.settings.enemyCount);
@@ -1026,6 +1357,15 @@ export class SessionSettings {
             if (spawnIntervalVal) spawnIntervalVal.textContent = String(this.settings.spawnInterval);
             if (difficultySelect) difficultySelect.value = this.settings.aiDifficulty;
             if (gamemodeSelect) gamemodeSelect.value = this.settings.gameMode;
+            if (globalIntelEnabled) globalIntelEnabled.checked = this.settings.aiBots.globalIntelligenceEnabled;
+            if (baseSlider) baseSlider.value = this.settings.aiBots.globalIntelligenceBase.toFixed(1);
+            if (baseVal) baseVal.textContent = this.settings.aiBots.globalIntelligenceBase.toFixed(1);
+            if (maxSlider) maxSlider.value = this.settings.aiBots.globalIntelligenceMax.toFixed(1);
+            if (maxVal) maxVal.textContent = this.settings.aiBots.globalIntelligenceMax.toFixed(1);
+            if (intervalSlider) intervalSlider.value = String(this.settings.aiBots.globalIntelligenceGrowthIntervalMs);
+            if (intervalVal) intervalVal.textContent = String(this.settings.aiBots.globalIntelligenceGrowthIntervalMs);
+            if (amountSlider) amountSlider.value = this.settings.aiBots.globalIntelligenceGrowthAmount.toFixed(2);
+            if (amountVal) amountVal.textContent = this.settings.aiBots.globalIntelligenceGrowthAmount.toFixed(2);
 
             if (this.game?.hud) {
                 this.game.hud.showMessage("Настройки сброшены!", "#ff0", 2000);

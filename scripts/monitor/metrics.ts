@@ -8,6 +8,7 @@ import { ClientCollector } from './collectors/clientCollector';
 import { SystemCollector } from './collectors/systemCollector';
 import { NetworkCollector } from './collectors/networkCollector';
 import { FirebaseCollector } from './collectors/firebaseCollector';
+import { PortCollector } from './collectors/portCollector';
 
 export interface MetricsSnapshot {
     timestamp: number;
@@ -82,6 +83,19 @@ export interface MetricsSnapshot {
             gameTime?: number;
         }>;
     };
+
+    // Port status
+    portStatus?: {
+        ports: Array<{
+            port: number;
+            label: string;
+            url: string;
+            type: 'http' | 'websocket';
+            online: boolean;
+            lastCheck: number;
+            responseTime?: number;
+        }>;
+    };
 }
 
 export class MetricsManager {
@@ -91,6 +105,7 @@ export class MetricsManager {
     private systemCollector: SystemCollector;
     private networkCollector: NetworkCollector;
     private firebaseCollector: FirebaseCollector;
+    private portCollector: PortCollector;
 
     private currentMetrics: MetricsSnapshot | null = null;
 
@@ -103,6 +118,7 @@ export class MetricsManager {
         this.systemCollector = new SystemCollector();
         this.networkCollector = new NetworkCollector();
         this.firebaseCollector = new FirebaseCollector();
+        this.portCollector = new PortCollector({ checkInterval: 5000 }); // Проверка каждые 5 секунд
     }
 
     async start(): Promise<void> {
@@ -114,6 +130,9 @@ export class MetricsManager {
             this.networkCollector.start(),
             this.firebaseCollector.start()
         ]);
+
+        // Start port collector (runs in background)
+        this.portCollector.start();
     }
 
     async stop(): Promise<void> {
@@ -125,6 +144,9 @@ export class MetricsManager {
             this.networkCollector.stop(),
             this.firebaseCollector.stop()
         ]);
+
+        // Stop port collector
+        this.portCollector.stop();
     }
 
     async collectMetrics(): Promise<MetricsSnapshot> {
@@ -155,9 +177,9 @@ export class MetricsManager {
             performance: {
                 cpu: system.cpu || { usage: 0, cores: 0 },
                 ram: server.memoryUsage ? {
-                    used: server.memoryUsage.heapUsed,
-                    total: 512 * 1024 * 1024, // 512MB fixed limit as requested
-                    percent: (server.memoryUsage.heapUsed / (512 * 1024 * 1024)) * 100
+                    used: server.memoryUsage.rss, // Use RSS for actual memory usage against plan
+                    total: 2 * 1024 * 1024 * 1024, // 2GB limit (Vercel default)
+                    percent: (server.memoryUsage.rss / (2 * 1024 * 1024 * 1024)) * 100
                 } : (system.ram || { used: 0, total: 0, percent: 0 }),
                 serverFps: server.fps || 0,
                 clientFps: server.aggregatedClientMetrics?.avgFps || client.fps,
@@ -204,6 +226,9 @@ export class MetricsManager {
             },
             gameState: {
                 rooms: server.roomsList || []
+            },
+            portStatus: {
+                ports: this.portCollector.getPortStatuses()
             }
         };
 
@@ -225,6 +250,10 @@ export class MetricsManager {
 
     getSystemCollector(): SystemCollector {
         return this.systemCollector;
+    }
+
+    getPortCollector(): PortCollector {
+        return this.portCollector;
     }
 }
 

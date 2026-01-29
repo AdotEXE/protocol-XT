@@ -775,14 +775,32 @@ export const sendMapToTX = (cubes: CubeElement[], mapName: string, autoPlay: boo
 
         // Send to parent
         if (window.parent && window.parent !== window) {
-            console.log(`[Exporter] Sending message LOAD_CUSTOM_MAP to parent...`);
             try {
-                window.parent.postMessage({
-                    type: 'LOAD_CUSTOM_MAP',
-                    mapData,
-                    autoPlay
-                }, '*');
-                console.log(`[Exporter] Sent map '${mapName}' to TX game`);
+                // КРИТИЧНО: Если TEST режим (autoPlay=true), сначала сворачиваем редактор
+                if (autoPlay) {
+                    console.log(`[Exporter] TEST MODE: Minimizing editor before loading map...`);
+                    window.parent.postMessage({
+                        type: 'MINIMIZE_EDITOR'
+                    }, '*');
+                    // Небольшая задержка чтобы редактор успел свернуться
+                    setTimeout(() => {
+                        console.log(`[Exporter] Sending message LOAD_CUSTOM_MAP to parent...`);
+                        window.parent.postMessage({
+                            type: 'LOAD_CUSTOM_MAP',
+                            mapData,
+                            autoPlay
+                        }, '*');
+                        console.log(`[Exporter] Sent map '${mapName}' to TX game`);
+                    }, 100);
+                } else {
+                    console.log(`[Exporter] Sending message LOAD_CUSTOM_MAP to parent...`);
+                    window.parent.postMessage({
+                        type: 'LOAD_CUSTOM_MAP',
+                        mapData,
+                        autoPlay
+                    }, '*');
+                    console.log(`[Exporter] Sent map '${mapName}' to TX game`);
+                }
             } catch (e) {
                 console.error("[Exporter] Failed to postMessage:", e);
                 resolve(false);

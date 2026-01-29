@@ -86,7 +86,7 @@ FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFA
 FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@protocol-tx.iam.gserviceaccount.com
 
 # Server
-PORT=8080
+PORT=8000
 
 # Firebase Client SDK (для клиента - уже есть в firebaseService.ts)
 VITE_FIREBASE_API_KEY=AIzaSyBvTtaOb9NuWgwJJgQ0lhnyLDkoRpvhAAY

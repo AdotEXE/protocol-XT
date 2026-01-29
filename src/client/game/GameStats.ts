@@ -6,7 +6,7 @@ import { logger } from "../utils/logger";
 import type { PlayerProgressionSystem } from "../playerProgression";
 import type { ExperienceSystem } from "../experienceSystem";
 import type { CurrencyManager } from "../currencyManager";
-import type { RealtimeStatsTracker } from "../realtimeStats";
+import { RealtimeStatsTracker } from "../realtimeStats";
 import type { MultiplayerManager } from "../multiplayer";
 import type { EnemyTank } from "../enemyTank";
 import type { EnemyManager } from "../enemy";
@@ -180,11 +180,9 @@ export class GameStats {
             }
             // Создаем RealtimeStatsTracker если его нет
             if (!this.systems.realtimeStatsTracker && mm?.getPlayerId()) {
-                import("../realtimeStats").then(({ RealtimeStatsTracker }) => {
-                    const tracker = new RealtimeStatsTracker();
-                    (this.systems as any).setRealtimeStatsTracker?.(tracker);
-                    tracker.startMatch(mm.getPlayerId()!);
-                }).catch(() => { });
+                const tracker = new RealtimeStatsTracker();
+                (this.systems as any).setRealtimeStatsTracker?.(tracker);
+                tracker.startMatch(mm.getPlayerId()!);
             }
         }
 

@@ -37,6 +37,8 @@ export interface PlayerData {
     velocity?: Vector3Data; // Linear velocity
     angularVelocity?: number; // Angular velocity (rotation speed)
     turretAngularVelocity?: number; // Turret rotation speed
+    // Equipment
+    modules?: string[];
 }
 
 export interface PlayerInput {
@@ -92,6 +94,7 @@ export interface EnemyData {
     isAlive: boolean;
     targetId: string | null;
     state: "idle" | "patrol" | "chase" | "attack" | "retreat";
+    modules?: string[];
 }
 
 export interface FlagData {
@@ -145,6 +148,7 @@ export interface NetworkMetrics {
     packetLoss: number; // Packet loss percentage (0-1)
     lastPingTime: number; // Timestamp of last ping
     pingHistory: number[]; // Last 10 RTT measurements
+    drift?: number; // ИСПРАВЛЕНО: Расхождение позиций в метрах (разница между предсказанной и серверной позицией)
 }
 
 // КРИТИЧНО: Константы движения для синхронизации клиента и сервера

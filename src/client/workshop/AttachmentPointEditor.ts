@@ -14,21 +14,22 @@ export class AttachmentPointEditor {
     private previewScene: PreviewScene | null = null;
     private pivotMarker: Mesh | null = null;
     private barrelMarker: Mesh | null = null;
+    private currentTank: PreviewTank | null = null;
     private config: {
         turretPivot: Vector3;
         barrelMount: Vector3;
     } = {
-        turretPivot: Vector3.Zero(),
-        barrelMount: Vector3.Zero()
-    };
-    
+            turretPivot: Vector3.Zero(),
+            barrelMount: Vector3.Zero()
+        };
+
     constructor(container: HTMLDivElement, previewScene: PreviewScene) {
         this.container = container;
         this.previewScene = previewScene;
         this.createUI();
         this.createMarkers();
     }
-    
+
     private createUI(): void {
         const html = `
             <div class="attachment-editor" style="padding: 15px; background: rgba(0, 20, 0, 0.2); border: 1px solid rgba(0, 255, 0, 0.2); border-radius: 4px;">
@@ -72,7 +73,7 @@ export class AttachmentPointEditor {
             </div>
         `;
         this.container.innerHTML = html;
-        
+
         // Обработчики для pivot
         ['x', 'y', 'z'].forEach(axis => {
             const input = document.getElementById(`pivot-${axis}`) as HTMLInputElement;
@@ -80,7 +81,7 @@ export class AttachmentPointEditor {
                 input.addEventListener('input', () => this.updatePivot());
             }
         });
-        
+
         // Обработчики для barrel
         ['x', 'y', 'z'].forEach(axis => {
             const input = document.getElementById(`barrel-${axis}`) as HTMLInputElement;
@@ -88,111 +89,112 @@ export class AttachmentPointEditor {
                 input.addEventListener('input', () => this.updateBarrel());
             }
         });
-        
+
         // Кнопки сброса
         document.getElementById('reset-pivot')?.addEventListener('click', () => {
             this.config.turretPivot = Vector3.Zero();
             this.updatePivotInputs();
             this.updatePivotMarker();
         });
-        
+
         document.getElementById('reset-barrel')?.addEventListener('click', () => {
             this.config.barrelMount = Vector3.Zero();
             this.updateBarrelInputs();
             this.updateBarrelMarker();
         });
     }
-    
+
     private createMarkers(): void {
         if (!this.previewScene) return;
-        
+
         // Красная сфера для turret pivot
         this.pivotMarker = MeshBuilder.CreateSphere('pivotMarker', {
             diameter: 0.3
         }, this.previewScene.scene);
-        
+
         const pivotMat = new StandardMaterial('pivotMat', this.previewScene.scene);
         pivotMat.diffuseColor = new Color3(1, 0, 0); // Красный
         pivotMat.emissiveColor = new Color3(0.5, 0, 0);
         pivotMat.disableLighting = true;
         this.pivotMarker.material = pivotMat;
         this.pivotMarker.renderingGroupId = 1; // Поверх всего
-        
+
         // Синяя сфера для barrel mount
         this.barrelMarker = MeshBuilder.CreateSphere('barrelMarker', {
             diameter: 0.25
         }, this.previewScene.scene);
-        
+
         const barrelMat = new StandardMaterial('barrelMat', this.previewScene.scene);
         barrelMat.diffuseColor = new Color3(0, 0.5, 1); // Синий
         barrelMat.emissiveColor = new Color3(0, 0.2, 0.5);
         barrelMat.disableLighting = true;
         this.barrelMarker.material = barrelMat;
         this.barrelMarker.renderingGroupId = 1;
-        
+
         this.updateMarkers();
     }
-    
+
     private updatePivot(): void {
         const x = parseFloat((document.getElementById('pivot-x') as HTMLInputElement)?.value || '0');
         const y = parseFloat((document.getElementById('pivot-y') as HTMLInputElement)?.value || '0');
         const z = parseFloat((document.getElementById('pivot-z') as HTMLInputElement)?.value || '0');
-        
+
         this.config.turretPivot = new Vector3(x, y, z);
         this.updatePivotMarker();
     }
-    
+
     private updateBarrel(): void {
         const x = parseFloat((document.getElementById('barrel-x') as HTMLInputElement)?.value || '0');
         const y = parseFloat((document.getElementById('barrel-y') as HTMLInputElement)?.value || '0');
         const z = parseFloat((document.getElementById('barrel-z') as HTMLInputElement)?.value || '0');
-        
+
         this.config.barrelMount = new Vector3(x, y, z);
         this.updateBarrelMarker();
     }
-    
+
     private updatePivotMarker(): void {
-        if (!this.pivotMarker || !this.previewScene?.previewTank?.chassis) return;
-        
+        if (!this.pivotMarker || !this.currentTank?.chassis) return;
+
         // Позиция относительно корпуса
-        const chassisPos = this.previewScene.previewTank.chassis.getAbsolutePosition();
+        const chassisPos = this.currentTank.chassis.getAbsolutePosition();
         const worldPos = chassisPos.add(this.config.turretPivot);
         this.pivotMarker.position = worldPos;
     }
-    
+
     private updateBarrelMarker(): void {
-        if (!this.barrelMarker || !this.previewScene?.previewTank?.turret) return;
-        
+        if (!this.barrelMarker || !this.currentTank?.turret) return;
+
         // Позиция относительно башни
-        const turretPos = this.previewScene.previewTank.turret.getAbsolutePosition();
+        const turretPos = this.currentTank.turret.getAbsolutePosition();
         const worldPos = turretPos.add(this.config.barrelMount);
         this.barrelMarker.position = worldPos;
     }
-    
+
     private updateMarkers(): void {
         this.updatePivotMarker();
         this.updateBarrelMarker();
     }
-    
+
     private updatePivotInputs(): void {
         (document.getElementById('pivot-x') as HTMLInputElement).value = this.config.turretPivot.x.toString();
         (document.getElementById('pivot-y') as HTMLInputElement).value = this.config.turretPivot.y.toString();
         (document.getElementById('pivot-z') as HTMLInputElement).value = this.config.turretPivot.z.toString();
     }
-    
+
     private updateBarrelInputs(): void {
         (document.getElementById('barrel-x') as HTMLInputElement).value = this.config.barrelMount.x.toString();
         (document.getElementById('barrel-y') as HTMLInputElement).value = this.config.barrelMount.y.toString();
         (document.getElementById('barrel-z') as HTMLInputElement).value = this.config.barrelMount.z.toString();
     }
-    
+
     /**
      * Обновить маркеры при изменении preview танка
      */
-    updatePreviewTank(): void {
+    updatePreviewTank(tank: PreviewTank | null): void {
+        this.currentTank = tank;
         this.updateMarkers();
     }
-    
+
     /**
      * Установить значения из конфигурации
      */
@@ -203,15 +205,15 @@ export class AttachmentPointEditor {
         this.updateBarrelInputs();
         this.updateMarkers();
     }
-    
+
     getTurretPivot(): Vector3 {
         return this.config.turretPivot.clone();
     }
-    
+
     getBarrelMount(): Vector3 {
         return this.config.barrelMount.clone();
     }
-    
+
     getAttachmentPoints(): {
         turretPivot: { x: number; y: number; z: number };
         barrelMount: { x: number; y: number; z: number };
@@ -221,7 +223,7 @@ export class AttachmentPointEditor {
             barrelMount: vector3ToCoords(this.config.barrelMount)
         };
     }
-    
+
     dispose(): void {
         if (this.pivotMarker) {
             this.pivotMarker.dispose();

@@ -23,6 +23,7 @@ export class WorldBuilder {
     private scene: Scene;
     private overpass: OverpassService;
     private geo: GeoDataService;
+    private createdMeshes: Mesh[] = []; // Track meshes for disposal
 
     // Materials (initialized in initMaterials, called from constructor)
     private roadMat!: StandardMaterial;
@@ -159,6 +160,8 @@ export class WorldBuilder {
 
             // Add Physics Impostor (Static)
             new PhysicsAggregate(building, PhysicsShapeType.MESH, { mass: 0, restitution: 0.1 }, this.scene);
+
+            this.createdMeshes.push(building);
         } catch (e) {
             // console.warn("Failed to build polygon", e);
         }
@@ -179,6 +182,8 @@ export class WorldBuilder {
 
         // Add Physics
         new PhysicsAggregate(road, PhysicsShapeType.MESH, { mass: 0, restitution: 0.1, friction: 0.8 }, this.scene);
+
+        this.createdMeshes.push(road);
     }
 
     private buildArea(entity: WorldEntity) {
@@ -192,6 +197,8 @@ export class WorldBuilder {
 
             area.position.y = 0.05;
             area.material = entity.type === "water" ? this.waterMat : this.parkMat;
+
+            this.createdMeshes.push(area);
         } catch (e) {
             // ignore
         }
@@ -201,6 +208,15 @@ export class WorldBuilder {
      * Clear all generated meshes
      */
     public clear() {
-        // TODO: Track created meshes and dispose them
+        // Track created meshes and dispose them
+        if (this.createdMeshes.length > 0) {
+            console.log(`[WorldBuilder] Disposing ${this.createdMeshes.length} meshes...`);
+            for (const mesh of this.createdMeshes) {
+                if (!mesh.isDisposed()) {
+                    mesh.dispose();
+                }
+            }
+            this.createdMeshes = [];
+        }
     }
 }

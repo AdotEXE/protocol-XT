@@ -61,7 +61,7 @@ class SystemLogger {
 
     private async checkPorts(): Promise<void> {
         return new Promise((resolve) => {
-            exec('netstat -ano | findstr ":8080 :3000"', (error, stdout) => {
+            exec('netstat -ano | findstr ":8000 :3000"', (error, stdout) => {
                 if (!error && stdout) {
                     const lines = stdout.toString().split('\n').filter(l => l.trim());
                     if (lines.length > 0) {

@@ -415,8 +415,8 @@ export class ScreenshotManager {
         // Формируем имя файла с датой: tx_screenshot_YYYY-MM-DD_HH-mm-ss.png
         if (!filename) {
             const now = new Date();
-            const date = now.toISOString().split('T')[0];
-            const time = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+            const date = now.toISOString().split('T')[0] || "date";
+            const time = (now.toTimeString().split(' ')[0] || "time").replace(/:/g, '-');
             filename = `tx_screenshot_${date}_${time}.png`;
         }
         a.download = filename;

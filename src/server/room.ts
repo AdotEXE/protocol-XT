@@ -12,6 +12,8 @@ import { logger, LogLevel, loggingSettings } from "../client/utils/logger";
 import { serverLogger } from "./logger";
 // SHARED: Import hitbox dimensions for SP/MP parity
 import { CHASSIS_HITBOX_DIMENSIONS, getChassisHitbox, type HitboxDimensions } from "../shared/hitboxDimensions";
+import { ServerMessageType } from "../shared/messages";
+import { serializeMessage } from "../shared/protocol";
 
 // Alias for backward compatibility (uses shared dimensions now)
 const CHASSIS_DIMENSIONS = CHASSIS_HITBOX_DIMENSIONS;
@@ -63,6 +65,9 @@ export class GameRoom {
     consumables: Map<string, ConsumableData> = new Map();
     enemies: Map<string, ServerEnemy> = new Map();
 
+    // Settings
+    settings: any = {};
+
     // Bot settings
     enableBots: boolean = false; // По умолчанию боты ОТКЛЮЧЕНЫ
     botCount: number = 0; // Количество ботов (0 = автоматически на основе игроков)
@@ -88,10 +93,8 @@ export class GameRoom {
     damageEvents: any[] = [];
 
     // CTF system
+    // CTF system
     ctfSystem: CTFSystem | null = null;
-
-    // Settings
-    settings: any = {};
 
     // World seed for deterministic generation
     worldSeed: number;
@@ -134,6 +137,47 @@ export class GameRoom {
 
         // Get game mode rules
         this.gameModeRules = getGameModeRules(mode);
+
+        // Initialize default settings
+        this.settings = {
+            maxPlayers: maxPlayers,
+            roundTime: 10, // Default 10 min
+            killLimit: 50,
+            allowedChassis: { light: true, medium: true, heavy: true, assault: true },
+            allowedWeapons: { standard: true, rapid: true, heavy: true, sniper: true }
+        };
+    }
+
+    /**
+     * Update room settings and broadcast to all players (Hot Reload)
+     */
+    updateSettings(newSettings: any): void {
+        serverLogger.log(`[Room] Updating settings for room ${this.id}:`, newSettings);
+
+        // Merge settings
+        this.settings = { ...this.settings, ...newSettings };
+
+        // Apply critical settings immediately
+        if (newSettings.maxPlayers) {
+            this.maxPlayers = newSettings.maxPlayers;
+        }
+
+        // Broadcast change to all players
+        const msg = serializeMessage({
+            type: ServerMessageType.ROOM_SETTINGS_CHANGED,
+            data: {
+                roomId: this.id,
+                settings: this.settings
+            },
+            timestamp: Date.now()
+        });
+
+        // Send to all connected players
+        for (const player of this.players.values()) {
+            if (player.socket.readyState === 1) { // WebSocket.OPEN
+                player.socket.send(msg);
+            }
+        }
     }
 
     addPlayer(player: ServerPlayer): boolean {
@@ -242,7 +286,7 @@ export class GameRoom {
         return [];
     }
 
-    private spawnEnemies(): void {
+    spawnEnemies(): void {
         // Используем детерминированный спавн на основе worldSeed для синхронизации между клиентами
         // Если botCount > 0 - используем указанное количество, иначе автоматически
         const enemyCount = this.botCount > 0 ? this.botCount : Math.min(8, this.players.size * 2);
@@ -534,6 +578,11 @@ export class GameRoom {
         // Update CTF system
         if (this.mode === "ctf" && this.ctfSystem) {
             this.ctfSystem.update(deltaTime);
+        }
+
+        // Generic Game Mode Update
+        if (this.gameModeRules.update) {
+            this.gameModeRules.update(deltaTime, this);
         }
 
         // Check win condition

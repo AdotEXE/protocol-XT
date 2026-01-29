@@ -1723,9 +1723,25 @@ export const App = () => {
                     </button>
 
                     {isInTXIframe() && (
-                        <button onClick={() => window.parent.postMessage({ type: 'CLOSE_EDITOR' }, '*')} className="h-8 px-2 rounded text-red-500 hover:text-white text-[10px] uppercase font-bold hover:bg-red-900/50 flex gap-1 items-center border border-red-900/30">
-                            <Icons.Close /> Exit
-                        </button>
+                        <>
+                            <button 
+                                onClick={() => {
+                                    // Сворачиваем редактор (не закрываем)
+                                    window.parent.postMessage({ type: 'MINIMIZE_EDITOR' }, '*');
+                                }} 
+                                className="h-8 px-2 rounded text-yellow-400 hover:text-white text-[10px] uppercase font-bold hover:bg-yellow-600/50 flex gap-1 items-center border border-yellow-600/30"
+                                title="Свернуть редактор (игра продолжит работать)"
+                            >
+                                <Icons.Minus /> Свернуть
+                            </button>
+                            <button 
+                                onClick={() => window.parent.postMessage({ type: 'CLOSE_EDITOR' }, '*')} 
+                                className="h-8 px-2 rounded text-red-500 hover:text-white text-[10px] uppercase font-bold hover:bg-red-900/50 flex gap-1 items-center border border-red-900/30"
+                                title="Закрыть редактор полностью"
+                            >
+                                <Icons.Close /> Закрыть
+                            </button>
+                        </>
                     )}
                 </div>
             </div>
@@ -1874,7 +1890,7 @@ export const App = () => {
                                             className="aspect-square bg-gray-800 rounded-lg flex flex-col items-center justify-center gap-1 cursor-grab active:cursor-grabbing hover:bg-gray-700 hover:text-accent-400 text-gray-400 transition-colors border border-transparent hover:border-gray-600 shadow-md"
                                             title="Двойной клик для спавна"
                                         >
-                                            <div className="scale-75">{item.icon}</div>
+                                            <div className="scale-75">{item.icon || <Icons.Cube />}</div>
                                             <span className="text-[8px] font-bold uppercase truncate max-w-full px-1">{item.name}</span>
                                         </div>
                                     ))}

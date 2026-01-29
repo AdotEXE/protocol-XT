@@ -8,16 +8,23 @@ import {
     Color3,
     Vector3
 } from "@babylonjs/core";
-import { CHASSIS_TYPES, CANNON_TYPES, getChassisById, getCannonById } from "./tankTypes";
+import { CHASSIS_TYPES, CANNON_TYPES, getChassisById, getCannonById, calculateDPS } from "./tankTypes";
 import { TRACK_TYPES, getTrackById } from "./trackTypes";
 import { MaterialFactory } from "./garage/materials";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { initPreviewScene, cleanupPreviewScene, updatePreviewTank, type PreviewScene, type PreviewTank } from "./garage/preview";
+import { 
+    updateTrajectoryVisualization, 
+    disposeTrajectoryVisualization,
+    setTrajectoryVisibility,
+    type TrajectoryVisualization 
+} from "./garage/trajectoryVisualization";
 import { injectGarageStyles } from "./garage/ui";
 import { TankEditor, TankConfiguration } from "./tank/tankEditor";
 import { SKIN_PRESETS, saveSelectedSkin, loadSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMaterial } from "./tank/tankSkins";
 import { MODULES, getModuleById } from "./config/moduleRegistry";
 import { TankEquipmentModule } from "./tank/tankEquipment";
+import { upgradeUI } from "./upgrade";
 
 // ============ INTERFACES ============
 
@@ -193,8 +200,8 @@ export class Garage {
         const damageMultiplier = 8;
         const dpsMultiplier = 50;
 
-        // Calculate DPS (damage per second)
-        const dps = (cannon.damage / (cannon.cooldown / 1000));
+        // ИСПРАВЛЕНО: Используем calculateDPS для единообразного расчета DPS
+        const dps = calculateDPS(cannon);
 
         // Special effect bonuses
         const specialBonuses: Record<string, number> = {
@@ -1017,6 +1024,13 @@ export class Garage {
         // Запускаем fallback интервал для применения скина
         this.startSkinFallback();
 
+        // Показываем панель прокачки при открытии гаража
+        try {
+            upgradeUI.setVisible(true);
+        } catch (e) {
+            console.warn("[Garage] Failed to show upgrade UI:", e);
+        }
+
         console.log("[Garage] Opened");
     }
 
@@ -1156,6 +1170,13 @@ export class Garage {
             console.error("[Garage] Error in close callback:", error);
         }
 
+        // 9. Скрываем панель прокачки при закрытии гаража
+        try {
+            upgradeUI.setVisible(false);
+        } catch (e) {
+            console.warn("[Garage] Failed to hide upgrade UI:", e);
+        }
+
         console.log("[Garage] Closed successfully");
     }
 
@@ -1197,6 +1218,34 @@ export class Garage {
         // Восстанавливаем угол поворота башни после обновления
         if (this.previewTank && this.previewTank.turret) {
             this.previewTank.turret.rotation.y = savedTurretRotation;
+        }
+
+        // ИСПРАВЛЕНО: Обновляем визуализацию траектории при выборе пушки
+        if (this.currentCategory === "cannons" && this.previewTank) {
+            const cannonType = getCannonById(cannonId);
+            if (cannonType) {
+                // Вычисляем позицию танка и направление ствола
+                const tankPosition = this.previewTank.chassis.position.clone();
+                const barrelDirection = Vector3.Forward().applyRotationQuaternion(
+                    this.previewTank.barrel.absoluteRotationQuaternion || 
+                    this.previewTank.turret.absoluteRotationQuaternion ||
+                    this.previewTank.chassis.absoluteRotationQuaternion
+                );
+                
+                // Обновляем визуализацию траектории
+                this.previewSceneData.trajectoryVisualization = updateTrajectoryVisualization(
+                    this.previewSceneData.trajectoryVisualization || null,
+                    this.previewSceneData.scene,
+                    cannonType,
+                    tankPosition,
+                    barrelDirection
+                );
+            }
+        } else {
+            // Скрываем траекторию для других категорий
+            if (this.previewSceneData.trajectoryVisualization) {
+                setTrajectoryVisibility(this.previewSceneData.trajectoryVisualization, false);
+            }
         }
 
         // ОПТИМИЗАЦИЯ: Принудительный рендер после обновления танка
@@ -3326,6 +3375,16 @@ export class Garage {
         if (!this.previewSceneData) return;
 
         try {
+            // ИСПРАВЛЕНО: Очищаем визуализацию траектории
+            if (this.previewSceneData.trajectoryVisualization) {
+                try {
+                    disposeTrajectoryVisualization(this.previewSceneData.trajectoryVisualization);
+                } catch (e) {
+                    console.warn("[Garage] Error disposing trajectory visualization:", e);
+                }
+                this.previewSceneData.trajectoryVisualization = null;
+            }
+
             // 1. Останавливаем все анимации
             if (this.previewSceneData.animationGroups) {
                 this.previewSceneData.animationGroups.forEach(ag => {
@@ -3526,6 +3585,13 @@ export class Garage {
     private workshopUI: any = null;
 
     private openWorkshop(): void {
+        // TODO: WORKSHOP - РЕДАКТОР ТАНКОВ
+        // ТРЕБУЕТСЯ ДОРАБОТКА:
+        // 1. Реализовать выделение объектов для трансформации (как в редакторе карт > WORKSHOP)
+        // 2. Добавить функционал трансформации объектов (перемещение, вращение, масштабирование)
+        // 3. Интегрировать весь функционал из редактора карт > WORKSHOP в редактор танков
+        // 4. Добавить возможность сохранения/загрузки кастомных конфигураций танков
+        // 
         // Импортируем и открываем WorkshopUI
         import('./workshop/WorkshopUI').then(module => {
             if (!this.workshopUI) {
@@ -4035,26 +4101,36 @@ export class Garage {
     private showNotification(message: string, type: "success" | "error" | "info" = "success"): void {
         // Создаем визуальное уведомление
         const notification = document.createElement("div");
+        notification.className = "garage-notification"; // For potential CSS selection
         const colors = {
-            success: { bg: "rgba(0, 50, 0, 0.95)", border: "#0f0", text: "#0f0" },
-            error: { bg: "rgba(50, 0, 0, 0.95)", border: "#f00", text: "#f00" },
-            info: { bg: "rgba(0, 30, 50, 0.95)", border: "#0aa", text: "#0aa" }
+            success: { bg: "rgba(10, 40, 10, 0.95)", border: "#4ade80", text: "#4ade80" },
+            error: { bg: "rgba(40, 10, 10, 0.95)", border: "#f87171", text: "#f87171" },
+            info: { bg: "rgba(10, 20, 60, 0.95)", border: "#60a5fa", text: "#60a5fa" }
         };
         const color = colors[type];
 
+        // Calculate offset based on implementation
+        const existingNotifications = document.querySelectorAll('.garage-notification');
+        const offset = existingNotifications.length * 80; // 80px per notification
+
         notification.style.cssText = `
+            position: fixed;
+            top: ${20 + offset}px;
+            right: 20px;
             background: ${color.bg};
             border: 2px solid ${color.border};
             color: ${color.text};
             padding: 15px 25px;
             z-index: 10001;
-            font-family: 'Consolas', 'Monaco', monospace;
+            font-family: 'Consolas', 'Courier New', monospace;
             font-size: 14px;
             font-weight: bold;
-            box-shadow: 0 0 20px ${color.border}88;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
             animation: slideInRight 0.3s ease-out;
             max-width: 400px;
             word-wrap: break-word;
+            border-radius: 8px;
+            transition: top 0.3s ease-out;
         `;
 
         // Добавляем стили для анимации, если их еще нет
@@ -4094,6 +4170,11 @@ export class Garage {
             notification.style.animation = "slideOutRight 0.3s ease-out";
             setTimeout(() => {
                 notification.remove();
+                // Re-stack remaining notifications
+                const remaining = document.querySelectorAll('.garage-notification');
+                remaining.forEach((el, index) => {
+                    (el as HTMLElement).style.top = `${20 + index * 80}px`;
+                });
             }, 300);
         }, 3000);
 
@@ -4524,6 +4605,27 @@ export class Garage {
                     this.currentTrackId = previewTrackId;
                 }
                 this.renderTankPreview(previewChassisId, previewCannonId);
+                
+                // ИСПРАВЛЕНО: Обновляем траекторию при выборе пушки
+                if (part.type === 'barrel' && this.currentCategory === 'cannons' && this.previewTank) {
+                    const cannonType = getCannonById(previewCannonId);
+                    if (cannonType) {
+                        const tankPosition = this.previewTank.chassis.position.clone();
+                        const barrelDirection = Vector3.Forward().applyRotationQuaternion(
+                            this.previewTank.barrel.absoluteRotationQuaternion || 
+                            this.previewTank.turret.absoluteRotationQuaternion ||
+                            this.previewTank.chassis.absoluteRotationQuaternion
+                        );
+                        
+                        this.previewSceneData.trajectoryVisualization = updateTrajectoryVisualization(
+                            this.previewSceneData.trajectoryVisualization || null,
+                            this.previewSceneData.scene,
+                            cannonType,
+                            tankPosition,
+                            barrelDirection
+                        );
+                    }
+                }
             }
         }
     }
@@ -4798,7 +4900,13 @@ export class Garage {
     }
 
     private purchasePart(part: TankPart): void {
-        if (part.unlocked || this.currencyManager.getCurrency() < part.cost) return;
+        if (part.unlocked) return;
+
+        if (this.currencyManager.getCurrency() < part.cost) {
+            this.showNotification(`Недостаточно средств! Требуется ${part.cost} CR`, "error");
+            if (this.soundManager?.play) this.soundManager.play("error");
+            return;
+        }
         this.currencyManager.addCurrency(-part.cost);
         part.unlocked = true;
         this.saveProgress();
@@ -4915,7 +5023,13 @@ export class Garage {
     }
 
     private purchaseUpgrade(upgrade: TankUpgrade): void {
-        if (upgrade.level >= upgrade.maxLevel || this.currencyManager.getCurrency() < upgrade.cost) return;
+        if (upgrade.level >= upgrade.maxLevel) return;
+
+        if (this.currencyManager.getCurrency() < upgrade.cost) {
+            this.showNotification(`Недостаточно средств! Требуется ${upgrade.cost} CR`, "error");
+            if (this.soundManager?.play) this.soundManager.play("error");
+            return;
+        }
         this.currencyManager.addCurrency(-upgrade.cost);
         upgrade.level++;
         this.saveProgress();
@@ -4927,6 +5041,19 @@ export class Garage {
     private setupKeyboardNavigation(): void {
         window.addEventListener('keydown', (e) => {
             if (!this.isOpen) return;
+
+            // Блокируем навигацию если фокус в поле ввода
+            const activeElement = document.activeElement;
+            const isInputFocused = activeElement && (
+                activeElement.tagName === 'INPUT' ||
+                activeElement.tagName === 'TEXTAREA' ||
+                (activeElement as HTMLElement).isContentEditable
+            );
+
+            if (isInputFocused && e.code !== 'Escape' && e.code !== 'Enter') return;
+            // Разрешаем Escape для закрытия и Enter для подтверждения поиска, но блокируем стрелки и т.д.
+            // Но если Enter в поиске - не должны покупать!
+            if (isInputFocused && e.code === 'Enter') return;
 
             // Закрытие гаража: Escape, G или B
             if (e.code === 'Escape' || e.code === 'KeyG' || e.code === 'KeyB') {
