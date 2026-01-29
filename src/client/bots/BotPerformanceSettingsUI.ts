@@ -2,7 +2,7 @@
  * Bot Performance Settings UI - UI для настройки производительности ботов
  */
 
-import { BotPerformanceMonitor, BotPerformanceSettings } from "./BotPerformanceMonitor";
+import { BotPerformanceMonitor, BotPerformanceSettings, BotPerformanceProfile } from "./BotPerformanceMonitor";
 import { logger } from "../utils/logger";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Slider, Button } from "@babylonjs/gui";
 
@@ -283,13 +283,17 @@ export class BotPerformanceSettingsUI {
             }, yOffset);
         yOffset += lineHeight;
         
+        // Управление профилями
+        yOffset += lineHeight + 20;
+        this.addProfileManagement(container, yOffset);
+        
         // Кнопка закрытия
         const closeButton = Button.CreateSimpleButton("close", "✕ ЗАКРЫТЬ");
         closeButton.width = "200px";
         closeButton.height = "40px";
         closeButton.color = "#0f0";
         closeButton.background = "rgba(0, 50, 0, 0.8)";
-        closeButton.top = "320px";
+        closeButton.top = "400px";
         closeButton.isPointerBlocker = true;
         closeButton.hoverCursor = "pointer";
         closeButton.zIndex = 2001;
@@ -395,6 +399,191 @@ export class BotPerformanceSettingsUI {
         });
         this.observers.push({ control: toggleButton, observer: toggleObserver });
         container.addControl(toggleButton);
+    }
+    
+    /**
+     * Добавить управление профилями
+     */
+    private addProfileManagement(container: Rectangle, top: number): void {
+        const lineHeight = 30;
+        let yOffset = top;
+        
+        // Заголовок
+        const profileLabel = new TextBlock("profile_label", "💾 ПРОФИЛИ НАСТРОЕК");
+        profileLabel.color = "#0f0";
+        profileLabel.fontSize = 14;
+        profileLabel.fontFamily = "Consolas, monospace";
+        profileLabel.top = `${yOffset}px`;
+        profileLabel.left = "-240px";
+        container.addControl(profileLabel);
+        yOffset += lineHeight;
+        
+        // Список профилей
+        const profiles = this.monitor.getProfiles();
+        const profileListLabel = new TextBlock("profile_list_label", `Профили (${profiles.length}):`);
+        profileListLabel.color = "#0a0";
+        profileListLabel.fontSize = 11;
+        profileListLabel.fontFamily = "Consolas, monospace";
+        profileListLabel.top = `${yOffset}px`;
+        profileListLabel.left = "-240px";
+        container.addControl(profileListLabel);
+        yOffset += 20;
+        
+        // Показываем первые 5 профилей
+        profiles.slice(0, 5).forEach((profile, index) => {
+            const profileBtn = Button.CreateSimpleButton(
+                `profile_${profile.name}`,
+                `${index + 1}. ${profile.name.length > 20 ? profile.name.substring(0, 20) + "..." : profile.name}`
+            );
+            profileBtn.width = "200px";
+            profileBtn.height = "25px";
+            profileBtn.color = "#0f0";
+            profileBtn.background = "rgba(0, 50, 0, 0.8)";
+            profileBtn.top = `${yOffset}px`;
+            profileBtn.left = "-240px";
+            profileBtn.fontSize = 10;
+            const loadObs = profileBtn.onPointerClickObservable.add(() => {
+                try {
+                    if (this.monitor.loadProfile(profile.name)) {
+                        this.hide();
+                        this.show(); // Перезагружаем UI с новыми настройками
+                        logger.log(`[BotPerformanceSettingsUI] Profile "${profile.name}" loaded`);
+                    }
+                } catch (e) {
+                    logger.error("[BotPerformanceSettingsUI] Error loading profile:", e);
+                }
+            });
+            this.observers.push({ control: profileBtn, observer: loadObs });
+            container.addControl(profileBtn);
+            
+            // Кнопка удаления
+            const deleteBtn = Button.CreateSimpleButton(`delete_${profile.name}`, "✕");
+            deleteBtn.width = "30px";
+            deleteBtn.height = "25px";
+            deleteBtn.color = "#f00";
+            deleteBtn.background = "rgba(50, 0, 0, 0.8)";
+            deleteBtn.top = `${yOffset}px`;
+            deleteBtn.left = "30px";
+            deleteBtn.fontSize = 12;
+            const deleteObs = deleteBtn.onPointerClickObservable.add(() => {
+                try {
+                    if (this.monitor.deleteProfile(profile.name)) {
+                        this.hide();
+                        this.show(); // Перезагружаем UI
+                        logger.log(`[BotPerformanceSettingsUI] Profile "${profile.name}" deleted`);
+                    }
+                } catch (e) {
+                    logger.error("[BotPerformanceSettingsUI] Error deleting profile:", e);
+                }
+            });
+            this.observers.push({ control: deleteBtn, observer: deleteObs });
+            container.addControl(deleteBtn);
+            
+            yOffset += 28;
+        });
+        
+        // Кнопки управления
+        yOffset += 10;
+        
+        // Сохранить текущие настройки
+        const saveBtn = Button.CreateSimpleButton("save_profile", "💾 Сохранить как...");
+        saveBtn.width = "150px";
+        saveBtn.height = "30px";
+        saveBtn.color = "#0f0";
+        saveBtn.background = "rgba(0, 50, 0, 0.8)";
+        saveBtn.top = `${yOffset}px`;
+        saveBtn.left = "-240px";
+        saveBtn.fontSize = 11;
+        const saveObs = saveBtn.onPointerClickObservable.add(() => {
+            try {
+                const name = prompt("Введите имя профиля:");
+                if (name && name.trim()) {
+                    const description = prompt("Введите описание (необязательно):") || undefined;
+                    this.monitor.saveProfile(name.trim(), description);
+                    this.hide();
+                    this.show(); // Перезагружаем UI
+                    logger.log(`[BotPerformanceSettingsUI] Profile "${name}" saved`);
+                }
+            } catch (e) {
+                logger.error("[BotPerformanceSettingsUI] Error saving profile:", e);
+            }
+        });
+        this.observers.push({ control: saveBtn, observer: saveObs });
+        container.addControl(saveBtn);
+        
+        // Экспорт профиля
+        const exportBtn = Button.CreateSimpleButton("export_profile", "📤 Экспорт");
+        exportBtn.width = "100px";
+        exportBtn.height = "30px";
+        exportBtn.color = "#0f0";
+        exportBtn.background = "rgba(0, 50, 0, 0.8)";
+        exportBtn.top = `${yOffset}px`;
+        exportBtn.left = "-80px";
+        exportBtn.fontSize = 11;
+        const exportObs = exportBtn.onPointerClickObservable.add(() => {
+            try {
+                const name = prompt("Введите имя профиля для экспорта:");
+                if (name) {
+                    const json = this.monitor.exportProfile(name);
+                    if (json) {
+                        const blob = new Blob([json], { type: "application/json" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `bot-performance-${name}-${Date.now()}.json`;
+                        a.click();
+                        setTimeout(() => URL.revokeObjectURL(url), 100);
+                        logger.log(`[BotPerformanceSettingsUI] Profile "${name}" exported`);
+                    }
+                }
+            } catch (e) {
+                logger.error("[BotPerformanceSettingsUI] Error exporting profile:", e);
+            }
+        });
+        this.observers.push({ control: exportBtn, observer: exportObs });
+        container.addControl(exportBtn);
+        
+        // Импорт профиля
+        const importBtn = Button.CreateSimpleButton("import_profile", "📥 Импорт");
+        importBtn.width = "100px";
+        importBtn.height = "30px";
+        importBtn.color = "#0f0";
+        importBtn.background = "rgba(0, 50, 0, 0.8)";
+        importBtn.top = `${yOffset}px`;
+        importBtn.left = "30px";
+        importBtn.fontSize = 11;
+        const importObs = importBtn.onPointerClickObservable.add(() => {
+            try {
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = "application/json";
+                input.onchange = (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                            try {
+                                const json = event.target?.result as string;
+                                if (this.monitor.importProfile(json)) {
+                                    this.hide();
+                                    this.show(); // Перезагружаем UI
+                                    logger.log("[BotPerformanceSettingsUI] Profile imported");
+                                }
+                            } catch (err) {
+                                logger.error("[BotPerformanceSettingsUI] Error importing profile:", err);
+                                alert("Ошибка импорта профиля. Проверьте формат файла.");
+                            }
+                        };
+                        reader.readAsText(file);
+                    }
+                };
+                input.click();
+            } catch (e) {
+                logger.error("[BotPerformanceSettingsUI] Error importing profile:", e);
+            }
+        });
+        this.observers.push({ control: importBtn, observer: importObs });
+        container.addControl(importBtn);
     }
     
     /**

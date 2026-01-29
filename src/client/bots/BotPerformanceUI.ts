@@ -3,14 +3,14 @@
  */
 
 import { BotPerformanceMonitor, AggregatedBotMetrics, BotPerformanceSettings } from "./BotPerformanceMonitor";
-import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Button } from "@babylonjs/gui";
+import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Button, Line } from "@babylonjs/gui";
 import { logger } from "../utils/logger";
 
 export class BotPerformanceUI {
     private monitor: BotPerformanceMonitor;
     private texture: AdvancedDynamicTexture;
     private container: Rectangle | null = null;
-    private isVisible: boolean = false;
+    private _isVisible: boolean = false;
     
     private updateTimer: NodeJS.Timeout | null = null;
     private buttonObservers: Array<{ button: Button; observer: any }> = [];
@@ -24,18 +24,25 @@ export class BotPerformanceUI {
      * Показать UI
      */
     show(): void {
-        if (this.isVisible) return;
+        if (this._isVisible) return;
         
         this.createUI();
-        this.isVisible = true;
+        this._isVisible = true;
         this.startUpdates();
+    }
+    
+    /**
+     * Проверить, виден ли UI
+     */
+    isVisible(): boolean {
+        return this._isVisible;
     }
     
     /**
      * Скрыть UI
      */
     hide(): void {
-        if (!this.isVisible) return;
+        if (!this._isVisible) return;
         
         try {
             // Удаляем наблюдатели
@@ -60,13 +67,13 @@ export class BotPerformanceUI {
             }
             
             this.stopUpdates();
-            this.isVisible = false;
+            this._isVisible = false;
             
             logger.log("[BotPerformanceUI] UI hidden");
         } catch (e) {
             logger.error("[BotPerformanceUI] Error hiding UI:", e);
             // Принудительно сбрасываем состояние
-            this.isVisible = false;
+            this._isVisible = false;
             this.container = null;
             this.buttonObservers = [];
         }
@@ -374,23 +381,52 @@ export class BotPerformanceUI {
             chartLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             this.container.addControl(chartLabel);
             
-            // График (текстовое представление)
-            const chartData = history.slice(-20).filter(h => 
+            // Улучшенный график с визуальными элементами
+            const chartData = history.slice(-30).filter(h => 
                 h && isFinite(h.fpsImpact) && h.fpsImpact >= 0
-            ); // Последние 20 точек с валидацией
+            ); // Последние 30 точек
             
             if (chartData.length === 0) return;
             
-            const chartText = chartData.map((h) => {
-                const barHeight = Math.max(0, Math.min(10, Math.floor((h.fpsImpact / maxValue) * 10)));
+            // Фон графика
+            const chartBg = new Rectangle("chart_bg");
+            chartBg.width = "560px";
+            chartBg.height = "40px";
+            chartBg.color = "#0a0";
+            chartBg.thickness = 1;
+            chartBg.background = "rgba(0, 10, 0, 0.5)";
+            chartBg.top = `${top + 15}px`;
+            chartBg.left = "-280px";
+            this.container.addControl(chartBg);
+            
+            // Визуальные столбцы графика
+            const barWidth = 560 / chartData.length;
+            chartData.forEach((h, index) => {
+                const barHeight = Math.max(2, Math.min(38, (h.fpsImpact / maxValue) * 38));
+                const barColor = h.fpsImpact > 5 ? "#f00" : h.fpsImpact > 2 ? "#ff0" : "#0f0";
+                
+                const bar = new Rectangle(`chart_bar_${index}`);
+                bar.width = `${Math.max(2, barWidth - 1)}px`;
+                bar.height = `${barHeight}px`;
+                bar.color = barColor;
+                bar.thickness = 0;
+                bar.background = barColor;
+                bar.top = `${top + 15 + (40 - barHeight)}px`;
+                bar.left = `${-280 + index * barWidth}px`;
+                this.container.addControl(bar);
+            });
+            
+            // Текстовое представление для дополнительной информации
+            const chartText = chartData.slice(-15).map((h) => {
+                const barHeight = Math.max(0, Math.min(8, Math.floor((h.fpsImpact / maxValue) * 8)));
                 return "█".repeat(barHeight);
-            }).join(" ");
+            }).join("");
             
             const chartDisplay = new TextBlock("chart_display", chartText);
-            chartDisplay.color = "#0f0";
-            chartDisplay.fontSize = 8;
+            chartDisplay.color = "#0aa";
+            chartDisplay.fontSize = 7;
             chartDisplay.fontFamily = "Consolas, monospace";
-            chartDisplay.top = `${top + 15}px`;
+            chartDisplay.top = `${top + 60}px`;
             chartDisplay.left = "-280px";
             chartDisplay.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             chartDisplay.textWrapping = false;

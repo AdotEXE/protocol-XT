@@ -15,6 +15,14 @@ export class BotPerformanceProfiler {
     private updateTimer: NodeJS.Timeout | null = null;
     private buttonObservers: Array<{ button: Button; observer: any }> = [];
     
+    // Фильтрация и поиск
+    private searchQuery: string = "";
+    private filterState: "all" | "alive" | "dead" = "alive";
+    private filterDistance: "all" | "near" | "mid" | "far" = "all";
+    private filterPerformance: "all" | "high" | "medium" | "low" = "all";
+    private sortBy: "id" | "distance" | "fpsImpact" | "cpuUsage" = "distance";
+    private sortOrder: "asc" | "desc" = "asc";
+    
     constructor(monitor: BotPerformanceMonitor, texture: AdvancedDynamicTexture) {
         this.monitor = monitor;
         this.texture = texture;
@@ -102,47 +110,24 @@ export class BotPerformanceProfiler {
         title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.addControl(title);
         
+        // Загрузка сохраненных фильтров
+        this.loadFilters();
+        
+        // Поиск и фильтры
+        this.renderFilters(container);
+        
         // Список ботов
         const botListLabel = new TextBlock("bot_list_label", "Выберите бота:");
         botListLabel.color = "#0f0";
         botListLabel.fontSize = 12;
         botListLabel.fontFamily = "Consolas, monospace";
-        botListLabel.top = "-280px";
+        botListLabel.top = "-180px";
         botListLabel.left = "-240px";
         botListLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         container.addControl(botListLabel);
         
-        // Получаем список ботов
-        const aggregatedMetrics = this.monitor.getAggregatedMetrics();
-        if (aggregatedMetrics && aggregatedMetrics.aliveBots > 0) {
-            // Показываем первые 10 ботов
-            const allBots = this.monitor.getAllBots();
-            const aliveMetrics = allBots.filter(b => b.metrics.isAlive).slice(0, 10).map(b => b.metrics);
-            
-            let yOffset = -250;
-            aliveMetrics.forEach((metrics, index) => {
-                const botButton = Button.CreateSimpleButton(
-                    `bot_${metrics.id}`,
-                    `Bot ${index + 1}: ${metrics.id.length > 8 ? metrics.id.substring(0, 8) + "..." : metrics.id} (${metrics.distance.toFixed(0)}м)`
-                );
-                botButton.width = "460px";
-                botButton.height = "25px";
-                botButton.color = this.selectedBotId === metrics.id ? "#0ff" : "#0f0";
-                botButton.background = this.selectedBotId === metrics.id 
-                    ? "rgba(0, 100, 100, 0.8)" 
-                    : "rgba(0, 50, 0, 0.8)";
-                botButton.top = `${yOffset}px`;
-                botButton.left = "-230px";
-                botButton.fontSize = 10;
-                const observer = botButton.onPointerClickObservable.add(() => {
-                    this.selectedBotId = metrics.id;
-                    this.updateProfile();
-                });
-                this.buttonObservers.push({ button: botButton, observer });
-                container.addControl(botButton);
-                yOffset += 28;
-            });
-        }
+        // Рендерим отфильтрованный список ботов
+        this.renderBotList(container);
         
         // Профиль выбранного бота
         if (this.selectedBotId) {
@@ -197,6 +182,316 @@ export class BotPerformanceProfiler {
         if (this.updateTimer) {
             clearInterval(this.updateTimer);
             this.updateTimer = null;
+        }
+    }
+    
+    /**
+     * Отрисовать фильтры и поиск
+     */
+    private renderFilters(container: Rectangle): void {
+        let yOffset = -270;
+        
+        // Поиск
+        const searchLabel = new TextBlock("search_label", "🔍 Поиск:");
+        searchLabel.color = "#0f0";
+        searchLabel.fontSize = 11;
+        searchLabel.fontFamily = "Consolas, monospace";
+        searchLabel.top = `${yOffset}px`;
+        searchLabel.left = "-240px";
+        searchLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        container.addControl(searchLabel);
+        yOffset += 20;
+        
+        // Кнопки поиска (упрощенный вариант - можно улучшить с HTML input)
+        const searchClearBtn = Button.CreateSimpleButton("search_clear", this.searchQuery || "Очистить");
+        searchClearBtn.width = "100px";
+        searchClearBtn.height = "20px";
+        searchClearBtn.color = "#0f0";
+        searchClearBtn.background = "rgba(0, 50, 0, 0.8)";
+        searchClearBtn.top = `${yOffset}px`;
+        searchClearBtn.left = "-240px";
+        searchClearBtn.fontSize = 9;
+        const searchObserver = searchClearBtn.onPointerClickObservable.add(() => {
+            this.searchQuery = "";
+            this.saveFilters();
+            this.updateBotList();
+        });
+        this.buttonObservers.push({ button: searchClearBtn, observer: searchObserver });
+        container.addControl(searchClearBtn);
+        
+        // Фильтр по состоянию
+        yOffset += 30;
+        const stateLabel = new TextBlock("state_label", "Состояние:");
+        stateLabel.color = "#0f0";
+        stateLabel.fontSize = 11;
+        stateLabel.fontFamily = "Consolas, monospace";
+        stateLabel.top = `${yOffset}px`;
+        stateLabel.left = "-240px";
+        container.addControl(stateLabel);
+        yOffset += 20;
+        
+        const stateOptions = [
+            { value: "all" as const, label: "Все" },
+            { value: "alive" as const, label: "Живые" },
+            { value: "dead" as const, label: "Мертвые" }
+        ];
+        stateOptions.forEach((opt, idx) => {
+            const btn = Button.CreateSimpleButton(`filter_state_${opt.value}`, opt.label);
+            btn.width = "70px";
+            btn.height = "20px";
+            btn.color = this.filterState === opt.value ? "#0ff" : "#0f0";
+            btn.background = this.filterState === opt.value ? "rgba(0, 100, 100, 0.8)" : "rgba(0, 50, 0, 0.8)";
+            btn.top = `${yOffset}px`;
+            btn.left = `${-240 + idx * 75}px`;
+            btn.fontSize = 9;
+            const obs = btn.onPointerClickObservable.add(() => {
+                this.filterState = opt.value;
+                this.saveFilters();
+                this.updateBotList();
+            });
+            this.buttonObservers.push({ button: btn, observer: obs });
+            container.addControl(btn);
+        });
+        
+        // Сортировка
+        yOffset += 30;
+        const sortLabel = new TextBlock("sort_label", "Сортировка:");
+        sortLabel.color = "#0f0";
+        sortLabel.fontSize = 11;
+        sortLabel.fontFamily = "Consolas, monospace";
+        sortLabel.top = `${yOffset}px`;
+        sortLabel.left = "-240px";
+        container.addControl(sortLabel);
+        yOffset += 20;
+        
+        const sortOptions = [
+            { value: "distance" as const, label: "Расстояние" },
+            { value: "fpsImpact" as const, label: "FPS" },
+            { value: "cpuUsage" as const, label: "CPU" }
+        ];
+        sortOptions.forEach((opt, idx) => {
+            const btn = Button.CreateSimpleButton(`sort_${opt.value}`, opt.label);
+            btn.width = "80px";
+            btn.height = "20px";
+            btn.color = this.sortBy === opt.value ? "#0ff" : "#0f0";
+            btn.background = this.sortBy === opt.value ? "rgba(0, 100, 100, 0.8)" : "rgba(0, 50, 0, 0.8)";
+            btn.top = `${yOffset}px`;
+            btn.left = `${-240 + idx * 85}px`;
+            btn.fontSize = 9;
+            const obs = btn.onPointerClickObservable.add(() => {
+                if (this.sortBy === opt.value) {
+                    this.sortOrder = this.sortOrder === "asc" ? "desc" : "asc";
+                } else {
+                    this.sortBy = opt.value;
+                    this.sortOrder = "asc";
+                }
+                this.saveFilters();
+                this.updateBotList();
+            });
+            this.buttonObservers.push({ button: btn, observer: obs });
+            container.addControl(btn);
+        });
+        
+        // Кнопка изменения порядка сортировки
+        const orderBtn = Button.CreateSimpleButton("sort_order", this.sortOrder === "asc" ? "↑" : "↓");
+        orderBtn.width = "30px";
+        orderBtn.height = "20px";
+        orderBtn.color = "#0f0";
+        orderBtn.background = "rgba(0, 50, 0, 0.8)";
+        orderBtn.top = `${yOffset}px`;
+        orderBtn.left = "50px";
+        orderBtn.fontSize = 12;
+        const orderObs = orderBtn.onPointerClickObservable.add(() => {
+            this.sortOrder = this.sortOrder === "asc" ? "desc" : "asc";
+            this.saveFilters();
+            this.updateBotList();
+        });
+        this.buttonObservers.push({ button: orderBtn, observer: orderObs });
+        container.addControl(orderBtn);
+    }
+    
+    /**
+     * Отрисовать список ботов с фильтрацией
+     */
+    private renderBotList(container: Rectangle): void {
+        const allBots = this.monitor.getAllBots();
+        const filtered = this.filterAndSortBots(allBots);
+        
+        let yOffset = -150;
+        const maxBots = 15;
+        
+        filtered.slice(0, maxBots).forEach((bot, index) => {
+            const metrics = bot.metrics;
+            const botButton = Button.CreateSimpleButton(
+                `bot_${metrics.id}`,
+                `${index + 1}. ${metrics.id.length > 10 ? metrics.id.substring(0, 10) + "..." : metrics.id} | ${metrics.distance.toFixed(0)}м | FPS:${metrics.fpsImpact.toFixed(1)}%`
+            );
+            botButton.width = "460px";
+            botButton.height = "22px";
+            botButton.color = this.selectedBotId === metrics.id ? "#0ff" : "#0f0";
+            botButton.background = this.selectedBotId === metrics.id 
+                ? "rgba(0, 100, 100, 0.8)" 
+                : "rgba(0, 50, 0, 0.8)";
+            botButton.top = `${yOffset}px`;
+            botButton.left = "-230px";
+            botButton.fontSize = 9;
+            const observer = botButton.onPointerClickObservable.add(() => {
+                this.selectedBotId = metrics.id;
+                this.updateProfile();
+            });
+            this.buttonObservers.push({ button: botButton, observer });
+            container.addControl(botButton);
+            yOffset += 24;
+        });
+        
+        // Показываем количество отфильтрованных ботов
+        if (filtered.length > maxBots) {
+            const moreLabel = new TextBlock("more_bots", `... и еще ${filtered.length - maxBots} ботов`);
+            moreLabel.color = "#0a0";
+            moreLabel.fontSize = 10;
+            moreLabel.fontFamily = "Consolas, monospace";
+            moreLabel.top = `${yOffset}px`;
+            moreLabel.left = "-230px";
+            container.addControl(moreLabel);
+        }
+    }
+    
+    /**
+     * Фильтрация и сортировка ботов
+     */
+    private filterAndSortBots(bots: Array<{ metrics: BotMetrics }>): Array<{ metrics: BotMetrics }> {
+        let filtered = bots;
+        
+        // Фильтр по состоянию
+        if (this.filterState === "alive") {
+            filtered = filtered.filter(b => b.metrics.isAlive);
+        } else if (this.filterState === "dead") {
+            filtered = filtered.filter(b => !b.metrics.isAlive);
+        }
+        
+        // Фильтр по расстоянию
+        if (this.filterDistance === "near") {
+            filtered = filtered.filter(b => b.metrics.distance < 50);
+        } else if (this.filterDistance === "mid") {
+            filtered = filtered.filter(b => b.metrics.distance >= 50 && b.metrics.distance < 100);
+        } else if (this.filterDistance === "far") {
+            filtered = filtered.filter(b => b.metrics.distance >= 100);
+        }
+        
+        // Фильтр по производительности
+        if (this.filterPerformance === "high") {
+            filtered = filtered.filter(b => b.metrics.fpsImpact > 5);
+        } else if (this.filterPerformance === "medium") {
+            filtered = filtered.filter(b => b.metrics.fpsImpact >= 2 && b.metrics.fpsImpact <= 5);
+        } else if (this.filterPerformance === "low") {
+            filtered = filtered.filter(b => b.metrics.fpsImpact < 2);
+        }
+        
+        // Поиск
+        if (this.searchQuery) {
+            const query = this.searchQuery.toLowerCase();
+            filtered = filtered.filter(b => 
+                b.metrics.id.toLowerCase().includes(query) ||
+                b.metrics.state.toLowerCase().includes(query)
+            );
+        }
+        
+        // Сортировка
+        filtered.sort((a, b) => {
+            let aVal: number, bVal: number;
+            switch (this.sortBy) {
+                case "distance":
+                    aVal = a.metrics.distance;
+                    bVal = b.metrics.distance;
+                    break;
+                case "fpsImpact":
+                    aVal = a.metrics.fpsImpact;
+                    bVal = b.metrics.fpsImpact;
+                    break;
+                case "cpuUsage":
+                    aVal = a.metrics.cpuUsage;
+                    bVal = b.metrics.cpuUsage;
+                    break;
+                default:
+                    aVal = 0;
+                    bVal = 0;
+            }
+            return this.sortOrder === "asc" ? aVal - bVal : bVal - aVal;
+        });
+        
+        return filtered;
+    }
+    
+    /**
+     * Обновить список ботов
+     */
+    private updateBotList(): void {
+        if (!this.container) return;
+        
+        // Удаляем старые кнопки ботов
+        const controlsToRemove: Control[] = [];
+        this.container.children.forEach(child => {
+            if (child.name && child.name.startsWith("bot_")) {
+                controlsToRemove.push(child);
+            }
+        });
+        controlsToRemove.forEach(control => {
+            try {
+                control.dispose();
+            } catch (e) {
+                // Игнорируем ошибки
+            }
+        });
+        
+        // Удаляем метку "еще ботов"
+        const moreLabel = this.container.children.find(c => c.name === "more_bots");
+        if (moreLabel) {
+            try {
+                moreLabel.dispose();
+            } catch (e) {
+                // Игнорируем ошибки
+            }
+        }
+        
+        // Рендерим новый список
+        this.renderBotList(this.container);
+    }
+    
+    /**
+     * Сохранить фильтры в localStorage
+     */
+    private saveFilters(): void {
+        try {
+            localStorage.setItem("botProfilerFilters", JSON.stringify({
+                searchQuery: this.searchQuery,
+                filterState: this.filterState,
+                filterDistance: this.filterDistance,
+                filterPerformance: this.filterPerformance,
+                sortBy: this.sortBy,
+                sortOrder: this.sortOrder
+            }));
+        } catch (e) {
+            logger.warn("[BotPerformanceProfiler] Failed to save filters:", e);
+        }
+    }
+    
+    /**
+     * Загрузить фильтры из localStorage
+     */
+    private loadFilters(): void {
+        try {
+            const saved = localStorage.getItem("botProfilerFilters");
+            if (saved) {
+                const filters = JSON.parse(saved);
+                this.searchQuery = filters.searchQuery || "";
+                this.filterState = filters.filterState || "alive";
+                this.filterDistance = filters.filterDistance || "all";
+                this.filterPerformance = filters.filterPerformance || "all";
+                this.sortBy = filters.sortBy || "distance";
+                this.sortOrder = filters.sortOrder || "asc";
+            }
+        } catch (e) {
+            logger.warn("[BotPerformanceProfiler] Failed to load filters:", e);
         }
     }
     

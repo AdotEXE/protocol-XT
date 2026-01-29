@@ -239,6 +239,17 @@ export interface BotPerformanceSettings {
     enablePerformanceWarnings: boolean; // Показывать предупреждения о производительности
 }
 
+/**
+ * Профиль настроек производительности
+ */
+export interface BotPerformanceProfile {
+    name: string;
+    description?: string;
+    settings: BotPerformanceSettings;
+    createdAt: number;
+    updatedAt: number;
+}
+
 export const DEFAULT_BOT_PERFORMANCE_SETTINGS: BotPerformanceSettings = {
     aiUpdateIntervalNear: 1,      // Каждый кадр
     aiUpdateIntervalMid: 3,       // Каждые 3 кадра
@@ -1800,6 +1811,206 @@ export class BotPerformanceMonitor {
         this.currentFPS = 60;
         
         logger.log("[BotPerformanceMonitor] Disposed");
+    }
+    
+    /**
+     * Сохранить профиль настроек
+     */
+    saveProfile(name: string, description?: string): void {
+        try {
+            const profile: BotPerformanceProfile = {
+                name,
+                description,
+                settings: { ...this.settings },
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            };
+            
+            const profiles = this.getProfiles();
+            const existingIndex = profiles.findIndex(p => p.name === name);
+            
+            if (existingIndex >= 0) {
+                profiles[existingIndex] = profile;
+            } else {
+                profiles.push(profile);
+            }
+            
+            localStorage.setItem("botPerformanceProfiles", JSON.stringify(profiles));
+            logger.log(`[BotPerformanceMonitor] Profile "${name}" saved`);
+        } catch (e) {
+            logger.error("[BotPerformanceMonitor] Failed to save profile:", e);
+        }
+    }
+    
+    /**
+     * Загрузить профиль настроек
+     */
+    loadProfile(name: string): boolean {
+        try {
+            const profiles = this.getProfiles();
+            const profile = profiles.find(p => p.name === name);
+            
+            if (!profile) {
+                logger.warn(`[BotPerformanceMonitor] Profile "${name}" not found`);
+                return false;
+            }
+            
+            this.updateSettings(profile.settings);
+            logger.log(`[BotPerformanceMonitor] Profile "${name}" loaded`);
+            return true;
+        } catch (e) {
+            logger.error("[BotPerformanceMonitor] Failed to load profile:", e);
+            return false;
+        }
+    }
+    
+    /**
+     * Удалить профиль
+     */
+    deleteProfile(name: string): boolean {
+        try {
+            const profiles = this.getProfiles();
+            const filtered = profiles.filter(p => p.name !== name);
+            
+            if (filtered.length === profiles.length) {
+                logger.warn(`[BotPerformanceMonitor] Profile "${name}" not found`);
+                return false;
+            }
+            
+            localStorage.setItem("botPerformanceProfiles", JSON.stringify(filtered));
+            logger.log(`[BotPerformanceMonitor] Profile "${name}" deleted`);
+            return true;
+        } catch (e) {
+            logger.error("[BotPerformanceMonitor] Failed to delete profile:", e);
+            return false;
+        }
+    }
+    
+    /**
+     * Получить список всех профилей
+     */
+    getProfiles(): BotPerformanceProfile[] {
+        try {
+            const saved = localStorage.getItem("botPerformanceProfiles");
+            if (saved) {
+                return JSON.parse(saved);
+            }
+        } catch (e) {
+            logger.warn("[BotPerformanceMonitor] Failed to load profiles:", e);
+        }
+        
+        // Возвращаем предустановленные профили, если нет сохраненных
+        return this.getDefaultProfiles();
+    }
+    
+    /**
+     * Получить предустановленные профили
+     */
+    getDefaultProfiles(): BotPerformanceProfile[] {
+        const now = Date.now();
+        return [
+            {
+                name: "Максимальная производительность",
+                description: "Минимальные настройки для максимального FPS",
+                settings: {
+                    ...DEFAULT_BOT_PERFORMANCE_SETTINGS,
+                    aiUpdateIntervalNear: 3,
+                    aiUpdateIntervalMid: 6,
+                    aiUpdateIntervalFar: 15,
+                    lodEnabled: true,
+                    disableDetailsForFarBots: true,
+                    disablePhysicsForFarBots: true,
+                    disableEffectsForFarBots: true,
+                    disableSoundsForFarBots: true,
+                    maxBots: 30,
+                    maxBotsPerFrame: 5
+                },
+                createdAt: now,
+                updatedAt: now
+            },
+            {
+                name: "Сбалансированный",
+                description: "Оптимальный баланс между производительностью и качеством",
+                settings: { ...DEFAULT_BOT_PERFORMANCE_SETTINGS },
+                createdAt: now,
+                updatedAt: now
+            },
+            {
+                name: "Максимальное качество",
+                description: "Максимальное качество AI и рендеринга",
+                settings: {
+                    ...DEFAULT_BOT_PERFORMANCE_SETTINGS,
+                    aiUpdateIntervalNear: 1,
+                    aiUpdateIntervalMid: 2,
+                    aiUpdateIntervalFar: 5,
+                    lodEnabled: false,
+                    disableDetailsForFarBots: false,
+                    disablePhysicsForFarBots: false,
+                    disableEffectsForFarBots: false,
+                    disableSoundsForFarBots: false,
+                    maxBots: 50,
+                    maxBotsPerFrame: 15
+                },
+                createdAt: now,
+                updatedAt: now
+            }
+        ];
+    }
+    
+    /**
+     * Экспортировать профиль в JSON
+     */
+    exportProfile(name: string): string | null {
+        try {
+            const profiles = this.getProfiles();
+            const profile = profiles.find(p => p.name === name);
+            
+            if (!profile) {
+                logger.warn(`[BotPerformanceMonitor] Profile "${name}" not found`);
+                return null;
+            }
+            
+            return JSON.stringify(profile, null, 2);
+        } catch (e) {
+            logger.error("[BotPerformanceMonitor] Failed to export profile:", e);
+            return null;
+        }
+    }
+    
+    /**
+     * Импортировать профиль из JSON
+     */
+    importProfile(json: string): boolean {
+        try {
+            const profile: BotPerformanceProfile = JSON.parse(json);
+            
+            if (!profile.name || !profile.settings) {
+                logger.error("[BotPerformanceMonitor] Invalid profile format");
+                return false;
+            }
+            
+            // Обновляем даты
+            profile.updatedAt = Date.now();
+            if (!profile.createdAt) {
+                profile.createdAt = Date.now();
+            }
+            
+            const profiles = this.getProfiles();
+            const existingIndex = profiles.findIndex(p => p.name === profile.name);
+            
+            if (existingIndex >= 0) {
+                profiles[existingIndex] = profile;
+            } else {
+                profiles.push(profile);
+            }
+            
+            localStorage.setItem("botPerformanceProfiles", JSON.stringify(profiles));
+            logger.log(`[BotPerformanceMonitor] Profile "${profile.name}" imported`);
+            return true;
+        } catch (e) {
+            logger.error("[BotPerformanceMonitor] Failed to import profile:", e);
+            return false;
+        }
     }
 }
 

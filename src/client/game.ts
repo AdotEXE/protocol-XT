@@ -56,6 +56,7 @@ import { getHotkeyManager } from "./hotkeyManager";
 import { BotPerformanceMonitor } from "./bots/BotPerformanceMonitor";
 import { BotPerformanceUI } from "./bots/BotPerformanceUI";
 import { BotPerformanceSettingsUI } from "./bots/BotPerformanceSettingsUI";
+import { BotPerformanceMiniPanel } from "./bots/BotPerformanceMiniPanel";
 import { getVoiceChatManager } from "./voiceChat";
 import { getSupplyDropSystem, SupplyDropSystem } from "./supplyDropSystem";
 import { ExperienceSystem } from "./experienceSystem";
@@ -343,6 +344,7 @@ export class Game {
     botPerformanceMonitor: BotPerformanceMonitor | undefined;
     botPerformanceUI: BotPerformanceUI | undefined;
     botPerformanceSettingsUI: BotPerformanceSettingsUI | undefined;
+    botPerformanceMiniPanel: BotPerformanceMiniPanel | undefined;
 
     battleRoyaleVisualizer: BattleRoyaleVisualizer | undefined; // Lazy loaded from "./battleRoyale"
     ctfVisualizer: CTFVisualizer | undefined; // Lazy loaded from "./ctfVisualizer"
@@ -446,6 +448,35 @@ export class Game {
             this._gameUI = new GameUI();
         }
         return this._gameUI;
+    }
+
+    /**
+     * Инициализировать мини-панель мониторинга ботов
+     */
+    private initializeBotPerformanceMiniPanel(): void {
+        if (!this.botPerformanceMonitor || !this.hud) {
+            return;
+        }
+
+        try {
+            const guiTexture = this.hud.getGuiTexture();
+            if (!guiTexture) {
+                logger.warn("[Game] Cannot initialize mini panel: GUI texture not available");
+                return;
+            }
+
+            if (!this.botPerformanceMiniPanel) {
+                this.botPerformanceMiniPanel = new BotPerformanceMiniPanel(
+                    this.botPerformanceMonitor,
+                    guiTexture
+                );
+                // Автоматически показываем мини-панель при инициализации
+                this.botPerformanceMiniPanel.show();
+                logger.log("[Game] Bot performance mini panel initialized and shown");
+            }
+        } catch (error) {
+            logger.error("[Game] Failed to initialize bot performance mini panel:", error);
+        }
     }
 
     private get gamePhysics(): GamePhysics {
@@ -1039,6 +1070,71 @@ export class Game {
             }
         }, true);
         
+        // F10: Bot Performance Monitor - Мониторинг производительности ботов
+        window.addEventListener("keydown", (e) => {
+            if (e.code === "F10" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                try {
+                    if (this.botPerformanceMonitor && this.botPerformanceUI) {
+                        if (this.botPerformanceUI.isVisible()) {
+                            this.botPerformanceUI.hide();
+                            logger.log("[Game] Bot performance UI hidden (F10)");
+                        } else {
+                            this.botPerformanceUI.show();
+                            logger.log("[Game] Bot performance UI shown (F10)");
+                        }
+                    } else {
+                        logger.warn("[Game] Bot performance monitor not initialized");
+                    }
+                } catch (error) {
+                    logger.error("[Game] Failed to toggle bot performance UI:", error);
+                }
+                return;
+            }
+        }, true);
+
+        // Обработчик события для открытия полного UI из мини-панели
+        window.addEventListener("botPerformanceUI:show", () => {
+            try {
+                if (this.botPerformanceMonitor && this.botPerformanceUI) {
+                    this.botPerformanceUI.show();
+                    logger.log("[Game] Bot performance UI shown from mini panel");
+                }
+            } catch (error) {
+                logger.error("[Game] Failed to show bot performance UI from mini panel:", error);
+            }
+        });
+
+        // Ctrl+B: Bot Performance Monitor (альтернативная горячая клавиша)
+        const ctrlBHandler = (e: KeyboardEvent) => {
+            if (e.ctrlKey && (e.code === "KeyB" || e.code === "KeyB")) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                try {
+                    if (this.botPerformanceMonitor && this.botPerformanceUI) {
+                        if (this.botPerformanceUI.isVisible()) {
+                            this.botPerformanceUI.hide();
+                            logger.log("[Game] Bot performance UI hidden (Ctrl+B)");
+                        } else {
+                            this.botPerformanceUI.show();
+                            logger.log("[Game] Bot performance UI shown (Ctrl+B)");
+                        }
+                    } else {
+                        logger.warn("[Game] Bot performance monitor not initialized");
+                    }
+                } catch (error) {
+                    logger.error("[Game] Failed to toggle bot performance UI:", error);
+                }
+                return;
+            }
+        };
+        window.addEventListener("keydown", ctrlBHandler, true);
+
         // F11: Очистка памяти (ручная)
         window.addEventListener("keydown", (e) => {
             if (e.code === "F11" && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -3332,6 +3428,11 @@ export class Game {
 
                 // Initialize GameUI
                 this.gameUI.initialize(this.hud);
+
+                // Инициализируем мини-панель мониторинга ботов (если монитор уже создан)
+                if (this.botPerformanceMonitor) {
+                    this.initializeBotPerformanceMiniPanel();
+                }
 
                 // HUD создан успешно
                 if (this.hud) {
