@@ -3,6 +3,7 @@
  */
 
 import { BotPerformanceMonitor, BotPerformanceSettings } from "./BotPerformanceMonitor";
+import { logger } from "../utils/logger";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Slider, Button } from "@babylonjs/gui";
 
 export class BotPerformanceSettingsUI {
@@ -33,26 +34,42 @@ export class BotPerformanceSettingsUI {
     hide(): void {
         if (!this.isVisible) return;
         
-        // Удаляем наблюдатели
-        this.observers.forEach(({ control, observer }) => {
-            try {
-                if ((control as any).onValueChangedObservable) {
-                    (control as any).onValueChangedObservable.remove(observer);
-                } else if ((control as any).onPointerClickObservable) {
-                    (control as any).onPointerClickObservable.remove(observer);
+        try {
+            // Удаляем наблюдатели
+            this.observers.forEach(({ control, observer }) => {
+                try {
+                    if (control) {
+                        if ((control as any).onValueChangedObservable) {
+                            (control as any).onValueChangedObservable.remove(observer);
+                        } else if ((control as any).onPointerClickObservable) {
+                            (control as any).onPointerClickObservable.remove(observer);
+                        }
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки при удалении
                 }
-            } catch (e) {
-                // Игнорируем ошибки при удалении
+            });
+            this.observers = [];
+            
+            if (this.container) {
+                try {
+                    this.container.dispose();
+                } catch (e) {
+                    logger.warn("[BotPerformanceSettingsUI] Error disposing container:", e);
+                }
+                this.container = null;
             }
-        });
-        this.observers = [];
-        
-        if (this.container) {
-            this.container.dispose();
+            
+            this.isVisible = false;
+            
+            logger.log("[BotPerformanceSettingsUI] Settings UI hidden");
+        } catch (e) {
+            logger.error("[BotPerformanceSettingsUI] Error hiding settings UI:", e);
+            // Принудительно сбрасываем состояние
+            this.isVisible = false;
             this.container = null;
+            this.observers = [];
         }
-        
-        this.isVisible = false;
     }
     
     /**
@@ -273,8 +290,16 @@ export class BotPerformanceSettingsUI {
         closeButton.color = "#0f0";
         closeButton.background = "rgba(0, 50, 0, 0.8)";
         closeButton.top = "320px";
+        closeButton.isPointerBlocker = true;
+        closeButton.hoverCursor = "pointer";
+        closeButton.zIndex = 2001;
         const closeObserver = closeButton.onPointerClickObservable.add(() => {
-            this.hide();
+            try {
+                logger.log("[BotPerformanceSettingsUI] Close button clicked");
+                this.hide();
+            } catch (e) {
+                logger.error("[BotPerformanceSettingsUI] Error closing settings:", e);
+            }
         });
         this.observers.push({ control: closeButton, observer: closeObserver });
         container.addControl(closeButton);

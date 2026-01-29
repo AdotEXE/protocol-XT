@@ -37,23 +37,39 @@ export class BotPerformanceUI {
     hide(): void {
         if (!this.isVisible) return;
         
-        // Удаляем наблюдатели
-        this.buttonObservers.forEach(({ button, observer }) => {
-            try {
-                button.onPointerClickObservable.remove(observer);
-            } catch (e) {
-                // Игнорируем ошибки при удалении
+        try {
+            // Удаляем наблюдатели
+            this.buttonObservers.forEach(({ button, observer }) => {
+                try {
+                    if (button && button.onPointerClickObservable) {
+                        button.onPointerClickObservable.remove(observer);
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки при удалении
+                }
+            });
+            this.buttonObservers = [];
+            
+            if (this.container) {
+                try {
+                    this.container.dispose();
+                } catch (e) {
+                    logger.warn("[BotPerformanceUI] Error disposing container:", e);
+                }
+                this.container = null;
             }
-        });
-        this.buttonObservers = [];
-        
-        if (this.container) {
-            this.container.dispose();
+            
+            this.stopUpdates();
+            this.isVisible = false;
+            
+            logger.log("[BotPerformanceUI] UI hidden");
+        } catch (e) {
+            logger.error("[BotPerformanceUI] Error hiding UI:", e);
+            // Принудительно сбрасываем состояние
+            this.isVisible = false;
             this.container = null;
+            this.buttonObservers = [];
         }
-        
-        this.stopUpdates();
-        this.isVisible = false;
     }
     
     /**
@@ -80,6 +96,32 @@ export class BotPerformanceUI {
         title.top = "-380px";
         title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.addControl(title);
+        
+        // Кнопка закрытия/свернуть
+        const closeButton = Button.CreateSimpleButton("close", "✕ ЗАКРЫТЬ");
+        closeButton.width = "120px";
+        closeButton.height = "35px";
+        closeButton.color = "#f00";
+        closeButton.background = "rgba(50, 0, 0, 0.9)";
+        closeButton.top = "-380px";
+        closeButton.left = "230px";
+        closeButton.fontSize = 14;
+        closeButton.thickness = 2;
+        closeButton.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        closeButton.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        closeButton.zIndex = 1001;
+        closeButton.isPointerBlocker = true;
+        closeButton.hoverCursor = "pointer";
+        const closeObserver = closeButton.onPointerClickObservable.add(() => {
+            try {
+                logger.log("[BotPerformanceUI] Close button clicked");
+                this.hide();
+            } catch (e) {
+                logger.error("[BotPerformanceUI] Error closing UI:", e);
+            }
+        });
+        this.buttonObservers.push({ button: closeButton, observer: closeObserver });
+        container.addControl(closeButton);
         
         // Контейнер для метрик
         const metricsContainer = new Rectangle("metricsContainer");

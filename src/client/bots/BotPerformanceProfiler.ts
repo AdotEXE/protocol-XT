@@ -40,26 +40,43 @@ export class BotPerformanceProfiler {
     hide(): void {
         if (!this.isVisible) return;
         
-        // Останавливаем обновления
-        this.stopUpdates();
-        
-        // Удаляем наблюдатели
-        this.buttonObservers.forEach(({ button, observer }) => {
-            try {
-                button.onPointerClickObservable.remove(observer);
-            } catch (e) {
-                // Игнорируем ошибки при удалении
+        try {
+            // Останавливаем обновления
+            this.stopUpdates();
+            
+            // Удаляем наблюдатели
+            this.buttonObservers.forEach(({ button, observer }) => {
+                try {
+                    if (button && button.onPointerClickObservable) {
+                        button.onPointerClickObservable.remove(observer);
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки при удалении
+                }
+            });
+            this.buttonObservers = [];
+            
+            if (this.container) {
+                try {
+                    this.container.dispose();
+                } catch (e) {
+                    logger.warn("[BotPerformanceProfiler] Error disposing container:", e);
+                }
+                this.container = null;
             }
-        });
-        this.buttonObservers = [];
-        
-        if (this.container) {
-            this.container.dispose();
+            
+            this.isVisible = false;
+            this.selectedBotId = null;
+            
+            logger.log("[BotPerformanceProfiler] Profiler hidden");
+        } catch (e) {
+            logger.error("[BotPerformanceProfiler] Error hiding profiler:", e);
+            // Принудительно сбрасываем состояние
+            this.isVisible = false;
             this.container = null;
+            this.buttonObservers = [];
+            this.selectedBotId = null;
         }
-        
-        this.isVisible = false;
-        this.selectedBotId = null;
     }
     
     /**
@@ -139,8 +156,16 @@ export class BotPerformanceProfiler {
         closeButton.color = "#0f0";
         closeButton.background = "rgba(0, 50, 0, 0.8)";
         closeButton.top = "320px";
+        closeButton.isPointerBlocker = true;
+        closeButton.hoverCursor = "pointer";
+        closeButton.zIndex = 2001;
         const closeObserver = closeButton.onPointerClickObservable.add(() => {
-            this.hide();
+            try {
+                logger.log("[BotPerformanceProfiler] Close button clicked");
+                this.hide();
+            } catch (e) {
+                logger.error("[BotPerformanceProfiler] Error closing profiler:", e);
+            }
         });
         this.buttonObservers.push({ button: closeButton, observer: closeObserver });
         container.addControl(closeButton);
