@@ -542,6 +542,27 @@ export class BotPerformanceUI {
         });
         this.buttonObservers.push({ button: exportCsvButton, observer: exportCsvObserver });
         this.container.addControl(exportCsvButton);
+        
+        // Кнопка настроек производительности ботов
+        const settingsButton = Button.CreateSimpleButton("bot_settings", "⚙️ НАСТРОЙКИ");
+        settingsButton.width = "140px";
+        settingsButton.height = "30px";
+        settingsButton.color = "#0ff";
+        settingsButton.background = "rgba(0, 50, 50, 0.8)";
+        settingsButton.top = `${top + 40}px`;
+        settingsButton.left = "-280px";
+        settingsButton.fontSize = 11;
+        const settingsObserver = settingsButton.onPointerClickObservable.add(() => {
+            try {
+                // Отправляем событие для открытия настроек производительности ботов
+                window.dispatchEvent(new CustomEvent("botPerformanceSettingsUI:show"));
+                logger.log("[BotPerformanceUI] Bot performance settings button clicked");
+            } catch (e) {
+                logger.error("[BotPerformanceUI] Error opening bot performance settings:", e);
+            }
+        });
+        this.buttonObservers.push({ button: settingsButton, observer: settingsObserver });
+        this.container.addControl(settingsButton);
     }
     
     /**

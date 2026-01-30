@@ -995,7 +995,7 @@ export class MainMenu {
             </div>
 
             <!-- Лобби игроков -->
-            <div class="lobby-panel" id="lobby-panel">
+            <div class="lobby-panel collapsed" id="lobby-panel">
                 <div class="lobby-header">
                     <button class="lobby-toggle-btn" id="lobby-toggle-btn" title="Свернуть/Развернуть">◀</button>
                     <span class="lobby-title" id="lobby-title-btn" style="cursor: pointer;" title="Открыть расширенное лобби">👥 ЛОББИ</span>
@@ -1093,8 +1093,8 @@ export class MainMenu {
             </div>
 
             <!-- Правый блок для баннера -->
-            <div class="banner-panel" id="banner-panel">
-                <div class="banner-header" style="display: none;">
+            <div class="banner-panel collapsed" id="banner-panel">
+                <div class="banner-header">
                     <span class="banner-title">📢 БАННЕР</span>
                     <span class="banner-collapsed-icon" id="banner-collapsed-icon">📢</span>
                 </div>
@@ -14931,6 +14931,28 @@ line - height: 1.4;
         (window as any).__polygenRestoreButton = btn;
     }
 
+    public async openTankEditor(): Promise<void> {
+        if (this.garage) {
+            // Если гараж закрыт, открываем его
+            if (typeof this.garage.isGarageOpen === 'function' && !this.garage.isGarageOpen()) {
+                this.garage.open();
+            }
+
+            // Переключаемся на вкладку мастерской
+            // Используем setTimeout чтобы дать гаражу время на открытие/инициализацию
+            setTimeout(() => {
+                if (typeof this.garage.switchCategory === 'function') {
+                    this.garage.switchCategory('workshop');
+                }
+            }, 100);
+
+            return;
+        }
+
+        console.warn("[Menu] Garage not initialized, cannot open tank editor");
+        this.showNotification("Гараж не инициализирован!", "error");
+    }
+
     private saveTankConfig(): void {
         localStorage.setItem("tankConfig", JSON.stringify(this.tankConfig));
         window.dispatchEvent(new CustomEvent("tankConfigChanged", { detail: this.tankConfig }));
@@ -15369,6 +15391,8 @@ line - height: 1.4;
 
                 // КРИТИЧНО: Принудительное обновление UI сразу после смены
                 this.updatePlayerInfo(true);
+                // Also force update the callsign element directly
+                this.updatePlayerCallsign();
             }
         });
     }

@@ -29,6 +29,13 @@ export class BotPerformanceSettingsUI {
     }
     
     /**
+     * Проверить видимость UI
+     */
+    isVisible(): boolean {
+        return this.isVisible;
+    }
+
+    /**
      * Скрыть UI
      */
     hide(): void {

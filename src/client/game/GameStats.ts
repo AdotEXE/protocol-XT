@@ -11,6 +11,7 @@ import type { MultiplayerManager } from "../multiplayer";
 import type { EnemyTank } from "../enemyTank";
 import type { EnemyManager } from "../enemy";
 import type { NetworkPlayerTank } from "../networkPlayerTank";
+import type { PlayerStatsSystem } from "../playerStats";
 
 /**
  * Интерфейс для доступа к системам игры
@@ -21,6 +22,7 @@ export interface StatsSystemsAccess {
     currencyManager?: CurrencyManager;
     realtimeStatsTracker?: RealtimeStatsTracker;
     multiplayerManager?: MultiplayerManager;
+    playerStats?: PlayerStatsSystem; // Сессионная статистика
     enemyTanks: EnemyTank[];
     enemyManager?: EnemyManager;
     networkPlayerTanks?: Map<string, NetworkPlayerTank>; // Сетевые танки игроков
@@ -218,16 +220,30 @@ export class GameStats {
         let kills = 0, deaths = 0, credits = 0, level = 1, damage = 0;
         let kd = "0.00", accuracy = "0%", playTime = "0h 0m";
 
-        if (this.systems?.playerProgression) {
+        // КРИТИЧНО: Используем СЕССИОННУЮ статистику для scoreboard!
+        // Это убийства/смерти только в текущей игре, не глобальные
+        if (this.systems?.playerStats) {
+            const stats = this.systems.playerStats.getStats();
+            kills = stats.sessionKills || 0;
+            deaths = stats.sessionDeaths || 0;
+            // K/D на основе сессии
+            kd = deaths > 0 ? (kills / deaths).toFixed(2) : kills.toFixed(2);
+        } else if (this.systems?.playerProgression) {
+            // Fallback на progression если нет playerStats
             const stats = this.systems.playerProgression.getStats();
             kills = stats.totalKills || 0;
             deaths = stats.totalDeaths || 0;
-            credits = stats.credits || 0;
+            kd = this.systems.playerProgression.getKDRatio();
+        }
+
+        // Остальные данные из progression
+        if (this.systems?.playerProgression) {
+            const stats = this.systems.playerProgression.getStats();
             level = stats.level || 1;
             damage = Math.round(stats.totalDamageDealt || 0);
-            kd = this.systems.playerProgression.getKDRatio();
             accuracy = this.systems.playerProgression.getAccuracy();
             playTime = this.systems.playerProgression.getPlayTimeFormatted();
+            credits = stats.credits || 0;
         }
 
         if (this.systems?.currencyManager) {

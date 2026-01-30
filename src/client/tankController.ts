@@ -2831,44 +2831,113 @@ export class TankController {
         maxDistance: number = 200,
         verticalAngleTolerance: number = 0.0436 // ±2.5° в радианах
     ): Vector3 | null {
-        // Используем статический список всех врагов
-        const enemies = EnemyTank.getAllEnemies();
-        if (!enemies || enemies.length === 0) return null;
-
         // Вычисляем вертикальный угол (pitch) направления ствола
         const barrelHorizontalDist = Math.sqrt(barrelDirection.x * barrelDirection.x + barrelDirection.z * barrelDirection.z);
         const barrelPitch = Math.atan2(barrelDirection.y, barrelHorizontalDist);
 
         let closestTarget: Vector3 | null = null;
-        let closestDistance = maxDistance;
+        let closestDistanceSq = maxDistance * maxDistance; // Используем квадрат расстояния для оптимизации
+        const maxDistanceSq = maxDistance * maxDistance;
+        const minDistanceSq = 5 * 5; // Минимальное расстояние 5 метров
 
-        for (const enemy of enemies) {
-            if (!enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
+        // === ПРОВЕРКА ВРАЖЕСКИХ ТАНКОВ ===
+        const enemies = EnemyTank.getAllEnemies();
+        if (enemies && enemies.length > 0) {
+            for (const enemy of enemies) {
+                if (!enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
 
-            const enemyPos = enemy.chassis.getAbsolutePosition();
-            const toEnemy = enemyPos.subtract(origin);
-            const distance = toEnemy.length();
+                const enemyPos = enemy.chassis.getAbsolutePosition();
+                const toEnemy = enemyPos.subtract(origin);
+                const distanceSq = toEnemy.lengthSquared();
 
-            if (distance > maxDistance || distance < 5) continue; // Слишком далеко или слишком близко
+                if (distanceSq > maxDistanceSq || distanceSq < minDistanceSq) continue;
 
-            // Вычисляем горизонтальное расстояние и вертикальную разницу
-            const dx = toEnemy.x;
-            const dy = toEnemy.y;
-            const dz = toEnemy.z;
-            const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+                // Вычисляем горизонтальное расстояние и вертикальную разницу
+                const dx = toEnemy.x;
+                const dy = toEnemy.y;
+                const dz = toEnemy.z;
+                const horizontalDist = Math.sqrt(dx * dx + dz * dz);
 
-            // Вычисляем вертикальный угол (pitch) к врагу
-            const enemyPitch = Math.atan2(dy, horizontalDist);
+                // Вычисляем вертикальный угол (pitch) к врагу
+                const enemyPitch = Math.atan2(dy, horizontalDist);
 
-            // Проверяем разницу вертикальных углов
-            const pitchDiff = Math.abs(enemyPitch - barrelPitch);
+                // Проверяем разницу вертикальных углов
+                const pitchDiff = Math.abs(enemyPitch - barrelPitch);
 
-            // Если враг в вертикальном диапазоне ±2.5°
-            if (pitchDiff <= verticalAngleTolerance && distance < closestDistance) {
-                closestDistance = distance;
-                // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
-                if (closestTarget) vector3Pool.release(closestTarget);
-                closestTarget = vector3Pool.acquire(enemyPos.x, enemyPos.y, enemyPos.z);
+                // Если враг в вертикальном диапазоне ±2.5°
+                if (pitchDiff <= verticalAngleTolerance && distanceSq < closestDistanceSq) {
+                    closestDistanceSq = distanceSq;
+                    // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                    if (closestTarget) vector3Pool.release(closestTarget);
+                    closestTarget = vector3Pool.acquire(enemyPos.x, enemyPos.y, enemyPos.z);
+                }
+            }
+        }
+
+        // === ПРОВЕРКА ТУРЕЛЕЙ ВРАГОВ ===
+        if (this.enemyManager && this.enemyManager.turrets) {
+            for (const turret of this.enemyManager.turrets) {
+                if (!turret.isAlive || !turret.base || turret.isDestroyed || turret.base.isDisposed()) continue;
+
+                const turretPos = turret.base.getAbsolutePosition();
+                const toTurret = turretPos.subtract(origin);
+                const distanceSq = toTurret.lengthSquared();
+
+                if (distanceSq > maxDistanceSq || distanceSq < minDistanceSq) continue;
+
+                // Вычисляем горизонтальное расстояние и вертикальную разницу
+                const dx = toTurret.x;
+                const dy = toTurret.y;
+                const dz = toTurret.z;
+                const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+
+                // Вычисляем вертикальный угол (pitch) к турели
+                const turretPitch = Math.atan2(dy, horizontalDist);
+
+                // Проверяем разницу вертикальных углов
+                const pitchDiff = Math.abs(turretPitch - barrelPitch);
+
+                // Если турель в вертикальном диапазоне ±2.5°
+                if (pitchDiff <= verticalAngleTolerance && distanceSq < closestDistanceSq) {
+                    closestDistanceSq = distanceSq;
+                    if (closestTarget) vector3Pool.release(closestTarget);
+                    closestTarget = vector3Pool.acquire(turretPos.x, turretPos.y, turretPos.z);
+                }
+            }
+        }
+
+        // === ПРОВЕРКА СЕТЕВЫХ ИГРОКОВ (МУЛЬТИПЛЕЕР) ===
+        if (this.networkPlayers && this.networkPlayers.size > 0) {
+            for (const [playerId, networkTank] of this.networkPlayers) {
+                if (!networkTank || !networkTank.chassis || networkTank.chassis.isDisposed()) continue;
+                
+                // Проверяем статус игрока (только живые)
+                if (networkTank.networkPlayer && networkTank.networkPlayer.status !== "alive") continue;
+
+                const playerPos = networkTank.chassis.getAbsolutePosition();
+                const toPlayer = playerPos.subtract(origin);
+                const distanceSq = toPlayer.lengthSquared();
+
+                if (distanceSq > maxDistanceSq || distanceSq < minDistanceSq) continue;
+
+                // Вычисляем горизонтальное расстояние и вертикальную разницу
+                const dx = toPlayer.x;
+                const dy = toPlayer.y;
+                const dz = toPlayer.z;
+                const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+
+                // Вычисляем вертикальный угол (pitch) к игроку
+                const playerPitch = Math.atan2(dy, horizontalDist);
+
+                // Проверяем разницу вертикальных углов
+                const pitchDiff = Math.abs(playerPitch - barrelPitch);
+
+                // Если игрок в вертикальном диапазоне ±2.5°
+                if (pitchDiff <= verticalAngleTolerance && distanceSq < closestDistanceSq) {
+                    closestDistanceSq = distanceSq;
+                    if (closestTarget) vector3Pool.release(closestTarget);
+                    closestTarget = vector3Pool.acquire(playerPos.x, playerPos.y, playerPos.z);
+                }
             }
         }
 

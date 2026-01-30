@@ -4692,17 +4692,18 @@ export class EnemyTank {
     private isAimedAtTarget(): boolean {
         if (!this.target) return false;
 
-        // NIGHTMARE AI: Подавляющий огонь - стреляем даже при неидеальном прицеле!
+        // Проверка горизонтального наведения башни
         let angleDiff = this.turretTargetAngle - this.turretCurrentAngle;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
-        // КРИТИЧНО ИСПРАВЛЕНО: Увеличен допуск для АГРЕССИВНОЙ стрельбы!
-        // Nightmare: 0.30 радиан (~17 градусов) - ПОДАВЛЯЮЩИЙ ОГОНЬ!
-        // Hard: 0.25 радиан (~14 градусов) - агрессивная стрельба
-        // Medium: 0.20 радиан (~11 градусов)
-        // Easy: 0.15 радиан (~8.5 градусов)
-        const tolerance = this.difficulty === "nightmare" ? 0.30 : (this.difficulty === "hard" ? 0.25 : (this.difficulty === "medium" ? 0.20 : 0.15));
+        // Допуск для стрельбы по сложности:
+        // Более агрессивные значения - боты стреляют раньше, не крутятся вечно
+        // Nightmare: 0.15 радиан (~8.5 градусов)
+        // Hard: 0.18 радиан (~10 градусов)
+        // Medium: 0.20 радиан (~11.5 градусов)
+        // Easy: 0.25 радиан (~14 градусов)
+        const tolerance = this.difficulty === "nightmare" ? 0.15 : (this.difficulty === "hard" ? 0.18 : (this.difficulty === "medium" ? 0.20 : 0.25));
         return Math.abs(angleDiff) < tolerance;
     }
 
@@ -4711,32 +4712,30 @@ export class EnemyTank {
     private fire(): void {
         if (!this.isAlive) return;
 
-        // Вычисляем дистанцию до цели для условий близкого боя
-        let isCloseRange = false;
-        if (this.target && this.target.chassis) {
-            const distance = Vector3.Distance(this.chassis.absolutePosition, this.target.chassis.absolutePosition);
-            isCloseRange = distance < 50; // На близкой дистанции (<50м) стреляем ВСЕГДА!
+        // КРИТИЧНО: Не стреляем если нет прямой видимости к цели!
+        // Это предотвращает стрельбу в стены когда игрок за укрытием
+        if (!this.canShootAtTarget()) {
+            logger.debug(`[EnemyTank ${this.id}] BLOCKED: canShootAtTarget() returned false`);
+            return; // Цель не видна - не стреляем
         }
 
-        // КРИТИЧНО: На близкой дистанции (<50м) ПОЛНОСТЬЮ пропускаем проверки видимости!
-        // Это гарантирует что боты стреляют в игрока когда он рядом
-        if (!isCloseRange) {
-            // Проверяем видимость только на дальней дистанции
-            if (!this.canShootAtTarget()) {
-                logger.debug(`[EnemyTank ${this.id}] BLOCKED: canShootAtTarget() returned false`);
-                return;
+        // КРИТИЧНО: Не стреляем если башня не наведена на цель!
+        // Это предотвращает стрельбу в случайных направлениях
+        if (!this.isAimedAtTarget()) {
+            logger.debug(`[EnemyTank ${this.id}] BLOCKED: isAimedAtTarget() returned false`);
+            return; // Ждём пока башня наведётся
+        }
+
+        // Проверка дальности оружия
+        if (this.target && this.target.chassis) {
+            const distance = Vector3.Distance(this.chassis.absolutePosition, this.target.chassis.absolutePosition);
+            if (distance > this.attackRange) {
+                logger.debug(`[EnemyTank ${this.id}] BLOCKED: distance ${distance.toFixed(1)} > attackRange ${this.attackRange}`);
+                return; // Цель слишком далеко для этого оружия
             }
         }
 
-        // ИСПРАВЛЕНО: isAimedAtTarget проверяем только на дальней дистанции
-        // На близкой дистанции - стреляем даже если башня не полностью наведена!
-        if (!isCloseRange && !this.isAimedAtTarget()) {
-            logger.debug(`[EnemyTank ${this.id}] BLOCKED: isAimedAtTarget() returned false`);
-            return;
-        }
-
-        // Проверка дальности - убрана! Боты стреляют на любой дистанции если видят цель
-        logger.debug(`[EnemyTank ${this.id}] FIRE! (closeRange: ${isCloseRange})`);
+        logger.debug(`[EnemyTank ${this.id}] FIRE!`);
 
         // === GET MUZZLE POSITION AND DIRECTION FROM BARREL ===
         const barrelDir = this.barrel.getDirection(Vector3.Forward()).normalize();

@@ -339,7 +339,7 @@ export class Game {
 
     // Performance monitoring
     performanceMonitor: PerformanceMonitor | undefined;
-    
+
     // Bot performance monitoring
     botPerformanceMonitor: BotPerformanceMonitor | undefined;
     botPerformanceUI: BotPerformanceUI | undefined;
@@ -1010,7 +1010,7 @@ export class Game {
             if (this.garage && this.garage.isGarageOpen && this.garage.isGarageOpen()) {
                 return; // Гараж сам обрабатывает Enter
             }
-            
+
             // Enter or Backquote (~/`)
             if ((e.code === "Enter" || e.code === "Backquote") && !e.ctrlKey && !e.altKey) {
                 if (this.chatSystem) {
@@ -1069,7 +1069,7 @@ export class Game {
                 return;
             }
         }, true);
-        
+
         // F10: Bot Performance Monitor - Мониторинг производительности ботов
         window.addEventListener("keydown", (e) => {
             if (e.code === "F10" && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -1108,6 +1108,41 @@ export class Game {
             }
         });
 
+        // Обработчик события для открытия настроек производительности ботов
+        window.addEventListener("botPerformanceSettingsUI:show", async () => {
+            try {
+                if (!this.botPerformanceMonitor || !this.hud) {
+                    logger.warn("[Game] Bot performance monitor or HUD not initialized");
+                    return;
+                }
+
+                const guiTexture = this.hud.getGuiTexture();
+                if (!guiTexture) {
+                    logger.warn("[Game] GUI texture not available for bot performance settings");
+                    return;
+                }
+
+                if (!this.botPerformanceSettingsUI) {
+                    const { BotPerformanceSettingsUI } = await import("./bots/BotPerformanceSettingsUI");
+                    this.botPerformanceSettingsUI = new BotPerformanceSettingsUI(
+                        this.botPerformanceMonitor,
+                        guiTexture
+                    );
+                    logger.log("[Game] Bot performance settings UI created");
+                }
+
+                if (this.botPerformanceSettingsUI.isVisible()) {
+                    this.botPerformanceSettingsUI.hide();
+                    logger.log("[Game] Bot performance settings UI hidden");
+                } else {
+                    this.botPerformanceSettingsUI.show();
+                    logger.log("[Game] Bot performance settings UI shown");
+                }
+            } catch (error) {
+                logger.error("[Game] Failed to toggle bot performance settings UI:", error);
+            }
+        });
+
         // Ctrl+B: Bot Performance Monitor (альтернативная горячая клавиша)
         const ctrlBHandler = (e: KeyboardEvent) => {
             if (e.ctrlKey && (e.code === "KeyB" || e.code === "KeyB")) {
@@ -1135,24 +1170,60 @@ export class Game {
         };
         window.addEventListener("keydown", ctrlBHandler, true);
 
+        // F6: Session Settings - Настройки сессии (AI боты, сложность, волны)
+        window.addEventListener("keydown", async (e) => {
+            if (e.code === "F6" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+
+                try {
+                    logger.log("[Game] Toggling session settings (F6)...");
+                    if (!this.sessionSettings) {
+                        const { SessionSettings } = await import("./sessionSettings");
+                        this.sessionSettings = new SessionSettings(false);
+                        this.sessionSettings.setGame(this);
+                    }
+
+                    const sessionSettings = this.sessionSettings as SessionSettingsWithMethods;
+                    if (sessionSettings && typeof sessionSettings.isVisible === 'function') {
+                        const isVisible = sessionSettings.isVisible();
+                        if (isVisible && sessionSettings.hide) {
+                            sessionSettings.hide();
+                            logger.log("[Game] Session settings hidden (F6)");
+                        } else if (sessionSettings.show) {
+                            sessionSettings.show();
+                            logger.log("[Game] Session settings shown (F6)");
+                        }
+                    }
+                } catch (error) {
+                    logger.error("[Game] Failed to load session settings:", error);
+                    if (this.hud) {
+                        this.hud.showMessage("❌ Ошибка загрузки настроек сессии", "#f00", 2000);
+                    }
+                }
+                return;
+            }
+        }, true);
+
         // F11: Очистка памяти (ручная)
         window.addEventListener("keydown", (e) => {
             if (e.code === "F11" && !e.ctrlKey && !e.altKey && !e.metaKey) {
                 e.preventDefault();
                 e.stopPropagation();
-                
+
                 const statsBefore = this.getMemoryStats();
                 this.cleanupUnusedResources();
                 const statsAfter = this.getMemoryStats();
-                
+
                 logger.log(`[Game] 🧹 Manual memory cleanup (F11): Materials ${statsBefore.materials} → ${statsAfter.materials}, Textures ${statsBefore.textures} → ${statsAfter.textures}`);
-                
+
                 if (this.hud) {
                     this.hud.showMessage(`🧹 Очистка памяти: ${statsBefore.materials - statsAfter.materials} мат. ${statsBefore.textures - statsAfter.textures} текст.`, "#4ade80", 3000);
                 }
             }
         }, true);
-        
+
         logger.log("[Game] Global keyboard shortcuts registered successfully");
     }
 
@@ -1719,7 +1790,7 @@ export class Game {
                 // Если игра запущена, обрабатываем паузу и меню
                 // Закрываем все открытые меню перед паузой по порядку приоритета
                 // Используем универсальную функцию для закрытия любого открытого окна
-                
+
                 // Высокий приоритет - модальные окна и редакторы
                 if (this.physicsEditor && typeof this.physicsEditor.isVisible === 'function' && this.physicsEditor.isVisible()) {
                     e.preventDefault();
@@ -1727,7 +1798,7 @@ export class Game {
                     this.physicsEditor.hide();
                     return;
                 }
-                
+
                 // Bot Performance UI (мониторинг ботов)
                 if (this.botPerformanceUI && typeof this.botPerformanceUI.isVisible === 'function' && this.botPerformanceUI.isVisible()) {
                     e.preventDefault();
@@ -1735,7 +1806,7 @@ export class Game {
                     this.botPerformanceUI.hide();
                     return;
                 }
-                
+
                 // Bot Performance Settings UI
                 if (this.botPerformanceSettingsUI && typeof this.botPerformanceSettingsUI.isVisible === 'function' && this.botPerformanceSettingsUI.isVisible()) {
                     e.preventDefault();
@@ -1743,7 +1814,7 @@ export class Game {
                     this.botPerformanceSettingsUI.hide();
                     return;
                 }
-                
+
                 // Bot Performance Profiler
                 const botProfiler = (this as any).botPerformanceProfiler;
                 if (botProfiler && typeof botProfiler.isVisible === 'function' && botProfiler.isVisible()) {
@@ -1752,7 +1823,7 @@ export class Game {
                     if (botProfiler.hide) botProfiler.hide();
                     return;
                 }
-                
+
                 // Admin Panel
                 if (this.adminPanel && typeof this.adminPanel.isVisible === 'function' && this.adminPanel.isVisible()) {
                     e.preventDefault();
@@ -1760,7 +1831,7 @@ export class Game {
                     if (this.adminPanel.hide) this.adminPanel.hide();
                     return;
                 }
-                
+
                 // Help Menu
                 if (this.helpMenu && typeof this.helpMenu.isVisible === 'function' && this.helpMenu.isVisible()) {
                     e.preventDefault();
@@ -1768,7 +1839,7 @@ export class Game {
                     this.helpMenu.hide();
                     return;
                 }
-                
+
                 // Screenshot Panel
                 if (this.screenshotPanel && typeof this.screenshotPanel.isVisible === 'function' && this.screenshotPanel.isVisible()) {
                     e.preventDefault();
@@ -1776,7 +1847,7 @@ export class Game {
                     this.screenshotPanel.hide();
                     return;
                 }
-                
+
                 // Debug Dashboard
                 const debugDashboard = this.debugDashboard as unknown as DebugDashboardWithProps;
                 if (debugDashboard && debugDashboard.visible) {
@@ -1798,7 +1869,7 @@ export class Game {
                     this.physicsPanel.hide();
                     return;
                 }
-                
+
                 // Chat Terminal
                 const chatSystem = this.chatSystem as unknown as ChatSystemWithTerminal;
                 if (chatSystem && typeof chatSystem.isTerminalVisible === 'function') {
@@ -1810,7 +1881,7 @@ export class Game {
                         return;
                     }
                 }
-                
+
                 // Session Settings
                 const sessionSettings = this.sessionSettings as SessionSettingsWithMethods;
                 if (sessionSettings && typeof sessionSettings.isVisible === 'function') {
@@ -1822,7 +1893,7 @@ export class Game {
                         return;
                     }
                 }
-                
+
                 // Cheat Menu
                 if (this.cheatMenu && typeof this.cheatMenu.isVisible === 'function' && this.cheatMenu.isVisible()) {
                     e.preventDefault();
@@ -1830,7 +1901,7 @@ export class Game {
                     this.cheatMenu.hide();
                     return;
                 }
-                
+
                 // Network Menu
                 if (this.networkMenu && typeof this.networkMenu.isVisible === 'function' && this.networkMenu.isVisible()) {
                     e.preventDefault();
@@ -1838,7 +1909,7 @@ export class Game {
                     this.networkMenu.hide();
                     return;
                 }
-                
+
                 // World Generation Menu
                 if (this.worldGenerationMenu && typeof this.worldGenerationMenu.isVisible === 'function' && this.worldGenerationMenu.isVisible()) {
                     e.preventDefault();
@@ -1846,7 +1917,7 @@ export class Game {
                     this.worldGenerationMenu.hide();
                     return;
                 }
-                
+
                 // Game Stats (TAB menu)
                 if (this.gameStats && typeof this.gameStats.isVisible === 'function' && this.gameStats.isVisible()) {
                     e.preventDefault();
@@ -1854,7 +1925,7 @@ export class Game {
                     if (this.gameStats.hide) this.gameStats.hide();
                     return;
                 }
-                
+
                 // Game Stats Overlay
                 if (this.gameStatsOverlay && typeof this.gameStatsOverlay.isVisible === 'function' && this.gameStatsOverlay.isVisible()) {
                     e.preventDefault();
@@ -2607,7 +2678,7 @@ export class Game {
 
             // ВАЖНО: Dispose старой карты перед созданием новой!
             this.chunkSystem.dispose();
-            
+
             // ОПТИМИЗАЦИЯ ПАМЯТИ: Очищаем неиспользуемые ресурсы после dispose карты
             this.cleanupUnusedResources();
 
@@ -2952,7 +3023,7 @@ export class Game {
             existingLoadingScreens.forEach(screen => {
                 screen.remove();
             });
-            
+
             // ИСПРАВЛЕНИЕ: Не показываем экран загрузки, если игра уже инициализирована
             // Это предотвращает множественные экраны загрузки при открытии редактора
             if (!this.gameInitialized) {
@@ -3699,6 +3770,9 @@ export class Game {
 
             // Initialize player stats system
             this.playerStats = new PlayerStatsSystem();
+            // КРИТИЧНО: Сбрасываем сессионную статистику при старте новой игры
+            // Это гарантирует что Tab меню показывает kills/deaths только текущей сессии
+            this.playerStats.resetSession();
             this.playerStats.setOnStatsUpdate((stats) => {
                 // Could update UI here
                 logger.log("[Stats] Updated:", stats);
@@ -3906,7 +3980,7 @@ export class Game {
             });
             this.adaptiveQualityScaler.setOnQualityChange((quality: string, settings: QualitySettings) => {
                 logger.log(`[Game] Quality changed to ${quality} (Render Scale: ${settings.renderScale}, LOD: ${settings.lodMultiplier}x, Particles: ${settings.particleMultiplier}x)`);
-                
+
                 // ОПТИМИЗАЦИЯ: Применяем настройки к системам игры
                 if (this.performanceOptimizer) {
                     // Обновляем LOD настройки
@@ -3916,7 +3990,7 @@ export class Game {
                     lodConfig.lodFarDistance = 400 * settings.lodMultiplier;
                     this.performanceOptimizer.updateConfig(lodConfig);
                 }
-                
+
                 // Обновляем настройки эффектов
                 if (this.effectsManager && typeof this.effectsManager.setMaxEffects === 'function') {
                     this.effectsManager.setMaxEffects(settings.maxActiveParticles);
@@ -4300,6 +4374,7 @@ export class Game {
                 currencyManager: this.currencyManager,
                 realtimeStatsTracker: this.realtimeStatsTracker,
                 multiplayerManager: this.multiplayerManager,
+                playerStats: this.playerStats, // КРИТИЧНО: Для сессионной статистики в Tab меню
                 enemyTanks: this.enemyTanks,
                 enemyManager: this.enemyManager,
                 networkPlayerTanks: this.networkPlayerTanks,
@@ -4461,7 +4536,7 @@ export class Game {
                 // Загружаем только ближайшие чанки вокруг игрока - остальные загрузятся по мере необходимости
                 logger.log("[Game] Loading initial chunks around player position...");
                 this.chunkSystem.update(initialPos);
-                
+
                 // КРИТИЧНО: НЕ загружаем всю карту сразу - это вызывает лаги!
                 // ChunkSystem будет загружать чанки автоматически по мере движения игрока
                 // Прогрессивная загрузка запускается только после старта игры
@@ -7258,7 +7333,7 @@ export class Game {
                 let normalizedDiff = yawDiff;
                 while (normalizedDiff > Math.PI) normalizedDiff -= Math.PI * 2;
                 while (normalizedDiff < -Math.PI) normalizedDiff += Math.PI * 2;
-                
+
                 // Плавное сглаживание (быстрее чем pitch для мгновенной реакции, но без рывков)
                 const yawSmoothing = 0.25; // 25% за кадр - быстро но плавно
                 this.aimYaw += normalizedDiff * yawSmoothing;
@@ -9505,7 +9580,7 @@ export class Game {
                 console.log('[Game] 🧹 Removing existing loading screen before editor');
                 screen.remove();
             });
-            
+
             // Также скрываем экран загрузки через функцию (на случай если он есть в памяти)
             this.hideLoadingScreen();
 
@@ -9513,7 +9588,7 @@ export class Game {
             if (!this.gameInitialized) {
                 console.log("[Game] Game not initialized, initializing...");
                 logger.log(`[Game] Initializing game for Map Editor with map type: ${this.currentMapType}`);
-                
+
                 // КРИТИЧНО: init() создаст экран загрузки только если gameInitialized = false
                 // Но мы уже удалили все экраны выше, так что будет создан только один
                 await this.init();
@@ -9782,11 +9857,11 @@ export class Game {
      */
     public cleanupUnusedResources(): void {
         if (!this.scene) return;
-        
+
         const beforeMaterials = this.scene.materials.length;
         const beforeTextures = this.scene.textures.length;
         const beforeMeshes = this.scene.meshes.length;
-        
+
         // Собираем используемые материалы
         const usedMaterials = new Set<string>();
         for (const mesh of this.scene.meshes) {
@@ -9794,24 +9869,24 @@ export class Game {
                 usedMaterials.add(mesh.material.uniqueId.toString());
             }
         }
-        
+
         // Удаляем неиспользуемые материалы
         const materialsToDispose: any[] = [];
         for (const material of this.scene.materials) {
             // Защищаем системные материалы
-            if (material.name.startsWith('default') || 
+            if (material.name.startsWith('default') ||
                 material.name.includes('skybox') ||
                 material.name.includes('ground') ||
                 material.name.includes('tank') ||
                 material.name.includes('bullet')) {
                 continue;
             }
-            
+
             if (!usedMaterials.has(material.uniqueId.toString())) {
                 materialsToDispose.push(material);
             }
         }
-        
+
         for (const mat of materialsToDispose) {
             try {
                 mat.dispose(true, true); // forceDisposeTextures=true
@@ -9819,7 +9894,7 @@ export class Game {
                 // Игнорируем ошибки при dispose
             }
         }
-        
+
         // Собираем используемые текстуры
         const usedTextures = new Set<string>();
         for (const material of this.scene.materials) {
@@ -9829,7 +9904,7 @@ export class Game {
             if (mat.emissiveTexture) usedTextures.add(mat.emissiveTexture.uniqueId?.toString());
             if (mat.bumpTexture) usedTextures.add(mat.bumpTexture.uniqueId?.toString());
         }
-        
+
         // Удаляем неиспользуемые текстуры
         const texturesToDispose: any[] = [];
         for (const texture of this.scene.textures) {
@@ -9838,7 +9913,7 @@ export class Game {
                 texturesToDispose.push(texture);
             }
         }
-        
+
         for (const tex of texturesToDispose) {
             try {
                 tex.dispose();
@@ -9846,12 +9921,12 @@ export class Game {
                 // Игнорируем ошибки при dispose
             }
         }
-        
+
         const afterMaterials = this.scene.materials.length;
         const afterTextures = this.scene.textures.length;
-        
+
         logger.log(`[Game] 🧹 Memory cleanup: Materials ${beforeMaterials} → ${afterMaterials} (freed ${materialsToDispose.length}), Textures ${beforeTextures} → ${afterTextures} (freed ${texturesToDispose.length})`);
-        
+
         // Показываем уведомление если много освободилось
         if (materialsToDispose.length > 10 || texturesToDispose.length > 10) {
             if (this.hud) {
@@ -9859,7 +9934,7 @@ export class Game {
             }
         }
     }
-    
+
     /**
      * Получение статистики использования памяти
      */

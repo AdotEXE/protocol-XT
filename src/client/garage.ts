@@ -13,11 +13,11 @@ import { TRACK_TYPES, getTrackById } from "./trackTypes";
 import { MaterialFactory } from "./garage/materials";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { initPreviewScene, cleanupPreviewScene, updatePreviewTank, type PreviewScene, type PreviewTank } from "./garage/preview";
-import { 
-    updateTrajectoryVisualization, 
+import {
+    updateTrajectoryVisualization,
     disposeTrajectoryVisualization,
     setTrajectoryVisibility,
-    type TrajectoryVisualization 
+    type TrajectoryVisualization
 } from "./garage/trajectoryVisualization";
 import { injectGarageStyles } from "./garage/ui";
 import { TankEditor, TankConfiguration } from "./tank/tankEditor";
@@ -1227,11 +1227,11 @@ export class Garage {
                 // Вычисляем позицию танка и направление ствола
                 const tankPosition = this.previewTank.chassis.position.clone();
                 const barrelDirection = Vector3.Forward().applyRotationQuaternion(
-                    this.previewTank.barrel.absoluteRotationQuaternion || 
+                    this.previewTank.barrel.absoluteRotationQuaternion ||
                     this.previewTank.turret.absoluteRotationQuaternion ||
                     this.previewTank.chassis.absoluteRotationQuaternion
                 );
-                
+
                 // Обновляем визуализацию траектории
                 this.previewSceneData.trajectoryVisualization = updateTrajectoryVisualization(
                     this.previewSceneData.trajectoryVisualization || null,
@@ -3565,7 +3565,7 @@ export class Garage {
         });
     }
 
-    private switchCategory(cat: CategoryType): void {
+    public switchCategory(cat: CategoryType): void {
         // Если выбрана категория workshop, открываем WorkshopUI
         if (cat === 'workshop') {
             this.openWorkshop();
@@ -4605,18 +4605,18 @@ export class Garage {
                     this.currentTrackId = previewTrackId;
                 }
                 this.renderTankPreview(previewChassisId, previewCannonId);
-                
+
                 // ИСПРАВЛЕНО: Обновляем траекторию при выборе пушки
                 if (part.type === 'barrel' && this.currentCategory === 'cannons' && this.previewTank) {
                     const cannonType = getCannonById(previewCannonId);
                     if (cannonType) {
                         const tankPosition = this.previewTank.chassis.position.clone();
                         const barrelDirection = Vector3.Forward().applyRotationQuaternion(
-                            this.previewTank.barrel.absoluteRotationQuaternion || 
+                            this.previewTank.barrel.absoluteRotationQuaternion ||
                             this.previewTank.turret.absoluteRotationQuaternion ||
                             this.previewTank.chassis.absoluteRotationQuaternion
                         );
-                        
+
                         this.previewSceneData.trajectoryVisualization = updateTrajectoryVisualization(
                             this.previewSceneData.trajectoryVisualization || null,
                             this.previewSceneData.scene,
