@@ -2910,7 +2910,7 @@ export class TankController {
         if (this.networkPlayers && this.networkPlayers.size > 0) {
             for (const [playerId, networkTank] of this.networkPlayers) {
                 if (!networkTank || !networkTank.chassis || networkTank.chassis.isDisposed()) continue;
-                
+
                 // Проверяем статус игрока (только живые)
                 if (networkTank.networkPlayer && networkTank.networkPlayer.status !== "alive") continue;
 
@@ -7086,6 +7086,19 @@ export class TankController {
         return false; // Ничего не блокирует взрывную волну
     }
 
+    // Вспомогательная функция для рекурсивной проверки принадлежности части танку
+    private isPartOf(mesh: any, parent: any): boolean {
+        if (!mesh || !parent) return false;
+        if (mesh === parent) return true;
+
+        let p = mesh.parent;
+        while (p) {
+            if (p === parent) return true;
+            p = p.parent;
+        }
+        return false;
+    }
+
     // Проверка препятствий перед стволом перед выстрелом
     private checkBarrelObstacle(muzzlePos: Vector3, direction: Vector3, maxDistance: number = 1.5): boolean {
         const ray = new Ray(muzzlePos, direction, maxDistance);
@@ -7096,11 +7109,8 @@ export class TankController {
             if (mesh.visibility <= 0.5) return false; // Прозрачные/невидимые объекты
             if (!mesh.isPickable) return false; // Объекты без коллизий
 
-            // Игнорируем части самого танка
-            if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
-
-            // Игнорируем дочерние элементы танка
-            if (mesh.parent === this.chassis || mesh.parent === this.turret || mesh.parent === this.barrel) return false;
+            // Игнорируем части самого танка (рекурсивно)
+            if (this.isPartOf(mesh, this.chassis) || this.isPartOf(mesh, this.turret) || this.isPartOf(mesh, this.barrel)) return false;
 
             // Проверка через isPartOf если метод доступен (для вражеских танков)
             // Для игрока проверяем напрямую через parent

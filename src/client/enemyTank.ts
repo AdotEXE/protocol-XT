@@ -1124,8 +1124,25 @@ export class EnemyTank {
         this.wheels.push(rightTrack);
     }
 
-    isPartOf(mesh: Mesh): boolean {
-        return mesh === this.chassis || mesh === this.turret || mesh === this.barrel || this.wheels.includes(mesh);
+    isPartOf(mesh: AbstractMesh): boolean {
+        // Robust check: is the mesh the chassis, a descendant of the chassis, or in our known lists?
+        if (!mesh) return false;
+        if (mesh === this.chassis) return true;
+
+        // Fast check for common parts
+        if (mesh === this.turret || mesh === this.barrel) return true;
+
+        // Check hierarchy (covers modules, wheels, attached decorations)
+        if (mesh.isDescendantOf(this.chassis)) return true;
+
+        // Manual list checks (just in case some are detached)
+        if (this.wheels.includes(mesh as Mesh)) return true;
+        if (this.moduleMeshes.includes(mesh as Mesh)) return true;
+
+        // Check health bar visuals
+        if (mesh === this.healthBar || mesh === this.healthBarBackground || mesh === this.distanceTextPlane) return true;
+
+        return false;
     }
 
     // Проверка препятствий перед стволом перед выстрелом
@@ -1145,13 +1162,7 @@ export class EnemyTank {
 
             if (!mesh.isPickable) return false; // Объекты без коллизий (кроме стенок)
 
-            // Игнорируем части самого танка
-            if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
-
-            // Игнорируем дочерние элементы танка
-            if (mesh.parent === this.chassis || mesh.parent === this.turret || mesh.parent === this.barrel) return false;
-
-            // Проверка через isPartOf для всех частей танка (включая wheels)
+            // Игнорируем дочерние элементы танка (более надежная проверка)
             if (this.isPartOf(mesh)) return false;
 
             // Игнорируем билборды
@@ -2721,9 +2732,8 @@ export class EnemyTank {
                         if (meta && (meta.type === "enemyTank" || meta.type === "bullet" || meta.type === "consumable")) return false;
                         // Игнорируем UI элементы
                         if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
-                        // Игнорируем части собственного танка
-                        if (mesh.parent === this.chassis || mesh.parent === this.turret || mesh.parent === this.barrel) return false;
-                        if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel) return false;
+                        // Игнорируем дочерние элементы танка (более надежная проверка)
+                        if (this.isPartOf(mesh)) return false;
                         // Игнорируем части цели (но проверяем стены!)
                         if (mesh === this.target?.chassis || mesh === this.target?.turret || mesh === this.target?.barrel) return false;
                         if (mesh.parent === this.target?.chassis || mesh.parent === this.target?.turret) return false;
@@ -3348,7 +3358,7 @@ export class EnemyTank {
         }
 
         const myPos = this.chassis.absolutePosition;
-        // ОПТИМИЗАЦИЯ: Используем квадраты расстояний для сравнения
+        // ОПТИМИЗАЦИЯ: Используем квадраты расстояния для сравнения
         const dx = myPos.x - this.targetPOI.position.x;
         const dz = myPos.z - this.targetPOI.position.z;
         const distanceSq = dx * dx + dz * dz;
@@ -3468,7 +3478,7 @@ export class EnemyTank {
             const meta = mesh.metadata;
             if (meta && (meta.type === "enemyTank" || meta.type === "bullet" || meta.type === "consumable")) return false;
             if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
-            if (mesh.parent === this.chassis || mesh.parent === this.turret || mesh.parent === this.barrel) return false;
+            if (this.isPartOf(mesh)) return false;
             if (mesh === this.target?.chassis || mesh === this.target?.turret || mesh === this.target?.barrel) return false;
             if (mesh.parent === this.target?.chassis || mesh.parent === this.target?.turret) return false;
             // КРИТИЧНО: Проверяем стены и здания!
@@ -3525,7 +3535,7 @@ export class EnemyTank {
             this.lastShotTime = now;
         }
 
-        // УЛУЧШЕНО: Более активные и умные микро-манёвры с адаптивным поведением
+        // УЛУЧШЕНО: Более активные и умные микро-манёры с адаптивным поведением
         // === АГРЕССИВНОЕ СБЛИЖЕНИЕ при преимуществе HP ===
         if (healthPercent > 0.6 && targetHealthPercent < 0.4) {
             // Добить раненую цель - приближаемся агрессивно с предсказанием!
@@ -4013,7 +4023,7 @@ export class EnemyTank {
                 if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" ||
                     meta.type === "bullet")) return false;
                 if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
-                if (mesh === this.chassis || mesh.parent === this.chassis) return false;
+                if (this.isPartOf(mesh)) return false;
                 // Ищем здания и крупные препятствия
                 return mesh.isPickable && (mesh.name.includes("building") ||
                     mesh.name.includes("house") || mesh.name.includes("container") ||
@@ -4059,13 +4069,14 @@ export class EnemyTank {
                 meta.type === "consumable" || meta.type === "enemyTank")) return false;
             // Игнорируем билборды и HP бары
             if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
-            // Игнорируем части нашего танка
-            if (mesh === this.chassis || mesh === this.turret || mesh === this.barrel ||
-                mesh.parent === this.chassis || mesh.parent === this.turret) return false;
+
+            // КРИТИЧНО: Используем надежную проверку isPartOf
+            if (this.isPartOf(mesh)) return false;
+
             // Игнорируем части цели (с проверкой на null)
-            if (this.target && this.target.chassis && this.target.turret && this.target.barrel) {
-                if (mesh === this.target.chassis || mesh === this.target.turret || mesh === this.target.barrel ||
-                    mesh.parent === this.target.chassis || mesh.parent === this.target.turret) return false;
+            if (this.target && this.target.chassis) {
+                // Check if mesh is part of target hierarchy
+                if (mesh === this.target.chassis || mesh.isDescendantOf(this.target.chassis)) return false;
             }
             return true;
         });
@@ -4095,13 +4106,16 @@ export class EnemyTank {
         let direction = targetPos.subtract(pos);
         direction.y = 0;
 
-        if (direction.length() < 0.5) {
+        if (direction.length() < 1.0) { // Increased tolerance to prevent spinning
             // УЛУЧШЕНО: Плавная остановка вместо резкой установки в 0
             const maxChange = 0.10;
             const throttleChange = Math.max(-maxChange, Math.min(maxChange, 0 - this.throttleTarget));
             const steerChange = Math.max(-maxChange, Math.min(maxChange, 0 - this.steerTarget));
             this.throttleTarget = Math.max(-1, Math.min(1, this.throttleTarget + throttleChange));
             this.steerTarget = Math.max(-1, Math.min(1, this.steerTarget + steerChange));
+            // Prevent micro-adjustments causing spin
+            if (Math.abs(this.throttleTarget) < 0.05) this.throttleTarget = 0;
+            if (Math.abs(this.steerTarget) < 0.05) this.steerTarget = 0;
             return;
         }
 
@@ -4116,7 +4130,7 @@ export class EnemyTank {
             if (!mesh || !mesh.isEnabled()) return false;
             const meta = mesh.metadata;
             if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" || meta.type === "bullet")) return false;
-            if (mesh === this.chassis || mesh.parent === this.chassis) return false;
+            if (this.isPartOf(mesh)) return false;
             return mesh.isPickable && mesh.visibility > 0.5;
         });
 
@@ -4140,7 +4154,7 @@ export class EnemyTank {
                     if (!mesh || !mesh.isEnabled()) return false;
                     const meta = mesh.metadata;
                     if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" || meta.type === "bullet")) return false;
-                    if (mesh === this.chassis || mesh.parent === this.chassis) return false;
+                    if (this.isPartOf(mesh)) return false;
                     return mesh.isPickable && mesh.visibility > 0.5;
                 });
 
@@ -4150,7 +4164,7 @@ export class EnemyTank {
                     if (!mesh || !mesh.isEnabled()) return false;
                     const meta = mesh.metadata;
                     if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" || meta.type === "bullet")) return false;
-                    if (mesh === this.chassis || mesh.parent === this.chassis) return false;
+                    if (this.isPartOf(mesh)) return false;
                     return mesh.isPickable && mesh.visibility > 0.5;
                 });
 
@@ -4585,7 +4599,7 @@ export class EnemyTank {
                 if (!mesh || !mesh.isEnabled()) return false;
                 const meta = mesh.metadata;
                 if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" || meta.type === "bullet")) return false;
-                if (mesh === this.chassis || mesh === this.target?.chassis) return false;
+                if (this.isPartOf(mesh) || (this.target && this.target.chassis && (mesh === this.target.chassis || mesh.isDescendantOf(this.target.chassis)))) return false;
                 return mesh.isPickable && mesh.visibility > 0.5;
             });
 
@@ -6001,131 +6015,70 @@ export class EnemyTank {
 
         const myPos = this.chassis.absolutePosition;
         const targetPos = this.target.chassis.absolutePosition;
-        const toTarget = targetPos.subtract(myPos);
-        toTarget.y = 0;
-        toTarget.normalize();
 
-        // УЛУЧШЕНО: Ищем разные типы укрытий
-        const searchRadius = 40; // Увеличено для поиска лучших укрытий
-        const searchAngles: number[] = [];
-        for (let i = 0; i < 16; i++) {
-            searchAngles.push((i / 16) * Math.PI * 2); // 16 направлений
-        }
+        // Smart Cover Search: Find positions that BLOCK line of sight to target
+        const candidates: { pos: Vector3, score: number }[] = [];
 
-        let bestCover: { pos: Vector3, score: number, type: "full" | "partial" | "temporary" } | null = null;
+        // Check 12 directions at 2 distances
+        const directions = 12;
+        const distances = [20, 40]; // 20m and 40m
 
-        for (const angle of searchAngles) {
-            const perpDir = new Vector3(
-                Math.cos(angle) * toTarget.x - Math.sin(angle) * toTarget.z,
-                0,
-                Math.sin(angle) * toTarget.x + Math.cos(angle) * toTarget.z
-            ).normalize();
+        const game = (window as any).gameInstance;
 
-            const checkPos = myPos.clone().add(perpDir.scale(searchRadius));
+        for (let i = 0; i < directions; i++) {
+            const angle = (i / directions) * Math.PI * 2;
+            const px = Math.cos(angle);
+            const pz = Math.sin(angle);
+            const dir = new Vector3(px, 0, pz);
 
-            // Проверяем препятствие между нами и целью
-            const ray = new Ray(myPos, checkPos.subtract(myPos).normalize(), searchRadius);
-            const pick = this.scene.pickWithRay(ray, (mesh) => {
-                if (!mesh || !mesh.isEnabled()) return false;
-                const meta = mesh.metadata;
-                if (meta && (meta.type === "enemyTank" || meta.type === "playerTank" ||
-                    meta.type === "bullet" || meta.type === "enemyBullet")) return false;
-                if (mesh.name.includes("billboard") || mesh.name.includes("hp")) return false;
-                if (mesh === this.chassis || mesh.parent === this.chassis) return false;
-                return mesh.isPickable;
-            });
+            for (const dist of distances) {
+                const candidatePos = myPos.add(dir.scale(dist));
 
-            if (pick && pick.hit && pick.pickedMesh) {
-                const hitMesh = pick.pickedMesh;
-                const coverPos = myPos.clone().add(perpDir.scale(pick.distance * 0.7));
-
-                // УЛУЧШЕНО: Определяем тип укрытия
-                let coverType: "full" | "partial" | "temporary" = "partial";
-                const meshName = hitMesh.name.toLowerCase();
-
-                // Полное укрытие: здания, бункеры, высокие стены
-                if (meshName.includes("building") || meshName.includes("house") ||
-                    meshName.includes("bunker") || meshName.includes("wall")) {
-                    // Проверяем высоту препятствия
-                    const meshBounds = hitMesh.getBoundingInfo();
-                    if (meshBounds) {
-                        const height = meshBounds.boundingBox.maximum.y - meshBounds.boundingBox.minimum.y;
-                        if (height > 3.0) {
-                            coverType = "full";
-                        }
-                    }
+                // 1. Correct height
+                if (game && typeof game.getGroundHeight === 'function') {
+                    candidatePos.y = game.getGroundHeight(candidatePos.x, candidatePos.z) + 1.0;
                 }
 
-                // Временное укрытие: другие боты (союзники)
-                const nearbyAllies = this.getNearbyAllyCount();
-                if (nearbyAllies > 0 && Vector3.Distance(coverPos, myPos) < 15) {
-                    coverType = "temporary";
-                }
+                // 2. Check Line of Sight from Candidate to Target
+                const toTarget = targetPos.subtract(candidatePos);
+                const distToTarget = toTarget.length();
+                toTarget.normalize();
 
-                // УЛУЧШЕНО: Оценка укрытия с учётом типа и позиции
-                const distToTarget = Vector3.Distance(coverPos, targetPos);
-                const distFromMe = Vector3.Distance(coverPos, myPos);
+                const ray = new Ray(candidatePos.add(Vector3.Up().scale(1.5)), toTarget, distToTarget);
 
-                // Проверяем видимость цели из укрытия (для peek-and-shoot)
-                const coverToTarget = targetPos.subtract(coverPos);
-                const coverRay = new Ray(coverPos.add(Vector3.Up().scale(1.5)), coverToTarget.normalize(), coverToTarget.length());
-                const coverRayPick = this.scene.pickWithRay(coverRay, (mesh) => {
-                    if (!mesh || !mesh.isEnabled()) return false;
-                    const meta = mesh.metadata;
-                    if (meta && (meta.type === "enemyTank" || meta.type === "playerTank")) return false;
-                    if (mesh === hitMesh) return false; // Игнорируем само укрытие
-                    return mesh.isPickable && mesh.visibility > 0.5;
+                const pick = this.scene.pickWithRay(ray, (mesh) => {
+                    if (!mesh || !mesh.isEnabled() || !mesh.checkCollisions) return false;
+                    if (this.isPartOf(mesh)) return false;
+                    if (this.target && this.target.chassis && (mesh === this.target.chassis || mesh.isDescendantOf(this.target.chassis))) return false;
+
+                    if (mesh.visibility < 0.5) return false;
+                    if (mesh.name.includes("grass") || mesh.name.includes("Road")) return false;
+                    return true;
                 });
-                const canShootFromCover = !coverRayPick || !coverRayPick.hit ||
-                    coverRayPick.pickedMesh === this.target?.chassis;
 
-                // Оценка: предпочитаем укрытия ближе к цели, но безопасные
-                let score = 0;
+                if (pick && pick.hit) {
+                    // LOS Blocked! This is cover.
+                    let score = 100;
+                    score -= dist * 1.5; // Prefer closer
+                    if (distToTarget < 30) score -= 30; // Not too close to enemy
 
-                // Бонус за тип укрытия
-                if (coverType === "full") score += 50;
-                else if (coverType === "partial") score += 30;
-                else score += 10; // temporary
-
-                // Бонус за возможность стрельбы из укрытия
-                if (canShootFromCover) score += 40;
-
-                // Бонус за близость к цели (но не слишком близко)
-                if (distToTarget > 20 && distToTarget < 60) {
-                    score += 30;
-                } else if (distToTarget < 20) {
-                    score -= 20; // Штраф за слишком близко
-                }
-
-                // Штраф за расстояние от текущей позиции
-                score -= distFromMe * 0.5;
-
-                if (!bestCover || score > bestCover.score) {
-                    bestCover = { pos: coverPos, score, type: coverType };
+                    candidates.push({ pos: candidatePos, score });
                 }
             }
         }
 
-        // Сохраняем тип укрытия
-        if (bestCover) {
-            this.coverType = bestCover.type;
-            // УЛУЧШЕНО: Сохраняем в кэш
-            this.coverCache = { position: bestCover.pos.clone(), timestamp: Date.now() };
-            return bestCover.pos;
-        }
+        if (candidates.length === 0) return null;
 
-        // Fallback: используем pathfinding если не нашли укрытие
-        const coverPos = this.pathfinding.findCover(myPos, targetPos, 30);
-        if (coverPos) {
-            this.coverType = "partial"; // По умолчанию частичное
-            // УЛУЧШЕНО: Сохраняем в кэш
-            this.coverCache = { position: coverPos.clone(), timestamp: Date.now() };
-            return coverPos;
-        }
+        // Sort by score
+        candidates.sort((a, b) => b.score - a.score);
 
-        // УЛУЧШЕНО: Сохраняем null в кэш чтобы не искать снова
-        this.coverCache = { position: null, timestamp: Date.now() };
-        return null;
+        const best = candidates[0];
+
+        // Cache result
+        this.coverCache = { position: best.pos.clone(), timestamp: Date.now() };
+        this.coverType = "full";
+
+        return best.pos;
     }
 
     /**
