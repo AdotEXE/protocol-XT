@@ -1629,7 +1629,7 @@ export class NetworkPlayerTank {
                         ctx.clearRect(0, 0, 256, 85);
                         // ctx.fillStyle = "rgba(0,0,0,0.5)";
                         // ctx.fillRect(0,0,128,64);
-                        ctx.font = "bold 48px Consolas";
+                        ctx.font = "bold 60px Orbitron";
                         ctx.fillStyle = "white";
                         ctx.textAlign = "left";
                         ctx.textBaseline = "middle";
@@ -1805,7 +1805,9 @@ export class NetworkPlayerTank {
             if (Date.now() - startTime < duration) {
                 requestAnimationFrame(animate);
             } else {
-                // Complete
+                // КРИТИЧНО: Сначала восстанавливаем иерархию, потом вызываем callback
+                // Это исправляет баг когда части танка оставались detached после респавна
+                this.finishReassembly();
                 if (onComplete) onComplete();
             }
         };

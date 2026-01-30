@@ -31,7 +31,7 @@ const SERVICES = [
         args: ['run', 'server:dev'],
         cwd: PROJECT_ROOT,
         color: colors.green,
-        prefix: '🟢'
+        prefix: '[S]'
     },
     {
         name: 'CLIENT',
@@ -39,7 +39,7 @@ const SERVICES = [
         args: ['run', 'dev'],
         cwd: PROJECT_ROOT,
         color: colors.cyan,
-        prefix: '🔵'
+        prefix: '[C]'
     },
     {
         name: 'EDITOR',
@@ -47,7 +47,7 @@ const SERVICES = [
         args: ['run', 'dev'],
         cwd: EDITOR_ROOT,
         color: colors.magenta,
-        prefix: '🟣'
+        prefix: '[E]'
     }
 ];
 
@@ -61,7 +61,7 @@ function log(service: string, color: string, prefix: string, message: string, is
 }
 
 function startService(service: typeof SERVICES[0]) {
-    log('SYSTEM', colors.yellow, '⚙️', `Starting ${service.name}...`);
+    log('SYSTEM', colors.yellow, '[*]', `Starting ${service.name}...`);
 
     const child = spawn(service.command, service.args, {
         cwd: service.cwd,
@@ -91,17 +91,17 @@ function startService(service: typeof SERVICES[0]) {
     });
 
     child.on('close', (code) => {
-        log('SYSTEM', colors.yellow, '⚙️', `${service.name} exited with code ${code}`, code !== 0);
+        log('SYSTEM', colors.yellow, '[*]', `${service.name} exited with code ${code}`, code !== 0);
     });
 
     child.on('error', (err) => {
-        log('SYSTEM', colors.red, '❌', `Failed to start ${service.name}: ${err.message}`, true);
+        log('SYSTEM', colors.red, '[X]', `Failed to start ${service.name}: ${err.message}`, true);
     });
 }
 
 function cleanup() {
     console.log('\n');
-    log('SYSTEM', colors.yellow, '⚙️', 'Shutting down all services...');
+    log('SYSTEM', colors.yellow, '[*]', 'Shutting down all services...');
     processes.forEach(p => {
         try { p.kill(); } catch { }
     });
@@ -117,22 +117,22 @@ console.log(`${colors.cyan}╔════════════════�
 console.log(`${colors.cyan}║     PROTOCOL TX - UNIFIED DEVELOPMENT SERVER       ║${colors.reset}`);
 console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);
 console.log(`${colors.cyan}║  ${colors.white}📍 Локальный доступ:${colors.cyan}                                    ║${colors.reset}`);
-console.log(`${colors.cyan}║  ${colors.green}🟢 SERVER${colors.cyan} - Game Backend (port 8000)              ║${colors.reset}`);
+console.log(`${colors.cyan}║  ${colors.green}[*] SERVER${colors.cyan} - Game Backend (port 8000)              ║${colors.reset}`);
 console.log(`${colors.cyan}║     → ws://localhost:8000                          ║${colors.reset}`);
-console.log(`${colors.cyan}║  ${colors.cyan}🔵 CLIENT${colors.cyan} - Game Frontend (port 5000)             ║${colors.reset}`);
+console.log(`${colors.cyan}║  ${colors.cyan}[*] CLIENT${colors.cyan} - Game Frontend (port 5000)             ║${colors.reset}`);
 console.log(`${colors.cyan}║     → http://localhost:5000                         ║${colors.reset}`);
-console.log(`${colors.cyan}║  ${colors.magenta}🟣 EDITOR${colors.cyan} - Map Editor (port 3000)               ║${colors.reset}`);
+console.log(`${colors.cyan}║  ${colors.magenta}[*] EDITOR${colors.cyan} - Map Editor (port 3000)               ║${colors.reset}`);
 console.log(`${colors.cyan}║     → http://localhost:3000                         ║${colors.reset}`);
 if (localIP) {
     console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);
-    console.log(`${colors.cyan}║  ${colors.green}🌐 Сетевой доступ (для других ПК в сети):${colors.cyan}         ║${colors.reset}`);
+    console.log(`${colors.cyan}║  ${colors.green}[*] Сетевой доступ (для других ПК в сети):${colors.cyan}         ║${colors.reset}`);
     console.log(`${colors.cyan}║     → ws://${localIP}:8000${' '.repeat(30 - localIP.length)}║${colors.reset}`);
     console.log(`${colors.cyan}║     → http://${localIP}:5000${' '.repeat(29 - localIP.length)}║${colors.reset}`);
     console.log(`${colors.cyan}║     → http://${localIP}:3000${' '.repeat(29 - localIP.length)}║${colors.reset}`);
 }
 if (allIPs.length > 1) {
     console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);
-    console.log(`${colors.cyan}║  ${colors.magenta}📡 Все доступные IP-адреса:${colors.cyan}                        ║${colors.reset}`);
+    console.log(`${colors.cyan}║  ${colors.magenta}[*] Все доступные IP-адреса:${colors.cyan}                        ║${colors.reset}`);
     allIPs.forEach(ip => {
         console.log(`${colors.cyan}║     → ${ip}${' '.repeat(42 - ip.length)}║${colors.reset}`);
     });

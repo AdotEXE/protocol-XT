@@ -145,12 +145,12 @@ export class TargetHealthBar {
         this.distanceText = new TextBlock("targetDistance");
         this.distanceText.text = "DIST: 45m";
         this.distanceText.color = HUD_COLORS.WARNING;
-        this.distanceText.fontSize = "11px"; // Увеличено с 10px для лучшей читаемости
-        this.distanceText.fontFamily = "'Consolas', monospace";
-        this.distanceText.fontWeight = "bold"; // Добавлено для лучшей видимости
+        this.distanceText.fontSize = "22px"; // SIGNIFICANTLY INCREASED for visibility
+        this.distanceText.fontFamily = "'Orbitron', monospace"; // Game font
+        this.distanceText.fontWeight = "bold";
         this.distanceText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.distanceText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-        this.distanceText.top = "0px"; // ИСПРАВЛЕНО: было -2px что скрывало текст за пределами контейнера
+        this.distanceText.top = "0px";
         this.distanceText.shadowColor = "#000";
         this.distanceText.shadowBlur = 4;
         this.container.addControl(this.distanceText);

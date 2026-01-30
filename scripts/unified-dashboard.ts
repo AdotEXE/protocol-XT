@@ -79,7 +79,7 @@ function startService(service: any) {
         if (str) {
             str.split('\n').forEach((rawLine: string) => {
                 const line = rawLine.trim();
-                if (!line) return;
+                if (!line || line.trim() === '') return;
 
                 if (!shouldFilter(line)) {
                     // TUI
@@ -110,7 +110,7 @@ function startService(service: any) {
         if (str) {
             str.split('\n').forEach((rawLine: string) => {
                 const line = rawLine.trim();
-                if (!line) return;
+                if (!line || line.trim() === '') return;
 
                 // TUI
                 // @ts-ignore
@@ -223,22 +223,22 @@ async function bootstrap() {
         const allIPs = getAllLocalIPs();
 
         ui.addLog('═══════════════════════════════════════════════════════', 'info');
-        ui.addLog('📍 Локальный доступ:', 'info');
-        ui.addLog('   → Server: ws://localhost:8000', 'info');
-        ui.addLog('   → Client: http://localhost:5000', 'info');
-        ui.addLog('   → Editor: http://localhost:3000', 'info');
+        ui.addLog('[*] Локальный доступ:', 'info');
+        ui.addLog('   > Server: ws://localhost:8000', 'info');
+        ui.addLog('   > Client: http://localhost:5000', 'info');
+        ui.addLog('   > Editor: http://localhost:3000', 'info');
         if (localIP) {
             ui.addLog('', 'info');
-            ui.addLog('🌐 Сетевой доступ (для других ПК в сети):', 'info');
-            ui.addLog(`   → Server: ws://${localIP}:8000`, 'info');
-            ui.addLog(`   → Client: http://${localIP}:5000`, 'info');
-            ui.addLog(`   → Editor: http://${localIP}:3000`, 'info');
+            ui.addLog('[*] Сетевой доступ (для других ПК в сети):', 'info');
+            ui.addLog(`   > Server: ws://${localIP}:8000`, 'info');
+            ui.addLog(`   > Client: http://${localIP}:5000`, 'info');
+            ui.addLog(`   > Editor: http://${localIP}:3000`, 'info');
         }
         if (allIPs.length > 1) {
             ui.addLog('', 'info');
-            ui.addLog('📡 Все доступные IP-адреса:', 'info');
+            ui.addLog('[*] Все доступные IP-адреса:', 'info');
             allIPs.forEach(ip => {
-                ui.addLog(`   → ${ip}`, 'info');
+                ui.addLog(`   > ${ip}`, 'info');
             });
         }
         ui.addLog('═══════════════════════════════════════════════════════', 'info');

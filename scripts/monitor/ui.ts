@@ -158,7 +158,7 @@ export class UIManager {
         // PORTS Line (Embed)
         const ports = metrics.portStatus?.ports || [];
         const portsLine = ports.map(p => {
-            const stat = p.online ? '{green-fg}●{/}' : '{yellow-fg}○{/}';
+            const stat = p.online ? '{green-fg}[+]{/}' : '{yellow-fg}[-]{/}';
             return `${p.label}:${p.port}${stat}`;
         }).join('  ');
 

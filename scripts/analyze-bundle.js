@@ -19,29 +19,29 @@ function formatBytes(bytes) {
 }
 
 function analyzeBundle() {
-  console.log('\n📊 Bundle Analysis\n');
+  console.log('\n[INFO] Bundle Analysis\n');
   console.log('═'.repeat(60));
-  
+
   if (!fs.existsSync(DIST_DIR)) {
-    console.error('❌ dist/assets directory not found. Run "npm run build" first.');
+    console.error('[ERROR] dist/assets directory not found. Run "npm run build" first.');
     process.exit(1);
   }
-  
+
   const files = fs.readdirSync(DIST_DIR);
   const jsFiles = files.filter(f => f.endsWith('.js'));
   const cssFiles = files.filter(f => f.endsWith('.css'));
   const wasmFiles = files.filter(f => f.endsWith('.wasm'));
-  
+
   let totalSize = 0;
   const chunks = [];
-  
+
   // Анализ JS файлов
   jsFiles.forEach(file => {
     const filePath = path.join(DIST_DIR, file);
     const stats = fs.statSync(filePath);
     const size = stats.size;
     totalSize += size;
-    
+
     // Определяем тип чанка по имени
     let chunkType = 'other';
     if (file.includes('babylon-core')) chunkType = 'babylon-core';
@@ -62,14 +62,14 @@ function analyzeBundle() {
     else if (file.includes('vercel-analytics')) chunkType = 'vercel-analytics';
     else if (file.includes('vendor')) chunkType = 'vendor';
     else if (file.includes('index')) chunkType = 'index';
-    
+
     chunks.push({
       name: file,
       type: chunkType,
       size: size,
     });
   });
-  
+
   // Анализ CSS файлов
   cssFiles.forEach(file => {
     const filePath = path.join(DIST_DIR, file);
@@ -81,7 +81,7 @@ function analyzeBundle() {
       size: stats.size,
     });
   });
-  
+
   // Анализ WASM файлов
   wasmFiles.forEach(file => {
     const filePath = path.join(DIST_DIR, file);
@@ -93,7 +93,7 @@ function analyzeBundle() {
       size: stats.size,
     });
   });
-  
+
   // Группируем по типам
   const grouped = {};
   chunks.forEach(chunk => {
@@ -104,38 +104,38 @@ function analyzeBundle() {
     grouped[chunk.type].size += chunk.size;
     grouped[chunk.type].files.push(chunk.name);
   });
-  
+
   // Сортируем по размеру
   const sorted = Object.entries(grouped)
     .map(([type, data]) => ({ type, ...data }))
     .sort((a, b) => b.size - a.size);
-  
-  console.log('\n📦 Chunk Sizes:\n');
+
+  console.log('\n[INFO] Chunk Sizes:\n');
   sorted.forEach(({ type, size, count, files }) => {
     const percentage = ((size / totalSize) * 100).toFixed(1);
     console.log(`  ${type.padEnd(20)} ${formatBytes(size).padStart(10)} (${percentage}%) - ${count} file(s)`);
   });
-  
+
   console.log('\n' + '─'.repeat(60));
   console.log(`  ${'TOTAL'.padEnd(20)} ${formatBytes(totalSize).padStart(10)} (100%)`);
   console.log('═'.repeat(60));
-  
+
   // Предупреждения
-  console.log('\n⚠️  Warnings:\n');
+  console.log('\n[WARN] Warnings:\n');
   const warnings = [];
-  
+
   sorted.forEach(({ type, size }) => {
     if (size > 2 * 1024 * 1024 && type !== 'babylon-core' && type !== 'havok' && type !== 'wasm') {
       warnings.push(`  ${type} is larger than 2MB (${formatBytes(size)})`);
     }
   });
-  
+
   if (warnings.length > 0) {
     warnings.forEach(w => console.log(w));
   } else {
-    console.log('  ✓ No warnings');
+    console.log('  [OK] No warnings');
   }
-  
+
   console.log('\n');
 }
 

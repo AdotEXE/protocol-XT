@@ -35,7 +35,7 @@ function loadWindowPositions(): WindowConfig | null {
             return JSON.parse(content) as WindowConfig;
         }
     } catch (error) {
-        console.warn('⚠️  Не удалось загрузить позиции окон, используются значения по умолчанию');
+        console.warn('[!] Не удалось загрузить позиции окон, используются значения по умолчанию');
     }
     return null;
 }
@@ -45,7 +45,7 @@ async function positionWindowByTitle(title: string, position: WindowPosition, st
     // Ждём, пока окно появится (максимум 5 секунд)
     for (let i = 0; i < 50; i++) {
         await new Promise(resolve => setTimeout(resolve, 100));
-        
+
         const psCommand = `Get-Process | Where-Object {
             $_.StartTime -gt (Get-Date).AddSeconds(-10) -and
             ($_.MainWindowTitle -like '*${title.replace(/'/g, "''")}*' -or $_.ProcessName -eq 'pwsh' -or $_.ProcessName -eq 'node')
@@ -55,14 +55,14 @@ async function positionWindowByTitle(title: string, position: WindowPosition, st
                 Write-Output "$($_.Id)|$title"
             }
         }`;
-        
+
         try {
             const result = await new Promise<string>((resolve) => {
                 exec(`pwsh -Command "${psCommand}"`, (error, stdout) => {
                     resolve(error ? '' : (stdout || '').trim());
                 });
             });
-            
+
             if (result) {
                 const lines = result.split('\n').filter(l => l.trim());
                 for (const line of lines) {
@@ -86,17 +86,17 @@ async function positionWindowByTitle(title: string, position: WindowPosition, st
 async function positionWindow(processId: number, position: WindowPosition): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
         const isWindows = process.platform === 'win32';
-        
+
         if (!isWindows) {
             resolve(true);
             return;
         }
-        
+
         const posScriptPath = path.join(process.cwd(), `.window_pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.ps1`);
         const width = position.width || 0;
         const height = position.height || 0;
         const sizeFlag = (width > 0 && height > 0) ? 0 : 0x0001; // SWP_NOSIZE если размер не указан
-        
+
         const posScriptContent = `param($targetPid, $x, $y, $width, $height, $sizeFlag)
 $code = @"
 using System;
@@ -182,14 +182,14 @@ Write-Host "FAILED"`;
 
         try {
             fs.writeFileSync(posScriptPath, posScriptContent, 'utf8');
-            
+
             exec(`pwsh -ExecutionPolicy Bypass -File "${posScriptPath}" -targetPid ${processId} -x ${position.x} -y ${position.y} -width ${width} -height ${height} -sizeFlag ${sizeFlag}`, (error, stdout) => {
                 try {
                     if (fs.existsSync(posScriptPath)) {
                         fs.unlinkSync(posScriptPath);
                     }
-                } catch {}
-                
+                } catch { }
+
                 if (stdout && stdout.includes('POSITIONED')) {
                     resolve(true);
                 } else {
@@ -205,7 +205,7 @@ Write-Host "FAILED"`;
 async function startInNewWindow(title: string, command: string, workingDir: string, position?: WindowPosition) {
     return new Promise<void>((resolve, reject) => {
         const isWindows = process.platform === 'win32';
-        
+
         if (isWindows) {
             // УЛУЧШЕНО: Используем pwsh напрямую, без промежуточного powershell
             // Экранируем путь и команду для PowerShell
@@ -213,7 +213,7 @@ async function startInNewWindow(title: string, command: string, workingDir: stri
             const escapedCmd = command.replace(/'/g, "''");
             // Формируем команду для прямого запуска pwsh
             const psScript = `Start-Process pwsh -ArgumentList '-NoExit', '-Command', 'cd ''${escapedDir}''; ${escapedCmd}' -WindowStyle Normal`;
-            
+
             // УЛУЧШЕНО: Используем pwsh напрямую и получаем PID запущенного процесса
             const startTime = Date.now();
             exec(`pwsh -Command "${psScript}"`, async (error, _stdout, _stderr) => {
@@ -258,13 +258,13 @@ async function startInNewWindow(title: string, command: string, workingDir: stri
 
 async function waitForServer(host: string, port: number, maxAttempts: number = 30, delay: number = 1000): Promise<boolean> {
     const url = `ws://${host}:${port}`;
-    
+
     for (let i = 0; i < maxAttempts; i++) {
         try {
             await new Promise<void>((resolve, reject) => {
                 const ws = new WebSocket(url);
                 let resolved = false;
-                
+
                 const timeout = setTimeout(() => {
                     if (!resolved) {
                         resolved = true;
@@ -276,7 +276,7 @@ async function waitForServer(host: string, port: number, maxAttempts: number = 3
                         reject(new Error('Timeout'));
                     }
                 }, 2000);
-                
+
                 ws.on('open', () => {
                     if (!resolved) {
                         resolved = true;
@@ -285,7 +285,7 @@ async function waitForServer(host: string, port: number, maxAttempts: number = 3
                         resolve();
                     }
                 });
-                
+
                 ws.on('error', (error: Error) => {
                     if (!resolved) {
                         resolved = true;
@@ -294,7 +294,7 @@ async function waitForServer(host: string, port: number, maxAttempts: number = 3
                     }
                 });
             });
-            
+
             // Server WebSocket is responding
             return true;
         } catch (error) {
@@ -304,13 +304,13 @@ async function waitForServer(host: string, port: number, maxAttempts: number = 3
             }
         }
     }
-    
+
     return false;
 }
 
 async function main() {
-    console.log('🚀 Запуск всех систем Protocol TX в отдельных окнах...\n');
-    
+    console.log('[START] Запуск всех систем Protocol TX в отдельных окнах...\n');
+
     const workingDir = process.cwd();
     const isWindows = process.platform === 'win32';
     const npmCmd = isWindows ? 'npm.cmd' : 'npm';
@@ -318,9 +318,9 @@ async function main() {
     try {
         // УЛУЧШЕНО: Загружаем сохранённые позиции окон
         const windowConfig = loadWindowPositions();
-        
+
         // 1. Запускаем сервер ПЕРВЫМ
-        console.log('🖥️  Запуск сервера...');
+        console.log('[*]  Запуск сервера...');
         await startInNewWindow(
             windowConfig?.server?.title || 'Protocol TX - Сервер (порт 8000)',
             `${npmCmd} run server:dev`,
@@ -329,17 +329,17 @@ async function main() {
         );
 
         // Ждем, пока сервер станет доступен
-        console.log('⏳ Ожидание готовности сервера...');
+        console.log('[...] Ожидание готовности сервера...');
         const serverReady = await waitForServer('localhost', 8000, 30, 2000);
-        
+
         if (serverReady) {
-            console.log('✅ Сервер готов!\n');
+            console.log('[OK] Сервер готов!\n');
         } else {
-            console.log('⚠️  Сервер не ответил за отведенное время, но продолжаем...\n');
+            console.log('[!] Сервер не ответил за отведенное время, но продолжаем...\n');
         }
 
         // 2. Теперь запускаем мониторинг (он будет подключаться к уже работающему серверу)
-        console.log('📊 Запуск мониторинга...');
+        console.log('[*] Запуск мониторинга...');
         await startInNewWindow(
             windowConfig?.monitor?.title || 'Protocol TX - Мониторинг',
             `${npmCmd} run monitor:only`,
@@ -351,7 +351,7 @@ async function main() {
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         // 3. Запускаем клиент последним
-        console.log('🌐 Запуск клиента...');
+        console.log('[*] Запуск клиента...');
         await startInNewWindow(
             windowConfig?.client?.title || 'Protocol TX - Клиент (Vite, порт 3000)',
             `${npmCmd} run dev`,
@@ -359,17 +359,17 @@ async function main() {
             windowConfig?.client
         );
 
-        console.log('\n✅ Все системы запущены в отдельных окнах!');
-        console.log('📊 Мониторинг: отдельное окно терминала');
-        console.log('🖥️  Сервер: http://localhost:8000');
-        console.log('🌐 Клиент: http://localhost:3000');
-        console.log('\n💡 Закройте окна терминалов для остановки систем\n');
-        
+        console.log('\n[OK] Все системы запущены в отдельных окнах!');
+        console.log('[*] Мониторинг: отдельное окно терминала');
+        console.log('[*]  Сервер: http://localhost:8000');
+        console.log('[*] Клиент: http://localhost:3000');
+        console.log('\n[!] Закройте окна терминалов для остановки систем\n');
+
         // Завершаем главный процесс - все остальное в отдельных окнах
         process.exit(0);
-        
+
     } catch (error) {
-        console.error('❌ Ошибка запуска:', error);
+        console.error('[X] Ошибка запуска:', error);
         process.exit(1);
     }
 }

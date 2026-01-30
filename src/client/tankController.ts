@@ -2824,6 +2824,57 @@ export class TankController {
         return closestTarget;
     }
 
+    // === АВТОНАВОДКА ПО ВЕРТИКАЛИ: Найти врага в вертикальном диапазоне ±2.5° ===
+    private findTargetInVerticalRange(
+        origin: Vector3,
+        barrelDirection: Vector3,
+        maxDistance: number = 200,
+        verticalAngleTolerance: number = 0.0436 // ±2.5° в радианах
+    ): Vector3 | null {
+        // Используем статический список всех врагов
+        const enemies = EnemyTank.getAllEnemies();
+        if (!enemies || enemies.length === 0) return null;
+
+        // Вычисляем вертикальный угол (pitch) направления ствола
+        const barrelHorizontalDist = Math.sqrt(barrelDirection.x * barrelDirection.x + barrelDirection.z * barrelDirection.z);
+        const barrelPitch = Math.atan2(barrelDirection.y, barrelHorizontalDist);
+
+        let closestTarget: Vector3 | null = null;
+        let closestDistance = maxDistance;
+
+        for (const enemy of enemies) {
+            if (!enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
+
+            const enemyPos = enemy.chassis.getAbsolutePosition();
+            const toEnemy = enemyPos.subtract(origin);
+            const distance = toEnemy.length();
+
+            if (distance > maxDistance || distance < 5) continue; // Слишком далеко или слишком близко
+
+            // Вычисляем горизонтальное расстояние и вертикальную разницу
+            const dx = toEnemy.x;
+            const dy = toEnemy.y;
+            const dz = toEnemy.z;
+            const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+
+            // Вычисляем вертикальный угол (pitch) к врагу
+            const enemyPitch = Math.atan2(dy, horizontalDist);
+
+            // Проверяем разницу вертикальных углов
+            const pitchDiff = Math.abs(enemyPitch - barrelPitch);
+
+            // Если враг в вертикальном диапазоне ±2.5°
+            if (pitchDiff <= verticalAngleTolerance && distance < closestDistance) {
+                closestDistance = distance;
+                // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+                if (closestTarget) vector3Pool.release(closestTarget);
+                closestTarget = vector3Pool.acquire(enemyPos.x, enemyPos.y, enemyPos.z);
+            }
+        }
+
+        return closestTarget;
+    }
+
     fire() {
         try {
             if (!this.isAlive) return;
@@ -2848,16 +2899,20 @@ export class TankController {
             // Это гарантирует, что снаряд полетит строго туда, куда смотрит ствол
             let shootDirection = this.barrel.getDirection(Vector3.Forward()).normalize();
 
-            // === АВТОНАВОДКА ===
-            // Проверяем, есть ли враг строго в линии огня (узкий конус)
+            // === АВТОНАВОДКА ПО ВЕРТИКАЛИ ===
+            // Проверяем, есть ли враг в вертикальном диапазоне ±2.5°
             const muzzlePreviewPos = this.barrel.getAbsolutePosition();
-            const autoAimTarget = this.findTargetInLineOfFire(muzzlePreviewPos, shootDirection, 200, 0.08);
+            const verticalAimTarget = this.findTargetInVerticalRange(
+                muzzlePreviewPos,
+                shootDirection,
+                200,
+                0.0436 // ±2.5° в радианах
+            );
 
-            if (autoAimTarget) {
-                // Корректируем направление на врага
-                const correctedDir = autoAimTarget.subtract(muzzlePreviewPos).normalize();
-                // Плавно смешиваем направление (80% коррекция, 20% исходное)
-                shootDirection = shootDirection.scale(0.2).add(correctedDir.scale(0.8)).normalize();
+            if (verticalAimTarget) {
+                // Враг в вертикальном диапазоне - направляем снаряд точно на него (100% коррекция)
+                const correctedDir = verticalAimTarget.subtract(muzzlePreviewPos).normalize();
+                shootDirection = correctedDir; // Полная коррекция для упрощения геймплея
             }
 
 

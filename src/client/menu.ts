@@ -841,6 +841,7 @@ export class MainMenu {
                 <div class="menu-footer">
                     <div class="controls-panel">
                         <div class="controls-title" id="controls-title">
+                            <span class="btn-icon">🎮</span>
                             <span>${L.controls}</span>
                             <button class="controls-toggle-btn" id="controls-toggle-btn" title="Развернуть/Свернуть">▼</button>
                         </div>
@@ -997,7 +998,7 @@ export class MainMenu {
             <div class="lobby-panel" id="lobby-panel">
                 <div class="lobby-header">
                     <button class="lobby-toggle-btn" id="lobby-toggle-btn" title="Свернуть/Развернуть">◀</button>
-                    <span class="lobby-title">👥 ЛОББИ</span>
+                    <span class="lobby-title" id="lobby-title-btn" style="cursor: pointer;" title="Открыть расширенное лобби">👥 ЛОББИ</span>
                     <span class="lobby-collapsed-icon" id="lobby-collapsed-icon">👥</span>
                     <div class="lobby-header-right">
                         <span class="lobby-count" id="lobby-count">0</span>
@@ -1811,33 +1812,32 @@ export class MainMenu {
             }
 
             .controls-panel {
-                background: rgba(0, 30, 0, 0.8);
+                background: rgba(0, 30, 0, 0.6);
                 border: 2px solid #0f0;
-                padding: 15px;
+                padding: 0;
             }
 
             .controls-title {
-                font-size: 12px;
+                font-size: 10px;
                 color: #0f0;
                 text-align: center;
-                margin-bottom: 15px;
+                padding: 12px 20px;
                 text-shadow: 0 0 5px #0f0;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 gap: 10px;
                 cursor: pointer;
+                transition: all 0.2s;
+                font-family: 'Press Start 2P', monospace;
+            }
+
+            .controls-title:hover {
+                background: rgba(0, 255, 0, 0.1);
             }
 
             .controls-toggle-btn {
-                background: rgba(0, 255, 0, 0.2);
-                border: 1px solid #0f0;
-                color: #0f0;
-                font-size: 10px;
-                padding: 2px 6px;
-                cursor: pointer;
-                border-radius: 3px;
-                transition: all 0.2s;
+                display: none;
             }
 
             .controls-toggle-btn:hover {
@@ -2397,11 +2397,16 @@ export class MainMenu {
                 border: 1px solid rgba(0, 255, 0, 0.3);
                 color: #0f0;
                 font-size: 11px;
-                padding: 4px 8px;
+                width: 28px;
+                height: 28px;
+                padding: 0;
                 border-radius: 3px;
                 cursor: pointer;
                 transition: all 0.2s;
                 font-family: 'Press Start 2P', monospace;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
 
             .lobby-toggle-btn {
@@ -2409,13 +2414,18 @@ export class MainMenu {
                 border: 1px solid rgba(0, 255, 0, 0.3);
                 color: #0f0;
                 font-size: 11px;
-                padding: 4px 8px;
+                width: 28px;
+                height: 28px;
+                padding: 0;
                 border-radius: 3px;
                 cursor: pointer;
                 transition: all 0.2s;
                 font-family: 'Press Start 2P', monospace;
                 margin-right: 8px;
                 flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
 
             .lobby-toggle-btn:hover,
@@ -2446,11 +2456,16 @@ export class MainMenu {
                 border: 1px solid rgba(0, 255, 0, 0.3);
                 color: #0f0;
                 font-size: 11px;
-                padding: 4px 8px;
+                width: 28px;
+                height: 28px;
+                padding: 0;
                 border-radius: 3px;
                 cursor: pointer;
                 transition: all 0.2s;
                 font-family: 'Press Start 2P', monospace;
+                display: flex;
+                align-items: center;
+                justify-content: center;
             }
 
             .lobby-auto-refresh-toggle:hover {
@@ -10502,8 +10517,9 @@ transition: all 0.2s;
             hasRendered = true;
         }
 
-        // Игроки в моей комнате
-        if (inMyRoom.length > 0) {
+        // Игроки в моей комнате (исключая себя) - показываем только если есть другие игроки
+        // ИСПРАВЛЕНО: Не показываем секцию если в комнате только я один
+        if (inMyRoom.length > 0 && currentRoomId) {
             if (hasRendered) {
                 this.renderGroupSeparator(playersList);
             }
@@ -11433,6 +11449,15 @@ transition: all 0.2s;
                 this.toggleLobbyPanel();
             }
         });
+
+        // Клик по заголовку "ЛОББИ" - открыть расширенное модальное лобби
+        const lobbyTitleBtn = document.getElementById("lobby-title-btn");
+        if (lobbyTitleBtn) {
+            lobbyTitleBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.showExpandedLobbyModal();
+            });
+        }
     }
 
     /**
@@ -11459,6 +11484,235 @@ transition: all 0.2s;
             localStorage.setItem("lobbyCollapsed", "true");
             debugLog("[Menu] Лобби свернуто");
         }
+    }
+
+    /**
+     * Показать расширенное модальное окно лобби
+     */
+    private showExpandedLobbyModal(): void {
+        // Удаляем существующее окно если есть
+        let existingModal = document.getElementById("expanded-lobby-modal");
+        if (existingModal) existingModal.remove();
+
+        // Создаем overlay
+        const overlay = document.createElement("div");
+        overlay.id = "expanded-lobby-modal";
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85); z-index: 150000;
+            display: flex; align-items: center; justify-content: center;
+            backdrop-filter: blur(4px);
+            opacity: 0; transition: opacity 0.2s;
+        `;
+
+        // Создаем модальное окно
+        const modal = document.createElement("div");
+        modal.style.cssText = `
+            width: 800px; max-width: 95vw; max-height: 90vh;
+            background: rgba(0, 20, 0, 0.98); border: 2px solid #0f0;
+            box-shadow: 0 0 50px rgba(0, 255, 0, 0.3);
+            border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;
+            transform: scale(0.9); transition: transform 0.2s;
+        `;
+
+        modal.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(0, 50, 0, 0.8); border-bottom: 1px solid #0f0;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 18px;">👥</span>
+                    <span style="color: #0f0; font-family: 'Press Start 2P'; font-size: 14px; text-shadow: 0 0 10px #0f0;">ЛОББИ</span>
+                </div>
+                <button id="expanded-lobby-close" style="background: none; border: none; color: #0f0; font-size: 20px; cursor: pointer; padding: 0;">✕</button>
+            </div>
+            
+            <div style="display: flex; border-bottom: 1px solid rgba(0, 255, 0, 0.3);">
+                <button class="exp-lobby-tab active" data-tab="rooms" style="flex: 1; padding: 12px; background: rgba(0, 100, 0, 0.3); border: none; border-right: 1px solid rgba(0, 255, 0, 0.3); color: #0f0; font-family: 'Press Start 2P'; font-size: 9px; cursor: pointer;">[СПИСОК КОМНАТ]</button>
+                <button class="exp-lobby-tab" data-tab="players" style="flex: 1; padding: 12px; background: transparent; border: none; border-right: 1px solid rgba(0, 255, 0, 0.3); color: #7f7; font-family: 'Press Start 2P'; font-size: 9px; cursor: pointer;">[ИГРОКИ ОНЛАЙН]</button>
+                <button class="exp-lobby-tab" data-tab="friends" style="flex: 1; padding: 12px; background: transparent; border: none; border-right: 1px solid rgba(0, 255, 0, 0.3); color: #7f7; font-family: 'Press Start 2P'; font-size: 9px; cursor: pointer;">[ДРУЗЬЯ]</button>
+                <button class="exp-lobby-tab" data-tab="chat" style="flex: 1; padding: 12px; background: transparent; border: none; color: #7f7; font-family: 'Press Start 2P'; font-size: 9px; cursor: pointer;">[ЧАТ]</button>
+            </div>
+            
+            <div style="display: flex; padding: 10px 15px; background: rgba(0, 30, 0, 0.5); border-bottom: 1px solid rgba(0, 255, 0, 0.2); font-size: 8px; color: #7f7;">
+                <span style="flex: 2;">КОМНАТА</span>
+                <span style="width: 60px; text-align: center;">СТАТУС</span>
+                <span style="width: 60px; text-align: center;">ИГРОКОВ</span>
+                <span style="width: 50px; text-align: center;">PING</span>
+            </div>
+            
+            <div id="exp-lobby-content" style="flex: 1; overflow-y: auto; padding: 10px; max-height: 400px;">
+                <div id="exp-lobby-rooms" class="exp-lobby-tab-content">
+                    <div style="text-align: center; padding: 40px; color: #7f7;">Загрузка комнат...</div>
+                </div>
+                <div id="exp-lobby-players" class="exp-lobby-tab-content" style="display: none;">
+                    <div style="text-align: center; padding: 40px; color: #7f7;">Загрузка игроков...</div>
+                </div>
+                <div id="exp-lobby-friends" class="exp-lobby-tab-content" style="display: none;">
+                    <div style="text-align: center; padding: 40px; color: #7f7;">Нет друзей онлайн</div>
+                </div>
+                <div id="exp-lobby-chat" class="exp-lobby-tab-content" style="display: none;">
+                    <div style="text-align: center; padding: 40px; color: #7f7;">Чат сервера</div>
+                </div>
+            </div>
+            
+            <div style="padding: 15px; border-top: 1px solid rgba(0, 255, 0, 0.3); background: rgba(0, 30, 0, 0.5);">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <span style="color: #0f0; font-size: 10px;">💬 ЧАТ</span>
+                    <span style="flex: 1; color: #7f7; font-size: 9px;">Добро пожаловать в общий чат!</span>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <input type="text" id="exp-lobby-chat-input" placeholder="Введите сообщение..." style="flex: 1; padding: 10px; background: rgba(0, 10, 0, 0.8); border: 1px solid #0f0; border-radius: 4px; color: #fff; font-family: monospace;">
+                    <button id="exp-lobby-chat-send" style="padding: 10px 15px; background: #0f0; border: none; color: #000; font-weight: bold; cursor: pointer; border-radius: 4px;">➤</button>
+                </div>
+            </div>
+        `;
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Анимация появления
+        requestAnimationFrame(() => {
+            overlay.style.opacity = "1";
+            modal.style.transform = "scale(1)";
+        });
+
+        // Закрытие
+        const closeModal = () => {
+            overlay.style.opacity = "0";
+            modal.style.transform = "scale(0.9)";
+            setTimeout(() => overlay.remove(), 200);
+        };
+
+        document.getElementById("expanded-lobby-close")?.addEventListener("click", closeModal);
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) closeModal();
+        });
+
+        // Обработка ESC
+        const escHandler = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                e.stopPropagation();
+                e.preventDefault();
+                closeModal();
+                document.removeEventListener("keydown", escHandler, true);
+            }
+        };
+        document.addEventListener("keydown", escHandler, { capture: true });
+
+        // Переключение вкладок
+        const tabs = modal.querySelectorAll(".exp-lobby-tab");
+        tabs.forEach(tab => {
+            tab.addEventListener("click", () => {
+                const tabId = (tab as HTMLElement).dataset.tab;
+                tabs.forEach(t => {
+                    (t as HTMLElement).classList.remove("active");
+                    (t as HTMLElement).style.background = "transparent";
+                    (t as HTMLElement).style.color = "#7f7";
+                });
+                (tab as HTMLElement).classList.add("active");
+                (tab as HTMLElement).style.background = "rgba(0, 100, 0, 0.3)";
+                (tab as HTMLElement).style.color = "#0f0";
+
+                // Показываем соответствующий контент
+                document.querySelectorAll(".exp-lobby-tab-content").forEach(content => {
+                    (content as HTMLElement).style.display = "none";
+                });
+                const contentEl = document.getElementById(`exp-lobby-${tabId}`);
+                if (contentEl) contentEl.style.display = "block";
+            });
+        });
+
+        // Загружаем данные комнат
+        this.loadExpandedLobbyRooms();
+    }
+
+    /**
+     * Загрузка списка комнат для расширенного лобби
+     */
+    private loadExpandedLobbyRooms(): void {
+        const container = document.getElementById("exp-lobby-rooms");
+        if (!container) return;
+
+        const game = (window as any).gameInstance as any;
+        const mm = game?.multiplayerManager;
+
+        if (!mm || !mm.isConnected()) {
+            container.innerHTML = `<div style="text-align: center; padding: 40px; color: #f77;">⚠️ Не подключен к серверу</div>`;
+            return;
+        }
+
+        // Получаем список комнат
+        const rooms = mm.getRoomList?.() || [];
+
+        if (rooms.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #7f7;">
+                    <div style="font-size: 24px; margin-bottom: 10px;">🏠</div>
+                    <div>Нет активных комнат</div>
+                    <button id="exp-lobby-create-room" style="margin-top: 20px; padding: 12px 24px; background: #0f0; border: none; color: #000; font-weight: bold; font-family: 'Press Start 2P'; font-size: 10px; cursor: pointer; border-radius: 4px;">+ СОЗДАТЬ КОМНАТУ</button>
+                </div>
+            `;
+            document.getElementById("exp-lobby-create-room")?.addEventListener("click", () => {
+                document.getElementById("expanded-lobby-modal")?.remove();
+                this.showPlayWindow();
+            });
+            return;
+        }
+
+        // Рендерим комнаты
+        container.innerHTML = rooms.map((room: any) => `
+            <div class="exp-lobby-room-card" data-room-id="${room.id}" style="
+                display: flex; align-items: center; gap: 15px; padding: 12px;
+                background: rgba(0, 40, 0, 0.4); border: 1px solid rgba(0, 255, 0, 0.3);
+                margin-bottom: 8px; border-radius: 6px; cursor: pointer;
+                transition: all 0.2s;
+            ">
+                <div style="width: 120px; height: 70px; background: rgba(0, 20, 0, 0.8); border: 1px solid #0f0; border-radius: 4px; overflow: hidden;">
+                    <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #0f0; font-size: 24px;">🗺️</div>
+                </div>
+                <div style="flex: 1;">
+                    <div style="color: #0f0; font-family: 'Press Start 2P'; font-size: 11px; margin-bottom: 6px;">[КОМНАТА ${room.id.slice(-4).toUpperCase()}]</div>
+                    <div style="color: #7f7; font-size: 10px;">Игроков: ${room.players || 0}</div>
+                    <div style="color: #5f5; font-size: 9px; margin-top: 4px;">${room.mapName || "Стандартная карта"}</div>
+                </div>
+                <div style="text-align: center; width: 60px;">
+                    <div style="color: ${room.isActive ? "#4ade80" : "#a78bfa"}; font-size: 10px;">${room.isActive ? "В ИГРЕ" : "ЛОББИ"}</div>
+                </div>
+                <div style="text-align: center; width: 60px;">
+                    <div style="color: #0ff; font-size: 12px;">👥 ${room.players || 0}</div>
+                </div>
+                <div style="text-align: center; width: 50px;">
+                    <div style="color: #4ade80; font-size: 10px;">${room.ping || "--"}</div>
+                </div>
+                <button class="exp-lobby-join-btn" data-room-id="${room.id}" style="
+                    padding: 10px 16px; background: #0f0; border: none; color: #000;
+                    font-weight: bold; font-family: 'Press Start 2P'; font-size: 8px;
+                    cursor: pointer; border-radius: 4px;
+                ">ВОЙТИ</button>
+            </div>
+        `).join("");
+
+        // Добавляем обработчики для кнопок входа
+        container.querySelectorAll(".exp-lobby-join-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const roomId = (btn as HTMLElement).dataset.roomId;
+                if (roomId) {
+                    document.getElementById("expanded-lobby-modal")?.remove();
+                    this.joinRoom(roomId);
+                }
+            });
+        });
+
+        // Hover эффекты
+        container.querySelectorAll(".exp-lobby-room-card").forEach(card => {
+            card.addEventListener("mouseenter", () => {
+                (card as HTMLElement).style.background = "rgba(0, 60, 0, 0.6)";
+                (card as HTMLElement).style.borderColor = "#0f0";
+            });
+            card.addEventListener("mouseleave", () => {
+                (card as HTMLElement).style.background = "rgba(0, 40, 0, 0.4)";
+                (card as HTMLElement).style.borderColor = "rgba(0, 255, 0, 0.3)";
+            });
+        });
     }
 
     /**
@@ -15039,32 +15293,50 @@ line - height: 1.4;
         input.focus();
         input.select();
 
+        let isClosing = false;
         const close = (result: string | null) => {
+            if (isClosing) return;
+            isClosing = true;
+
             if (overlay) {
                 overlay.style.opacity = "0";
                 modal.style.transform = "scale(0.9)";
                 setTimeout(() => { if (overlay) overlay.remove(); }, 200);
             }
-            callback(result);
+            try {
+                callback(result);
+            } catch (e) {
+                console.error("Error in modal callback:", e);
+            }
         };
 
-        closeBtn.onclick = () => close(null);
-        cancelBtn.onclick = () => close(null);
+        // Use addEventListener instead of onclick
+        closeBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            close(null);
+        });
 
-        confirmBtn.onclick = () => {
+        cancelBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            close(null);
+        });
+
+        confirmBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
             close(input.value);
-        };
+        });
 
-        input.onkeydown = (e) => {
+        const keyHandler = (e: KeyboardEvent) => {
             e.stopPropagation(); // Avoid triggering game hotkeys
             if (e.key === "Enter") close(input.value);
             if (e.key === "Escape") close(null);
         };
+        input.addEventListener("keydown", keyHandler);
 
         // Close on click outside
-        overlay.onclick = (e) => {
+        overlay.addEventListener("click", (e) => {
             if (e.target === overlay) close(null);
-        };
+        });
     }
 
     private handleCallsignClick(): void {
@@ -15088,12 +15360,15 @@ line - height: 1.4;
                         const mp = game.multiplayerManager;
                         if (typeof (mp as any).localPlayerName !== 'undefined') (mp as any).localPlayerName = cleanName;
                         if (typeof (mp as any).playerName !== 'undefined') (mp as any).playerName = cleanName;
+                        // Force update name locally as well
+                        if (mp.setPlayerName) mp.setPlayerName(cleanName);
                     }
                 } else {
                     localStorage.removeItem("tx_player_name");
                 }
 
-                this.updatePlayerCallsign();
+                // КРИТИЧНО: Принудительное обновление UI сразу после смены
+                this.updatePlayerInfo(true);
             }
         });
     }
@@ -15943,32 +16218,105 @@ line - height: 1.4;
 
     /**
      * ИСПРАВЛЕНО: Универсальная функция для закрытия меню по клику вне окна или ESC
+     * Теперь с корректной приоритизацией и поддержкой всех типов меню
      */
     private setupUniversalMenuCloseHandlers(): void {
         // Обработчик ESC для всех открытых overlay
         const escHandler = (e: KeyboardEvent) => {
-            if (e.key === "Escape" || e.key === "Esc") {
-                // Закрываем все открытые overlay
-                const overlays = document.querySelectorAll('.panel-overlay:not(.hidden)');
-                overlays.forEach(overlay => {
-                    const panel = overlay.querySelector('.panel');
-                    if (panel && (panel as HTMLElement).offsetParent !== null) {
-                        // Ищем кнопку закрытия или вызываем hide
-                        const closeBtn = panel.querySelector('.panel-close, .garage-close, [data-nav="close"]');
+            if (e.key !== "Escape" && e.key !== "Esc") return;
+
+            // 1. GARAGE (Самый высокий приоритет)
+            if (this.garage && (this.garage as any).isGarageOpen()) {
+                debugLog("[Menu] Closing Garage via ESC");
+                (this.garage as any).close();
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation(); // Важно: предотвращаем открытие паузы
+                return;
+            }
+
+            // 2. AUTH UI (Модальные окна входа/регистрации)
+            const authContainer = document.getElementById("auth-ui-container");
+            if (authContainer && authContainer.style.display !== "none" && authContainer.offsetParent !== null) {
+                debugLog("[Menu] Closing Auth UI via ESC");
+                const closeBtn = document.getElementById("auth-close");
+                if (closeBtn) {
+                    closeBtn.click();
+                } else {
+                    authContainer.style.display = "none";
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                return;
+            }
+
+            // 3. PANELS (Обычные панели)
+            // Список панелей для проверки в порядке приоритета
+            const panelsToCheck = [
+                // Специализированные панели
+                { el: this.settingsPanel, name: "Settings" },
+                { el: this.statsPanel, name: "Stats" },
+                { el: this.skillsPanel, name: "Skills" },
+                { el: this.progressPanel, name: "Progress" },
+                { el: this.mapSelectionPanel, name: "MapSelection" },
+                { el: this.playMenuPanel, name: "PlayMenu" }
+            ];
+
+            // Проверяем явные панели
+            for (const item of panelsToCheck) {
+                if (item.el && (item.el.classList.contains("visible") || item.el.style.display === "flex" || item.el.style.display === "block")) {
+                    // Проверяем, что элемент реально видим
+                    if (item.el.offsetParent !== null) {
+                        debugLog(`[Menu] Closing ${item.name} panel via ESC`);
+
+                        // Пытаемся найти кнопку закрытия внутри панели
+                        // Ищем стандартные классы или data-атрибуты, или специфические ID
+                        const closeBtn = item.el.querySelector('.panel-close, .garage-close, [data-nav="close"], .window-btn[data-nav="close"]');
+
                         if (closeBtn) {
                             (closeBtn as HTMLElement).click();
                         } else {
-                            // Если нет кнопки, просто скрываем overlay
-                            (overlay as HTMLElement).style.display = 'none';
-                            (overlay as HTMLElement).classList.add('hidden');
-                        }
-                    }
-                });
+                            // Если кнопки нет, просто скрываем
+                            item.el.classList.remove("visible");
+                            item.el.classList.add("hidden");
+                            item.el.style.display = "none";
 
-                // Закрываем play menu panel
-                const playMenuPanel = document.getElementById('play-menu-panel');
-                if (playMenuPanel && playMenuPanel.offsetParent !== null) {
-                    playMenuPanel.classList.remove('visible');
+                            // Спец. логика для PlayMenu - возвращаем главные кнопки
+                            if (item.name === "PlayMenu") {
+                                const mainButtons = document.getElementById("main-buttons");
+                                if (mainButtons) mainButtons.style.display = "flex";
+                            }
+                        }
+
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.stopImmediatePropagation();
+                        return;
+                    }
+                }
+            }
+
+            // 4. GENERIC OVERLAYS (Остальные оверлеи)
+            // Fallback для любых других панелей с классом panel-overlay
+            const overlays = document.querySelectorAll('.panel-overlay:not(.hidden)');
+            for (let i = 0; i < overlays.length; i++) {
+                const overlay = overlays[i] as HTMLElement;
+                if (overlay.offsetParent !== null && overlay.style.display !== "none") {
+                    debugLog("[Menu] Closing generic overlay via ESC");
+
+                    const closeBtn = overlay.querySelector('.panel-close, .garage-close, [data-nav="close"]');
+                    if (closeBtn) {
+                        (closeBtn as HTMLElement).click();
+                    } else {
+                        overlay.style.display = 'none';
+                        overlay.classList.add('hidden');
+                    }
+
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    return;
                 }
             }
         };
@@ -15978,28 +16326,38 @@ line - height: 1.4;
             const target = e.target as HTMLElement;
             if (!target) return;
 
-            // Проверяем все overlay
+            // Проверяем все Generic overlay
             const overlays = document.querySelectorAll('.panel-overlay:not(.hidden)');
             overlays.forEach(overlay => {
-                const panel = overlay.querySelector('.panel');
+                const panel = overlay.querySelector('.panel, .panel-content');
                 if (panel && (panel as HTMLElement).offsetParent !== null) {
                     // Если клик был вне панели, закрываем
-                    if (!panel.contains(target) && overlay === target) {
-                        const closeBtn = panel.querySelector('.panel-close, .garage-close, [data-nav="close"]');
-                        if (closeBtn) {
-                            (closeBtn as HTMLElement).click();
-                        } else {
-                            (overlay as HTMLElement).style.display = 'none';
-                            (overlay as HTMLElement).classList.add('hidden');
+                    if (!panel.contains(target) && (overlay === target || overlay.contains(target))) {
+                        // Убедимся что клик был именно по оверлею (фону), а не по панели
+                        if (overlay === target) {
+                            const closeBtn = panel.querySelector('.panel-close, .garage-close, [data-nav="close"]');
+                            if (closeBtn) {
+                                (closeBtn as HTMLElement).click();
+                            } else {
+                                (overlay as HTMLElement).style.display = 'none';
+                                (overlay as HTMLElement).classList.add('hidden');
+                            }
                         }
                     }
                 }
             });
+
+            // Auth UI
+            const authContainer = document.getElementById("auth-ui-container");
+            if (authContainer && authContainer === target && authContainer.style.display !== "none") {
+                const closeBtn = document.getElementById("auth-close");
+                if (closeBtn) closeBtn.click();
+            }
         };
 
-        // Добавляем обработчики
-        document.addEventListener('keydown', escHandler, { signal: this.abortController.signal });
-        document.addEventListener('click', clickOutsideHandler, { signal: this.abortController.signal });
+        // Добавляем обработчики с capture чтобы перехватить до того как они уйдут в игру
+        document.addEventListener('keydown', escHandler, { capture: true, signal: this.abortController.signal });
+        document.addEventListener('click', clickOutsideHandler, { capture: true, signal: this.abortController.signal });
     }
 
     /**

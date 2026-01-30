@@ -4697,12 +4697,12 @@ export class EnemyTank {
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
-        // ИСПРАВЛЕНО: Уменьшен допуск для более точной стрельбы
-        // Nightmare: 0.05 радиан (~2.9 градуса) - МАКСИМАЛЬНАЯ точность!
-        // Hard: 0.08 радиан (~4.5 градуса) - точная стрельба
-        // Medium: 0.10 радиан (~5.7 градусов)
-        // Easy: 0.12 радиан (~7 градусов)
-        const tolerance = this.difficulty === "nightmare" ? 0.05 : (this.difficulty === "hard" ? 0.08 : (this.difficulty === "medium" ? 0.10 : 0.12));
+        // КРИТИЧНО ИСПРАВЛЕНО: Увеличен допуск для АГРЕССИВНОЙ стрельбы!
+        // Nightmare: 0.30 радиан (~17 градусов) - ПОДАВЛЯЮЩИЙ ОГОНЬ!
+        // Hard: 0.25 радиан (~14 градусов) - агрессивная стрельба
+        // Medium: 0.20 радиан (~11 градусов)
+        // Easy: 0.15 радиан (~8.5 градусов)
+        const tolerance = this.difficulty === "nightmare" ? 0.30 : (this.difficulty === "hard" ? 0.25 : (this.difficulty === "medium" ? 0.20 : 0.15));
         return Math.abs(angleDiff) < tolerance;
     }
 
@@ -4711,29 +4711,32 @@ export class EnemyTank {
     private fire(): void {
         if (!this.isAlive) return;
 
-        // КРИТИЧНО: Не стреляем если нет прямой видимости к цели!
-        // Это предотвращает стрельбу в стены когда игрок за укрытием
-        if (!this.canShootAtTarget()) {
-            logger.debug(`[EnemyTank ${this.id}] BLOCKED: canShootAtTarget() returned false`);
-            return; // Цель не видна - не стреляем
-        }
-
-        // ИСПРАВЛЕНО: Не стреляем если башня не наведена на цель!
-        if (!this.isAimedAtTarget()) {
-            logger.debug(`[EnemyTank ${this.id}] BLOCKED: isAimedAtTarget() returned false`);
-            return; // Ждём пока башня наведётся
-        }
-
-        // ИСПРАВЛЕНО: Не стреляем если цель за пределами эффективной дальности оружия
+        // Вычисляем дистанцию до цели для условий близкого боя
+        let isCloseRange = false;
         if (this.target && this.target.chassis) {
             const distance = Vector3.Distance(this.chassis.absolutePosition, this.target.chassis.absolutePosition);
-            if (distance > this.attackRange) {
-                logger.debug(`[EnemyTank ${this.id}] BLOCKED: distance ${distance.toFixed(1)} > attackRange ${this.attackRange}`);
-                return; // Цель слишком далеко для этого оружия
+            isCloseRange = distance < 50; // На близкой дистанции (<50м) стреляем ВСЕГДА!
+        }
+
+        // КРИТИЧНО: На близкой дистанции (<50м) ПОЛНОСТЬЮ пропускаем проверки видимости!
+        // Это гарантирует что боты стреляют в игрока когда он рядом
+        if (!isCloseRange) {
+            // Проверяем видимость только на дальней дистанции
+            if (!this.canShootAtTarget()) {
+                logger.debug(`[EnemyTank ${this.id}] BLOCKED: canShootAtTarget() returned false`);
+                return;
             }
         }
 
-        logger.debug(`[EnemyTank ${this.id}] FIRE!`);
+        // ИСПРАВЛЕНО: isAimedAtTarget проверяем только на дальней дистанции
+        // На близкой дистанции - стреляем даже если башня не полностью наведена!
+        if (!isCloseRange && !this.isAimedAtTarget()) {
+            logger.debug(`[EnemyTank ${this.id}] BLOCKED: isAimedAtTarget() returned false`);
+            return;
+        }
+
+        // Проверка дальности - убрана! Боты стреляют на любой дистанции если видят цель
+        logger.debug(`[EnemyTank ${this.id}] FIRE! (closeRange: ${isCloseRange})`);
 
         // === GET MUZZLE POSITION AND DIRECTION FROM BARREL ===
         const barrelDir = this.barrel.getDirection(Vector3.Forward()).normalize();

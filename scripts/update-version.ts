@@ -31,33 +31,33 @@ function writeVersion(version: VersionInfo): void {
 
 function updateMenuTs(version: VersionInfo): void {
   if (!fs.existsSync(MENU_TS)) {
-    console.warn('⚠️ menu.ts not found, skipping version update');
+    console.warn('[!] menu.ts not found, skipping version update');
     return;
   }
-  
+
   let content = fs.readFileSync(MENU_TS, 'utf-8');
-  
+
   // Обновляем VERSION_MAJOR
   content = content.replace(
     /const VERSION_MAJOR = \d+;/,
     `const VERSION_MAJOR = ${version.major};`
   );
-  
+
   // Обновляем VERSION_MINOR
   content = content.replace(
     /const VERSION_MINOR = \d+;/,
     `const VERSION_MINOR = ${version.minor};`
   );
-  
+
   fs.writeFileSync(MENU_TS, content, 'utf-8');
 }
 
 function updatePackageJson(version: VersionInfo): void {
   if (!fs.existsSync(PACKAGE_JSON)) {
-    console.warn('⚠️ package.json not found, skipping version update');
+    console.warn('[!] package.json not found, skipping version update');
     return;
   }
-  
+
   const content = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf-8'));
   content.version = `${version.major}.${version.minor}.${version.build}`;
   fs.writeFileSync(PACKAGE_JSON, JSON.stringify(content, null, 2) + '\n', 'utf-8');
@@ -66,18 +66,18 @@ function updatePackageJson(version: VersionInfo): void {
 function updateViteConfig(version: VersionInfo): void {
   const VITE_CONFIG = path.resolve(__dirname, '../vite.config.ts');
   if (!fs.existsSync(VITE_CONFIG)) {
-    console.warn('⚠️ vite.config.ts not found, skipping version update');
+    console.warn('[!] vite.config.ts not found, skipping version update');
     return;
   }
-  
+
   let content = fs.readFileSync(VITE_CONFIG, 'utf-8');
-  
+
   // Обновляем версию в versionPlugin
   content = content.replace(
     /const version = `v\d+\.\d+\.\d+/,
     `const version = \`v${version.major}.${version.minor}.${version.build}`
   );
-  
+
   fs.writeFileSync(VITE_CONFIG, content, 'utf-8');
 }
 
@@ -85,13 +85,13 @@ export function incrementVersion(): VersionInfo {
   const version = readVersion();
   version.build += 1;
   writeVersion(version);
-  
+
   updateMenuTs(version);
   updatePackageJson(version);
   updateViteConfig(version);
-  
-  console.log(`✅ Version updated to v${version.major}.${version.minor}.${version.build}`);
-  
+
+  console.log(`[OK] Version updated to v${version.major}.${version.minor}.${version.build}`);
+
   return version;
 }
 
@@ -105,13 +105,13 @@ export function setVersion(major: number, minor: number, build: number): void {
   updateMenuTs(version);
   updatePackageJson(version);
   updateViteConfig(version);
-  console.log(`✅ Version set to v${version.major}.${version.minor}.${version.build}`);
+  console.log(`[OK] Version set to v${version.major}.${version.minor}.${version.build}`);
 }
 
 // Если скрипт запущен напрямую
 if (require.main === module) {
   const args = process.argv.slice(2);
-  
+
   if (args[0] === 'set' && args.length === 4) {
     const major = parseInt(args[1] || '0');
     const minor = parseInt(args[2] || '0');
