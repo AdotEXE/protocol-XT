@@ -68,6 +68,9 @@ export class NetworkPlayerTank {
     private _cachedAverageFrame = -1;
     private _lastBufferUpdateFrame = -1;
 
+    // Сглаживание Y
+    private _smoothedTargetY: number | null = null;
+    private _isStationary: boolean = false;
 
     private _lastBufferHash = 0; // Хэш для отслеживания изменений буфера
 
@@ -116,6 +119,9 @@ export class NetworkPlayerTank {
     // Debug counter for rotation logging
     private _rotLogCounter: number = 0;
 
+    // Debug counter for update logging
+    private _updateCounter: number = 0;
+
     // Animation elements for chassis (hover, stealth, etc.)
     private chassisAnimationElements: ChassisAnimationElements = {};
 
@@ -140,8 +146,6 @@ export class NetworkPlayerTank {
 
         // Get tank types from network player or use defaults
         this.chassisType = getChassisById(networkPlayer.chassisType || "medium");
-        // Get tank types from network player or use defaults
-        this.chassisType = getChassisById(networkPlayer.chassisType || "medium");
         this.cannonType = getCannonById(networkPlayer.cannonType || "standard");
         // Track type from network player
         this.trackType = getTrackById(networkPlayer.trackType || "standard");
@@ -157,12 +161,12 @@ export class NetworkPlayerTank {
         // Set initial position
         if (networkPlayer.position) {
             this.chassis.position.copyFrom(networkPlayer.position);
-            // Ensure tank is above ground
-            if (this.chassis.position.y < 1) {
-                this.chassis.position.y = 1;
-            }
+
+            // КРИТИЧНО: Проверяем высоту террейна для правильного спавна
+            // Используем отложенную проверку, чтобы карта успела загрузиться
+            this.correctSpawnHeight();
         } else {
-            this.chassis.position.set(0, 1, 0);
+            this.chassis.position.set(0, 2, 0);
         }
 
         // Set initial rotation
@@ -411,7 +415,20 @@ export class NetworkPlayerTank {
      * Update attached visual modules
      */
     updateModules(moduleIds?: string[]): void {
-        console.log(`[NetworkPlayerTank] Updating modules for ${this.playerId}:`, moduleIds);
+        // ОПТИМИЗАЦИЯ: Проверяем, изменились ли модули перед обновлением
+        const currentModuleIds = Array.from(this.attachedModules.keys());
+        const newModuleIds = moduleIds || [];
+
+        // Если модули не изменились, пропускаем обновление
+        if (currentModuleIds.length === newModuleIds.length &&
+            currentModuleIds.every((id, idx) => id === newModuleIds[idx])) {
+            return; // Модули не изменились, не обновляем
+        }
+
+        // Логируем только если модули действительно изменились
+        if (newModuleIds.length > 0 || currentModuleIds.length > 0) {
+            console.log(`[NetworkPlayerTank] Updating modules for ${this.playerId}:`, newModuleIds);
+        }
 
         // Clear existing
         for (const mesh of this.attachedModules.values()) {
@@ -419,7 +436,7 @@ export class NetworkPlayerTank {
         }
         this.attachedModules.clear();
 
-        if (!moduleIds || !Array.isArray(moduleIds)) return;
+        if (!moduleIds || !Array.isArray(moduleIds) || moduleIds.length === 0) return;
 
         // Create new visuals
         for (const modId of moduleIds) {
@@ -720,6 +737,54 @@ export class NetworkPlayerTank {
     }
 
     /**
+     * Корректирует высоту спавна на основе террейна
+     * Вызывается с задержкой, чтобы карта успела загрузиться
+     */
+    private correctSpawnHeight(): void {
+        const game = (window as any).gameInstance;
+        let targetY = this.chassis.position.y;
+
+        // Если позиция подозрительно низкая или равна 0, пересчитываем высоту террейна
+        if (targetY < 0.5 || (game && typeof game.getGroundHeight === 'function')) {
+            // Используем requestAnimationFrame для задержки, чтобы карта успела загрузиться
+            requestAnimationFrame(() => {
+                if (!this.chassis || this.chassis.isDisposed()) return;
+
+                if (game && typeof game.getGroundHeight === 'function') {
+                    const groundHeight = game.getGroundHeight(this.chassis.position.x, this.chassis.position.z);
+                    // Спавн на 1 метр над поверхностью для безопасности
+                    const safeY = groundHeight + 1.0;
+                    if (targetY < safeY || targetY < 0.5) {
+                        targetY = safeY;
+                        this.chassis.position.y = targetY;
+                        // Обновляем позицию в networkPlayer для синхронизации
+                        if (this.networkPlayer.position instanceof Vector3) {
+                            this.networkPlayer.position.y = targetY;
+                        }
+                        console.log(`[NetworkPlayerTank] ${this.playerId} ✅ corrected spawn height from ${this.chassis.position.y.toFixed(2)} to ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
+                    }
+                } else {
+                    // Fallback: минимум 2 метра если game недоступен
+                    if (targetY < 2.0) {
+                        targetY = 2.0;
+                        this.chassis.position.y = targetY;
+                        if (this.networkPlayer.position instanceof Vector3) {
+                            this.networkPlayer.position.y = targetY;
+                        }
+                        console.warn(`[NetworkPlayerTank] ${this.playerId} ⚠️ spawn height too low (${this.chassis.position.y.toFixed(2)}), forcing to 2.0`);
+                    }
+                }
+            });
+        } else {
+            // Если высота нормальная, просто устанавливаем её
+            this.chassis.position.y = targetY;
+            if (this.networkPlayer.position instanceof Vector3) {
+                this.networkPlayer.position.y = targetY;
+            }
+        }
+    }
+
+    /**
      * Пометить, что получено сетевое обновление
      */
     markNetworkUpdate(): void {
@@ -728,10 +793,81 @@ export class NetworkPlayerTank {
     }
 
     /**
+     * Get the world position of the barrel muzzle (tip)
+     * Used for spawning projectiles at the correct visual location
+     */
+    public getBarrelMuzzlePosition(): Vector3 {
+        if (!this.barrel) {
+            // Fallback: center of tank + height
+            return this.chassis ? this.chassis.getAbsolutePosition().add(new Vector3(0, 2, 0)) : Vector3.Zero();
+        }
+
+        // Calculate barrel length (fallback to default if not set)
+        const barrelLength = this.cannonType.barrelLength || 3;
+
+        // Barrel pivot is at the center of the mesh (as created in createDetailedBarrel)
+        // So we take current barrel absolute position (center) and move forward by half length.
+        const barrelPos = this.barrel.getAbsolutePosition();
+
+        // Get forward direction of the barrel
+        // Assuming the barrel mesh is aligned with Z axis being forward in local space
+        const forward = this.barrel.getDirection(Vector3.Forward());
+
+        // Add half length to reach the tip
+        // Added small offset (0.2) to ensure it spawns just outside the visual mesh
+        return barrelPos.add(forward.scale((barrelLength * 0.5) + 0.2));
+    }
+
+    /**
+     * Проверяет целостность иерархии танка и восстанавливает её при необходимости.
+     * Исправляет проблему "разваливания" танка на части.
+     */
+    private validateParts(): void {
+        if (!this.chassis || this.chassis.isDisposed()) return;
+
+        const h = this.chassisType.height;
+        const d = this.chassisType.depth;
+
+        // 1. Проверка башни
+        if (this.turret && !this.turret.isDisposed()) {
+            if (this.turret.parent !== this.chassis) {
+                // Восстанавливаем родителя
+                this.turret.parent = this.chassis;
+
+                // Восстанавливаем локальную позицию (как в createDetailedTurret)
+                const turretHeight = h * 0.75;
+                this.turret.position.set(0, h / 2 + turretHeight / 2, 0);
+                this.turret.rotation.z = 0;
+                this.turret.rotation.x = 0;
+            }
+        }
+
+        // 2. Проверка ствола
+        if (this.barrel && !this.barrel.isDisposed() && this.turret && !this.turret.isDisposed()) {
+            if (this.barrel.parent !== this.turret) {
+                // Восстанавливаем родителя
+                this.barrel.parent = this.turret;
+
+                // Восстанавливаем локальную позицию (как в createDetailedBarrel)
+                const barrelLength = this.cannonType.barrelLength || 3;
+                const turretDepth = d * 0.6;
+                const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
+
+                this.barrel.position.set(0, 0, baseBarrelZ);
+                this.barrel.rotation.y = 0;
+                this.barrel.rotation.z = 0;
+            }
+        }
+    }
+
+    /**
      * Обновление танка каждый кадр
      * УПРОЩЕНО: Используем только линейную интерполяцию для стабильности
      */
     update(deltaTime: number): void {
+        // Проверяем и восстанавливаем иерархию (корпус -> башня -> ствол)
+        this.validateParts();
+
         if (!this.chassis || !this.networkPlayer) return;
 
         // Безопасное получение позиции (обрабатываем и Vector3, и plain objects)
@@ -740,6 +876,20 @@ export class NetworkPlayerTank {
         const targetY = typeof np.position?.y === 'number' ? np.position.y : 1;
         const targetZ = typeof np.position?.z === 'number' ? np.position.z : 0;
         const targetRotation = typeof np.rotation === 'number' ? np.rotation : 0;
+
+        // ДИАГНОСТИКА: Логируем обновление позиции (только первые несколько раз)
+        if (this._updateCounter === undefined) this._updateCounter = 0;
+        if (this._updateCounter < 5 || this._updateCounter % 120 === 0) {
+            const currentPos = this.chassis.position;
+            const distance = Math.sqrt(
+                Math.pow(currentPos.x - targetX, 2) +
+                Math.pow(currentPos.z - targetZ, 2)
+            );
+            if (distance > 0.1 || this._updateCounter < 5) {
+                console.log(`[NetworkPlayerTank] ${this.playerId} update: target=(${targetX.toFixed(1)}, ${targetZ.toFixed(1)}), current=(${currentPos.x.toFixed(1)}, ${currentPos.z.toFixed(1)}), distance=${distance.toFixed(2)}`);
+            }
+        }
+        this._updateCounter = (this._updateCounter || 0) + 1;
 
         // Update health bar visibility and distance text
         this.updateHealthBarVisibilityAndDistance();
@@ -783,10 +933,13 @@ export class NetworkPlayerTank {
         // =========================================================================
         // БУФЕРИЗАЦИЯ ПОЗИЦИЙ для сглаживания дёрганья
         // Добавляем новую позицию в буфер если она изменилась
+        // ИСПРАВЛЕНО: Добавлена проверка изменения Y координаты для предотвращения дёрганья
         // =========================================================================
         const lastBuffered = this.positionBuffer[this.positionBuffer.length - 1];
+        // КРИТИЧНО: Y координата требует большего порога для предотвращения дёрганья (квантование 0.1м)
         const posChanged = !lastBuffered ||
             Math.abs(lastBuffered.x - targetX) > 0.01 ||
+            Math.abs(lastBuffered.y - targetY) > 0.25 || // УВЕЛИЧЕН порог до 0.25м (было 0.15) - фильтр квантования
             Math.abs(lastBuffered.z - targetZ) > 0.01;
 
         if (posChanged) {
@@ -835,10 +988,26 @@ export class NetworkPlayerTank {
         }
 
         // Используем последнюю позицию с небольшим сглаживанием к средней
-        // Это даёт баланс между отзывчивостью и плавностью
-        const smoothFactor = 0.7; // 70% к последней позиции, 30% к средней
+        // КРИТИЧНО: Y координата использует более агрессивное сглаживание для устранения дёрганья
+        const smoothFactor = 0.7; // 70% к последней позиции, 30% к средней (для X и Z)
+
+        // --- НОВОЕ СГЛАЖИВАНИЕ Y ---
+        // 1. Инициализация
+        if (this._smoothedTargetY === null) this._smoothedTargetY = targetY;
+
+        // 2. Определение стационарности (если x/z почти не меняются)
+        const isMoving = Math.abs(targetX - (this.positionBuffer[0]?.x || targetX)) > 0.1 ||
+            Math.abs(targetZ - (this.positionBuffer[0]?.z || targetZ)) > 0.1;
+        this._isStationary = !isMoving;
+
+        // 3. Экспоненциальное сглаживание цели
+        // Если стоим - очень сильное сглаживание (0.05), в движении - мягкое (0.2)
+        const yAlpha = this._isStationary ? 0.05 : 0.2;
+        this._smoothedTargetY = this._smoothedTargetY * (1 - yAlpha) + targetY * yAlpha;
+
         const finalTargetX = targetX * smoothFactor + avgX * (1 - smoothFactor);
-        const finalTargetY = targetY * smoothFactor + avgY * (1 - smoothFactor);
+        // Используем сглаженную цель вместо сырой
+        const finalTargetY = this._smoothedTargetY;
         const finalTargetZ = targetZ * smoothFactor + avgZ * (1 - smoothFactor);
 
         // ОПТИМИЗАЦИЯ: Пропускаем интерполяцию для очень малых изменений
@@ -856,11 +1025,21 @@ export class NetworkPlayerTank {
 
         // УПРОЩЁННАЯ ЛИНЕЙНАЯ ИНТЕРПОЛЯЦИЯ
         // Используем базовую интерполяцию без экстраполяции (dead reckoning отключён)
+        // КРИТИЧНО: Y координата интерполируется ОЧЕНЬ медленно для полного устранения дёрганья
         const lerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED);
+        const yLerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED * 0.15); // Y интерполируется в 6.7 раз медленнее (было 0.4)
 
         // Интерполяция позиции (оптимизированная версия)
         this.chassis.position.x += dx * lerpFactor;
-        this.chassis.position.y += dy * lerpFactor;
+
+        // КРИТИЧНО: Фильтрация малых изменений Y (шум квантования)
+        // Если изменение меньше 8 см - вообще не двигаем по Y!
+        if (Math.abs(dy) > 0.08) {
+            this.chassis.position.y += dy * yLerpFactor;
+        } else {
+            // ПОЛНОСТЬЮ ИГНОРИРУЕМ малые изменения (раньше тут была микро-интерполяция)
+            // this.chassis.position.y += dy * yLerpFactor * 0.3; 
+        }
         this.chassis.position.z += dz * lerpFactor;
 
         // Интерполяция вращения корпуса (Yaw, Pitch, Roll)
@@ -950,8 +1129,17 @@ export class NetworkPlayerTank {
         }
 
         // Танк не должен проваливаться под землю
+        // ОТКЛЮЧЕНО: Конфликтует с сервером! Клиент не должен поднимать танк, если сервер говорит "0.4".
+        // Оставляем только защиту от полного проваливания в бездну
+        /*
+        const game = (window as any).gameInstance;
         if (this.chassis.position.y < 0.5) {
-            this.chassis.position.y = 0.5;
+             ... старая логика удалена ...
+        }
+        */
+        // Экстренная защита на случай багов физики
+        if (this.chassis.position.y < -10) {
+            this.chassis.position.y = 2; // Телепорт обратно наверх
         }
 
         // Обновление видимости на основе статуса
@@ -1542,39 +1730,40 @@ export class NetworkPlayerTank {
         const chassisPos = this.chassis.absolutePosition; // Шасси уже перемещено в точку респавна (невидимое)
 
         // Восстанавливаем иерархию виртуально для расчета позиций
+        // КРИТИЧНО: Используем матрицу трансформации корпуса, чтобы учесть поворот танка
+        const chassisWorldMatrix = this.chassis.computeWorldMatrix(true);
+
         for (const part of this.destroyedParts) {
             let targetWorldPos: Vector3;
-            const originalLocal = part.originalLocalPos;
 
-            // Расчет позиции относительно текущего положения шасси (респавн)
-            // Упрощено: предполагаем что оригинальные локальные позиции были относительно шасси или его детей
-            // Если иерархия сложная (barrel -> turret -> chassis), нужно учитывать всю цепочку.
-            // Но мы сохранили originalParent.
-
-            // Самый надежный способ: просто вернуть их в их оригинальные ЛОКАЛЬНЫЕ координаты и приаттачить к шасси?
-            // Но мы хотим анимацию "полета" к танку.
-
-            // 1. Анимируем к chassis.position + originalLocalPos (с учетом поворота шасси)
-            // Шасси при респавне обычно имеет rotation (0,0,0) или заданный.
-
-            const worldMatrix = this.chassis.computeWorldMatrix(true);
-
+            // Если это сам корпус - он уже на месте
             if (part.name === "chassis") {
                 targetWorldPos = chassisPos.clone();
-            } else if (part.name === "turret" || part.name === "barrel" || part.name.includes("Track")) {
-                // Для упрощения: анимируем все к центру танка + смещение
-                // Это может быть неточно, но выглядит как "сборка"
-                targetWorldPos = chassisPos.add(originalLocal);
-                // Корректнее было бы использовать матрицу трансформации, но originalLocalPos сохранен относительно родителя.
-                // Если родитель был шасси, то local -> world conversion через матрицу шасси.
             } else {
-                targetWorldPos = chassisPos.clone();
+                // Для остальных частей вычисляем их мировую позицию относительно корпуса
+                let localOffset = part.originalLocalPos.clone();
+
+                // СПЕЦИАЛЬНЫЙ КЕЙС: Ствол (barrel) является дочерним к башне (turret)
+                // Нам нужно добавить смещение башни, чтобы получить смещение относительно корпуса
+                if (part.name === "barrel") {
+                    const turretPart = this.destroyedParts.find(p => p.name === "turret");
+                    if (turretPart) {
+                        // Прибавляем позицию башни (грубо, считая что башня смотрит прямо, что ок для респавна)
+                        localOffset.addInPlace(turretPart.originalLocalPos);
+                    }
+                }
+
+                // Трансформируем локальное смещение в мировые координаты через матрицу корпуса
+                // Это автоматически учтёт поворот и позицию танка
+                targetWorldPos = Vector3.TransformCoordinates(localOffset, chassisWorldMatrix);
             }
+
             targetPositions.push(targetWorldPos);
 
-            // Вращение: хотим вернуть в Identity (или оригинальное локальное)
-            // Но так как они detached, нужно world rotation.
-            // Если родитель (шасси) имеет Identity rotation, то local = world.
+            // Вращение: возвращаем к оригинальному локальному вращению
+            // Так как части detached, нам нужно применить и вращение родителя (корпуса)
+            // Но для простоты "сборки" визуально достаточно вернуть локальное вращение
+            // (или можно заморочиться с умножением кватернионов, но при быстром полете это не критично)
             targetRotations.push(part.originalLocalRot || Quaternion.Identity());
         }
 

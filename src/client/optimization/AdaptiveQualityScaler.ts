@@ -7,6 +7,7 @@
 
 import { Scene, Engine } from "@babylonjs/core";
 import { logger } from "../utils/logger";
+import { deviceDetector, type DeviceTier } from "./DeviceDetector";
 
 /**
  * Настройки качества
@@ -95,6 +96,9 @@ export class AdaptiveQualityScaler {
     private checkInterval: NodeJS.Timeout | null = null;
     private stabilityCounter = 0;
     private enabled = true;
+    
+    // ОПТИМИЗАЦИЯ: Автоматическое определение мощности устройства
+    private deviceTier: DeviceTier = "medium";
 
     // Callbacks for quality changes
     private onQualityChange?: (quality: string, settings: QualitySettings) => void;
@@ -104,7 +108,50 @@ export class AdaptiveQualityScaler {
         this.scene = scene;
         this.config = { ...DEFAULT_CONFIG, ...config };
 
-        logger.log("[AdaptiveQualityScaler] Initialized");
+        // ОПТИМИЗАЦИЯ: Автоматическое определение мощности устройства
+        this.detectDeviceTier();
+        
+        // Устанавливаем начальное качество на основе устройства
+        this.setInitialQuality();
+
+        logger.log(`[AdaptiveQualityScaler] Initialized - Device tier: ${this.deviceTier}, Initial quality: ${this.currentQuality}`);
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Автоматическое определение мощности устройства
+     */
+    private detectDeviceTier(): void {
+        try {
+            const canvas = this.engine.getRenderingCanvas();
+            const deviceInfo = deviceDetector.detect(canvas || undefined);
+            this.deviceTier = deviceInfo.tier;
+        } catch (error) {
+            logger.warn("[AdaptiveQualityScaler] Device detection failed, using medium tier:", error);
+            this.deviceTier = "medium";
+        }
+    }
+    
+    /**
+     * Установка начального качества на основе устройства
+     */
+    private setInitialQuality(): void {
+        switch (this.deviceTier) {
+            case "ultra":
+                this.currentQuality = "ultra";
+                break;
+            case "high":
+                this.currentQuality = "high";
+                break;
+            case "medium":
+                this.currentQuality = "medium";
+                break;
+            case "low":
+                this.currentQuality = "low";
+                break;
+        }
+        
+        // Применяем начальное качество
+        this.applyQuality();
     }
 
     /**
@@ -249,6 +296,24 @@ export class AdaptiveQualityScaler {
         } else {
             // Ensure scaling is reset to 1.0 (native resolution)
             this.engine.setHardwareScalingLevel(1.0);
+        }
+
+        // ОПТИМИЗАЦИЯ: Дополнительные настройки на основе качества
+        // Отключаем тени для низкого качества
+        // ИСПРАВЛЕНО: Убрана попытка изменить размер shadow map (setSize не существует в Babylon.js)
+        // Размер shadow map задается при создании ShadowGenerator и не может быть изменен
+        if (this.currentQuality === "potato" || this.currentQuality === "low") {
+            this.scene.shadowsEnabled = false;
+        } else {
+            // Для medium и выше просто включаем тени (размер уже задан при создании)
+            this.scene.shadowsEnabled = true;
+        }
+        
+        // Отключаем частицы для очень низкого качества
+        if (this.currentQuality === "potato") {
+            this.scene.particlesEnabled = false;
+        } else {
+            this.scene.particlesEnabled = true;
         }
 
         // Вызываем callback для внешней обработки

@@ -66,7 +66,10 @@ export class CustomMapLoader {
      * Загрузить и создать объекты из localStorage
      */
     public loadFromLocalStorage(): LoadResult {
-        console.log("[CustomMapLoader] === LOADING CUSTOM MAP ===");
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            console.log("[CustomMapLoader] === LOADING CUSTOM MAP ===");
+        }
 
         // Очищаем предыдущие объекты
         this.clearAllObjects();
@@ -76,13 +79,18 @@ export class CustomMapLoader {
             const mapDataStr = localStorage.getItem('selectedCustomMapData');
 
             if (!mapDataStr) {
-                console.warn("[CustomMapLoader] No map data in localStorage (selectedCustomMapData)");
+                if (process.env.NODE_ENV === 'development') {
+                    console.warn("[CustomMapLoader] No map data in localStorage (selectedCustomMapData)");
+                }
                 return { success: false, objectsCreated: 0, error: "No map data in localStorage" };
             }
 
             const mapData: CustomMapData = JSON.parse(mapDataStr);
-            console.log(`[CustomMapLoader] Map: "${mapData.name}", Version: ${mapData.version}`);
-            console.log(`[CustomMapLoader] Objects to load: ${mapData.placedObjects?.length || 0}`);
+            // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`[CustomMapLoader] Map: "${mapData.name}", Version: ${mapData.version}`);
+                console.log(`[CustomMapLoader] Objects to load: ${mapData.placedObjects?.length || 0}`);
+            }
 
             if (!mapData.placedObjects || mapData.placedObjects.length === 0) {
                 console.warn("[CustomMapLoader] Map has no objects");
@@ -103,7 +111,10 @@ export class CustomMapLoader {
                 }
             }
 
-            console.log(`[CustomMapLoader] ✅ Created ${created}/${mapData.placedObjects.length} objects`);
+            // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`[CustomMapLoader] ✅ Created ${created}/${mapData.placedObjects.length} objects`);
+            }
             return { success: true, objectsCreated: created };
 
         } catch (e) {

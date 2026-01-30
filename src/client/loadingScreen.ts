@@ -17,7 +17,7 @@ const LOADING_SCREEN_TEMPLATE = `
         justify-content: center;
         align-items: center;
         z-index: 999999;
-        font-family: 'Press Start 2P', cursive;
+        font-family: 'Press Start 2P', 'Consolas', 'Monaco', 'Courier New', monospace;
         color: #0f0;
     }
 
@@ -54,7 +54,7 @@ const LOADING_SCREEN_TEMPLATE = `
         font-size: 24px;
         font-weight: bold;
         letter-spacing: 2px;
-        font-family: 'Press Start 2P', cursive;
+        font-family: 'Press Start 2P', 'Consolas', 'Monaco', 'Courier New', monospace;
         text-shadow: none;
         /* Синхронизировано с вращением квадратика - та же длительность 1.2s */
         animation: blink 1.2s infinite cubic-bezier(0.4, 0.0, 0.6, 1.0);
@@ -84,7 +84,7 @@ export class LoadingScreen {
         allLoadingScreens.forEach(screen => {
             screen.remove();
         });
-        
+
         // Сбрасываем состояние
         this.isVisible = false;
         this.container = null;

@@ -4,6 +4,7 @@ import { execSync } from 'child_process';
 import { visualizer } from 'rollup-plugin-visualizer';
 import viteCompression from 'vite-plugin-compression';
 import fs from 'fs';
+import { getLocalIP, getAllLocalIPs } from './scripts/get-local-ip';
 
 // Импортируем функцию для получения версии
 function getVersionFromFile(): { major: number; minor: number; build: number } {
@@ -128,8 +129,51 @@ function getBuildVersion() {
 
 const buildInfo = getBuildVersion();
 
+// Получаем локальный IP для отображения в консоли
+const localIP = getLocalIP();
+const allIPs = getAllLocalIPs();
+
 export default defineConfig({
   plugins: [
+    // Плагин для отображения сетевых адресов при запуске
+    {
+      name: 'display-network-addresses',
+      configureServer(server) {
+        server.httpServer?.once('listening', () => {
+          const address = server.httpServer?.address();
+          if (address && typeof address === 'object') {
+            setTimeout(() => {
+              console.log('\n');
+              console.log('╔═══════════════════════════════════════════════════════════╗');
+              console.log('║              🌐 СЕТЕВОЙ ДОСТУП К ИГРЕ                    ║');
+              console.log('╚═══════════════════════════════════════════════════════════╝');
+              console.log('');
+              console.log('  📍 Локальный доступ:');
+              console.log(`     → http://localhost:${address.port}`);
+              console.log(`     → http://127.0.0.1:${address.port}`);
+              console.log('');
+              
+              if (localIP) {
+                console.log('  🌐 Сетевой доступ (для других ПК в сети):');
+                console.log(`     → http://${localIP}:${address.port}`);
+                console.log('');
+              }
+              
+              if (allIPs.length > 1) {
+                console.log('  📡 Все доступные IP-адреса:');
+                allIPs.forEach(ip => {
+                  console.log(`     → http://${ip}:${address.port}`);
+                });
+                console.log('');
+              }
+              
+              console.log('╚═══════════════════════════════════════════════════════════╝');
+              console.log('');
+            }, 100);
+          }
+        });
+      },
+    },
     versionPlugin(), 
     resourceHintsPlugin(),
     // Compression plugin (gzip and brotli)
@@ -169,13 +213,8 @@ export default defineConfig({
   },
   server: {
     port: 5000,
-    host: '127.0.0.1', // Фиксированный адрес localhost
-    headers: {
-      // Правильный MIME type для WASM файлов
-      '*.wasm': {
-        'Content-Type': 'application/wasm',
-      },
-    },
+    host: '0.0.0.0', // Слушаем на всех интерфейсах для доступа из сети
+    // Headers настраиваются через middleware, не через server.headers
   },
   // Правильная обработка WASM файлов
   assetsInclude: ['**/*.wasm'],

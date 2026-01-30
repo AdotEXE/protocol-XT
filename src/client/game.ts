@@ -1717,24 +1717,73 @@ export class Game {
                 }
 
                 // Если игра запущена, обрабатываем паузу и меню
-                // Закрываем все открытые меню перед паузой
-                // Physics Editor закрываем первым (имеет высокий приоритет)
+                // Закрываем все открытые меню перед паузой по порядку приоритета
+                // Используем универсальную функцию для закрытия любого открытого окна
+                
+                // Высокий приоритет - модальные окна и редакторы
                 if (this.physicsEditor && typeof this.physicsEditor.isVisible === 'function' && this.physicsEditor.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this.physicsEditor.hide();
                     return;
                 }
+                
+                // Bot Performance UI (мониторинг ботов)
+                if (this.botPerformanceUI && typeof this.botPerformanceUI.isVisible === 'function' && this.botPerformanceUI.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.botPerformanceUI.hide();
+                    return;
+                }
+                
+                // Bot Performance Settings UI
+                if (this.botPerformanceSettingsUI && typeof this.botPerformanceSettingsUI.isVisible === 'function' && this.botPerformanceSettingsUI.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.botPerformanceSettingsUI.hide();
+                    return;
+                }
+                
+                // Bot Performance Profiler
+                const botProfiler = (this as any).botPerformanceProfiler;
+                if (botProfiler && typeof botProfiler.isVisible === 'function' && botProfiler.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (botProfiler.hide) botProfiler.hide();
+                    return;
+                }
+                
+                // Admin Panel
+                if (this.adminPanel && typeof this.adminPanel.isVisible === 'function' && this.adminPanel.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (this.adminPanel.hide) this.adminPanel.hide();
+                    return;
+                }
+                
+                // Help Menu
                 if (this.helpMenu && typeof this.helpMenu.isVisible === 'function' && this.helpMenu.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this.helpMenu.hide();
                     return;
                 }
+                
+                // Screenshot Panel
                 if (this.screenshotPanel && typeof this.screenshotPanel.isVisible === 'function' && this.screenshotPanel.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this.screenshotPanel.hide();
                     return;
                 }
+                
+                // Debug Dashboard
                 const debugDashboard = this.debugDashboard as unknown as DebugDashboardWithProps;
                 if (debugDashboard && debugDashboard.visible) {
                     const container = debugDashboard.container;
                     if (container && !container.classList.contains("hidden")) {
+                        e.preventDefault();
+                        e.stopPropagation();
                         container.classList.add("hidden");
                         container.style.display = "none";
                         debugDashboard.visible = false;
@@ -1742,43 +1791,83 @@ export class Game {
                     }
                 }
 
-                // Закрываем другие панели сначала
+                // Средний приоритет - панели настроек и инструментов
                 if (this.physicsPanel && typeof this.physicsPanel.isVisible === 'function' && this.physicsPanel.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this.physicsPanel.hide();
                     return;
                 }
+                
+                // Chat Terminal
                 const chatSystem = this.chatSystem as unknown as ChatSystemWithTerminal;
                 if (chatSystem && typeof chatSystem.isTerminalVisible === 'function') {
                     const isVisible = chatSystem.isTerminalVisible();
                     if (isVisible && chatSystem.toggleTerminal) {
+                        e.preventDefault();
+                        e.stopPropagation();
                         chatSystem.toggleTerminal();
-                        return; // return ТОЛЬКО если терминал был видим
+                        return;
                     }
                 }
+                
+                // Session Settings
                 const sessionSettings = this.sessionSettings as SessionSettingsWithMethods;
                 if (sessionSettings && typeof sessionSettings.isVisible === 'function') {
                     const isVisible = sessionSettings.isVisible();
                     if (isVisible && sessionSettings.hide) {
+                        e.preventDefault();
+                        e.stopPropagation();
                         sessionSettings.hide();
-                        return; // return ТОЛЬКО если настройки были видимы
+                        return;
                     }
                 }
+                
+                // Cheat Menu
                 if (this.cheatMenu && typeof this.cheatMenu.isVisible === 'function' && this.cheatMenu.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this.cheatMenu.hide();
                     return;
                 }
+                
+                // Network Menu
                 if (this.networkMenu && typeof this.networkMenu.isVisible === 'function' && this.networkMenu.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this.networkMenu.hide();
                     return;
                 }
+                
+                // World Generation Menu
                 if (this.worldGenerationMenu && typeof this.worldGenerationMenu.isVisible === 'function' && this.worldGenerationMenu.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     this.worldGenerationMenu.hide();
                     return;
                 }
+                
+                // Game Stats (TAB menu)
+                if (this.gameStats && typeof this.gameStats.isVisible === 'function' && this.gameStats.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (this.gameStats.hide) this.gameStats.hide();
+                    return;
+                }
+                
+                // Game Stats Overlay
+                if (this.gameStatsOverlay && typeof this.gameStatsOverlay.isVisible === 'function' && this.gameStatsOverlay.isVisible()) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (this.gameStatsOverlay.hide) this.gameStatsOverlay.hide();
+                    return;
+                }
 
+                // Unified Menu
                 if (this.unifiedMenu && this.unifiedMenu.visible) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     // UnifiedMenu handles its own ESC (closes itself)
-                    // We just return here to prevent MainMenu from opening
                     return;
                 }
 
@@ -3809,11 +3898,29 @@ export class Game {
             // УЛУЧШЕНО: Инициализация Performance Optimizer
             this.performanceOptimizer = new PerformanceOptimizer(this.scene);
 
-            // OPTIMIZATION: Initialize Adaptive Quality Scaler
-            this.adaptiveQualityScaler = new AdaptiveQualityScaler(this.engine, this.scene);
+            // OPTIMIZATION: Initialize Adaptive Quality Scaler with device detection
+            this.adaptiveQualityScaler = new AdaptiveQualityScaler(this.engine, this.scene, {
+                targetFps: 60,
+                minFps: 30,
+                enableRenderScaling: false // Отключаем render scaling для сохранения качества HUD
+            });
             this.adaptiveQualityScaler.setOnQualityChange((quality: string, settings: QualitySettings) => {
-                logger.log(`[Game] Quality changed to ${quality} (Render Scale: ${settings.renderScale})`);
-                // Additional quality adjustments can be added here
+                logger.log(`[Game] Quality changed to ${quality} (Render Scale: ${settings.renderScale}, LOD: ${settings.lodMultiplier}x, Particles: ${settings.particleMultiplier}x)`);
+                
+                // ОПТИМИЗАЦИЯ: Применяем настройки к системам игры
+                if (this.performanceOptimizer) {
+                    // Обновляем LOD настройки
+                    const lodConfig = this.performanceOptimizer.getConfig();
+                    lodConfig.lodNearDistance = 100 * settings.lodMultiplier;
+                    lodConfig.lodMediumDistance = 200 * settings.lodMultiplier;
+                    lodConfig.lodFarDistance = 400 * settings.lodMultiplier;
+                    this.performanceOptimizer.updateConfig(lodConfig);
+                }
+                
+                // Обновляем настройки эффектов
+                if (this.effectsManager && typeof this.effectsManager.setMaxEffects === 'function') {
+                    this.effectsManager.setMaxEffects(settings.maxActiveParticles);
+                }
             });
             this.adaptiveQualityScaler.start();
 
@@ -3932,18 +4039,15 @@ export class Game {
             }
 
             // КРИТИЧНО: ПРИОРИТЕТ - мультиплеер mapType > текущий
-            // НО! Custom карты из PolyGen имеют ВЫСШИЙ приоритет!
             // Это гарантирует синхронизацию между устройствами
-            if (this.multiplayerManager && mapType !== "custom") {
-                // Только если НЕ custom карта - проверяем мультиплеер
+            if (this.multiplayerManager) {
                 const mpMapType = this.multiplayerManager.getMapType();
                 if (mpMapType) {
+                    // В мультиплеере ВСЕГДА используем mapType с сервера
                     mapType = mpMapType as MapType;
                     this.currentMapType = mapType as any;
                     logger.log(`[Game] 🗺️ Using multiplayer mapType: ${mapType} (from ROOM_CREATED/ROOM_JOINED)`);
                 }
-            } else if (mapType === "custom") {
-                console.log(`[Game] 🎨 PRESERVING custom mapType - PolyGen map has priority over multiplayer!`);
             }
 
             // Если это custom карта, проверяем базовый тип из сохраненных данных
@@ -4020,19 +4124,10 @@ export class Game {
             const roomId = this.multiplayerManager?.getRoomId() || 'N/A';
             const pendingMapType = this.multiplayerManager?.getMapType() || 'N/A';
 
-            // КРИТИЧЕСКОЕ ЛОГИРОВАНИЕ: Проверяем все параметры перед созданием ChunkSystem
-            console.log(`%c[Game] 🗺️ КРИТИЧЕСКАЯ ТОЧКА: Создание ChunkSystem`, 'color: #ef4444; font-weight: bold; font-size: 16px;', {
-                finalMapType: mapType,
-                currentMapType: this.currentMapType,
-                pendingMapType: pendingMapType,
-                worldSeed: worldSeed,
-                isMultiplayer: this.isMultiplayer,
-                roomId: roomId,
-                multiplayerManagerExists: !!this.multiplayerManager,
-                isConnected: this.multiplayerManager?.isConnected() || false
-            });
-
-            logger.log(`[Game] 🗺️ Creating ChunkSystem: mapType=${mapType}, worldSeed=${worldSeed}, roomId=${roomId} (currentMapType was: ${this.currentMapType}, pendingMapType=${pendingMapType})`);
+            // ОПТИМИЗАЦИЯ: Логируем только в dev режиме или при ошибках
+            if (process.env.NODE_ENV === 'development') {
+                logger.log(`[Game] 🗺️ Creating ChunkSystem: mapType=${mapType}, worldSeed=${worldSeed}, roomId=${roomId}`);
+            }
 
             // ========================================================================
             // КРИТИЧНО: ПОЛНЫЙ BYPASS ДЛЯ CUSTOM КАРТ
@@ -4362,12 +4457,15 @@ export class Game {
                 ? new Vector3(garagePos[0], 2, garagePos[1])
                 : new Vector3(0, 2, 0);
             if (this.chunkSystem) {
-                // Загружаем ВСЮ карту сразу - без дыр и непрогруженных чанков
-                logger.log("[Game] Preloading entire map...");
-                this.chunkSystem.preloadEntireMap();
-                // Обновляем позицию игрока
+                // ОПТИМИЗАЦИЯ: Используем ленивую загрузку вместо предзагрузки всей карты
+                // Загружаем только ближайшие чанки вокруг игрока - остальные загрузятся по мере необходимости
+                logger.log("[Game] Loading initial chunks around player position...");
                 this.chunkSystem.update(initialPos);
-                logger.log("[Game] Map preloading complete!");
+                
+                // КРИТИЧНО: НЕ загружаем всю карту сразу - это вызывает лаги!
+                // ChunkSystem будет загружать чанки автоматически по мере движения игрока
+                // Прогрессивная загрузка запускается только после старта игры
+                logger.log("[Game] Initial chunks loaded. Map will load progressively during gameplay.");
 
                 // КРИТИЧНО: В мультиплеере НЕ загружаем сохраненную карту - все игроки должны видеть одинаковую карту с сервера
                 // Проверяем не только isMultiplayer, но и наличие комнаты или pendingMapType (isMultiplayer может быть еще не установлен)

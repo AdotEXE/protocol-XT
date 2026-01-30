@@ -32,7 +32,7 @@ import { CoverGenerator } from "./coverGenerator";
 import { POISystem, POI } from "./poiSystem";
 import { logger } from "./utils/logger";
 import { CustomMapRunner, RunResult } from "./CustomMapRunner";
-import { getMapBoundsFromConfig, getMapSize, getWallHeight, getPlayerGaragePosition, MAP_SIZES } from "./maps/MapConstants";
+import { getMapBoundsFromConfig, getMapSize, getWallHeight, getPlayerGaragePosition, isPositionInMapBounds, MAP_SIZES } from "./maps/MapConstants";
 // Импорт генераторов карт и фабрики
 import {
     MapGeneratorFactory,
@@ -1283,7 +1283,7 @@ export class ChunkSystem {
 
         // Позиции гаражей по карте - МНОГО гаражей для врагов!
         // Центральный гараж (0, 0) - ТОЛЬКО для игрока!
-        const garageLocations = [
+        const allGarageLocations = [
             { x: 0, z: 0 },        // Центр (ИГРОК - защищён радиусом 100)
             // Ближнее кольцо (150 единиц) - 4 гаража
             { x: 150, z: 150 },    // Северо-восток
@@ -1306,6 +1306,14 @@ export class ChunkSystem {
             { x: 150, z: -500 },   // Дальний юг-восток
             { x: -150, z: -500 },  // Дальний юг-запад
         ];
+
+        // КРИТИЧНО: Фильтруем гаражи по границам карты!
+        const mapType = this.config.mapType || "normal";
+        const garageLocations = allGarageLocations.filter(loc => {
+            return isPositionInMapBounds(mapType, loc.x, loc.z);
+        });
+
+        console.log(`[ChunkSystem] Filtered garage locations: ${garageLocations.length}/${allGarageLocations.length} within ${mapType} bounds`);
 
         garageLocations.forEach((loc, index) => {
             this.createGarageAt(loc.x, loc.z, index);

@@ -9,6 +9,7 @@ import { GeckosServer, ChannelId } from "@geckos.io/server";
 // Let's try importing just GeckosServer and ChannelId first.
 import { Vector3 } from "@babylonjs/core";
 import * as os from "os";
+import { getLocalIP, getAllLocalIPs } from "../../scripts/get-local-ip";
 import { ServerPlayer } from "./player";
 import { GameRoom } from "./room";
 import { ServerProjectile } from "./projectile";
@@ -91,7 +92,8 @@ export class GameServer {
         });
 
         this.wss.on("listening", () => {
-            serverLogger.log(`[Server] ✅ WebSocket server started on 127.0.0.1:${port}`);
+            const displayHost = host === "0.0.0.0" ? "0.0.0.0 (all interfaces)" : host;
+            serverLogger.log(`[Server] ✅ WebSocket server started on ${displayHost}:${port}`);
         });
 
         // Выводим информацию о доступных адресах для подключения
@@ -112,9 +114,29 @@ export class GameServer {
     }
 
     private printNetworkInfo(port: number): void {
-        // Фиксированный адрес для простоты
-        serverLogger.log(`\n[Server] Адрес для подключения:`);
-        serverLogger.log(`  - ws://127.0.0.1:${port} (localhost)`);
+        serverLogger.log(`\n[Server] ═══════════════════════════════════════════════════════════`);
+        serverLogger.log(`[Server] 📍 Локальный доступ:`);
+        serverLogger.log(`[Server]    → ws://localhost:${port}`);
+        serverLogger.log(`[Server]    → ws://127.0.0.1:${port}`);
+        
+        const localIP = getLocalIP();
+        const allIPs = getAllLocalIPs();
+        
+        if (localIP) {
+            serverLogger.log(`[Server] `);
+            serverLogger.log(`[Server] 🌐 Сетевой доступ (для других ПК в сети):`);
+            serverLogger.log(`[Server]    → ws://${localIP}:${port}`);
+        }
+        
+        if (allIPs.length > 1) {
+            serverLogger.log(`[Server] `);
+            serverLogger.log(`[Server] 📡 Все доступные IP-адреса:`);
+            allIPs.forEach(ip => {
+                serverLogger.log(`[Server]    → ws://${ip}:${port}`);
+            });
+        }
+        
+        serverLogger.log(`[Server] ═══════════════════════════════════════════════════════════`);
         serverLogger.log(``);
     }
 
@@ -742,6 +764,8 @@ export class GameServer {
                 roomId: room.id,
                 mode: room.mode,
                 worldSeed: room.worldSeed,
+                mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
+                customMapData: room.customMapData, // КРИТИЧНО: Данные кастомной карты
                 players: room.getPlayerData(),
                 isCreator: room.creatorId === player.id,
                 isActive: room.isActive // Добавляем информацию о статусе игры
@@ -925,6 +949,8 @@ export class GameServer {
                     roomId: room.id,
                     mode: room.mode,
                     worldSeed: room.worldSeed,
+                    mapType: room.mapType, // КРИТИЧНО: Добавляем тип карты для синхронизации
+                    customMapData: room.customMapData, // КРИТИЧНО: Данные кастомной карты
                     players: room.getPlayerData(),
                     maxPlayers: room.maxPlayers
                 }));
@@ -1090,6 +1116,18 @@ export class GameServer {
         // if (!this.rateLimiter.checkLimit(player.id, "input", 120)) { ... }
 
         // ALL VALIDATION DISABLED - accept all player input without checks
+
+        // ДИАГНОСТИКА: Логируем инпут от игроков (только первые несколько раз или при движении)
+        const throttle = data.throttle || 0;
+        const steer = data.steer || 0;
+        const hasMovement = Math.abs(throttle) > 0.01 || Math.abs(steer) > 0.01;
+        
+        if (!player._inputLogCount) player._inputLogCount = 0;
+        if (player._inputLogCount < 3 || (hasMovement && player._inputLogCount % 60 === 0)) {
+            const pos = player.position;
+            serverLogger.log(`[Server] 📥 Input from ${player.name} (${player.id.substring(0, 8)}): throttle=${throttle.toFixed(2)}, steer=${steer.toFixed(2)}, pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+        }
+        player._inputLogCount++;
 
         // Update last valid position
         player.lastValidPosition = player.position.clone();
@@ -1797,15 +1835,39 @@ export class GameServer {
     }
 
     private startPeriodicStats(): void {
-        // Выводим статистику каждые 30 секунд
+        // Сохраняем предыдущие значения для сравнения
+        let lastStats: { rooms: number; activeRooms: number; players: number; connectedPlayers: number } | null = null;
+        
+        // Выводим статистику каждые 5 минут или при изменениях
         setInterval(() => {
             const activeRooms = Array.from(this.rooms.values()).filter(r => r.isActive).length;
             const totalRooms = this.rooms.size;
             const totalPlayers = this.players.size;
             const connectedPlayers = Array.from(this.players.values()).filter(p => p.connected).length;
 
-            serverLogger.log(`[Server] 📊 Статистика: комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
-        }, 30000); // 30 секунд
+            const currentStats = { rooms: totalRooms, activeRooms, players: totalPlayers, connectedPlayers };
+            
+            // Логируем только если статистика изменилась или прошло 5 минут
+            const statsChanged = !lastStats || 
+                lastStats.rooms !== currentStats.rooms ||
+                lastStats.activeRooms !== currentStats.activeRooms ||
+                lastStats.players !== currentStats.players ||
+                lastStats.connectedPlayers !== currentStats.connectedPlayers;
+            
+            if (statsChanged) {
+                serverLogger.log(`[Server] 📊 Статистика: комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
+                lastStats = currentStats;
+            }
+        }, 30000); // Проверяем каждые 30 секунд, но логируем только при изменениях
+        
+        // Также логируем каждые 5 минут независимо от изменений (для мониторинга)
+        setInterval(() => {
+            const activeRooms = Array.from(this.rooms.values()).filter(r => r.isActive).length;
+            const totalRooms = this.rooms.size;
+            const totalPlayers = this.players.size;
+            const connectedPlayers = Array.from(this.players.values()).filter(p => p.connected).length;
+            serverLogger.log(`[Server] 📊 Статистика (периодическая): комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
+        }, 300000); // 5 минут
     }
 
     private broadcastMonitoringStats(): void {

@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "..\\scripts\\run-node.cmd node_modules/vite/bin/vite.js",
+    "build": "..\\scripts\\run-node.cmd node_modules/vite/bin/vite.js build",
     "preview": "vite preview"
   },
   "dependencies": {

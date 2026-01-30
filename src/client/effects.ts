@@ -29,7 +29,7 @@ export class EffectsManager {
     private enableDust: boolean = false;
     
     // ОПТИМИЗАЦИЯ: Ограничение активных эффектов для предотвращения деградации производительности
-    private readonly MAX_ACTIVE_EFFECTS = 50;
+    private MAX_ACTIVE_EFFECTS = 50; // Изменено с readonly для динамической настройки
     private activeEffects: Set<Mesh> = new Set();
     
     // ОПТИМИЗАЦИЯ: Хранение всех таймеров для очистки при dispose
@@ -111,6 +111,20 @@ export class EffectsManager {
 
     getDustEnabled(): boolean {
         return this.enableDust;
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Установка максимального количества активных эффектов
+     */
+    setMaxEffects(maxEffects: number): void {
+        this.MAX_ACTIVE_EFFECTS = Math.max(1, Math.min(100, maxEffects)); // Ограничиваем 1-100
+    }
+    
+    /**
+     * Получить текущий лимит эффектов
+     */
+    getMaxEffects(): number {
+        return this.MAX_ACTIVE_EFFECTS;
     }
 
     // Улучшенный эффект использования припаса - свечение вокруг танка

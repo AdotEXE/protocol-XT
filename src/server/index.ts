@@ -4,10 +4,11 @@ import * as net from "net";
 import * as http from "http";
 import { serverLogger } from "./logger";
 import { handleUpgradeRequest } from "./upgrade";
+import { getLocalIP, getAllLocalIPs } from "../../scripts/get-local-ip";
 
 const DEFAULT_WS_PORT = 8000;  // WebSocket сервер
 const DEFAULT_HTTP_PORT = 7000; // HTTP мониторинг
-const HOST = process.env.HOST || "127.0.0.1"; // Фиксированный адрес localhost
+const HOST = process.env.HOST || "0.0.0.0"; // Слушаем на всех интерфейсах для доступа из сети
 
 /**
  * Проверяет, свободен ли порт
@@ -82,7 +83,11 @@ function createHTTPServer(gameServer: GameServer): http.Server {
     });
 
     httpServer.listen(httpPort, HOST, () => {
+        const localIP = getLocalIP();
         serverLogger.log(`[Server] ✅ HTTP server started on http://127.0.0.1:${httpPort}`);
+        if (localIP) {
+            serverLogger.log(`[Server]    - Network: http://${localIP}:${httpPort}`);
+        }
         serverLogger.log(`[Server]    - Health: http://127.0.0.1:${httpPort}/health`);
         serverLogger.log(`[Server]    - Stats: http://127.0.0.1:${httpPort}/api/stats`);
     });

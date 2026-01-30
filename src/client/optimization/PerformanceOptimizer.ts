@@ -101,6 +101,20 @@ export class PerformanceOptimizer {
     }
     
     /**
+     * ОПТИМИЗАЦИЯ: Получить текущую конфигурацию
+     */
+    getConfig(): OptimizerConfig {
+        return { ...this.config };
+    }
+    
+    /**
+     * ОПТИМИЗАЦИЯ: Обновить конфигурацию
+     */
+    updateConfig(newConfig: Partial<OptimizerConfig>): void {
+        this.config = { ...this.config, ...newConfig };
+    }
+    
+    /**
      * Обновление позиции референса (камера/игрок)
      */
     setReferencePosition(position: Vector3): void {

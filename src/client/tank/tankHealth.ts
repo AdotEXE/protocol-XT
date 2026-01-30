@@ -382,16 +382,23 @@ export class TankHealthModule {
         }
 
         // Show death message with callback
-        // После 3 секунд обратного отсчёта будет вызван callback
-        if (this.tank.hud) {
-            this.tank.hud.showDeathMessage(() => {
-                if (customRespawnCallback) {
-                    customRespawnCallback();
-                } else {
-                    this.startGarageRespawn();
-                }
-            });
-        }
+        // После 1 секунды задержки показываем экран смерти
+        setTimeout(() => {
+            if (this.tank.hud) {
+                // Запускаем фейд частей за 1 секунду до конца таймера (таймер 3 сек, значит через 2 сек)
+                setTimeout(() => {
+                    this.fadeDestroyedParts(1000);
+                }, 2000);
+
+                this.tank.hud.showDeathMessage(() => {
+                    if (customRespawnCallback) {
+                        customRespawnCallback();
+                    } else {
+                        this.startGarageRespawn();
+                    }
+                });
+            }
+        }, 1000);
 
         // Record death in player progression
         if (this.tank.playerProgression) {
@@ -403,12 +410,48 @@ export class TankHealthModule {
             this.tank.experienceSystem.recordDeath();
         }
 
-        // ВАЖНО: Деактивируем неуязвимость при смерти (чтобы голубой элемент не остался)
+        // ВАЖНО: Деактивируем неуязвимость при смерти
         if (this.isInvulnerable) {
             this.deactivateInvulnerability();
         }
 
-        console.log("[TANK] Death screen will be shown for 3 seconds, then respawn");
+        console.log("[TANK] Death sequence initiated");
+    }
+
+    /**
+     * Плавно скрывает разрушенные части танка (фейд в прозрачность)
+     */
+    private fadeDestroyedParts(duration: number): void {
+        console.log("[TANK] Fading out destroyed parts...");
+        const startTime = Date.now();
+
+        const animateFade = () => {
+            const progress = Math.min((Date.now() - startTime) / duration, 1.0);
+            const alpha = 1.0 - progress;
+
+            for (const part of this.destroyedParts) {
+                if (part.mesh && !part.mesh.isDisposed()) {
+                    part.mesh.visibility = alpha;
+                    if (part.mesh.material) {
+                        (part.mesh.material as any).alpha = alpha;
+                    }
+                }
+            }
+
+            if (progress < 1.0) {
+                requestAnimationFrame(animateFade);
+            } else {
+                // Гарантируем полную невидимость в конце
+                for (const part of this.destroyedParts) {
+                    if (part.mesh && !part.mesh.isDisposed()) {
+                        part.mesh.visibility = 0;
+                        part.mesh.isVisible = false; // Turn off rendering
+                    }
+                }
+            }
+        };
+
+        animateFade();
     }
 
     /**
@@ -420,6 +463,26 @@ export class TankHealthModule {
     private animateCameraToPosition(targetPos: Vector3, duration: number = 1500, onComplete?: () => void): void {
         const game = (window as any).gameInstance;
         if (!game || !game.camera) {
+            if (onComplete) onComplete();
+            return;
+        }
+
+        // Если длительность около 0 - телепортируем мгновенно
+        if (duration < 50) {
+            const camera = game.camera;
+            const endCameraPos = new Vector3(
+                targetPos.x - 8,
+                targetPos.y + 3,
+                targetPos.z - 8
+            );
+            camera.setTarget(targetPos.clone());
+            if (camera.setPosition) {
+                camera.setPosition(endCameraPos);
+            } else {
+                camera.position.copyFrom(endCameraPos);
+            }
+            // Очищаем deathPosition так как мы уже "прилетели"
+            this.deathPosition = null;
             if (onComplete) onComplete();
             return;
         }
@@ -549,10 +612,10 @@ export class TankHealthModule {
         // ШАГ 1: Телепортируем части вокруг целевой позиции (ДО анимации камеры)
         this.teleportPartsAroundTarget(respawnPos, targetY);
 
-        // ШАГ 2: Запускаем ПЛАВНУЮ анимацию камеры к целевой позиции
-        // После завершения анимации камеры - запускаем анимацию сборки
-        this.animateCameraToPosition(cameraTarget, 1500, () => {
-            console.log("[TANK] Camera arrived at spawn, starting assembly...");
+        // ШАГ 2: МГНОВЕННАЯ телепортация камеры и начало сборки (как запросил пользователь)
+        // Используем 0ms для мгновенного перехода
+        this.animateCameraToPosition(cameraTarget, 0, () => {
+            console.log("[TANK] Camera at spawn, starting assembly...");
 
             // ШАГ 3: Телепортируем chassis в целевую позицию (чтобы камера следила за ним)
             if (this.tank.chassis) {

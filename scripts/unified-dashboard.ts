@@ -7,6 +7,7 @@ import { UIManager } from './monitor/ui';
 import { DashboardBridge } from './monitor/dashboard-bridge';
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
+import { getLocalIP, getAllLocalIPs } from './get-local-ip';
 
 // Force colors for child processes
 process.env.FORCE_COLOR = '1';
@@ -18,7 +19,7 @@ const EDITOR_ROOT = path.resolve(PROJECT_ROOT, 'PolyGenStudio-main');
 const SERVICES = [
     {
         name: 'Server',
-        command: 'npm',
+        command: path.join(PROJECT_ROOT, 'scripts', 'run-npm'),
         args: ['run', 'server:dev'],
         cwd: PROJECT_ROOT,
         logMethod: 'addServerLog',
@@ -26,7 +27,7 @@ const SERVICES = [
     },
     {
         name: 'Client',
-        command: 'npm',
+        command: path.join(PROJECT_ROOT, 'scripts', 'run-npm'),
         args: ['run', 'dev'],
         cwd: PROJECT_ROOT,
         logMethod: 'addClientLog',
@@ -34,7 +35,7 @@ const SERVICES = [
     },
     {
         name: 'Editor',
-        command: 'npm',
+        command: path.join(PROJECT_ROOT, 'scripts', 'run-npm'),
         args: ['run', 'dev'],
         cwd: EDITOR_ROOT,
         logMethod: 'addEditorLog',
@@ -216,6 +217,31 @@ function shouldFilter(line: string): boolean {
 async function bootstrap() {
     try {
         await core.start();
+
+        // Display network information
+        const localIP = getLocalIP();
+        const allIPs = getAllLocalIPs();
+
+        ui.addLog('═══════════════════════════════════════════════════════', 'info');
+        ui.addLog('📍 Локальный доступ:', 'info');
+        ui.addLog('   → Server: ws://localhost:8000', 'info');
+        ui.addLog('   → Client: http://localhost:5000', 'info');
+        ui.addLog('   → Editor: http://localhost:3000', 'info');
+        if (localIP) {
+            ui.addLog('', 'info');
+            ui.addLog('🌐 Сетевой доступ (для других ПК в сети):', 'info');
+            ui.addLog(`   → Server: ws://${localIP}:8000`, 'info');
+            ui.addLog(`   → Client: http://${localIP}:5000`, 'info');
+            ui.addLog(`   → Editor: http://${localIP}:3000`, 'info');
+        }
+        if (allIPs.length > 1) {
+            ui.addLog('', 'info');
+            ui.addLog('📡 Все доступные IP-адреса:', 'info');
+            allIPs.forEach(ip => {
+                ui.addLog(`   → ${ip}`, 'info');
+            });
+        }
+        ui.addLog('═══════════════════════════════════════════════════════', 'info');
 
         // Start Web Dashboard Bridge
         dashboard.start();

@@ -434,15 +434,34 @@ export class GameUpdate {
             const dz = enemy.chassis.position.z - playerPos.z;
             const distSq = dx * dx + dz * dz;
 
-            // ИСПРАВЛЕНО: Все враги обновляются каждый кадр для плавной работы AI
-            // Убрана зависимость от расстояния - все боты работают одинаково плавно
-            // При низком FPS (< 20) обновляем реже через адаптивный интервал
-            let updateInterval = 1; // По умолчанию каждый кадр
-
-            // Только при очень низком FPS уменьшаем частоту обновления
-            if (this._lastFPS < 20) {
-                // При FPS < 20 обновляем каждые 2 кадра для стабильности
+            // ОПТИМИЗАЦИЯ: Distance-based update intervals для производительности
+            // Близкие боты обновляются чаще, дальние - реже
+            let updateInterval = 1;
+            
+            // Определяем интервал на основе расстояния до игрока
+            const NEAR_DISTANCE_SQ = 50 * 50;  // < 50м
+            const MID_DISTANCE_SQ = 100 * 100; // < 100м
+            const FAR_DISTANCE_SQ = 200 * 200; // < 200м
+            
+            if (distSq < NEAR_DISTANCE_SQ) {
+                // Близкие боты - каждые 2 кадра (30 Hz)
                 updateInterval = 2;
+            } else if (distSq < MID_DISTANCE_SQ) {
+                // Средние боты - каждые 4 кадра (15 Hz)
+                updateInterval = 4;
+            } else if (distSq < FAR_DISTANCE_SQ) {
+                // Дальние боты - каждые 8 кадров (7.5 Hz)
+                updateInterval = 8;
+            } else {
+                // Очень дальние боты - каждые 16 кадров (3.75 Hz)
+                updateInterval = 16;
+            }
+            
+            // При низком FPS увеличиваем интервалы еще больше
+            if (this._lastFPS < 30) {
+                updateInterval *= 2; // Удваиваем интервал при FPS < 30
+            } else if (this._lastFPS < 20) {
+                updateInterval *= 3; // Утраиваем при FPS < 20
             }
 
             // Обновляем только если пришло время для этого врага

@@ -455,8 +455,8 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
             projectileSize: 0.2,
         },
         recoil: {
-            force: 10000, // УМЕНЬШЕНО в 2 раза (было 20000)
-            torque: 40000, // УМЕНЬШЕНО в 2 раза (было 80000)
+            force: 30000, // УВЕЛИЧЕНО: Сильная отдача (было 10000)
+            torque: 100000, // УВЕЛИЧЕНО: Сильный крутящий момент (было 40000)
             barrelRecoilSpeed: 0.3,
             barrelRecoilAmount: -1.6,
             applicationPoint: "center",
@@ -694,12 +694,12 @@ function createDefaultConfig(): PhysicsConfig {
                 projectileSize: 0.2,
             },
             recoil: {
-                force: 10000, // УМЕНЬШЕНО в 2 раза (было 20000)
-                torque: 40000, // УМЕНЬШЕНО в 2 раза (было 80000)
-                barrelRecoilSpeed: 0.3,
-                barrelRecoilAmount: -1.6,
+                force: 200000, // DRASTIC INCREASE: Было 30000
+                torque: 500000, // DRASTIC INCREASE: Было 100000
+                barrelRecoilSpeed: 0.5, // Faster recoil
+                barrelRecoilAmount: -2.5, // More visible barrel movement
                 applicationPoint: "center",
-                impactForceMultiplier: 1.0,
+                impactForceMultiplier: 2.0, // Stronger impact
             },
             projectiles: {
                 mass: 0.001,

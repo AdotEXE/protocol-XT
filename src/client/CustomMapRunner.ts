@@ -83,9 +83,10 @@ export class CustomMapRunner {
         this.scene = scene;
         this.parentNode = new TransformNode("CustomMapRoot", scene);
 
-        logger.log("[CustomMapRunner] ========================================");
-        logger.log("[CustomMapRunner] CUSTOM MAP RUNNER INITIALIZED");
-        logger.log("[CustomMapRunner] ========================================");
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log("[CustomMapRunner] CUSTOM MAP RUNNER INITIALIZED");
+        }
     }
 
     /**
@@ -95,7 +96,10 @@ export class CustomMapRunner {
      * 3. Загружает объекты из localStorage или переданных данных
      */
     public run(mapData?: CustomMapData): RunResult {
-        logger.log("[CustomMapRunner] ===== STARTING CUSTOM MAP =====");
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log("[CustomMapRunner] ===== STARTING CUSTOM MAP =====");
+        }
 
         try {
             // ШАГ 1: Очистить сцену от ВСЕГО лишнего
@@ -107,8 +111,11 @@ export class CustomMapRunner {
             // ШАГ 3: Загрузить объекты
             const result = this.loadEditorObjects(mapData);
 
-            logger.log(`[CustomMapRunner] ===== CUSTOM MAP READY =====`);
-            logger.log(`[CustomMapRunner] Objects created: ${result.objectsCreated}`);
+            // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+            if (process.env.NODE_ENV === 'development') {
+                logger.log(`[CustomMapRunner] ===== CUSTOM MAP READY =====`);
+                logger.log(`[CustomMapRunner] Objects created: ${result.objectsCreated}`);
+            }
 
             return result;
 
@@ -128,7 +135,10 @@ export class CustomMapRunner {
      * Удаляем ВСЕ кроме: танка, камеры, освещения, UI
      */
     private clearScene(): void {
-        logger.log("[CustomMapRunner] Step 1: Clearing scene...");
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log("[CustomMapRunner] Step 1: Clearing scene...");
+        }
 
         const protectedKeywords = [
             // Танк и его части
@@ -160,7 +170,10 @@ export class CustomMapRunner {
             }
         }
 
-        logger.log(`[CustomMapRunner] Removing ${meshesToRemove.length} meshes...`);
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log(`[CustomMapRunner] Removing ${meshesToRemove.length} meshes...`);
+        }
 
         for (const mesh of meshesToRemove) {
             try {
@@ -170,7 +183,10 @@ export class CustomMapRunner {
             }
         }
 
-        logger.log(`[CustomMapRunner] Scene cleared. Remaining: ${this.scene.meshes.length} meshes`);
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log(`[CustomMapRunner] Scene cleared. Remaining: ${this.scene.meshes.length} meshes`);
+        }
     }
 
     /**
@@ -179,7 +195,10 @@ export class CustomMapRunner {
      * - Ambient освещение
      */
     private createEnvironment(): void {
-        logger.log("[CustomMapRunner] Step 2: Creating environment...");
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log("[CustomMapRunner] Step 2: Creating environment...");
+        }
 
         // Создаём большой тёмный пол
         this.floor = MeshBuilder.CreateGround("customMapFloor", {
@@ -202,20 +221,29 @@ export class CustomMapRunner {
         this.floor.metadata = { customMapFloor: true, isGround: true };
         this.floor.parent = this.parentNode;
 
-        logger.log("[CustomMapRunner] Floor created (500x500)");
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log("[CustomMapRunner] Floor created (500x500)");
+        }
     }
 
     /**
      * ШАГ 3: Загрузить объекты из данных или localStorage
      */
     private loadEditorObjects(providedMapData?: CustomMapData): RunResult {
-        logger.log("[CustomMapRunner] Step 3: Loading editor objects...");
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log("[CustomMapRunner] Step 3: Loading editor objects...");
+        }
 
         let mapData: CustomMapData;
 
         if (providedMapData) {
             mapData = providedMapData;
-            logger.log(`[CustomMapRunner] Using provided map data: "${mapData.name}"`);
+            // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+            if (process.env.NODE_ENV === 'development') {
+                logger.log(`[CustomMapRunner] Using provided map data: "${mapData.name}"`);
+            }
         } else {
             // Читаем данные из localStorage
             const mapDataStr = localStorage.getItem('selectedCustomMapData');
@@ -230,10 +258,12 @@ export class CustomMapRunner {
                 };
             }
 
-            // ЛОГИРОВАНИЕ РАЗМЕРА ДАННЫХ
-            const dataSizeKB = (mapDataStr.length / 1024).toFixed(2);
-            const dataSizeMB = (mapDataStr.length / 1024 / 1024).toFixed(2);
-            logger.log(`[CustomMapRunner] 📦 localStorage data: ${dataSizeKB}KB (${dataSizeMB}MB, ${mapDataStr.length} chars)`);
+            // ОПТИМИЗАЦИЯ: Логируем размер данных только в dev режиме
+            if (process.env.NODE_ENV === 'development') {
+                const dataSizeKB = (mapDataStr.length / 1024).toFixed(2);
+                const dataSizeMB = (mapDataStr.length / 1024 / 1024).toFixed(2);
+                logger.log(`[CustomMapRunner] 📦 localStorage data: ${dataSizeKB}KB (${dataSizeMB}MB, ${mapDataStr.length} chars)`);
+            }
 
             try {
                 mapData = JSON.parse(mapDataStr);
@@ -248,8 +278,11 @@ export class CustomMapRunner {
             }
         }
 
-        logger.log(`[CustomMapRunner] Map: "${mapData.name}"`);
-        logger.log(`[CustomMapRunner] Objects to create: ${mapData.placedObjects?.length || 0}`);
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log(`[CustomMapRunner] Map: "${mapData.name}"`);
+            logger.log(`[CustomMapRunner] Objects to create: ${mapData.placedObjects?.length || 0}`);
+        }
 
         if (!mapData.placedObjects || mapData.placedObjects.length === 0) {
             logger.warn("[CustomMapRunner] Map has no objects!");
@@ -279,7 +312,10 @@ export class CustomMapRunner {
 
             if (safePos) {
                 this.spawnPosition = safePos;
-                logger.log(`[CustomMapRunner] 🎯 Found spawn point at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)}) - adjusted from (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+                if (process.env.NODE_ENV === 'development') {
+                    logger.log(`[CustomMapRunner] 🎯 Found spawn point at (${safePos.x.toFixed(1)}, ${safePos.y.toFixed(1)}, ${safePos.z.toFixed(1)}) - adjusted from (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                }
             } else {
                 // Fallback: используем getTopSurfaceHeight или фиксированный отступ
                 let spawnY = pos.y + 2;
@@ -288,7 +324,10 @@ export class CustomMapRunner {
                     spawnY = surfaceHeight + 2.0;
                 }
                 this.spawnPosition = new Vector3(pos.x, spawnY, pos.z);
-                logger.log(`[CustomMapRunner] 🎯 Found spawn point at (${pos.x.toFixed(1)}, ${spawnY.toFixed(1)}, ${pos.z.toFixed(1)}) - using fallback`);
+                // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+                if (process.env.NODE_ENV === 'development') {
+                    logger.log(`[CustomMapRunner] 🎯 Found spawn point at (${pos.x.toFixed(1)}, ${spawnY.toFixed(1)}, ${pos.z.toFixed(1)}) - using fallback`);
+                }
             }
         }
 
@@ -306,7 +345,10 @@ export class CustomMapRunner {
             }
         }
 
-        logger.log(`[CustomMapRunner] ✅ Created ${created}/${mapData.placedObjects.length} objects`);
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development') {
+            logger.log(`[CustomMapRunner] ✅ Created ${created}/${mapData.placedObjects.length} objects`);
+        }
 
         return {
             success: true,
@@ -341,7 +383,10 @@ export class CustomMapRunner {
                         // TODO: Immobilize logic if available
                     }
 
-                    console.log(`[CustomMapRunner] Spawned enemy ${obj.type} at ${pos}`);
+                    // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+                    if (process.env.NODE_ENV === 'development') {
+                        console.log(`[CustomMapRunner] Spawned enemy ${obj.type} at ${pos}`);
+                    }
 
                     if (enemy.chassis) {
                         return enemy.chassis;
@@ -393,10 +438,13 @@ export class CustomMapRunner {
 
         // DEBUG: Log first 5 objects to see actual data
         if (this.createdMeshes.length < 5) {
-            console.log(`[CustomMapRunner] Object #${this.createdMeshes.length + 1}: ` +
+            // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+            if (process.env.NODE_ENV === 'development') {
+                console.log(`[CustomMapRunner] Object #${this.createdMeshes.length + 1}: ` +
                 `pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) ` +
                 `scale=(${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)}) ` +
                 `color=${colorHex} type=${obj.type} isPolygon=${obj.isPolygon || false}`);
+            }
         }
 
         const meshName = `customObj_${obj.id}`;
@@ -407,8 +455,8 @@ export class CustomMapRunner {
         const height = Math.max(0.5, scale.y);
         const depth = Math.max(0.5, scale.z);
 
-        // DEBUG: Логируем первые 50 объектов
-        if (this.createdMeshes.length < 50) {
+        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
+        if (process.env.NODE_ENV === 'development' && this.createdMeshes.length < 50) {
             console.log(`[CustomMapRunner] #${this.createdMeshes.length + 1} "${obj.properties?.name || obj.id}": ` +
                 `pos=(${pos.x.toFixed(0)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(0)}) ` +
                 `size=(${width.toFixed(1)}x${height.toFixed(1)}x${depth.toFixed(1)}) ` +

@@ -5,6 +5,7 @@
 
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
+import { getLocalIP, getAllLocalIPs } from './get-local-ip';
 
 // Colors for console output
 const colors = {
@@ -108,13 +109,34 @@ function cleanup() {
 }
 
 // Main
+const localIP = getLocalIP();
+const allIPs = getAllLocalIPs();
+
 console.log('\n');
 console.log(`${colors.cyan}╔════════════════════════════════════════════════════╗${colors.reset}`);
 console.log(`${colors.cyan}║     PROTOCOL TX - UNIFIED DEVELOPMENT SERVER       ║${colors.reset}`);
 console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);
+console.log(`${colors.cyan}║  ${colors.white}📍 Локальный доступ:${colors.cyan}                                    ║${colors.reset}`);
 console.log(`${colors.cyan}║  ${colors.green}🟢 SERVER${colors.cyan} - Game Backend (port 8000)              ║${colors.reset}`);
+console.log(`${colors.cyan}║     → ws://localhost:8000                          ║${colors.reset}`);
 console.log(`${colors.cyan}║  ${colors.cyan}🔵 CLIENT${colors.cyan} - Game Frontend (port 5000)             ║${colors.reset}`);
+console.log(`${colors.cyan}║     → http://localhost:5000                         ║${colors.reset}`);
 console.log(`${colors.cyan}║  ${colors.magenta}🟣 EDITOR${colors.cyan} - Map Editor (port 3000)               ║${colors.reset}`);
+console.log(`${colors.cyan}║     → http://localhost:3000                         ║${colors.reset}`);
+if (localIP) {
+    console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);
+    console.log(`${colors.cyan}║  ${colors.green}🌐 Сетевой доступ (для других ПК в сети):${colors.cyan}         ║${colors.reset}`);
+    console.log(`${colors.cyan}║     → ws://${localIP}:8000${' '.repeat(30 - localIP.length)}║${colors.reset}`);
+    console.log(`${colors.cyan}║     → http://${localIP}:5000${' '.repeat(29 - localIP.length)}║${colors.reset}`);
+    console.log(`${colors.cyan}║     → http://${localIP}:3000${' '.repeat(29 - localIP.length)}║${colors.reset}`);
+}
+if (allIPs.length > 1) {
+    console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);
+    console.log(`${colors.cyan}║  ${colors.magenta}📡 Все доступные IP-адреса:${colors.cyan}                        ║${colors.reset}`);
+    allIPs.forEach(ip => {
+        console.log(`${colors.cyan}║     → ${ip}${' '.repeat(42 - ip.length)}║${colors.reset}`);
+    });
+}
 console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);
 console.log(`${colors.cyan}║  Press Ctrl+C to stop all services                 ║${colors.reset}`);
 console.log(`${colors.cyan}╚════════════════════════════════════════════════════╝${colors.reset}`);

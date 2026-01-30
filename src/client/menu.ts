@@ -209,6 +209,17 @@ export class MainMenu {
         // ИСПРАВЛЕНО: Настраиваем универсальное закрытие меню по клику вне и ESC
         this.setupUniversalMenuCloseHandlers();
 
+        // Setup network listeners waiter (Hook into Notification System)
+        const bindInterval = setInterval(() => {
+            const game = (window as any).gameInstance;
+            if (game && game.multiplayerManager) {
+                if ((this as any).setupNetworkListeners) {
+                    (this as any).setupNetworkListeners();
+                }
+                clearInterval(bindInterval);
+            }
+        }, 1000);
+
         // Initialize Custom Map Bridge for interaction with Map Editor
         try {
             initCustomMapBridge((mapData, autoPlay) => {
@@ -250,10 +261,10 @@ export class MainMenu {
 
                 if (autoPlay) {
                     logger.info("Main", "TEST MODE: Auto-playing custom map");
-                    
+
                     // КРИТИЧНО: Сохраняем в tx_test_map для TEST режима
                     localStorage.setItem('tx_test_map', JSON.stringify(mapData));
-                    
+
                     // КРИТИЧНО: Скрываем редактор (не закрываем, а сворачиваем)
                     if (this.editorContainer) {
                         this.editorContainer.style.display = 'none';
@@ -262,7 +273,7 @@ export class MainMenu {
                         this.editorContainer.classList.add('polygen-minimized');
                         console.log('[Menu] ✅ TEST MODE: Editor minimized');
                     }
-                    
+
                     // Создаем кнопку восстановления редактора
                     this.createExpandEditorButton();
 
@@ -271,7 +282,7 @@ export class MainMenu {
                         if (this.game) {
                             this.game.currentMapType = 'custom';
                             this.container.classList.add('hidden');
-                            
+
                             if (this.game.gameInitialized && this.game.gameStarted) {
                                 // Игра уже запущена - просто перезагружаем карту
                                 this.game.reloadMap('custom').catch((e: any) => {
@@ -310,6 +321,10 @@ export class MainMenu {
 
 
         this.createMenuUI();
+
+        // ИСПРАВЛЕНО: Настраиваем обработчик ESC и клавиатурную навигацию для всех меню
+        // Вызываем ПОСЛЕ createMenuUI(), чтобы container был создан
+        this.setupEscHandler();
 
         this.createSettingsUI();
         this.createStatsPanel();
@@ -661,6 +676,29 @@ export class MainMenu {
     }
 
     private createMenuUI(): void {
+        // FIX: Double highlighting (mouse vs keyboard)
+        // Global input mode detection to toggle .menu-keyboard-nav
+        // Only add listener if not already added
+        if (!document.body.getAttribute('data-input-listeners-attached')) {
+            document.body.setAttribute('data-input-listeners-attached', 'true');
+
+            const updateInputMode = (mode: 'mouse' | 'keyboard') => {
+                if (mode === 'keyboard') {
+                    document.body.classList.add('menu-keyboard-nav');
+                } else {
+                    document.body.classList.remove('menu-keyboard-nav');
+                }
+            };
+
+            window.addEventListener('mousemove', () => updateInputMode('mouse'), { passive: true });
+            window.addEventListener('mousedown', () => updateInputMode('mouse'), { passive: true });
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Tab' || e.key.startsWith('Arrow')) {
+                    updateInputMode('keyboard');
+                }
+            }, { passive: true });
+        }
+
 
         this.container = document.createElement("div");
         this.container.id = "main-menu";
@@ -785,7 +823,7 @@ export class MainMenu {
                         </button>
                     </div>
                     <div class="btn-row">
-                        <button class="menu-btn secondary" id="btn-map-editor">
+                        <button class="menu-btn secondary" id="btn-map-editor" style="${(new URLSearchParams(window.location.search).has('testMap') || localStorage.getItem("debug") === "true") ? '' : 'display: none;'}">
                             <span class="btn-icon">🗺</span>
                             <span class="btn-label">РЕДАКТОР КАРТ</span>
                         </button>
@@ -1101,6 +1139,43 @@ export class MainMenu {
         const style = document.createElement("style");
         style.textContent = `
             /* === PIXEL HACKER THEME === */
+
+            /* FIX: Double Highlighting - Disable hover effects during keyboard navigation */
+            body.menu-keyboard-nav .menu-btn:not(:focus):hover,
+            body.menu-keyboard-nav button:not(:focus):hover,
+            body.menu-keyboard-nav .sidebar-item:not(:focus-within):hover,
+            body.menu-keyboard-nav .tab-item:not(:focus-within):hover {
+                /* Reset specific hover styles to default (non-hover) state */
+                background: initial !important;
+                transform: none !important;
+                box-shadow: none !important;
+                border-color: initial !important; 
+                /* Note: 'initial' might be too aggressive if default has color. 
+                   Ideally we want to revert to the non-hover state.
+                   But since we lack the exact default values here, we rely on the fact 
+                   that avoiding the :hover rule usually reverts to default.
+                   However, CSS :hover rules are usually additive.
+                   By forcing important 'initial' or 'transparent', we might break default look.
+                   Let's try clearing background logic specifically.
+                */
+                background-color: transparent !important;
+                box-shadow: none !important;
+                transform: none !important;
+            }
+            
+            /* Ensure focus is highly visible in keyboard mode */
+            body.menu-keyboard-nav .menu-btn:focus,
+            body.menu-keyboard-nav button:focus,
+            body.menu-keyboard-nav .sidebar-item:focus-within,
+            body.menu-keyboard-nav .tab-item:focus-within {
+                background: rgba(0, 255, 0, 0.3) !important;
+                color: #fff !important;
+                box-shadow: 0 0 15px #0f0 !important;
+                transform: scale(1.05) !important;
+                outline: 2px solid #0f0 !important;
+                border-color: #0f0 !important;
+                z-index: 100005 !important;
+            }
 
             /* FIX: Banner Hover Controls */
             .banner-placeholder { position: relative; overflow: hidden; z-index: 100001; width: 100%; height: 100%; }
@@ -1500,7 +1575,7 @@ export class MainMenu {
             }
 
             .player-callsign {
-                font-size: 10px;
+                font-size: 16px;
                 color: #0ff;
                 text-shadow: 0 0 4px rgba(0, 255, 255, 0.6);
                 font-weight: bold;
@@ -1511,6 +1586,14 @@ export class MainMenu {
                 text-align: left;
                 margin-top: 4px;
                 align-self: flex-start;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+
+            .player-callsign:hover {
+                color: #fff;
+                text-shadow: 0 0 8px rgba(0, 255, 255, 1);
+                text-decoration: underline;
             }
 
             .player-stats-row {
@@ -3143,6 +3226,132 @@ export class MainMenu {
                 color: #0f0;
                 opacity: 0.7;
                 cursor: default;
+            }
+
+            /* === УПРОЩЁННЫЙ ДИЗАЙН СПИСКА ИГРОКОВ === */
+            .lobby-player-item-simple {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 8px 10px;
+                gap: 8px;
+            }
+
+            .lobby-player-name-simple {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                flex: 1;
+                min-width: 0;
+            }
+
+            .lobby-friend-star {
+                font-size: 10px;
+                color: #ffc800;
+                text-shadow: 0 0 5px rgba(255, 200, 0, 0.5);
+            }
+
+            .lobby-player-name-text {
+                color: #0f0;
+                font-size: 9px;
+                font-weight: bold;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+
+            .lobby-player-actions {
+                display: flex;
+                gap: 4px;
+                flex-shrink: 0;
+            }
+
+            /* MODIFIED: STRICTLY SQUARE, Neutral icons */
+            .lobby-action-btn {
+                width: 24px !important;
+                height: 24px !important;
+                flex: none !important; /* Prevent stretching */
+                padding: 0 !important;
+                border-radius: 4px;
+                font-size: 10px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: all 0.2s;
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                background: rgba(0, 0, 0, 0.3) !important;
+                color: #aaa !important;
+                box-shadow: 0 0 5px rgba(0,0,0,0.5);
+                min-width: 24px !important; /* Ensure square even if flex container tries to shrink */
+            }
+
+            .lobby-action-btn:hover {
+                background: rgba(255, 255, 255, 0.2) !important;
+                border-color: rgba(255, 255, 255, 0.5) !important;
+                color: #fff !important;
+                transform: scale(1.1);
+            }
+
+            .lobby-action-btn:active {
+                transform: scale(0.95);
+            }
+
+            .lobby-action-btn.lobby-friend-btn.active {
+                color: #0f0 !important;
+                border-color: rgba(0, 255, 0, 0.3) !important;
+            }
+
+            /* Notifications */
+            #notification-container {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 10000;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                pointer-events: none;
+            }
+            .notification-toast {
+                background: rgba(0, 0, 0, 0.9);
+                border: 1px solid #0f0;
+                color: #0f0;
+                padding: 10px 15px;
+                border-radius: 4px;
+                font-family: 'Press Start 2P', monospace;
+                font-size: 10px;
+                box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+                animation: slideIn 0.3s ease-out;
+                pointer-events: auto;
+                max-width: 300px;
+                word-wrap: break-word;
+            }
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+
+            /* Join Battle Button */
+            .mp-join-battle-btn {
+                width: 100%;
+                padding: 15px;
+                margin-top: 10px;
+                background: linear-gradient(180deg, #ff0000, #990000);
+                border: 2px solid #ff4444;
+                color: #fff;
+                font-family: "Press Start 2P", monospace;
+                font-size: 16px;
+                text-shadow: 2px 2px 0px #000;
+                cursor: pointer;
+                animation: pulse 2s infinite;
+            }
+            .mp-join-battle-btn:hover {
+                background: linear-gradient(180deg, #ff4444, #cc0000);
+            }
+
+            .lobby-action-btn:active {
+                transform: scale(0.95);
             }
 
             .lobby-room-full {
@@ -4939,6 +5148,9 @@ export class MainMenu {
             }
         }
 
+        // КРИТИЧЕСКИ ВАЖНО: Настраиваем обработчик ESC после создания container
+        this.setupEscHandler();
+
         // КРИТИЧЕСКИ ВАЖНО: Блокируем canvas сразу после создания меню
         const blockCanvas = () => {
             const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
@@ -5322,6 +5534,12 @@ export class MainMenu {
             const playerCard = document.getElementById("player-info");
             if (playerCard) {
                 playerCard.addEventListener("click", (e) => {
+                    // Ignore clicks on the callsign (nickname) updates
+                    const target = e.target as HTMLElement;
+                    if (target.id === "player-callsign" || target.closest("#player-callsign")) {
+                        return;
+                    }
+
                     try {
                         debugLog("[Menu] Player card clicked, opening progress panel");
                         e.preventDefault();
@@ -5548,6 +5766,15 @@ export class MainMenu {
         const handleMouseMove = () => {
             if (!this.container.classList.contains("hidden")) {
                 this.enforceCanvasPointerEvents();
+
+                // FIX: Remove double highlighting (keyboard focus + mouse hover)
+                // If mouse moves, we assume user is switching to mouse navigation, so we clear keyboard focus
+                const active = document.activeElement as HTMLElement;
+                const inputTypes = ["INPUT", "TEXTAREA", "SELECT"];
+                if (active && this.container.contains(active) && !inputTypes.includes(active.tagName) && !active.isContentEditable) {
+                    active.blur();
+                    active.classList.remove("keyboard-focused");
+                }
             }
         };
         const handleMouseDown = () => {
@@ -9310,7 +9537,7 @@ transition: all 0.2s;
                     const multiplayerManager = game.multiplayerManager;
                     const networkPlayers = multiplayerManager.getNetworkPlayers();
                     const currentPlayerId = multiplayerManager.getPlayerId();
-                    
+
                     // Создаем список игроков для выбора
                     const playersList: Array<{ id: string; name: string }> = [];
                     if (networkPlayers && networkPlayers.size > 0) {
@@ -9323,12 +9550,12 @@ transition: all 0.2s;
                             }
                         });
                     }
-                    
+
                     if (playersList.length === 0) {
                         alert("Нет игроков для кика");
                         return;
                     }
-                    
+
                     // Показываем диалог выбора игрока
                     const playerName = prompt(`Выберите игрока для кика:\n${playersList.map((p, i) => `${i + 1}. ${p.name}`).join('\n')}`);
                     if (playerName) {
@@ -9815,6 +10042,79 @@ transition: all 0.2s;
     }
 
     /**
+     * Shows a notification toast
+     */
+    showNotification(message: string, type: 'info' | 'invite' | 'message' = 'info'): void {
+        let container = document.getElementById("notification-container");
+        if (!container) {
+            container = document.createElement("div");
+            container.id = "notification-container";
+            document.body.appendChild(container);
+        }
+        const toast = document.createElement("div");
+        toast.className = "notification-toast";
+        toast.textContent = message;
+        // Styling based on type
+        if (type === 'invite') {
+            toast.style.borderColor = "#ffc800";
+            toast.style.color = "#ffc800";
+        } else if (type === 'message') {
+            toast.style.borderColor = "#0096ff";
+            toast.style.color = "#0096ff";
+        }
+        container.appendChild(toast);
+        setTimeout(() => {
+            toast.style.transition = "opacity 0.3s";
+            toast.style.opacity = "0";
+            setTimeout(() => toast.remove(), 300);
+        }, 5000);
+    }
+
+    private networkListenersSetup: boolean = false;
+
+    setupNetworkListeners(): void {
+        if (this.networkListenersSetup) return;
+
+        const game = (window as any).gameInstance;
+        if (!game || !game.multiplayerManager) return;
+
+        const mp = game.multiplayerManager;
+
+        // Hook Invite
+        const existingInvite = (mp as any).onGameInviteCallback;
+        mp.onGameInvite((data: any) => {
+            const sender = data.senderName || "Unknown";
+            this.showNotification(`Приглашение от ${sender}`, 'invite');
+            // Also add system message if possible (hard to reach specific panel from here, but global chat maybe?)
+            if (existingInvite) existingInvite(data);
+        });
+
+        // Hook Chat (Chain it)
+        const existingChat = (mp as any).onChatMessageCallback;
+        mp.onChatMessage((data: any) => {
+            // Check for Private Message
+            // Usually private messages have type='private' or isPrivate=true
+            if (data.type === 'private' || data.isPrivate) {
+                const sender = data.playerName || data.senderName || "Unknown";
+                this.showNotification(`ЛС от ${sender}: ${data.message}`, 'message');
+            }
+
+            if (existingChat) existingChat(data);
+        });
+
+        this.networkListenersSetup = true;
+        console.log("[Menu] Network listeners set up (Notifications enabled).");
+    }
+
+    private roomIsActive: boolean = false;
+
+    setRoomActive(active: boolean): void {
+        this.roomIsActive = active;
+        // Trigger update if needed
+        // this.updateRoomPanelPlayers(...); // Can't call without args
+    }
+
+    /**
      * Обновление количества игроков в панели комнаты и состояния кнопки "Начать игру"
      */
     updateRoomPanelPlayers(currentPlayers: number, maxPlayers: number): void {
@@ -9829,27 +10129,65 @@ transition: all 0.2s;
         const hintEl = document.getElementById("mp-room-panel-start-hint");
 
         if (startBtn) {
-            const canStart = currentPlayers >= 2;
 
-            if (canStart) {
-                // Активируем кнопку
+            // Check if game is ACTIVE (Battle Mode)
+            if (this.roomIsActive) {
+                // FORCE BATTLE BUTTON
                 startBtn.disabled = false;
                 startBtn.style.opacity = "1";
                 startBtn.style.cursor = "pointer";
                 startBtn.style.pointerEvents = "auto";
+                startBtn.textContent = "В БОЙ"; // BATTLE
+
+                // Override click handler for immediate start
+                startBtn.onclick = () => {
+                    const game = (window as any).gameInstance;
+                    if (game) {
+                        // Start the game locally
+                        if (game.start) game.start();
+                        // Hide the menu
+                        this.hide();
+                    }
+                };
+
+                // Apply Battle Style
+                startBtn.classList.add("mp-join-battle-btn");
+                startBtn.classList.remove("mp-start-game-btn"); // Remove default class if any
+
                 if (hintEl) {
-                    hintEl.textContent = "Готово к запуску!";
-                    hintEl.style.color = "#4ade80";
+                    hintEl.textContent = "Битва идет! Присоединяйтесь!";
+                    hintEl.style.color = "#ff4444";
                 }
             } else {
-                // Деактивируем кнопку
-                startBtn.disabled = true;
-                startBtn.style.opacity = "0.5";
-                startBtn.style.cursor = "not-allowed";
-                startBtn.style.pointerEvents = "none";
-                if (hintEl) {
-                    hintEl.textContent = `Требуется минимум 2 игрока (сейчас: ${currentPlayers})`;
-                    hintEl.style.color = "#888";
+                // NORMAL LOBBY MODE
+                startBtn.textContent = "НАЧАТЬ ИГРУ";
+                startBtn.classList.remove("mp-join-battle-btn");
+                // Restore original handler? It's hard to restore bound function.
+                // Assuming mp-room-panel-start-game original handler is robust or re-bind it?
+                // For now, assume we don't switch from Active -> Waiting often without full reload/re-render.
+
+                const canStart = currentPlayers >= 2;
+
+                if (canStart) {
+                    // Активируем кнопку
+                    startBtn.disabled = false;
+                    startBtn.style.opacity = "1";
+                    startBtn.style.cursor = "pointer";
+                    startBtn.style.pointerEvents = "auto";
+                    if (hintEl) {
+                        hintEl.textContent = "Готово к запуску!";
+                        hintEl.style.color = "#4ade80";
+                    }
+                } else {
+                    // Деактивируем кнопку
+                    startBtn.disabled = true;
+                    startBtn.style.opacity = "0.5";
+                    startBtn.style.cursor = "not-allowed";
+                    startBtn.style.pointerEvents = "none";
+                    if (hintEl) {
+                        hintEl.textContent = `Требуется минимум 2 игрока (сейчас: ${currentPlayers})`;
+                        hintEl.style.color = "#888";
+                    }
                 }
             }
         }
@@ -10201,7 +10539,8 @@ transition: all 0.2s;
     }
 
     /**
-     * Рендеринг группы игроков
+     * Рендеринг группы игроков - УПРОЩЁННЫЙ ДИЗАЙН
+     * Показывает только имя + 3 иконки (написать, пригласить, добавить)
      */
     private renderPlayerGroup(container: HTMLElement, groupTitle: string, players: any[]): void {
         // Заголовок группы
@@ -10213,118 +10552,33 @@ transition: all 0.2s;
         // Игроки группы
         players.forEach(player => {
             const playerItem = document.createElement("div");
-            playerItem.className = "lobby-player-item";
+            playerItem.className = "lobby-player-item lobby-player-item-simple";
             playerItem.dataset.playerId = player.id;
-
-            const roomInfo = player.isInRoom && player.roomId
-                ? `<span class="lobby-player-room">Комната ${player.roomId} (${player.roomMode?.toUpperCase() || 'N/A'})</span>`
-                : `<span class="lobby-player-status">В лобби</span>`;
-
-            const buttonsRow = [];
-
-            if (player.isInRoom && player.roomId) {
-                buttonsRow.push(`<button class="lobby-join-btn" data-player-id="${player.id}" data-room-id="${player.roomId}">ПРИСОЕДИНИТЬСЯ</button>`);
-            }
-
-            // Кнопка "Написать" для всех игроков
-            buttonsRow.push(`<button class="lobby-message-btn" data-player-id="${player.id}" data-player-name="${player.name}">💬 НАПИСАТЬ</button>`);
-
-            // Кнопка "Пригласить в команду" для всех игроков (кроме себя)
-            const game = (window as any).gameInstance as any;
-            const multiplayerManager = game?.multiplayerManager;
-            const currentPlayerId = multiplayerManager?.getPlayerId();
-            if (player.id !== currentPlayerId) {
-                buttonsRow.push(`<button class="lobby-invite-btn" data-player-id="${player.id}" data-player-name="${player.name}">👥 ПРИГЛАСИТЬ</button>`);
-                // Кнопка "Добавить в друзья" для всех игроков (кроме себя)
-                buttonsRow.push(`<button class="lobby-friend-btn" data-player-id="${player.id}" data-player-name="${player.name}">⭐ ДОБАВИТЬ</button>`);
-            }
-
-            const buttonsHtml = buttonsRow.length > 0 ? `<div class="lobby-player-buttons">${buttonsRow.join('')}</div>` : '';
-
-            // Получаем расширенную информацию об игроке
-            const level = player.level || 0;
-            const kills = player.kills || 0;
-            const deaths = player.deaths || 0;
-            const kd = deaths > 0 ? (kills / deaths).toFixed(2) : kills > 0 ? kills.toFixed(0) : "0.00";
-            const wins = player.wins || 0;
-            const playTime = player.playTime || 0;
-            const playTimeHours = Math.floor(playTime / 3600);
-            const playTimeMinutes = Math.floor((playTime % 3600) / 60);
-            const playTimeStr = playTimeHours > 0 ? `${playTimeHours}ч ${playTimeMinutes}м` : `${playTimeMinutes}м`;
-            const rank = this.getPlayerRank(level, kills, deaths, wins);
-            const chassisType = player.chassisType || "N/A";
-            const cannonType = player.cannonType || "N/A";
-            const ping = player.ping !== undefined ? `${player.ping}ms` : "N/A";
-            const lastActive = player.lastActive ? this.formatRelativeTime(player.lastActive) : "Сейчас";
 
             // Определяем, является ли игрок другом
             const isFriend = this.friendsList.has(player.id);
 
+            // Получаем ID текущего игрока
+            const game = (window as any).gameInstance as any;
+            const multiplayerManager = game?.multiplayerManager;
+            const currentPlayerId = multiplayerManager?.getPlayerId();
+
+            // Создаём кнопки только иконками (без текста)
+            const buttonsHtml = player.id !== currentPlayerId ? `
+                <div class="lobby-player-actions">
+                    <button class="lobby-action-btn lobby-message-btn" data-player-id="${player.id}" data-player-name="${player.name}" title="Написать">💬</button>
+                    <button class="lobby-action-btn lobby-invite-btn" data-player-id="${player.id}" data-player-name="${player.name}" title="Пригласить">👥</button>
+                    <button class="lobby-action-btn lobby-friend-btn ${isFriend ? 'active' : ''}" data-player-id="${player.id}" data-player-name="${player.name}" title="${isFriend ? 'В друзьях' : 'Добавить в друзья'}">⭐</button>
+                </div>
+            ` : '';
+
             playerItem.innerHTML = `
-                <div class="lobby-player-header">
-                    <div class="lobby-player-name-row">
-                        <div class="lobby-player-name">${player.name}${isFriend ? ' <span class="lobby-friend-badge">⭐</span>' : ''}</div>
-                        <div class="lobby-player-level">LVL ${level}</div>
-                    </div>
-                    <div class="lobby-player-online-status">
-                        <span class="lobby-status-dot"></span>
-                        <span class="lobby-status-text">Онлайн</span>
-                    </div>
-                </div>
-                <div class="lobby-player-stats-row">
-                    <div class="lobby-player-stat">
-                        <span class="lobby-stat-label">K/D:</span>
-                        <span class="lobby-stat-value">${kd}</span>
-                    </div>
-                    <div class="lobby-player-stat">
-                        <span class="lobby-stat-label">Победы:</span>
-                        <span class="lobby-stat-value">${wins}</span>
-                    </div>
-                    <div class="lobby-player-stat">
-                        <span class="lobby-stat-label">Ранг:</span>
-                        <span class="lobby-stat-value lobby-rank-${rank.toLowerCase()}">${rank}</span>
-                    </div>
-                </div>
-                <div class="lobby-player-info">
-                    ${roomInfo}
-                </div>
-                <div class="lobby-player-details">
-                    <div class="lobby-player-detail-item">
-                        <span class="lobby-detail-label">Танк:</span>
-                        <span class="lobby-detail-value">${chassisType} / ${cannonType}</span>
-                    </div>
-                    <div class="lobby-player-detail-item">
-                        <span class="lobby-detail-label">Пинг:</span>
-                        <span class="lobby-detail-value">${ping}</span>
-                    </div>
-                    <div class="lobby-player-detail-item">
-                        <span class="lobby-detail-label">Время игры:</span>
-                        <span class="lobby-detail-value">${playTimeStr}</span>
-                    </div>
-                    <div class="lobby-player-detail-item">
-                        <span class="lobby-detail-label">Активность:</span>
-                        <span class="lobby-detail-value">${lastActive}</span>
-                    </div>
+                <div class="lobby-player-name-simple">
+                    ${isFriend ? '<span class="lobby-friend-star">⭐</span>' : ''}
+                    <span class="lobby-player-name-text">${player.name}</span>
                 </div>
                 ${buttonsHtml}
             `;
-
-            // Клик по кнопке присоединения
-            if (player.isInRoom && player.roomId) {
-                const joinBtn = playerItem.querySelector(".lobby-join-btn");
-                if (joinBtn) {
-                    joinBtn.addEventListener("click", (e) => {
-                        e.stopPropagation();
-                        this.joinPlayerRoom(player.id, player.roomId);
-                    });
-                }
-
-                // Также можно кликнуть по самому игроку
-                playerItem.style.cursor = "pointer";
-                playerItem.addEventListener("click", () => {
-                    this.joinPlayerRoom(player.id, player.roomId);
-                });
-            }
 
             // Клик по кнопке "Написать"
             const messageBtn = playerItem.querySelector(".lobby-message-btn");
@@ -10365,20 +10619,13 @@ transition: all 0.2s;
                 });
             }
 
-            // Клик по карточке игрока - открыть профиль
+            // Клик по строке игрока - открыть профиль
             playerItem.addEventListener("click", (e) => {
                 // Не открываем профиль если кликнули по кнопке
                 if ((e.target as HTMLElement).closest("button")) {
                     return;
                 }
                 this.showPlayerProfile(player.id, player.name);
-            });
-
-            // Контекстное меню (правый клик)
-            playerItem.addEventListener("contextmenu", (e) => {
-                e.preventDefault();
-                // TODO: Implement context menu for player
-                debugLog("[Menu] Context menu requested for player:", player.id, player.name);
             });
 
             container.appendChild(playerItem);
@@ -10952,7 +11199,7 @@ transition: all 0.2s;
         }
 
         debugLog(`[Menu] ✅ Присоединение к комнате ${roomId}...`);
-        
+
         // Показываем уведомление о попытке присоединения
         window.dispatchEvent(new CustomEvent('tx:notification', {
             detail: { message: `🔄 Присоединение к комнате ${roomId}...`, type: 'info' }
@@ -12196,11 +12443,11 @@ line - height: 1.4;
         // Настраиваем кнопку "Присоединиться" - сохраняем room.id в closure
         if (joinBtn) {
             const roomIdToJoin = room.id; // Сохраняем в локальную переменную для closure
-            
+
             // Убираем все старые обработчики
             (joinBtn as HTMLElement).onclick = null;
             joinBtn.removeEventListener('click', (joinBtn as any)._clickHandler);
-            
+
             // Создаём новый обработчик
             const clickHandler = (e: Event) => {
                 e.preventDefault();
@@ -12209,14 +12456,14 @@ line - height: 1.4;
                 debugLog(`[Menu] 🎮 Кнопка "Присоединиться" нажата! room.id = ${roomIdToJoin}`);
                 this.joinRoom(roomIdToJoin);
             };
-            
+
             // Сохраняем ссылку на обработчик для возможности удаления
             (joinBtn as any)._clickHandler = clickHandler;
             joinBtn.addEventListener('click', clickHandler);
-            
+
             // Также добавляем onclick как fallback
             (joinBtn as HTMLElement).onclick = clickHandler as any;
-            
+
             debugLog(`[Menu] ✅ Обработчик кнопки установлен для комнаты ${roomIdToJoin}`);
         } else {
             debugWarn("[Menu] ⚠️ Кнопка mp-room-details-join НЕ НАЙДЕНА!");
@@ -14002,7 +14249,7 @@ line - height: 1.4;
             console.log('[Menu] 🧹 Removing existing loading screen before editor');
             screen.remove();
         });
-        
+
         // Также скрываем экран загрузки через функцию игры если она есть
         if (this.game && typeof this.game.hideLoadingScreen === 'function') {
             this.game.hideLoadingScreen();
@@ -14046,7 +14293,7 @@ line - height: 1.4;
         // Create iframe for PolyGenStudio
         const iframe = document.createElement("iframe");
         iframe.id = "polygen-map-iframe";
-        
+
         // КРИТИЧНО: После загрузки iframe, удаляем любые экраны загрузки которые могли появиться
         iframe.onload = () => {
             console.log('[Menu] ✅ Editor iframe loaded, cleaning up any loading screens');
@@ -14129,16 +14376,16 @@ line - height: 1.4;
                     this.editorContainer.style.pointerEvents = 'none';
                     this.editorContainer.classList.add('polygen-minimized');
                 }
-                
+
                 // Показываем кнопку восстановления
                 this.createExpandEditorButton();
-                
+
                 // Показываем canvas игры
                 const gameCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
                 if (gameCanvas) {
                     gameCanvas.style.display = 'block';
                 }
-                
+
                 // НЕ удаляем обработчик сообщений - редактор может быть развернут обратно
                 return;
             }
@@ -14366,11 +14613,11 @@ line - height: 1.4;
             this.expandEditorBtn.remove();
             this.expandEditorBtn = null;
         }
-        
+
         // Also check for buttons with IDs
-        const oldBtn = document.getElementById('expand-editor-btn') || 
-                       document.getElementById('map-editor-restore-btn') ||
-                       document.getElementById('polygen-restore-btn');
+        const oldBtn = document.getElementById('expand-editor-btn') ||
+            document.getElementById('map-editor-restore-btn') ||
+            document.getElementById('polygen-restore-btn');
         if (oldBtn) {
             oldBtn.remove();
         }
@@ -14412,10 +14659,10 @@ line - height: 1.4;
                 this.editorContainer.style.pointerEvents = 'auto';
                 this.editorContainer.classList.remove('polygen-minimized');
             }
-            
+
             // Скрываем кнопку восстановления
             btn.style.display = 'none';
-            
+
             // Скрываем canvas игры
             const gameCanvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
             if (gameCanvas) {
@@ -14425,7 +14672,7 @@ line - height: 1.4;
 
         document.body.appendChild(btn);
         this.expandEditorBtn = btn;
-        
+
         // Сохраняем ссылку для глобального доступа
         (window as any).__polygenRestoreButton = btn;
     }
@@ -14733,9 +14980,134 @@ line - height: 1.4;
         await this.updatePlayerCallsign();
     }
 
+    private showInputModal(title: string, initialValue: string, placeholder: string, callback: (value: string | null) => void): void {
+        // Create overlay
+        let overlay = document.getElementById("input-modal-overlay");
+        if (overlay) overlay.remove(); // Remove existing if any
+
+        overlay = document.createElement("div");
+        overlay.id = "input-modal-overlay";
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.8); z-index: 200000;
+            display: flex; align-items: center; justify-content: center;
+            backdrop-filter: blur(4px);
+            opacity: 0; transition: opacity 0.2s;
+        `;
+
+        // Create Modal Window
+        const modal = document.createElement("div");
+        modal.className = "play-window";
+        modal.style.cssText = `
+            position: relative; width: 400px; max-width: 90vw;
+            background: rgba(0, 20, 0, 0.95); border: 2px solid #0f0;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.2);
+            border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;
+            transform: scale(0.9); transition: transform 0.2s;
+        `;
+
+        // Content
+        modal.innerHTML = `
+            <div class="play-window-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 15px; background: rgba(0, 50, 0, 0.8); border-bottom: 1px solid #0f0;">
+                <div class="play-window-title" style="color: #0f0; font-family: 'Press Start 2P'; font-size: 12px; text-shadow: 0 0 5px #0f0;">${title}</div>
+                <button class="window-btn-close" style="background: none; border: none; color: #0f0; font-size: 16px; cursor: pointer; padding: 0;">✕</button>
+            </div>
+            <div style="padding: 20px;">
+                <input type="text" id="modal-input-field" value="${initialValue.replace(/"/g, '&quot;')}" placeholder="${placeholder}" 
+                    style="width: 100%; padding: 12px; background: rgba(0, 10, 0, 0.6); border: 1px solid #0f0; border-radius: 4px; color: #fff; font-family: monospace; font-size: 14px; margin-bottom: 20px; outline: none; box-sizing: border-box;">
+                <div class="panel-buttons" style="display: flex; gap: 10px; justify-content: flex-end;">
+                    <button class="panel-btn" id="modal-cancel-btn" style="padding: 10px 20px; background: rgba(0, 50, 0, 0.5); border: 1px solid #0f0; color: #0f0; cursor: pointer; font-family: 'Press Start 2P'; font-size: 10px; border-radius: 4px;">ОТМЕНА</button>
+                    <button class="panel-btn primary" id="modal-confirm-btn" style="padding: 10px 20px; background: #0f0; border: 1px solid #0f0; color: #000; cursor: pointer; font-weight: bold; font-family: 'Press Start 2P'; font-size: 10px; border-radius: 4px;">ПРИНЯТЬ</button>
+                </div>
+            </div>
+        `;
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        // Animate in
+        requestAnimationFrame(() => {
+            if (overlay) overlay.style.opacity = "1";
+            modal.style.transform = "scale(1)";
+        });
+
+        const input = modal.querySelector("input") as HTMLInputElement;
+        const closeBtn = modal.querySelector(".window-btn-close") as HTMLButtonElement;
+        const cancelBtn = modal.querySelector("#modal-cancel-btn") as HTMLButtonElement;
+        const confirmBtn = modal.querySelector("#modal-confirm-btn") as HTMLButtonElement;
+
+        input.focus();
+        input.select();
+
+        const close = (result: string | null) => {
+            if (overlay) {
+                overlay.style.opacity = "0";
+                modal.style.transform = "scale(0.9)";
+                setTimeout(() => { if (overlay) overlay.remove(); }, 200);
+            }
+            callback(result);
+        };
+
+        closeBtn.onclick = () => close(null);
+        cancelBtn.onclick = () => close(null);
+
+        confirmBtn.onclick = () => {
+            close(input.value);
+        };
+
+        input.onkeydown = (e) => {
+            e.stopPropagation(); // Avoid triggering game hotkeys
+            if (e.key === "Enter") close(input.value);
+            if (e.key === "Escape") close(null);
+        };
+
+        // Close on click outside
+        overlay.onclick = (e) => {
+            if (e.target === overlay) close(null);
+        };
+    }
+
+    private handleCallsignClick(): void {
+        if (firebaseService.isAuthenticated()) {
+            this.showNotification("Смена имени доступна только для гостевого режима", "info");
+            return;
+        }
+
+        const currentName = localStorage.getItem("tx_player_name") || "";
+
+        this.showInputModal("СМЕНА ПОЗЫВНОГО", currentName, "Введите имя...", (newName) => {
+            if (newName !== null) {
+                const cleanName = newName.trim();
+
+                if (cleanName.length > 0) {
+                    localStorage.setItem("tx_player_name", cleanName);
+
+                    // Update live manager if available
+                    const game = (window as any).gameInstance;
+                    if (game && game.multiplayerManager) {
+                        const mp = game.multiplayerManager;
+                        if (typeof (mp as any).localPlayerName !== 'undefined') (mp as any).localPlayerName = cleanName;
+                        if (typeof (mp as any).playerName !== 'undefined') (mp as any).playerName = cleanName;
+                    }
+                } else {
+                    localStorage.removeItem("tx_player_name");
+                }
+
+                this.updatePlayerCallsign();
+            }
+        });
+    }
+
     private async updatePlayerCallsign(): Promise<void> {
         const callsignElement = document.getElementById("player-callsign");
         if (!callsignElement) return;
+
+        // Attach interactive handler if not present
+        if (!callsignElement.getAttribute("data-interactive")) {
+            callsignElement.setAttribute("data-interactive", "true");
+            callsignElement.addEventListener("click", () => this.handleCallsignClick());
+            callsignElement.title = "Нажмите, чтобы изменить имя";
+        }
 
         const isAuthenticated = firebaseService.isAuthenticated();
 
@@ -14747,25 +15119,58 @@ line - height: 1.4;
                 callsignElement.textContent = "[admin]";
                 callsignElement.style.color = "#ff0";
                 callsignElement.style.textShadow = "0 0 5px #ff0";
-                callsignElement.style.borderColor = "rgba(255, 255, 0, 0.5)";
-                callsignElement.style.background = "rgba(255, 255, 0, 0.15)";
+                callsignElement.style.borderColor = "transparent";
+                callsignElement.style.background = "transparent";
             } else {
                 // Получаем username
                 const username = await firebaseService.getUsername();
                 callsignElement.textContent = `[${username || "user"}]`;
                 callsignElement.style.color = "#0ff";
                 callsignElement.style.textShadow = "0 0 5px #0ff";
-                callsignElement.style.borderColor = "rgba(0, 255, 255, 0.3)";
-                callsignElement.style.background = "rgba(0, 255, 255, 0.1)";
+                callsignElement.style.borderColor = "transparent";
+                callsignElement.style.background = "transparent";
             }
         } else {
-            // Анонимный пользователь - показываем anon_id
-            const anonId = firebaseService.getShortAnonId() || "0001";
-            callsignElement.textContent = `[anon_id: ${anonId}]`;
-            callsignElement.style.color = "#0ff";
+            // Анонимный пользователь - показываем имя из multiplayerManager или anon_id
+            const game = (window as any).gameInstance;
+            const multiplayerManager = game?.multiplayerManager;
+            let playerName: string | null = null;
+
+            // Пробуем получить имя из multiplayerManager
+            if (multiplayerManager) {
+                // Используем localPlayerName или playerName напрямую
+                if (typeof (multiplayerManager as any).localPlayerName === 'string') {
+                    playerName = (multiplayerManager as any).localPlayerName;
+                } else if (typeof (multiplayerManager as any).playerName === 'string') {
+                    playerName = (multiplayerManager as any).playerName;
+                }
+            }
+
+            // Если имя не найдено, пробуем получить из localStorage
+            if (!playerName || playerName.trim().length === 0 || playerName === "Player") {
+                try {
+                    const savedName = localStorage.getItem("tx_player_name");
+                    if (savedName && savedName.trim().length > 0) {
+                        playerName = savedName;
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки localStorage
+                }
+            }
+
+            // Если имя есть, показываем его
+            if (playerName && playerName.trim().length > 0 && playerName !== "Player") {
+                callsignElement.textContent = `[${playerName}]`;
+                callsignElement.style.color = "#0ff";
+            } else {
+                // Иначе показываем anon_id
+                const anonId = firebaseService.getShortAnonId() || "0001";
+                callsignElement.textContent = `[anon_id: ${anonId}]`;
+                callsignElement.style.color = "#0ff";
+            }
             callsignElement.style.textShadow = "0 0 5px #0ff";
-            callsignElement.style.borderColor = "rgba(0, 255, 255, 0.3)";
-            callsignElement.style.background = "rgba(0, 255, 255, 0.1)";
+            callsignElement.style.borderColor = "transparent";
+            callsignElement.style.background = "transparent";
         }
     }
 
@@ -14864,12 +15269,49 @@ line - height: 1.4;
 
     show(isPaused: boolean = false): void {
 
-        debugLog("[Menu] show() called");
+        debugLog(`[Menu] show() called with isPaused=${isPaused}`);
         if (!this.container) {
 
             console.error("[Menu] Container not initialized in show()!");
             return;
         }
+
+        // Проверяем, первый ли это заход игрока (только если не пауза)
+        if (!isPaused && this.checkFirstTimeVisit()) {
+            this.showPlayerNameDialog();
+            return; // Не показываем основное меню пока не введено имя
+        }
+
+        // Управление видимостью кнопок в зависимости от паузы
+        const pauseButtons = document.getElementById("pause-buttons");
+        const mainButtons = document.getElementById("main-buttons");
+        const authSection = document.getElementById("auth-section");
+        const playerInfo = document.getElementById("player-info");
+
+        if (pauseButtons && mainButtons) {
+            if (isPaused) {
+                // Режим паузы
+                pauseButtons.style.display = "flex";
+                mainButtons.style.display = "none";
+
+                // В режиме паузы скрываем лишние элементы UI чтобы не загораживать обзор
+                if (authSection) authSection.style.display = "none";
+
+                // Добавляем класс для стилизации режима паузы
+                this.container.classList.add("pause-mode");
+            } else {
+                // Главное меню
+                pauseButtons.style.display = "none";
+                mainButtons.style.display = "flex";
+
+                // В главном меню показываем все элементы
+                if (authSection) authSection.style.display = "flex";
+
+                // Убираем класс паузы
+                this.container.classList.remove("pause-mode");
+            }
+        }
+
         this.container.classList.remove("hidden");
         // Убираем inline стили display/visibility - CSS уже задает display: flex
         this.container.style.removeProperty("display");
@@ -14877,9 +15319,260 @@ line - height: 1.4;
         document.body.classList.add("menu-visible");
 
         // Настраиваем callbacks для лобби при показе меню
+        // В режиме паузы лобби обновлять не обязательно, но для простоты оставляем
         setTimeout(() => {
             this.setupLobbyCallbacks();
-            // Запускаем автообновление если оно было включено
+            // Запускаем автообновление если оно было включено и мы НЕ на паузе
+            // На паузе обновление лобби может отвлекать и тратить ресурсы
+            if (!isPaused) {
+                const game = (window as any).gameInstance as any;
+                const multiplayerManager = game?.multiplayerManager;
+                if (multiplayerManager && this.lobbyAutoRefreshEnabled) {
+                    this.startLobbyAutoRefresh(multiplayerManager);
+                }
+            }
+        }, 500);
+
+        // Показываем курсор и выходим из pointer lock
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
+    }
+
+    /**
+     * Проверить, первый ли это заход игрока
+     */
+    private checkFirstTimeVisit(): boolean {
+        const STORAGE_KEY = "tx_first_visit_completed";
+        const NAME_KEY = "tx_player_name";
+
+        // Если уже был первый заход, не показываем диалог
+        const firstVisitCompleted = localStorage.getItem(STORAGE_KEY) === "true";
+        if (firstVisitCompleted) {
+            return false;
+        }
+
+        // Если имя уже сохранено, считаем что первый заход завершен
+        const savedName = localStorage.getItem(NAME_KEY);
+        if (savedName && savedName.trim().length > 0) {
+            // Автоматически отмечаем первый заход как завершенный
+            localStorage.setItem(STORAGE_KEY, "true");
+            return false;
+        }
+
+        // Первый заход и имя не сохранено - показываем диалог
+        return true;
+    }
+
+    /**
+     * Показать диалог ввода имени игрока
+     */
+    private showPlayerNameDialog(): void {
+        // Создаем модальное окно
+        const dialog = document.createElement("div");
+        dialog.id = "player-name-dialog";
+        dialog.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 999999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Consolas', monospace;
+        `;
+
+        const content = document.createElement("div");
+        content.style.cssText = `
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+            border: 2px solid #0f0;
+            border-radius: 10px;
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.3);
+            text-align: center;
+        `;
+
+        const title = document.createElement("h2");
+        title.textContent = "👤 ДОБРО ПОЖАЛОВАТЬ!";
+        title.style.cssText = `
+            color: #0f0;
+            margin: 0 0 20px 0;
+            font-size: 24px;
+            text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+        `;
+
+        const subtitle = document.createElement("p");
+        subtitle.textContent = "Введите ваше имя или войдите анонимно";
+        subtitle.style.cssText = `
+            color: #0aa;
+            margin: 0 0 30px 0;
+            font-size: 14px;
+        `;
+
+        const inputWrapper = document.createElement("div");
+        inputWrapper.style.cssText = `
+            margin-bottom: 20px;
+        `;
+
+        const nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.placeholder = "Введите имя игрока";
+        nameInput.maxLength = 20;
+        nameInput.style.cssText = `
+            width: 100%;
+            padding: 15px;
+            background: rgba(0, 20, 0, 0.8);
+            border: 2px solid #0a0;
+            border-radius: 5px;
+            color: #0f0;
+            font-size: 16px;
+            font-family: 'Consolas', monospace;
+            outline: none;
+            box-sizing: border-box;
+        `;
+        nameInput.addEventListener("focus", () => {
+            nameInput.style.borderColor = "#0f0";
+            nameInput.style.boxShadow = "0 0 10px rgba(0, 255, 0, 0.3)";
+        });
+        nameInput.addEventListener("blur", () => {
+            nameInput.style.borderColor = "#0a0";
+            nameInput.style.boxShadow = "none";
+        });
+
+        // Автофокус на поле ввода
+        setTimeout(() => nameInput.focus(), 100);
+
+        // Обработка Enter
+        nameInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                this.handlePlayerNameSubmit(nameInput.value.trim(), dialog);
+            }
+        });
+
+        const buttonsWrapper = document.createElement("div");
+        buttonsWrapper.style.cssText = `
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+        `;
+
+        const submitButton = document.createElement("button");
+        submitButton.textContent = "✅ ПРОДОЛЖИТЬ";
+        submitButton.style.cssText = `
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #0a0 0%, #0f0 100%);
+            border: 2px solid #0f0;
+            border-radius: 5px;
+            color: #000;
+            font-size: 16px;
+            font-weight: bold;
+            font-family: 'Consolas', monospace;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
+        `;
+        submitButton.addEventListener("mouseenter", () => {
+            submitButton.style.transform = "scale(1.05)";
+            submitButton.style.boxShadow = "0 0 20px rgba(0, 255, 0, 0.5)";
+        });
+        submitButton.addEventListener("mouseleave", () => {
+            submitButton.style.transform = "scale(1)";
+            submitButton.style.boxShadow = "0 0 15px rgba(0, 255, 0, 0.3)";
+        });
+        submitButton.addEventListener("click", () => {
+            this.handlePlayerNameSubmit(nameInput.value.trim(), dialog);
+        });
+
+        const anonymousButton = document.createElement("button");
+        anonymousButton.textContent = "👤 АНОНИМНО";
+        anonymousButton.style.cssText = `
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+            border: 2px solid #0aa;
+            border-radius: 5px;
+            color: #0aa;
+            font-size: 16px;
+            font-weight: bold;
+            font-family: 'Consolas', monospace;
+            cursor: pointer;
+            transition: all 0.3s;
+        `;
+        anonymousButton.addEventListener("mouseenter", () => {
+            anonymousButton.style.transform = "scale(1.05)";
+            anonymousButton.style.borderColor = "#0ff";
+            anonymousButton.style.color = "#0ff";
+        });
+        anonymousButton.addEventListener("mouseleave", () => {
+            anonymousButton.style.transform = "scale(1)";
+            anonymousButton.style.borderColor = "#0aa";
+            anonymousButton.style.color = "#0aa";
+        });
+        anonymousButton.addEventListener("click", () => {
+            this.handlePlayerNameSubmit("", dialog, true);
+        });
+
+        inputWrapper.appendChild(nameInput);
+        buttonsWrapper.appendChild(submitButton);
+        buttonsWrapper.appendChild(anonymousButton);
+
+        content.appendChild(title);
+        content.appendChild(subtitle);
+        content.appendChild(inputWrapper);
+        content.appendChild(buttonsWrapper);
+        dialog.appendChild(content);
+
+        document.body.appendChild(dialog);
+    }
+
+    /**
+     * Обработать ввод имени игрока
+     */
+    private handlePlayerNameSubmit(name: string, dialog: HTMLElement, isAnonymous: boolean = false): void {
+        const game = (window as any).gameInstance;
+        const multiplayerManager = game?.multiplayerManager;
+
+        if (isAnonymous || !name || name.trim() === "") {
+            // Анонимный вход - генерируем случайное имя
+            const anonymousName = `Игрок_${Math.floor(Math.random() * 10000)}`;
+            if (multiplayerManager) {
+                multiplayerManager.setPlayerName(anonymousName);
+            }
+            // Сохраняем флаг анонимного входа
+            localStorage.setItem("tx_player_anonymous", "true");
+            debugLog("[Menu] Player chose anonymous entry:", anonymousName);
+        } else {
+            // Сохраняем имя
+            const trimmedName = name.trim();
+            if (multiplayerManager) {
+                multiplayerManager.setPlayerName(trimmedName);
+            }
+            localStorage.setItem("tx_player_anonymous", "false");
+            debugLog("[Menu] Player entered name:", trimmedName);
+        }
+
+        // Отмечаем, что первый заход завершен
+        localStorage.setItem("tx_first_visit_completed", "true");
+
+        // Удаляем диалог
+        dialog.remove();
+
+        // Показываем основное меню
+        this.container.classList.remove("hidden");
+        this.container.style.removeProperty("display");
+        this.container.style.removeProperty("visibility");
+        document.body.classList.add("menu-visible");
+
+        // Настраиваем callbacks для лобби
+        setTimeout(() => {
+            this.setupLobbyCallbacks();
             const game = (window as any).gameInstance as any;
             const multiplayerManager = game?.multiplayerManager;
             if (multiplayerManager && this.lobbyAutoRefreshEnabled) {
@@ -14894,8 +15587,8 @@ line - height: 1.4;
         document.body.style.cursor = 'default';
 
         // Добавляем класс "in-battle" если игра запущена (для 50% прозрачности фона)
-        const game = (window as any).gameInstance;
-        if (game && game.gameStarted) {
+        const gameInstance = (window as any).gameInstance;
+        if (gameInstance && gameInstance.gameStarted) {
             this.container.classList.add("in-battle");
         } else {
             this.container.classList.remove("in-battle");
@@ -15171,55 +15864,78 @@ line - height: 1.4;
      * Настройка обработчика ESC для возврата в игру
      */
     private setupEscHandler(): void {
-        // Удаляем старый обработчик если есть
-        const oldEscHandler = (this.container as any)._escHandler;
-        if (oldEscHandler) {
-            window.removeEventListener("keydown", oldEscHandler, true);
-        }
-
-        // ИСПРАВЛЕНО: ESC теперь работает как переключатель (toggle)
-        // Обработчик в menu.ts только закрывает меню, переключение обрабатывается в game.ts
-        const escHandler = (e: KeyboardEvent) => {
-            if (e.code === "Escape" && this.isVisible()) {
-                const game = (window as any).gameInstance;
-                // Если игра запущена, закрываем меню и возобновляем игру
-                if (game && game.gameStarted) {
-                    debugLog("[Menu] ESC pressed - closing menu and resuming game");
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-
-                    // КРИТИЧНО: Блокируем движение мыши ПЕРЕД закрытием меню через флаг
-                    if (game.pointerMoveBlocked !== undefined) {
-                        game.pointerMoveBlocked = true;
-
-                        // Разблокируем через задержку
-                        setTimeout(() => {
-                            game.pointerMoveBlocked = false;
-                        }, 400);
-                    }
-
-                    this.hide();
-                    if (game.gamePaused) {
-                        game.togglePause();
-                    }
-                } else {
-                    // Если игра не запущена, просто закрываем меню
-                    debugLog("[Menu] ESC pressed - closing menu");
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    this.hide();
-                }
+        // КРИТИЧНО: Проверяем, что container существует
+        // Используем строгую проверку для избежания ошибок
+        // Проверяем через try-catch, так как container может быть undefined до создания
+        try {
+            // Проверяем наличие container
+            if (!this.container) {
+                // Container еще не создан, откладываем настройку
+                // Это может произойти если setupEscHandler вызывается до создания container
+                return;
             }
-        };
+            // Удаляем старый обработчик если есть
+            // КРИТИЧНО: Дополнительная проверка container перед обращением к _escHandler
+            if (this.container && (this.container as any)._escHandler) {
+                const oldEscHandler = (this.container as any)._escHandler;
+                window.removeEventListener("keydown", oldEscHandler, true);
+            }
 
-        // Сохраняем ссылку на обработчик
-        (this.container as any)._escHandler = escHandler;
+            // ИСПРАВЛЕНО: ESC теперь работает как переключатель (toggle)
+            // Обработчик в menu.ts только закрывает меню, переключение обрабатывается в game.ts
+            const escHandler = (e: KeyboardEvent) => {
+                if (e.code === "Escape" && this.isVisible()) {
+                    const game = (window as any).gameInstance;
+                    // Если игра запущена, закрываем меню и возобновляем игру
+                    if (game && game.gameStarted) {
+                        debugLog("[Menu] ESC pressed - closing menu and resuming game");
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.stopImmediatePropagation();
 
-        // Добавляем обработчик на window для перехвата ESC
-        // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки
-        window.addEventListener("keydown", escHandler, { capture: true, signal: this.abortController.signal });
+                        // КРИТИЧНО: Блокируем движение мыши ПЕРЕД закрытием меню через флаг
+                        if (game.pointerMoveBlocked !== undefined) {
+                            game.pointerMoveBlocked = true;
+
+                            // Разблокируем через задержку
+                            setTimeout(() => {
+                                game.pointerMoveBlocked = false;
+                            }, 400);
+                        }
+
+                        this.hide();
+                        if (game.gamePaused) {
+                            game.togglePause();
+                        }
+                    } else {
+                        // Если игра не запущена, НЕ закрываем меню
+                        // Мы хотим оставаться в меню. ESC может использоваться для закрытия диалогов (обрабатывается отдельно)
+                        debugLog("[Menu] ESC pressed in lobby - menu stays open");
+                        // Не блокируем событие, чтобы game.ts мог гарантировать показ меню,
+                        // и чтобы setupUniversalMenuCloseHandlers мог закрыть диалоги
+                    }
+                }
+            };
+
+            // Сохраняем ссылку на обработчик
+            // КРИТИЧНО: Проверяем container перед сохранением обработчика
+            if (this.container) {
+                (this.container as any)._escHandler = escHandler;
+            }
+
+            // Добавляем обработчик на window для перехвата ESC
+            // ОПТИМИЗАЦИЯ: Используем signal для автоматической очистки
+            // КРИТИЧНО: Проверяем, что abortController существует
+            if (this.abortController) {
+                window.addEventListener("keydown", escHandler, { capture: true, signal: this.abortController.signal });
+            } else {
+                // Fallback если abortController не инициализирован
+                window.addEventListener("keydown", escHandler, { capture: true });
+            }
+        } catch (error) {
+            // Игнорируем ошибки при настройке обработчика ESC
+            console.warn("[Menu] Failed to setup ESC handler:", error);
+        }
 
         // НАВИГАЦИЯ КЛАВИАТУРОЙ: Стрелки, Tab, Enter
         this.setupKeyboardNavigation();
@@ -15613,17 +16329,21 @@ document.addEventListener("DOMContentLoaded", () => {
 (window as any).startMpCreateRoom = async function () {
     debugLog("[Menu] startMpCreateRoom called");
 
-    // КРИТИЧНО: Очищаем custom map данные при создании мультиплеер комнаты
-    // Это гарантирует, что все игроки увидят одинаковую карту с сервера
-    localStorage.removeItem("selectedCustomMapData");
-    localStorage.removeItem("selectedCustomMapIndex");
-    debugLog("[Menu] 🗺️ Очищены данные custom карты при создании комнаты (startMpCreateRoom)");
-
     const game = (window as any).gameInstance;
     if (game && game.mainMenu) {
         const menu = game.mainMenu as MainMenu;
         const mode = (menu as any).selectedCreateRoomMode || "ffa";
         const mapType = (menu as any).selectedCreateRoomMap || "normal";
+
+        // КРИТИЧНО: Очищаем custom map данные ТОЛЬКО если выбрана НЕ custom карта
+        // Если выбрана custom карта, сохраняем данные для загрузки
+        if (mapType !== 'custom') {
+            localStorage.removeItem("selectedCustomMapData");
+            localStorage.removeItem("selectedCustomMapIndex");
+            debugLog("[Menu] 🗺️ Очищены данные custom карты - выбрана не custom карта");
+        } else {
+            debugLog("[Menu] 🗺️ Сохраняем custom map данные для создания комнаты");
+        }
 
         debugLog(`[Menu] 🚀 STARTING CREATE ROOM. Mode: ${mode}, Map: ${mapType}`);
         debugLog(`[Menu] Value in menu.selectedCreateRoomMap: ${(menu as any).selectedCreateRoomMap}`);

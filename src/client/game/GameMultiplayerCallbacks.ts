@@ -78,7 +78,7 @@ export class GameMultiplayerCallbacks {
     private pendingEnemies: Array<any> = []; // Очередь ботов, ожидающих создания
     private gameStartedFromRoomJoined: boolean = false; // Флаг защиты от двойного запуска игры
     private lastProcessPendingTime: number = 0; // Throttling timestamp
-    private readonly PROCESS_PENDING_COOLDOWN = 100; // ms cooldown (reduced from 500ms for faster tank creation)
+    private readonly PROCESS_PENDING_COOLDOWN = 50; // ms cooldown (reduced for faster tank creation and updates)
 
     // Метрики синхронизации
     private syncMetrics: SyncMetrics = new SyncMetrics();
@@ -1235,6 +1235,10 @@ export class GameMultiplayerCallbacks {
 
             // Если комната АКТИВНА (игра уже идёт)
             if (data.isActive && data.players && data.players.length > 0) {
+                // Set menu state to Active (Battle Mode)
+                if (this.deps.mainMenu && (this.deps.mainMenu as any).setRoomActive) {
+                    (this.deps.mainMenu as any).setRoomActive(true);
+                }
 
                 // Обрабатываем всех игроков - добавляем в очередь
                 for (const playerData of data.players) {
@@ -1247,6 +1251,8 @@ export class GameMultiplayerCallbacks {
                 }
 
                 // Скрываем меню и запускаем игру
+                // DISABLED: Do not auto-start. Wait for user to click "Battle".
+                /*
                 if (this.deps.mainMenu) {
                     try {
                         this.deps.mainMenu.hide();
@@ -1280,6 +1286,11 @@ export class GameMultiplayerCallbacks {
                             logger.error("[Game] Error starting game for active room:", error);
                         }
                     }, 100);
+                }
+                */
+                // INSTEAD: Ensure we process pending players but stay in menu
+                if (this.deps.mainMenu && typeof this.deps.mainMenu.updateMultiplayerStatus === "function") {
+                    this.deps.mainMenu.updateMultiplayerStatus(); // Ensure UI updates
                 }
             } else if (!data.isActive && data.players && data.players.length > 0) {
                 // Комната ещё не активна - добавляем игроков в очередь
@@ -2009,8 +2020,20 @@ export class GameMultiplayerCallbacks {
             }
 
             if (data.position && data.direction && this.deps.scene) {
-                const pos = new Vector3(data.position.x, data.position.y, data.position.z);
+                let pos = new Vector3(data.position.x, data.position.y, data.position.z);
                 const dir = new Vector3(data.direction.x, data.direction.y, data.direction.z).normalize();
+
+                // КРИТИЧНО: Используем визуальную позицию дула для идеального схождения трейла со стволом
+                const networkTank = this.deps.networkPlayerTanks.get(data.ownerId);
+                if (networkTank && typeof networkTank.getBarrelMuzzlePosition === 'function') {
+                    try {
+                        // Получаем точную позицию конца ствола
+                        pos = networkTank.getBarrelMuzzlePosition();
+                        // console.log(`[Game] Projectile origin corrected to barrel for ${data.ownerId}`);
+                    } catch (e) {
+                        console.warn("[Game] Failed to get muzzle position for network tank:", e);
+                    }
+                }
 
                 // Визуальный эффект выстрела (вспышка)
                 if (this.deps.effectsManager) {
@@ -2392,9 +2415,16 @@ export class GameMultiplayerCallbacks {
      */
     processPendingNetworkPlayers(force: boolean = false): void {
         // Throttling: Skip if called too frequently (unless forced)
+        // ИСПРАВЛЕНО: Уменьшен throttling и добавлена проверка на pending players
         const now = Date.now();
-        if (!force && now - this.lastProcessPendingTime < this.PROCESS_PENDING_COOLDOWN) {
-            console.log(`[Game] ⏸️ processPendingNetworkPlayers пропущен (throttling), force=${force}`);
+        const hasPendingPlayers = this.pendingNetworkPlayers.length > 0;
+        const networkPlayersCount = this.deps.multiplayerManager?.getNetworkPlayers()?.size || 0;
+        const tanksCount = this.deps.networkPlayerTanks.size;
+        const hasMissingTanks = networkPlayersCount > tanksCount;
+
+        // КРИТИЧНО: Если есть pending players или missing tanks, пропускаем throttling
+        if (!force && !hasPendingPlayers && !hasMissingTanks && now - this.lastProcessPendingTime < this.PROCESS_PENDING_COOLDOWN) {
+            // Не логируем каждый пропуск - слишком много спама
             return;
         }
         this.lastProcessPendingTime = now;
@@ -2418,8 +2448,7 @@ export class GameMultiplayerCallbacks {
         }
 
         // Add networkPlayers without tanks to queue
-        const networkPlayersCount = this.deps.multiplayerManager?.getNetworkPlayers()?.size || 0;
-        const tanksCount = this.deps.networkPlayerTanks.size;
+        // ИСПРАВЛЕНО: Используем уже объявленные переменные networkPlayersCount и tanksCount
 
         if (this.pendingNetworkPlayers.length === 0 && networkPlayersCount > tanksCount) {
             this.deps.multiplayerManager?.getNetworkPlayers().forEach((np, id) => {

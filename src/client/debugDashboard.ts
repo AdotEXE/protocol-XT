@@ -137,6 +137,7 @@ export class DebugDashboard {
             <div class="debug-section">
                 <div class="debug-label">NETWORK</div>
                 <div class="debug-row"><span>Ping:</span><span id="dbg-network-ping">-</span></div>
+                <div class="debug-row"><span>Drift:</span><span id="dbg-network-drift">-</span></div>
                 <div class="debug-row"><span>Players:</span><span id="dbg-network-players">-</span></div>
                 <div class="debug-row"><span>Packets/s:</span><span id="dbg-network-packets">-</span></div>
                 <canvas id="ping-graph" width="150" height="30"></canvas>
@@ -552,7 +553,7 @@ export class DebugDashboard {
         set("dbg-network-time", `${networkTime.toFixed(1)} ms`);
 
         set("dbg-drawcalls", (perf.renderer?.drawCalls || 0).toString());
-        
+
         // Active Draw Calls (активные draw calls)
         const activeDrawCalls = (perf.renderer?.drawCalls || 0);
         set("dbg-active-drawcalls", activeDrawCalls.toString());
@@ -578,8 +579,8 @@ export class DebugDashboard {
 
         // GC Pauses (оценка на основе frame time spikes)
         // Если frame time резко увеличился, возможно был GC pause
-        const gcPauses = this.fpsHistory.length > 1 
-            ? this.fpsHistory.filter((fps, i) => i > 0 && fps < this.fpsHistory[i - 1] - 10).length 
+        const gcPauses = this.fpsHistory.length > 1
+            ? this.fpsHistory.filter((fps, i) => i > 0 && fps < this.fpsHistory[i - 1] - 10).length
             : 0;
         set("dbg-gc-pauses", gcPauses.toString());
         set("dbg-totalmesh", this.scene.meshes.length.toString());
@@ -629,11 +630,18 @@ export class DebugDashboard {
         // NETWORK
         if (this.game && (this.game as any).multiplayerManager) {
             const mp = (this.game as any).multiplayerManager;
-            set("dbg-network-ping", mp.ping?.toString() || "N/A");
+            // ИСПРАВЛЕНО: Используем методы getPing() и getDrift() вместо свойств
+            // Safe access using optional chaining in case interface changes
+            const ping = mp.getPing?.() ?? mp.ping;
+            const drift = mp.getDrift?.() ?? 0;
+
+            set("dbg-network-ping", ping !== undefined ? ping.toFixed(0) : "N/A");
+            set("dbg-network-drift", drift !== undefined ? drift.toFixed(1) : "N/A");
             set("dbg-network-players", ((this.game as any).networkPlayerTanks?.size || 0).toString());
             set("dbg-network-packets", "N/A"); // Пакеты в секунду - если доступно
         } else {
             set("dbg-network-ping", "N/A");
+            set("dbg-network-drift", "N/A");
             set("dbg-network-players", "0");
             set("dbg-network-packets", "N/A");
         }
@@ -900,7 +908,7 @@ export class DebugDashboard {
             // Нормализуем: 0ms = низ, 33.33ms = верх
             const height = Math.min((frametime / maxFrameTime) * canvas.height, canvas.height);
             const x = i * barWidth;
-            
+
             // Цвет: зеленый < 16.67ms, желтый < 25ms, красный >= 25ms
             ctx.fillStyle = frametime < 16.67 ? "#0f0" : frametime < 25 ? "#ff0" : "#f00";
             ctx.fillRect(x, canvas.height - height, barWidth - 1, height);

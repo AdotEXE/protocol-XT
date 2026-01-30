@@ -494,8 +494,8 @@ export class GameCamera {
             this.targetAimPitch = 0;
         } else {
             // Exiting aiming mode
-            this.aimPitch = 0;
-            this.targetAimPitch = 0;
+            // this.aimPitch = 0; // СОХРАНЯЕМ угол наклона ствола по просьбе игрока
+            // this.targetAimPitch = 0; // СОХРАНЯЕМ угол наклона ствола
             this.targetAimYaw = this.aimYaw;
             this.aimZoom = 0;
             this.targetAimZoom = 0;
@@ -526,7 +526,9 @@ export class GameCamera {
             }
 
             if (this.tank) {
-                this.tank.aimPitch = 0;
+                // this.tank.aimPitch = 0; // НЕ сбрасываем угол наклона ствола
+                // Обновляем aimPitch танка текущим значением камеры, чтобы убедиться в синхронизации
+                this.tank.aimPitch = this.aimPitch;
             }
 
             if (this.hud) {
@@ -1150,7 +1152,7 @@ export class GameCamera {
             const up = Vector3.Cross(right, directionNormalized).normalize();
             const offset = right.scale(Math.sin(angle)).add(up.scale(Math.cos(angle) - 1));
             const rayDir = directionNormalized.add(offset).normalize();
-            
+
             const ray = new Ray(rayOrigin, rayDir, currentDistance + 2);
             const hit = this.scene.pickWithRay(ray, (mesh) => this.cameraCollisionMeshFilter(mesh));
 

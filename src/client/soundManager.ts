@@ -1374,64 +1374,67 @@ export class SoundManager {
     }
 
     playMovement(speed: number = 1.0, isTurning: boolean = false) {
-        if (!this.audioContext || !this.masterGain) return;
-
-        // Ограничиваем частоту звуков движения
-        const now = Date.now();
-        if (now - this.lastMovementSoundTime < this.movementSoundInterval) return;
-        this.lastMovementSoundTime = now;
-
-        this.resume();
-        const audioNow = this.audioContext.currentTime;
-
-        // Вариация для разнообразия
-        const variation = Math.random() * 0.15 + 0.925;
-
-        // Шум гусениц (зависит от скорости)
-        const duration = 0.15 * (0.8 + speed * 0.4);
-        const noiseBuffer = this.createNoiseBuffer(duration);
-        const noiseSource = this.audioContext.createBufferSource();
-        noiseSource.buffer = noiseBuffer;
-
-        const gain = this.audioContext.createGain();
-        gain.gain.setValueAtTime(this.movementVolume * speed * variation, audioNow);
-        gain.gain.exponentialDecayTo(0.01, audioNow + duration);
-
-        // Фильтр зависит от скорости и поворота
-        const filter = this.audioContext.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.value = (400 + speed * 300) * variation;
-        if (isTurning) {
-            filter.frequency.value *= 0.7; // Более низкий звук при повороте
-        }
-        filter.Q.value = 1.2;
-
-        // Дополнительный низкочастотный компонент для гусениц
-        const bassOsc = this.audioContext.createOscillator();
-        bassOsc.type = 'sawtooth';
-        bassOsc.frequency.value = (30 + speed * 20) * variation;
-
-        const bassGain = this.audioContext.createGain();
-        bassGain.gain.setValueAtTime(this.movementVolume * speed * 0.4 * variation, audioNow);
-        bassGain.gain.exponentialDecayTo(0.01, audioNow + duration);
-
-        const bassFilter = this.audioContext.createBiquadFilter();
-        bassFilter.type = 'lowpass';
-        bassFilter.frequency.value = 150;
-
-        noiseSource.connect(filter);
-        filter.connect(gain);
-        gain.connect(this.masterGain);
-
-        bassOsc.connect(bassFilter);
-        bassFilter.connect(bassGain);
-        bassGain.connect(this.masterGain);
-
-        noiseSource.start(audioNow);
-        noiseSource.stop(audioNow + duration);
-        bassOsc.start(audioNow);
-        bassOsc.stop(audioNow + duration);
+        // REMOVED BY USER REQUEST: "удали звук ... (тот который короткий)" & "REMOVE THE ONE THAT IS WITHOUT SPEED ACCOUNTED FOR"
+        // This function plays a track sound at a FIXED interval (300ms), so its rhythm does not account for speed.
+        return;
     }
+    /* REMOVED ORPHANED CODE BY USER REQUEST
+    const now = Date.now();
+    if(now - this.lastMovementSoundTime < this.movementSoundInterval) return;
+    this.lastMovementSoundTime = now;
+    
+    this.resume();
+    const audioNow = this.audioContext.currentTime;
+    
+    // Вариация для разнообразия
+    const variation = Math.random() * 0.15 + 0.925;
+    
+    // Шум гусениц (зависит от скорости)
+    const duration = 0.15 * (0.8 + speed * 0.4);
+    const noiseBuffer = this.createNoiseBuffer(duration);
+    const noiseSource = this.audioContext.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+    
+    const gain = this.audioContext.createGain();
+    gain.gain.setValueAtTime(this.movementVolume * speed * variation, audioNow);
+    gain.gain.exponentialDecayTo(0.01, audioNow + duration);
+    
+    // Фильтр зависит от скорости и поворота
+    const filter = this.audioContext.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = (400 + speed * 300) * variation;
+    if (isTurning) {
+    filter.frequency.value *= 0.7; // Более низкий звук при повороте
+    }
+    filter.Q.value = 1.2;
+    
+    // Дополнительный низкочастотный компонент для гусениц
+    const bassOsc = this.audioContext.createOscillator();
+    bassOsc.type = 'sawtooth';
+    bassOsc.frequency.value = (30 + speed * 20) * variation;
+    
+    const bassGain = this.audioContext.createGain();
+    bassGain.gain.setValueAtTime(this.movementVolume * speed * 0.4 * variation, audioNow);
+    bassGain.gain.exponentialDecayTo(0.01, audioNow + duration);
+    
+    const bassFilter = this.audioContext.createBiquadFilter();
+    bassFilter.type = 'lowpass';
+    bassFilter.frequency.value = 150;
+    
+    noiseSource.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    
+    bassOsc.connect(bassFilter);
+    bassFilter.connect(bassGain);
+    bassGain.connect(this.masterGain);
+    
+    noiseSource.start(audioNow);
+    noiseSource.stop(audioNow + duration);
+    bassOsc.start(audioNow);
+    bassOsc.stop(audioNow + duration);
+    }
+    */
 
     playGarageOpen() {
         if (!this.audioContext || !this.masterGain) return;

@@ -93,6 +93,8 @@ Follow these instructions to set up the project locally for development and test
     npm run dev
     ```
     The game will typically be available at `http://localhost:5000`.
+    
+    **🌐 Network Access**: All startup scripts automatically detect and display your local IP address for network access. For example, if your IP is `192.168.1.100`, the game will also be available at `http://192.168.1.100:5000` for other devices on your network.
 
     > [!TIP]
     > **Local Network Testing**: If configured, you can access the game from other devices on your LAN using your local IP, e.g., `http://192.168.3.4:5000/`.

@@ -158,7 +158,7 @@ export class TankController {
     // ============================================
     private _lastThrottleInput: number = 0;
     private _tiltTimer: number = 0;
-    private readonly TILT_DURATION: number = 600; // ms (Increased for weightier feel)
+    private readonly TILT_DURATION: number = 1000; // ms (Increased for prolonged rocking)
     private _targetTiltTorque: number = 0;
 
     // ============================================
@@ -261,8 +261,8 @@ export class TankController {
     angularDrag = 5000;     // Угловое сопротивление при остановке
 
     // Stability
-    hoverStiffness = 7000;   // ТАНКОВАЯ ПРОХОДИМОСТЬ: +56% жёсткая подвеска для препятствий
-    hoverDamping = 18000;    // ТАНКОВАЯ ПРОХОДИМОСТЬ: -49% меньше сопротивления подъёму
+    hoverStiffness = 4000;   // SOFTER SUSPENSION: Reduced from 7000 allows more travel
+    hoverDamping = 6000;    // REDUCED DAMPING: Reduced from 18000 allows more oscillation (rocking)
     uprightForce = 12000;    // Стабилизация на склонах
     uprightDamp = 8000;     // Демпфирование наклона
     stabilityForce = 3000;  // Стабильность
@@ -3681,6 +3681,19 @@ export class TankController {
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
                                 combatLogger.verbose(`[RICOCHET] Ground #${ricochetCount} speed=${result.newSpeed.toFixed(1)}`);
                             }
+                        } else {
+                            // ИМПАКТ: Если рикошета не произошло (угол слишком крутой), снаряд взрывается/удаляется
+                            // Это предотвращает "скольжение" снаряда по земле
+                            if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos); // Или createExplosion если HE
+                            if (this.soundManager) this.soundManager.playHit("soft", bulletPos);
+
+                            // Записываем промах (попадание в землю)
+                            if (this.playerProgression) {
+                                this.playerProgression.recordShot(false);
+                            }
+
+                            ball.dispose();
+                            return;
                         }
                     }
                 }
@@ -3916,6 +3929,39 @@ export class TankController {
         }
 
         this.setupProjectileHitDetection(ball, body);
+
+        // LOGIC CHANGE: Monitor speed for damage/despawn
+        ball.onBeforeRenderObservable.add(() => {
+            if (ball.isDisposed() || !body) return;
+
+            // Get linear velocity
+            const velocity = body.getLinearVelocity();
+            if (!velocity) return;
+
+            const speed = velocity.length();
+
+            // Threshold: 10 units/sec (adjust as needed)
+            if (speed < 10.0) {
+                // Disable damage
+                if (ball.metadata) {
+                    ball.metadata.damage = 0;
+                }
+
+                // Start despawn timer
+                if (!ball.metadata.lowSpeedTime) {
+                    ball.metadata.lowSpeedTime = Date.now();
+                } else if (Date.now() - ball.metadata.lowSpeedTime > 500) {
+                    // Despawn after 0.5s of low speed
+                    ball.dispose();
+                }
+            } else {
+                // Reset timer if speed recovers (e.g. ricochet)
+                if (ball.metadata) {
+                    ball.metadata.lowSpeedTime = null;
+                }
+            }
+        });
+
         return ball;
     }
 
@@ -3982,9 +4028,25 @@ export class TankController {
                 const enemy = enemies[i];
                 if (!enemy || !enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
 
-                // КРИТИЧНО: Используем absolutePosition для правильной позиции в мировых координатах
-                // position может быть локальной позицией относительно родителя, что даст неправильный результат
-                const enemyPos = enemy.chassis.absolutePosition;
+                // ОПТИМИЗАЦИЯ: Используем кэшированную позицию для лучшей производительности
+                // КРИТИЧНО: absolutePosition дорогая операция - используем position если нет родителя
+                let enemyPos: Vector3;
+                if (enemy.chassis.parent === null) {
+                    // Если нет родителя, position уже в мировых координатах
+                    enemyPos = enemy.chassis.position;
+                } else {
+                    // Если есть родитель, используем absolutePosition (кэшируем на кадр)
+                    const cachedPos = (enemy.chassis as any)._cachedAbsolutePosition;
+                    const cachedFrame = (enemy.chassis as any)._cachedAbsolutePositionFrame;
+                    const currentFrame = (window as any).gameInstance?._updateTick || 0;
+                    if (cachedPos && cachedFrame === currentFrame) {
+                        enemyPos = cachedPos;
+                    } else {
+                        enemyPos = enemy.chassis.absolutePosition;
+                        (enemy.chassis as any)._cachedAbsolutePosition = enemyPos.clone();
+                        (enemy.chassis as any)._cachedAbsolutePositionFrame = currentFrame;
+                    }
+                }
                 const dx = bulletPos.x - enemyPos.x;
                 const dy = bulletPos.y - enemyPos.y;
                 const dz = bulletPos.z - enemyPos.z;
@@ -4875,12 +4937,18 @@ export class TankController {
             // e.g. 0 -> 1 (Start Forward) or 0 -> -1 (Start Backward)
             // OR -1 -> 1 (Quick Reverse) -> Allows "Rocking" the tank!
             if (Math.abs(throttleDelta) > 0.5) {
-                // Forward Start (0 -> 1): Lift Front -> Negative Pitch Torque (Babylon)
-                // Backward Start (0 -> -1): Lift Rear (Nose Down) -> Positive Pitch Torque
-                const tiltDirection = Math.sign(currentThrottle);
-                // Force Magnitude - Increased to 15000 for physical aim impact
-                this._targetTiltTorque = -tiltDirection * 15000;
-                this._tiltTimer = this.TILT_DURATION;
+                // Determine direction based on CHANGE in input (Delta)
+                // This correctly handles both starting (0->1) and braking (1->0)
+                // Delta > 0 (Accel Fwd OR Brake Rev): Lift Front (Negative Torque)
+                // Delta < 0 (Accel Rev OR Brake Fwd): Dive Front (Positive Torque)
+                const tiltDirection = Math.sign(throttleDelta);
+
+                // Force Magnitude - INCREASED to 150000 (from 45000) for "Heavy Rocking"
+                // This ensures the suspension reacts visibly to inertia
+                const force = 50000;
+
+                this._targetTiltTorque = -tiltDirection * force;
+                this._tiltTimer = (this as any).TILT_DURATION || 800;
             }
 
             // Apply Tilt Torque

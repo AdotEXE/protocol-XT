@@ -115,7 +115,7 @@ export const SURFACE_RICOCHET_CONFIG: Record<SurfaceMaterial, SurfaceRicochetPar
     ground: {
         speedRetention: 0.55,
         deflectionSpread: 15,
-        ricochetBonus: -10,
+        ricochetBonus: 0,
         sound: "soft"
     },
     armor: {
@@ -140,7 +140,7 @@ export const DEFAULT_RICOCHET_CONFIG: RicochetConfig = {
     speedLossPerBounce: 0.15,
     minSpeedForRicochet: 15,
     minSpeedForTrail: 50,
-    baseRicochetAngle: 70
+    baseRicochetAngle: 78
 };
 
 /**

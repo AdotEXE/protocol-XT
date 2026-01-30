@@ -750,8 +750,6 @@ export class HUD {
                     playerProgression.getCurrentLevel?.() ??
                     (playerProgression.getStats?.()?.level) ?? 1;
 
-                console.log(`[HUD] setPlayerProgression: level=${level}, xpProgress=`, xpProgress);
-
                 // КРИТИЧНО: Обновляем немедленно
                 if (xpProgress) {
                     this.updateCentralXp(xpProgress.current, xpProgress.required, level);
@@ -6990,11 +6988,8 @@ export class HUD {
     private createCentralXpBar(): void {
         // КРИТИЧНО: Если элементы уже существуют, не пересоздаём их!
         if (this.centralXpContainer && this.centralXpText && this.centralXpBar) {
-            console.log(`[HUD] ⚠️ createCentralXpBar called but elements already exist! Skipping recreation.`);
             return;
         }
-
-        console.log(`[HUD] 🔨 createCentralXpBar: Creating new XP bar elements`);
 
         // ИСПРАВЛЕНО: Читаем данные напрямую из localStorage для корректного начального отображения
         let savedText = "RANK 1 | XP: 0/100"; // Дефолт если ничего не найдено
@@ -7013,7 +7008,6 @@ export class HUD {
                 const current = Math.min(experience, required);
 
                 savedText = `RANK ${level} | XP: ${current}/${required}`;
-                console.log(`[HUD] createCentralXpBar: Loaded from localStorage: ${savedText}`);
             }
         } catch (e) {
             console.warn("[HUD] Failed to load player stats from localStorage:", e);
@@ -7252,7 +7246,6 @@ export class HUD {
             const widthPercent = `${percent}%`;
             this.centralXpBar.width = widthPercent;
             this.xpBarCurrentPercent = percent; // Синхронизируем для анимации
-            console.log(`[HUD] ✅ XP bar width updated to: ${widthPercent}`);
         }
 
         // Если уровень изменился, сбрасываем анимацию и добавляем эффект
@@ -7277,13 +7270,8 @@ export class HUD {
             // Обновляем текст с правильным форматом (RANK для уровня игрока, чтобы отличать от уровня частей)
             const xpText = `RANK ${validLevel} | XP: ${validCurrentXp}/${validXpToNext}`;
 
-            // КРИТИЧНО: Логируем обновление для отладки
-            console.log(`[HUD] updateCentralXp: level=${level} -> validLevel=${validLevel}, text="${xpText}"`);
-            console.log(`[HUD] centralXpText exists: ${!!this.centralXpText}, text before: "${this.centralXpText?.text}"`);
-
             if (this.centralXpText) {
                 this.centralXpText.text = xpText;
-                console.log(`[HUD] centralXpText.text set to: "${this.centralXpText.text}"`);
             } else {
                 console.warn(`[HUD] ⚠️ centralXpText is null! Cannot update RANK display.`);
             }
@@ -7292,7 +7280,6 @@ export class HUD {
             const xpTextOutline = (this as any).centralXpTextOutline;
             if (xpTextOutline) {
                 xpTextOutline.text = xpText;
-                console.log(`[HUD] xpTextOutline.text set to: "${xpTextOutline.text}"`);
             } else {
                 console.warn(`[HUD] ⚠️ xpTextOutline is null!`);
             }

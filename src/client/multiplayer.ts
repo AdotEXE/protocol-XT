@@ -446,6 +446,10 @@ export class MultiplayerManager {
         return this.networkMetrics.rtt;
     }
 
+    public getDrift(): number {
+        return this.networkMetrics.drift;
+    }
+
     /**
      * Sync clock with server (NTP-like)
      */
@@ -1457,12 +1461,19 @@ export class MultiplayerManager {
 
         // КРИТИЧНО: Вычисляем RTT используя ЛОКАЛЬНО сохранённое время отправки
         // Это работает корректно даже при расхождении часов клиента и сервера
-        const sequence = pongData.sequence;
+        const sequence = pongData?.sequence;
+
+        // Проверяем, что sequence валиден
+        if (sequence === undefined || sequence === null) {
+            // Игнорируем PONG без sequence (старый формат или ошибка сервера)
+            return;
+        }
+
         const sendTime = this.pingSendTimes.get(sequence);
 
         if (!sendTime) {
             // Если нет записи о времени отправки - игнорируем (старый или дубликат пакета)
-            logger.warn(`[Multiplayer] ⚠️ PONG received for unknown sequence ${sequence}, ignoring`);
+            // Не логируем warning для undefined sequence, так как уже проверили выше
             return;
         }
 
@@ -2809,6 +2820,7 @@ export class MultiplayerManager {
             trackType: playerData.trackType,
             tankColor: playerData.tankColor,
             turretColor: playerData.turretColor,
+            modules: playerData.modules || [], // КРИТИЧНО: Инициализируем модули (пустой массив если не указаны)
             // Linear interpolation (backward compatibility)
             lastPosition: lastPos1,
             lastRotation: rotation,
@@ -2849,23 +2861,41 @@ export class MultiplayerManager {
 
         // ИСПРАВЛЕНО: Гибкая валидация позиции - используем дефолты если данные невалидны
         let x = 0, y = 2, z = 0;
-        if (playerData.position &&
+        const existingPlayer = this.networkPlayers.get(playerData.id);
+        const hadValidPosition = playerData.position &&
             typeof playerData.position.x === 'number' &&
             typeof playerData.position.y === 'number' &&
             typeof playerData.position.z === 'number' &&
             Number.isFinite(playerData.position.x) &&
             Number.isFinite(playerData.position.y) &&
-            Number.isFinite(playerData.position.z)) {
+            Number.isFinite(playerData.position.z);
+
+        if (hadValidPosition) {
             x = playerData.position.x;
             y = playerData.position.y;
             z = playerData.position.z;
         } else {
             // Если нет позиции, но есть existingPlayer - используем его позицию
-            const existingPlayer = this.networkPlayers.get(playerData.id);
             if (existingPlayer) {
                 x = existingPlayer.position.x;
                 y = existingPlayer.position.y;
                 z = existingPlayer.position.z;
+            }
+        }
+
+        // ДИАГНОСТИКА: Логируем обновление позиции (только для сетевых игроков, не локального)
+        if (existingPlayer && playerData.id !== this.playerId) {
+            const oldX = existingPlayer.position.x;
+            const oldZ = existingPlayer.position.z;
+            const distance = Math.sqrt(Math.pow(x - oldX, 2) + Math.pow(z - oldZ, 2));
+
+            // Логируем только если позиция изменилась или это первые несколько обновлений
+            if (distance > 0.01 || !existingPlayer._updateCount) {
+                if (!existingPlayer._updateCount) existingPlayer._updateCount = 0;
+                if (existingPlayer._updateCount < 3 || existingPlayer._updateCount % 60 === 0) {
+                    console.log(`[Multiplayer] ${playerData.id} position update: (${x.toFixed(1)}, ${z.toFixed(1)}) from (${oldX.toFixed(1)}, ${oldZ.toFixed(1)}), distance=${distance.toFixed(2)}, valid=${hadValidPosition}`);
+                }
+                existingPlayer._updateCount++;
             }
         }
 
@@ -3052,6 +3082,28 @@ export class MultiplayerManager {
         if (playerData.trackType !== undefined) networkPlayer.trackType = playerData.trackType;
         if (playerData.tankColor !== undefined) networkPlayer.tankColor = playerData.tankColor;
         if (playerData.turretColor !== undefined) networkPlayer.turretColor = playerData.turretColor;
+
+        // КРИТИЧНО: Обновляем модули если они переданы И изменились
+        if (playerData.modules !== undefined) {
+            const oldModules = networkPlayer.modules || [];
+            const newModules = playerData.modules || [];
+
+            // Проверяем, изменились ли модули (сравниваем массивы)
+            const modulesChanged = oldModules.length !== newModules.length ||
+                !oldModules.every((mod, idx) => mod === newModules[idx]);
+
+            if (modulesChanged) {
+                networkPlayer.modules = newModules;
+                // Уведомляем NetworkPlayerTank об обновлении модулей только если они изменились
+                const game = (window as any).gameInstance;
+                if (game && game.networkPlayerTanks) {
+                    const tank = game.networkPlayerTanks.get(playerData.id);
+                    if (tank && typeof tank.updateModules === 'function') {
+                        tank.updateModules(newModules);
+                    }
+                }
+            }
+        }
 
         // Update timestamp
         networkPlayer.lastUpdateTime = currentTime;
@@ -3638,6 +3690,7 @@ export class MultiplayerManager {
             trackType,
             tankColor,
             turretColor,
+            playerName: this.playerName, // КРИТИЧНО: Передаем имя игрока
             modules,
             // Данные карты
             customMapData

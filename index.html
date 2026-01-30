@@ -100,7 +100,7 @@
       justify-content: center;
       align-items: center;
       z-index: 999999;
-      font-family: 'Press Start 2P', cursive;
+      font-family: 'Press Start 2P', 'Consolas', 'Monaco', 'Courier New', monospace;
       color: #0f0;
     }
 
@@ -136,15 +136,22 @@
       font-size: 24px;
       font-weight: bold;
       letter-spacing: 2px;
-      font-family: 'Press Start 2P', cursive;
+      font-family: 'Press Start 2P', 'Consolas', 'Monaco', 'Courier New', monospace;
       text-shadow: none;
       /* Синхронизировано с вращением квадратика - та же длительность 1.2s */
       animation: blink 1.2s infinite cubic-bezier(0.4, 0.0, 0.6, 1.0);
     }
 
     @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.2; }
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.2;
+      }
     }
   </style>
 </head>
