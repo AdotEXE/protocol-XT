@@ -373,3 +373,4 @@ function isValidHexColor(color: string): boolean {
     return hexPattern.test(color);
 }
 
+

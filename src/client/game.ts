@@ -7882,12 +7882,10 @@ export class Game {
 
             // ИСПРАВЛЕНИЕ JITTER: Используем интерполяцию для сглаживания движения камеры
             const tankPos = this.tank.chassis.absolutePosition;
-            const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
-
             // Fix camera for planes
-            const isPlane = this.tank && this.tank.chassisType && this.tank.chassisType.id === "plane";
+            const isCurrentTankPlane = this.tank && this.tank.chassisType && this.tank.chassisType.id === "plane";
 
-            if (isPlane) {
+            if (isCurrentTankPlane) {
                 // Для самолёта интерполируем target чтобы сгладить рывки физики (60hz vs 144hz)
                 Vector3.LerpToRef(this.camera.target, lookAt, 0.2, this.camera.target);
             } else {
