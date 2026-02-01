@@ -35,6 +35,11 @@ export class AircraftPhysics {
     private mouseDeltaX: number = 0;
     private mouseDeltaY: number = 0;
 
+    // Smoothed Values
+    private currentPitchRate: number = 0;
+    private currentRollRate: number = 0;
+    private currentYawRate: number = 0;
+
     constructor(mesh: Mesh, physicsBody: PhysicsBody) {
         this.mesh = mesh;
         this.physicsBody = physicsBody;
