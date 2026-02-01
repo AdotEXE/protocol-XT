@@ -1236,6 +1236,15 @@ export class TankController {
         this._barrelRecoilY = 0;
         this._barrelRecoilYTarget = 0;
 
+        // FORCE HIDE TURRET/BARREL FOR PLANES (User Requirement: Invisible)
+        if (this.chassisType.id === "plane") {
+            this.turret.isVisible = false;
+            this.turret.getChildMeshes().forEach(m => m.isVisible = false);
+
+            this.barrel.isVisible = false;
+            this.barrel.getChildMeshes().forEach(m => m.isVisible = false);
+        }
+
         // Physics
         // Clean up old physics body
         if ((this as any).physicsBody) {
