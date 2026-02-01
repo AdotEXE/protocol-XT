@@ -7880,12 +7880,16 @@ export class Game {
             this.camera.alpha = this.currentCameraAlpha;
             this.camera.beta = this.cameraBeta;
 
-            // ИСПРАВЛЕНИЕ JITTER: Используем absolutePosition вместо кэшированной позиции
-            // Кэш обновляется в onBeforePhysicsObservable, камера - в onAfterPhysicsObservable
-            // Разница во времени обновления вызывает дёргание/мерцание танка при движении
+            // ИСПРАВЛЕНИЕ JITTER: Используем интерполяцию для сглаживания движения камеры
             const tankPos = this.tank.chassis.absolutePosition;
             const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
-            this.camera.target.copyFrom(lookAt);
+
+            if (isPlane) {
+                // Для самолёта интерполируем target чтобы сгладить рывки физики (60hz vs 144hz)
+                Vector3.LerpToRef(this.camera.target, lookAt, 0.2, this.camera.target);
+            } else {
+                this.camera.target.copyFrom(lookAt);
+            }
         }
     }
 
