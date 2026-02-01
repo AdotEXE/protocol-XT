@@ -377,6 +377,18 @@ export class MultiplayerManager {
         return this.playerName;
     }
 
+    public setPlayerName(name: string): void {
+        this.playerName = name;
+        savePlayerName(name);
+
+        // If connected, send update to server
+        if (this.connected) {
+            this.send(createClientMessage(ClientMessageType.UPDATE_PROFILE, {
+                playerName: name
+            }));
+        }
+    }
+
     public get players(): Map<string, NetworkPlayer> {
         return this.networkPlayers;
     }
@@ -494,7 +506,7 @@ export class MultiplayerManager {
         timestamp: number;
         sequence: number;
     }> = [];
-    private jitterBufferTargetDelay: number = 30; // Initial target delay (ms) - уменьшено для быстрой синхронизации
+    private jitterBufferTargetDelay: number = 16; // LOW-PING OPTIMIZED: Reduced from 30ms to ~1 frame at 60fps
     private jitterBufferMaxSize: number = 100; // ОПТИМИЗАЦИЯ: Уменьшено с 300 до 100 для снижения задержек и памяти
     private lastProcessedSequence: number = -1;
     private jitterBufferNeedsSort: boolean = false; // Flag to avoid unnecessary sorts
@@ -1210,6 +1222,11 @@ export class MultiplayerManager {
                     getVoiceChatManager().handleSignalingMessage(message);
                     break;
 
+                case ServerMessageType.VOICE_TALKING:
+                    // Уведомление о том, что игрок говорит по радио
+                    this.handleVoiceTalking(message.data);
+                    break;
+
                 case ServerMessageType.SAFE_ZONE_UPDATE:
                     this.handleSafeZoneUpdate(message.data);
                     break;
@@ -1228,6 +1245,10 @@ export class MultiplayerManager {
 
                 case ServerMessageType.PLAYER_RESPAWNED:
                     this.handlePlayerRespawned(message.data);
+                    break;
+
+                case ServerMessageType.PLAYER_PROFILE_UPDATED:
+                    this.handlePlayerProfileUpdated(message.data);
                     break;
 
 
@@ -2078,6 +2099,31 @@ export class MultiplayerManager {
                 logger.error("[Multiplayer] Error in playerRespawned callback:", error);
             }
         }
+    }
+
+    private handlePlayerProfileUpdated(data: PlayerProfileUpdatedData): void {
+        const { playerId, playerName } = data;
+
+        // Update network player
+        const player = this.networkPlayers.get(playerId);
+        if (player) {
+            player.name = playerName;
+            logger.log(`[Multiplayer] Player ${playerId} changed name to ${playerName}`);
+
+            // Re-add to ensure any UI components update?
+            // Usually UI reads from networkPlayers reference.
+        }
+
+        // Update local player if it's us (confirmation from server)
+        if (playerId === this.playerId) {
+            this.playerName = playerName;
+            savePlayerName(playerName);
+        }
+
+        // Notify UI components
+        window.dispatchEvent(new CustomEvent('tx:player-profile-updated', {
+            detail: { playerId, playerName }
+        }));
     }
 
     private handleMatchFound(data: MatchFoundData): void {
@@ -3077,11 +3123,53 @@ export class MultiplayerManager {
         networkPlayer.team = playerData.team;
 
         // Update customization (only if changed)
-        if (playerData.chassisType !== undefined) networkPlayer.chassisType = playerData.chassisType;
-        if (playerData.cannonType !== undefined) networkPlayer.cannonType = playerData.cannonType;
-        if (playerData.trackType !== undefined) networkPlayer.trackType = playerData.trackType;
-        if (playerData.tankColor !== undefined) networkPlayer.tankColor = playerData.tankColor;
-        if (playerData.turretColor !== undefined) networkPlayer.turretColor = playerData.turretColor;
+        // КРИТИЧНО: Проверяем изменения перед обновлением, чтобы вызвать updateParts()
+        const oldChassisType = networkPlayer.chassisType;
+        const oldCannonType = networkPlayer.cannonType;
+        const oldTrackType = networkPlayer.trackType;
+        const oldTankColor = networkPlayer.tankColor;
+        const oldTurretColor = networkPlayer.turretColor;
+        
+        let partsChanged = false;
+        const partsUpdateData: { chassisType?: string; cannonType?: string; trackType?: string; tankColor?: string; turretColor?: string } = {};
+        
+        if (playerData.chassisType !== undefined && playerData.chassisType !== oldChassisType) {
+            networkPlayer.chassisType = playerData.chassisType;
+            partsUpdateData.chassisType = playerData.chassisType;
+            partsChanged = true;
+        }
+        if (playerData.cannonType !== undefined && playerData.cannonType !== oldCannonType) {
+            networkPlayer.cannonType = playerData.cannonType;
+            partsUpdateData.cannonType = playerData.cannonType;
+            partsChanged = true;
+        }
+        if (playerData.trackType !== undefined && playerData.trackType !== oldTrackType) {
+            networkPlayer.trackType = playerData.trackType;
+            partsUpdateData.trackType = playerData.trackType;
+            partsChanged = true;
+        }
+        if (playerData.tankColor !== undefined && playerData.tankColor !== oldTankColor) {
+            networkPlayer.tankColor = playerData.tankColor;
+            partsUpdateData.tankColor = playerData.tankColor;
+            partsChanged = true;
+        }
+        if (playerData.turretColor !== undefined && playerData.turretColor !== oldTurretColor) {
+            networkPlayer.turretColor = playerData.turretColor;
+            partsUpdateData.turretColor = playerData.turretColor;
+            partsChanged = true;
+        }
+        
+        // КРИТИЧНО: Обновляем визуальную модель танка если части изменились
+        if (partsChanged) {
+            const game = (window as any).gameInstance;
+            if (game && game.networkPlayerTanks) {
+                const tank = game.networkPlayerTanks.get(playerData.id);
+                if (tank && typeof tank.updateParts === 'function') {
+                    console.log(`[Multiplayer] 🛠️ Updating tank parts for ${playerData.id}:`, partsUpdateData);
+                    tank.updateParts(partsUpdateData);
+                }
+            }
+        }
 
         // КРИТИЧНО: Обновляем модули если они переданы И изменились
         if (playerData.modules !== undefined) {
@@ -3115,13 +3203,13 @@ export class MultiplayerManager {
         // ОПТИМИЗИРОВАНО: Уменьшены задержки для более отзывчивого отображения
         const rtt = this.networkMetrics.rtt;
         if (rtt < 50) {
-            networkPlayer.interpolationDelay = 20; // Low ping: very fast interpolation
+            networkPlayer.interpolationDelay = 12; // LOW-PING OPTIMIZED: Minimal delay for EU servers
         } else if (rtt < 100) {
-            networkPlayer.interpolationDelay = 35; // Medium ping: fast
+            networkPlayer.interpolationDelay = 25; // LOW-PING OPTIMIZED: Reduced from 35ms
         } else if (rtt < 150) {
-            networkPlayer.interpolationDelay = 50; // Higher ping: normal
+            networkPlayer.interpolationDelay = 40; // LOW-PING OPTIMIZED: Reduced from 50ms
         } else {
-            networkPlayer.interpolationDelay = 60; // High ping: smoothed but responsive
+            networkPlayer.interpolationDelay = 55; // HIGH PING: Slightly reduced from 60ms
         }
     }
 
@@ -4003,14 +4091,7 @@ export class MultiplayerManager {
         return this.serverUrl;
     }
 
-    /**
-     * Set player name
-     * @param name - Player name
-     */
-    setPlayerName(name: string): void {
-        this.playerName = name;
-        savePlayerName(name); // Сохраняем имя в localStorage
-    }
+
 
     // Callbacks
     onConnected(callback: () => void): void {
@@ -4285,6 +4366,27 @@ export class MultiplayerManager {
             data,
             timestamp: Date.now()
         });
+    }
+
+    /**
+     * Обработка уведомления о том, что игрок говорит по радио
+     */
+    private handleVoiceTalking(data: { playerId: string; talking: boolean; playerName?: string }): void {
+        // Пропускаем уведомления о себе
+        if (data.playerId === this.playerId) {
+            return;
+        }
+
+        const networkPlayer = this.networkPlayers.get(data.playerId);
+        const playerName = data.playerName || networkPlayer?.name || "Игрок";
+
+        // Показываем уведомление в HUD
+        const game = (window as any).gameInstance;
+        if (game && game.hud) {
+            if (data.talking) {
+                game.hud.showNotification(`📻 ${playerName} говорит по радио`, "info");
+            }
+        }
     }
 
     onRpc(callback: (data: RpcEventData) => void) {

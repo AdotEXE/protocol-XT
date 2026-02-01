@@ -267,7 +267,7 @@ export class EnemyTurret {
                     const ctx = this.distanceTexture?.getContext();
                     if (ctx && this.distanceTexture) {
                         ctx.clearRect(0, 0, 256, 85);
-                        ctx.font = "bold 48px Consolas";
+                        ctx.font = "bold 48px 'Press Start 2P', monospace";
                         ctx.fillStyle = "white";
                         // ИСПРАВЛЕНО: Приводим к стандартному CanvasRenderingContext2D
                         (ctx as CanvasRenderingContext2D).textAlign = "center"; // Center aligned for turret

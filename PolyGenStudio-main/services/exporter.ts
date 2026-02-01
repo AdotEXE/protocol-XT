@@ -16,9 +16,25 @@ export const downloadFile = (content: string, filename: string, mimeType: string
     URL.revokeObjectURL(url);
 };
 
-export const exportToJSON = (cubes: CubeElement[], name: string) => {
+export const exportToJSON = async (cubes: CubeElement[], name: string) => {
     const json = JSON.stringify(cubes, null, 2);
     downloadFile(json, `${name}.json`, 'application/json');
+
+    // Сохраняем также в папку json_models через API
+    try {
+        // Динамический импорт для избежания циклических зависимостей
+        // Путь относительно корня проекта
+        const { saveModelToFile } = await import('../../src/client/utils/modelFileSaver');
+        const result = await saveModelToFile(name, { cubes, name }, 'generated-models', false);
+        if (result.success) {
+            console.log(`[PolyGenStudio] Model saved to json_models: ${name}`);
+        } else {
+            console.warn(`[PolyGenStudio] Failed to save model to json_models: ${result.error}`);
+        }
+    } catch (e) {
+        // Игнорируем ошибки сохранения в файл (не критично)
+        console.warn('[PolyGenStudio] Could not save to json_models (server may be unavailable):', e);
+    }
 };
 
 export const exportToPoly = (cubes: CubeElement[], name: string) => {
@@ -547,7 +563,7 @@ const extractMapData = (cubes: CubeElement[]) => {
 /**
  * Export cubes to TX Map format
  */
-export const exportToTXMap = (cubes: CubeElement[], name: string, description?: string) => {
+export const exportToTXMap = async (cubes: CubeElement[], name: string, description?: string) => {
     const now = Date.now();
     const { placedObjects, triggers } = extractMapData(cubes);
 
@@ -571,6 +587,21 @@ export const exportToTXMap = (cubes: CubeElement[], name: string, description?: 
 
     const json = JSON.stringify(mapData, null, 2);
     downloadFile(json, `${name}.txmap`, 'application/json');
+
+    // Сохраняем также в папку json_models через API
+    try {
+        // Путь относительно корня проекта
+        const { saveGeneratedModel } = await import('../../src/client/utils/modelFileSaver');
+        const result = await saveGeneratedModel(`${name}.txmap`, mapData);
+        if (result.success) {
+            console.log(`[PolyGenStudio] Map saved to json_models: ${name}`);
+        } else {
+            console.warn(`[PolyGenStudio] Failed to save map to json_models: ${result.error}`);
+        }
+    } catch (e) {
+        // Игнорируем ошибки сохранения в файл (не критично)
+        console.warn('[PolyGenStudio] Could not save to json_models (server may be unavailable):', e);
+    }
 
     return mapData;
 };

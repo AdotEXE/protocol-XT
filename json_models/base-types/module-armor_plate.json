@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919139908,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "armor_plate",
+    "name": "Броневая пластина",
+    "description": "+15% брони",
+    "cost": 300,
+    "unlocked": false,
+    "type": "module",
+    "stats": {
+      "armor": 0.15
+    },
+    "icon": "🛡️",
+    "rarity": "common"
+  }
+}

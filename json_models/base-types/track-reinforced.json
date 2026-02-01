@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140384,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "reinforced",
+    "name": "Reinforced Tracks",
+    "description": "Heavy-duty tracks with extra durability",
+    "width": 0.5,
+    "height": 0.6,
+    "depth": 3.6,
+    "color": "#3a3a3a",
+    "style": "reinforced",
+    "stats": {
+      "durabilityBonus": 0.25,
+      "armorBonus": 0.1
+    },
+    "cost": 500
+  }
+}

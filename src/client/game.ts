@@ -6814,8 +6814,35 @@ export class Game {
                 const yawDelta = movementX * sensitivity;
 
                 // === КАМЕРА ВСЕГДА СЛЕДУЕТ ЗА МЫШКОЙ ===
-                const oldCameraYaw = this.cameraYaw;
-                this.cameraYaw += yawDelta;
+                // Initializing isPlane variable to fix ReferenceError
+                const chassisType = this.tank ? (this.tank as any).chassisType : null;
+                const isPlane = chassisType === "plane" || (typeof chassisType === 'object' && chassisType?.id === "plane");
+
+                if (isPlane) {
+                    // === PLANE MOUSE AIM ===
+                    if (this.isFreeLook) {
+                        // Free Look (Shift): Control Camera directly (like Spectator/Tank)
+                        const oldCameraYaw = this.cameraYaw;
+                        this.cameraYaw += yawDelta;
+                        // NO aircraftMouseDelta dispatch
+                    } else {
+                        // Virtual Joystick: Control Plane
+                        // Send RAW input to AircraftPhysics (Virtual Joystick)
+                        window.dispatchEvent(new CustomEvent("aircraftMouseDelta", {
+                            detail: {
+                                deltaX: movementX,
+                                deltaY: movementY
+                            }
+                        }));
+
+                        // BLOCK standard camera movement for planes (when flying directly)
+                        // Camera will be handled by Chase Camera logic in updateCamera
+                    }
+                } else {
+                    // Standard Tank/Spectator Camera
+                    const oldCameraYaw = this.cameraYaw;
+                    this.cameraYaw += yawDelta;
+                }
 
                 // Нормализуем угол камеры (-PI до PI)
                 while (this.cameraYaw > Math.PI) this.cameraYaw -= Math.PI * 2;
@@ -7304,331 +7331,458 @@ export class Game {
 
         if (this.camera) {
             // ИСПРАВЛЕНО: В режиме прицеливания управление стволом ТОЛЬКО через R/F, Q/E отключены
-            if (this.isAiming) {
-                // В режиме прицеливания Q/E НЕ управляют прицеливанием - только R/F управляют стволом
-                // Управление через R/F обрабатывается в tankMovement.ts
-            } else {
-                // Вне режима прицеливания: Q/E управляют наклоном камеры (как раньше)
+        } else {
+            // Вне режима прицеливания: Q/E управляют наклоном камеры (как раньше)
+            // Check for Plane first
+            const chassisType = this.tank?.chassisType;
+            const isPlane = chassisType === "plane" || (typeof chassisType === 'object' && ((chassisType as any)?.id === "plane" || (chassisType as any)?.id?.includes("plane") || (chassisType as any)?.id?.includes("mig31")));
+
+            if (!isPlane) {
+                // Timer-based camera tilt for Tanks only
                 const tiltSpeed = 0.02;
                 if (this._inputMap["KeyQ"]) this.normalBeta -= tiltSpeed;
                 if (this._inputMap["KeyE"]) this.normalBeta += tiltSpeed;
+                // Clamp for Tank
                 this.normalBeta = Math.max(0.2, Math.min(Math.PI / 2.2, this.normalBeta));
-            }
-
-            // Camera collision - предотвращаем заход камеры за текстуры
-            if (this.gameCamera) {
-                this.gameCamera.adjustCameraForCollision(this.aimingTransitionProgress);
-            }
-
-            // === ПЛАВНЫЙ ПЕРЕХОД В РЕЖИМ ПРИЦЕЛИВАНИЯ ===
-            // Обновляем прогресс перехода
-            if (this.isAiming) {
-                // Плавно увеличиваем прогресс перехода
-                this.aimingTransitionProgress = Math.min(1.0, this.aimingTransitionProgress + this.aimingTransitionSpeed);
-
-                // === ГОРИЗОНТАЛЬНОЕ ПРИЦЕЛИВАНИЕ С ПЛАВНЫМ СГЛАЖИВАНИЕМ ===
-                // ИСПРАВЛЕНО: Добавлено сглаживание для предотвращения дёргания
-                const yawDiff = this.targetAimYaw - this.aimYaw;
-                // Нормализуем разницу в диапазон [-PI, PI]
-                let normalizedDiff = yawDiff;
-                while (normalizedDiff > Math.PI) normalizedDiff -= Math.PI * 2;
-                while (normalizedDiff < -Math.PI) normalizedDiff += Math.PI * 2;
-
-                // Плавное сглаживание (быстрее чем pitch для мгновенной реакции, но без рывков)
-                const yawSmoothing = 0.25; // 25% за кадр - быстро но плавно
-                this.aimYaw += normalizedDiff * yawSmoothing;
-
-                // Нормализуем aimYaw
-                while (this.aimYaw > Math.PI) this.aimYaw -= Math.PI * 2;
-                while (this.aimYaw < -Math.PI) this.aimYaw += Math.PI * 2;
-
-                // === МИНИМАЛЬНАЯ АВТОДОВОДКА ТОЛЬКО ДЛЯ ВЕРТИКАЛЬНОЙ НАВОДКИ ===
-                // ИСПРАВЛЕНО: Минимальная автодоводка только для вертикального прицеливания (pitch)
-                const pitchDiff = this.targetAimPitch - this.aimPitch;
-                // Минимальное сглаживание: только 5% от разницы (было 12% * адаптивное)
-                const minimalPitchSmoothing = 0.05;
-                this.aimPitch += pitchDiff * minimalPitchSmoothing;
-
-                // === ПЛАВНАЯ ИНТЕРПОЛЯЦИЯ ЗУМА (0x-4x) ===
-                const zoomDiff = this.targetAimZoom - this.aimZoom;
-                this.aimZoom += zoomDiff * this.zoomSmoothSpeed;
-                // Обновляем HUD с текущим зумом (всегда, чтобы индикатор был виден)
-                if (this.hud) {
-                    this.hud.setZoomLevel(this.aimZoom);
-                }
-
-                // SYNC aimPitch to tank controller for shooting
-                if (this.tank) {
-                    this.tank.aimPitch = this.aimPitch;
-                }
-
-                // Обновляем индикатор дальности в HUD
-                // ОПТИМИЗАЦИЯ: Кэшируем getAbsolutePosition() - обновляем каждые 2 кадра
-                if (this.hud && this.tank) {
-                    if (this._cachedBarrelHeightFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
-                        this._cachedBarrelHeight = this.tank.barrel ? this.tank.barrel.getAbsolutePosition().y : 2.5;
-                        this._cachedBarrelHeightFrame = this._updateTick;
-                    }
-                    this.hud.setAimRange(this.aimPitch, this.tank.projectileSpeed, this._cachedBarrelHeight);
-                }
             } else {
-                // Плавно уменьшаем прогресс перехода
-                this.aimingTransitionProgress = Math.max(0.0, this.aimingTransitionProgress - this.aimingTransitionSpeed);
+                // For Planes: Q/E are Flight Controls (Ascend/Descend), do NOT tilt camera.
+                // Allow full vertical freedom (0-PI)
+                this.normalBeta = Math.max(0.01, Math.min(Math.PI - 0.01, this.normalBeta));
+            }
+        }
 
-                // КРИТИЧНО: Сохраняем текущий угол ствола при выходе из режима прицеливания
-                // чтобы не сбрасывать его при повороте башни
-                if (this.tank && this.tank.aimPitch !== undefined) {
-                    this.targetAimPitch = this.tank.aimPitch;
-                } else {
-                    this.targetAimPitch = 0;
-                }
-                this.targetAimYaw = this.aimYaw; // Сохраняем текущий угол для плавного перехода
+        // Camera collision - предотвращаем заход камеры за текстуры
+        if (this.gameCamera) {
+            this.gameCamera.adjustCameraForCollision(this.aimingTransitionProgress);
+        }
+
+        // === ПЛАВНЫЙ ПЕРЕХОД В РЕЖИМ ПРИЦЕЛИВАНИЯ ===
+        // Обновляем прогресс перехода
+        if (this.isAiming) {
+            // Плавно увеличиваем прогресс перехода
+            this.aimingTransitionProgress = Math.min(1.0, this.aimingTransitionProgress + this.aimingTransitionSpeed);
+
+            // === ГОРИЗОНТАЛЬНОЕ ПРИЦЕЛИВАНИЕ С ПЛАВНЫМ СГЛАЖИВАНИЕМ ===
+            // ИСПРАВЛЕНО: Добавлено сглаживание для предотвращения дёргания
+            const yawDiff = this.targetAimYaw - this.aimYaw;
+            // Нормализуем разницу в диапазон [-PI, PI]
+            let normalizedDiff = yawDiff;
+            while (normalizedDiff > Math.PI) normalizedDiff -= Math.PI * 2;
+            while (normalizedDiff < -Math.PI) normalizedDiff += Math.PI * 2;
+
+            // Плавное сглаживание (быстрее чем pitch для мгновенной реакции, но без рывков)
+            const yawSmoothing = 0.25; // 25% за кадр - быстро но плавно
+            this.aimYaw += normalizedDiff * yawSmoothing;
+
+            // Нормализуем aimYaw
+            while (this.aimYaw > Math.PI) this.aimYaw -= Math.PI * 2;
+            while (this.aimYaw < -Math.PI) this.aimYaw += Math.PI * 2;
+
+            // === МИНИМАЛЬНАЯ АВТОДОВОДКА ТОЛЬКО ДЛЯ ВЕРТИКАЛЬНОЙ НАВОДКИ ===
+            // ИСПРАВЛЕНО: Минимальная автодоводка только для вертикального прицеливания (pitch)
+            const pitchDiff = this.targetAimPitch - this.aimPitch;
+            // Минимальное сглаживание: только 5% от разницы (было 12% * адаптивное)
+            const minimalPitchSmoothing = 0.05;
+            this.aimPitch += pitchDiff * minimalPitchSmoothing;
+
+            // === ПЛАВНАЯ ИНТЕРПОЛЯЦИЯ ЗУМА (0x-4x) ===
+            const zoomDiff = this.targetAimZoom - this.aimZoom;
+            this.aimZoom += zoomDiff * this.zoomSmoothSpeed;
+            // Обновляем HUD с текущим зумом (всегда, чтобы индикатор был виден)
+            if (this.hud) {
+                this.hud.setZoomLevel(this.aimZoom);
             }
 
-            // Используем плавную интерполяцию для всех параметров
-            const t = this.aimingTransitionProgress; // 0.0 - 1.0
-
-            // ИСПРАВЛЕНО: Инициализируем позицию aimCamera ПРИВЯЗАННУЮ К ТАНКУ при первом обнаружении перехода в режим прицеливания
-            // ВАЖНО: Инициализируем КАЖДЫЙ РАЗ когда входим в режим прицеливания (не только когда _aimCameraStartPos === null)
-            if (this.isAiming && this.camera && this.aimCamera && this.tank && this.tank.chassis &&
-                (this._aimCameraStartPos === null || this.aimingTransitionProgress < 0.02)) {
-                // ПРИВЯЗЫВАЕМ КАМЕРУ К ПОЗИЦИИ ТАНКА - используем кэшированную позицию для производительности
-                const tankPos = this.tank.getCachedChassisPosition();
-                const cameraTarget = this.camera.getTarget();
-                const alpha = this.camera.alpha;
-                const beta = this.camera.beta;
-                const radius = this.camera.radius;
-
-                // Вычисляем текущую позицию камеры относительно танка
-                const x = cameraTarget.x + radius * Math.cos(beta) * Math.sin(alpha);
-                const y = cameraTarget.y + radius * Math.sin(beta);
-                const z = cameraTarget.z + radius * Math.cos(beta) * Math.cos(alpha);
-
-                this._aimCameraStartPos = new Vector3(x, y, z);
-                // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
-                this._tmpCameraTarget.copyFrom(cameraTarget);
-                this._aimCameraStartTarget = this._tmpCameraTarget.clone(); // Нужен новый объект для сохранения
-
-                // Убеждаемся, что позиция не (0,0,0) - если да, используем позицию танка
-                if (this._aimCameraStartPos.length() < 0.1) {
-                    this._aimCameraStartPos = tankPos.add(new Vector3(0, 3, -8));
-                    this._aimCameraStartTarget = tankPos.add(new Vector3(0, 1, 0));
-                }
-
-                // Устанавливаем начальную позицию и target для плавного перехода
-                this.aimCamera.position.copyFrom(this._aimCameraStartPos);
-                this.aimCamera.setTarget(this._aimCameraStartTarget);
-
-                logger.log("[Game] Aim camera initialized from tank position:", {
-                    tankPos: tankPos,
-                    startPos: this._aimCameraStartPos,
-                    startTarget: this._aimCameraStartTarget
-                });
+            // SYNC aimPitch to tank controller for shooting
+            if (this.tank) {
+                this.tank.aimPitch = this.aimPitch;
             }
 
-            // Переключение камер
-            if (t > 0.01) {
-                // Включаем aim камеру
-                if (this.camera) this.camera.setEnabled(false);
-                if (this.aimCamera) {
-                    this.aimCamera.setEnabled(true);
-                    this.scene.activeCamera = this.aimCamera;
+            // Обновляем индикатор дальности в HUD
+            // ОПТИМИЗАЦИЯ: Кэшируем getAbsolutePosition() - обновляем каждые 2 кадра
+            if (this.hud && this.tank) {
+                if (this._cachedBarrelHeightFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                    this._cachedBarrelHeight = this.tank.barrel ? this.tank.barrel.getAbsolutePosition().y : 2.5;
+                    this._cachedBarrelHeightFrame = this._updateTick;
                 }
+                this.hud.setAimRange(this.aimPitch, this.tank.projectileSpeed, this._cachedBarrelHeight);
+            }
+        } else {
+            // Плавно уменьшаем прогресс перехода
+            this.aimingTransitionProgress = Math.max(0.0, this.aimingTransitionProgress - this.aimingTransitionSpeed);
+
+            // КРИТИЧНО: Сохраняем текущий угол ствола при выходе из режима прицеливания
+            // чтобы не сбрасывать его при повороте башни
+            if (this.tank && this.tank.aimPitch !== undefined) {
+                this.targetAimPitch = this.tank.aimPitch;
             } else {
-                // Включаем основную камеру
-                if (this.aimCamera) this.aimCamera.setEnabled(false);
-                if (this.camera) {
-                    this.camera.setEnabled(true);
-                    this.scene.activeCamera = this.camera;
-                }
+                this.targetAimPitch = 0;
+            }
+            this.targetAimYaw = this.aimYaw; // Сохраняем текущий угол для плавного перехода
+        }
+
+        // Используем плавную интерполяцию для всех параметров
+        const t = this.aimingTransitionProgress; // 0.0 - 1.0
+
+        // ИСПРАВЛЕНО: Инициализируем позицию aimCamera ПРИВЯЗАННУЮ К ТАНКУ при первом обнаружении перехода в режим прицеливания
+        // ВАЖНО: Инициализируем КАЖДЫЙ РАЗ когда входим в режим прицеливания (не только когда _aimCameraStartPos === null)
+        if (this.isAiming && this.camera && this.aimCamera && this.tank && this.tank.chassis &&
+            (this._aimCameraStartPos === null || this.aimingTransitionProgress < 0.02)) {
+            // ПРИВЯЗЫВАЕМ КАМЕРУ К ПОЗИЦИИ ТАНКА - используем кэшированную позицию для производительности
+            const tankPos = this.tank.getCachedChassisPosition();
+            const cameraTarget = this.camera.getTarget();
+            const alpha = this.camera.alpha;
+            const beta = this.camera.beta;
+            const radius = this.camera.radius;
+
+            // Вычисляем текущую позицию камеры относительно танка
+            const x = cameraTarget.x + radius * Math.cos(beta) * Math.sin(alpha);
+            const y = cameraTarget.y + radius * Math.sin(beta);
+            const z = cameraTarget.z + radius * Math.cos(beta) * Math.cos(alpha);
+
+            this._aimCameraStartPos = new Vector3(x, y, z);
+            // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
+            this._tmpCameraTarget.copyFrom(cameraTarget);
+            this._aimCameraStartTarget = this._tmpCameraTarget.clone(); // Нужен новый объект для сохранения
+
+            // Убеждаемся, что позиция не (0,0,0) - если да, используем позицию танка
+            if (this._aimCameraStartPos.length() < 0.1) {
+                this._aimCameraStartPos = tankPos.add(new Vector3(0, 3, -8));
+                this._aimCameraStartTarget = tankPos.add(new Vector3(0, 1, 0));
             }
 
-            // В режиме прицеливания ВСЕ элементы танка остаются ВИДИМЫМИ
-            if (this.tank.turret) {
-                this.tank.turret.visibility = 1.0;
-            }
-            if (this.tank.chassis) {
-                this.tank.chassis.visibility = 1.0;
-            }
-            if (this.tank.barrel) {
-                this.tank.barrel.visibility = 1.0;
-            }
+            // Устанавливаем начальную позицию и target для плавного перехода
+            this.aimCamera.position.copyFrom(this._aimCameraStartPos);
+            this.aimCamera.setTarget(this._aimCameraStartTarget);
 
-            // ПЛАВНЫЙ переход FOV с учётом зума
-            if (this.aimCamera && t > 0.01) {
-                const effectiveZoom = this.aimZoom <= 0 ? 1.0 : (1.0 + this.aimZoom * 0.5);
-                const zoomedAimFOV = this.aimFOV / effectiveZoom;
-                const targetFOV = this.normalFOV + (zoomedAimFOV - this.normalFOV) * t;
-                const currentFOV = this.aimCamera.fov;
-                this.aimCamera.fov += (targetFOV - currentFOV) * 0.15;
+            logger.log("[Game] Aim camera initialized from tank position:", {
+                tankPos: tankPos,
+                startPos: this._aimCameraStartPos,
+                startTarget: this._aimCameraStartTarget
+            });
+        }
+
+        // Переключение камер
+        if (t > 0.01) {
+            // Включаем aim камеру
+            if (this.camera) this.camera.setEnabled(false);
+            if (this.aimCamera) {
+                this.aimCamera.setEnabled(true);
+                this.scene.activeCamera = this.aimCamera;
             }
+        } else {
+            // Включаем основную камеру
+            if (this.aimCamera) this.aimCamera.setEnabled(false);
+            if (this.camera) {
+                this.camera.setEnabled(true);
+                this.scene.activeCamera = this.camera;
+            }
+        }
 
-            // === AIMING CAMERA: ПРЯМО ИЗ БАШНИ С ПЛАВНЫМ ПЕРЕХОДОМ ===
-            if (t > 0.01 && this.aimCamera && this.tank.turret && this.tank.barrel) {
-                // Целевая позиция: башня + немного вверх
-                // ОПТИМИЗАЦИЯ: Используем кэшированную позицию башни
-                const turretPos = this.tank.getCachedTurretPosition ? this.tank.getCachedTurretPosition() : this.tank.turret.getAbsolutePosition();
-                if (!turretPos) return; // Защита от null
-                // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
-                const targetCameraPos = vector3Pool.acquire();
-                targetCameraPos.copyFrom(turretPos);
-                targetCameraPos.y += 0.5;
+        // В режиме прицеливания ВСЕ элементы танка остаются ВИДИМЫМИ
+        if (this.tank.turret) {
+            this.tank.turret.visibility = 1.0;
+        }
+        if (this.tank.chassis) {
+            this.tank.chassis.visibility = 1.0;
+        }
+        if (this.tank.barrel) {
+            this.tank.barrel.visibility = 1.0;
+        }
 
-                // Направление ствола
-                const barrelMatrix = this.tank.barrel.getWorldMatrix();
-                const barrelDir = Vector3.TransformNormal(Vector3.Forward(), barrelMatrix).normalize();
+        // ПЛАВНЫЙ переход FOV с учётом зума
+        if (this.aimCamera && t > 0.01) {
+            const effectiveZoom = this.aimZoom <= 0 ? 1.0 : (1.0 + this.aimZoom * 0.5);
+            const zoomedAimFOV = this.aimFOV / effectiveZoom;
+            const targetFOV = this.normalFOV + (zoomedAimFOV - this.normalFOV) * t;
+            const currentFOV = this.aimCamera.fov;
+            this.aimCamera.fov += (targetFOV - currentFOV) * 0.15;
+        }
 
-                // Целевая точка взгляда
+        // === AIMING CAMERA: ПРЯМО ИЗ БАШНИ С ПЛАВНЫМ ПЕРЕХОДОМ ===
+        if (t > 0.01 && this.aimCamera && this.tank.turret && this.tank.barrel) {
+            // Целевая позиция: башня + немного вверх
+            // ОПТИМИЗАЦИЯ: Используем кэшированную позицию башни
+            const turretPos = this.tank.getCachedTurretPosition ? this.tank.getCachedTurretPosition() : this.tank.turret.getAbsolutePosition();
+            if (!turretPos) return; // Защита от null
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
+            const targetCameraPos = vector3Pool.acquire();
+            targetCameraPos.copyFrom(turretPos);
+            targetCameraPos.y += 0.5;
+
+            // Направление ствола
+            const barrelMatrix = this.tank.barrel.getWorldMatrix();
+            const barrelDir = Vector3.TransformNormal(Vector3.Forward(), barrelMatrix).normalize();
+
+            // Целевая точка взгляда
+            // ОПТИМИЗАЦИЯ: Используем vector3Pool для временных векторов
+            const scaledDir = vector3Pool.acquire();
+            scaledDir.copyFrom(barrelDir);
+            scaledDir.scaleInPlace(100);
+            const targetLookAt = vector3Pool.acquire();
+            targetLookAt.copyFrom(targetCameraPos);
+            targetLookAt.addInPlace(scaledDir);
+            vector3Pool.release(scaledDir);
+
+            // Плавный ПЕРЕХОД (t < 1), но РЕЗКОЕ следование когда полностью в режиме (t ≈ 1)
+            const currentPos = this.aimCamera.position;
+            const currentTarget = this.aimCamera.getTarget();
+
+            // Во время перехода (t < 0.85) - очень быстрая интерполяция
+            // После перехода (t >= 0.85) - мгновенное следование
+            if (t < 0.85) {
+                // Очень быстрый переход камеры
+                const transitionSpeed = 0.5;
                 // ОПТИМИЗАЦИЯ: Используем vector3Pool для временных векторов
-                const scaledDir = vector3Pool.acquire();
-                scaledDir.copyFrom(barrelDir);
-                scaledDir.scaleInPlace(100);
-                const targetLookAt = vector3Pool.acquire();
-                targetLookAt.copyFrom(targetCameraPos);
-                targetLookAt.addInPlace(scaledDir);
-                vector3Pool.release(scaledDir);
+                const newPos = vector3Pool.acquire();
+                Vector3.LerpToRef(currentPos, targetCameraPos, transitionSpeed, newPos);
+                // УЛУЧШЕНО: Проверяем коллизии для промежуточной позиции
+                const safeNewPos = this.gameCamera?.checkAimingCameraCollision(newPos) || newPos;
+                this.aimCamera.position.copyFrom(safeNewPos);
+                const newTarget = vector3Pool.acquire();
+                Vector3.LerpToRef(currentTarget, targetLookAt, transitionSpeed, newTarget);
+                this.aimCamera.setTarget(newTarget);
+                vector3Pool.release(newPos);
+                vector3Pool.release(newTarget);
+            } else {
+                // Полный режим прицеливания - камера МГНОВЕННО следует за башней
+                // УЛУЧШЕНО: Проверяем коллизии перед установкой позиции камеры
+                const safeCameraPos = this.gameCamera?.checkAimingCameraCollision(targetCameraPos) || targetCameraPos;
+                this.aimCamera.position.copyFrom(safeCameraPos);
+                this.aimCamera.setTarget(targetLookAt);
+            }
 
-                // Плавный ПЕРЕХОД (t < 1), но РЕЗКОЕ следование когда полностью в режиме (t ≈ 1)
-                const currentPos = this.aimCamera.position;
-                const currentTarget = this.aimCamera.getTarget();
+            // ОПТИМИЗАЦИЯ: Освобождаем временные векторы
+            vector3Pool.release(targetCameraPos);
+            vector3Pool.release(targetLookAt);
+        }
 
-                // Во время перехода (t < 0.85) - очень быстрая интерполяция
-                // После перехода (t >= 0.85) - мгновенное следование
-                if (t < 0.85) {
-                    // Очень быстрый переход камеры
-                    const transitionSpeed = 0.5;
-                    // ОПТИМИЗАЦИЯ: Используем vector3Pool для временных векторов
-                    const newPos = vector3Pool.acquire();
-                    Vector3.LerpToRef(currentPos, targetCameraPos, transitionSpeed, newPos);
-                    // УЛУЧШЕНО: Проверяем коллизии для промежуточной позиции
-                    const safeNewPos = this.gameCamera?.checkAimingCameraCollision(newPos) || newPos;
-                    this.aimCamera.position.copyFrom(safeNewPos);
-                    const newTarget = vector3Pool.acquire();
-                    Vector3.LerpToRef(currentTarget, targetLookAt, transitionSpeed, newTarget);
-                    this.aimCamera.setTarget(newTarget);
-                    vector3Pool.release(newPos);
-                    vector3Pool.release(newTarget);
-                } else {
-                    // Полный режим прицеливания - камера МГНОВЕННО следует за башней
-                    // УЛУЧШЕНО: Проверяем коллизии перед установкой позиции камеры
-                    const safeCameraPos = this.gameCamera?.checkAimingCameraCollision(targetCameraPos) || targetCameraPos;
-                    this.aimCamera.position.copyFrom(safeCameraPos);
-                    this.aimCamera.setTarget(targetLookAt);
+        // Применяем эффект тряски камеры
+        this.updateCameraShake();
+
+        // Плавный возврат FOV к нормальному значению для основной камеры
+        if (this.camera && t < 0.99) {
+            const currentFOV = this.camera.fov;
+            const targetFOV = this.normalFOV;
+            this.camera.fov += (targetFOV - currentFOV) * 0.2;
+        }
+
+        // Применяем смещение от тряски к основной камере (когда НЕ в режиме прицеливания)
+        if (t < 0.99 && this.camera && this.cameraShakeIntensity > 0.01) {
+            this._tmpCameraPos.copyFrom(this.tank.chassis.absolutePosition);
+            this._tmpCameraPos.y += 2;
+            this.camera.position = this._tmpCameraPos.add(this.cameraShakeOffset);
+        }
+
+        // Third-person smooth follow (для обычного режима, когда не в режиме прицеливания)
+        if (t < 0.99 && this.camera) {
+            // Determine if we are in a plane
+            const chassisType = this.tank?.chassisType;
+            const isPlane = chassisType === "plane" ||
+                (typeof chassisType === 'object' && (
+                    (chassisType as any)?.id === "plane" ||
+                    (chassisType as any)?.id?.includes("plane") ||
+                    (chassisType as any)?.id?.includes("mig31")
+                ));
+
+            if (isPlane) {
+                // === CHASE CAMERA (War Thunder Style) ===
+                if (this.camera && this.tank.chassis) {
+                    // 1. Calculate Ideal Camera Position (Behind and Above)
+                    // Position: Chassis Pos - Forward * Distance + Up * Height
+                    const planePos = this.tank.chassis.getAbsolutePosition();
+                    const planeForward = this.tank.chassis.forward;
+                    const planeUp = this.tank.chassis.up;
+
+                    // Params
+                    const distance = 35.0;
+                    const height = 12.0;
+                    const lagSpeed = 0.04; // Smooth follow (Reduced from 0.1 for less twitching)
+
+                    const idealPos = planePos.subtract(planeForward.scale(distance)).add(planeUp.scale(height));
+
+                    // 2. Smoothly interpolate Camera Position
+                    this.camera.position.x += (idealPos.x - this.camera.position.x) * lagSpeed;
+                    this.camera.position.y += (idealPos.y - this.camera.position.y) * lagSpeed;
+                    this.camera.position.z += (idealPos.z - this.camera.position.z) * lagSpeed;
+
+                    // 3. Look At: Plane + Leading Offset (to see where we are going)
+                    // Look further ahead (100 vs 50) to stabilize the view
+                    const lookAhead = planePos.add(planeForward.scale(100.0));
+                    this.camera.setTarget(lookAhead);
+
+                    // Force alpha/beta to match purely for internal consistency if needed, 
+                    // but setTarget overrides them usually.
                 }
-
-                // ОПТИМИЗАЦИЯ: Освобождаем временные векторы
-                vector3Pool.release(targetCameraPos);
-                vector3Pool.release(targetLookAt);
-            }
-
-            // Применяем эффект тряски камеры
-            this.updateCameraShake();
-
-            // Плавный возврат FOV к нормальному значению для основной камеры
-            if (this.camera && t < 0.99) {
-                const currentFOV = this.camera.fov;
-                const targetFOV = this.normalFOV;
-                this.camera.fov += (targetFOV - currentFOV) * 0.2;
-            }
-
-            // Применяем смещение от тряски к основной камере (когда НЕ в режиме прицеливания)
-            if (t < 0.99 && this.camera && this.cameraShakeIntensity > 0.01) {
-                this._tmpCameraPos.copyFrom(this.tank.chassis.absolutePosition);
-                this._tmpCameraPos.y += 2;
-                this.camera.position = this._tmpCameraPos.add(this.cameraShakeOffset);
-            }
-
-            // Third-person smooth follow (для обычного режима, когда не в режиме прицеливания)
-            if (t < 0.99 && this.camera) {
+            } else {
+                // Standard Orbit Camera
                 const targetRadius = this.normalRadius;
                 const targetBeta = this.normalBeta;
+
                 this.camera.radius += (targetRadius - this.camera.radius) * 0.15;
                 this.cameraBeta += (targetBeta - this.cameraBeta) * 0.15;
+
                 this.cameraBeta = Math.max(0.2, Math.min(Math.PI / 2.2, this.cameraBeta));
 
-                // Применяем тряску к основной камере
+                // Применяем тряску к основной камере (Orbit uses position override sometimes, handle carefully)
                 if (this.cameraShakeIntensity > 0.01) {
-                    // ОПТИМИЗАЦИЯ: Используем переиспользуемый вектор вместо clone()
                     this._tmpCameraPos.copyFrom(this.camera.position);
                     this.camera.position = this._tmpCameraPos.add(this.cameraShakeOffset);
                 }
+            }     // ОПТИМИЗАЦИЯ: Кэшируем toEulerAngles() - очень дорогая операция
+            if (this._cachedChassisRotYFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
+                this._cachedChassisRotY = this.tank.chassis.rotationQuaternion
+                    ? this.tank.chassis.rotationQuaternion.toEulerAngles().y
+                    : this.tank.chassis.rotation.y;
+                this._cachedChassisRotYFrame = this._updateTick;
+            }
+            const chassisRotY = this._cachedChassisRotY;
+            const turretRotY = this.tank.turret.rotation.y;
 
-                // ОПТИМИЗАЦИЯ: Кэшируем toEulerAngles() - очень дорогая операция
-                if (this._cachedChassisRotYFrame !== this._updateTick && (this._updateTick % 2 === 0)) {
-                    this._cachedChassisRotY = this.tank.chassis.rotationQuaternion
-                        ? this.tank.chassis.rotationQuaternion.toEulerAngles().y
-                        : this.tank.chassis.rotation.y;
-                    this._cachedChassisRotYFrame = this._updateTick;
+            // Если нужно центрировать камеру (кнопка C), камера ПЛАВНО следует за башней
+            if (this.shouldCenterCamera && this.isCenteringActive) {
+                // Целевой угол = угол корпуса (башня движется к 0)
+                const targetAlpha = -chassisRotY - turretRotY - Math.PI / 2;
+
+                // Плавно сбрасываем cameraYaw к углу башни при центрировании
+                const yawLerp = 0.08;
+                this.cameraYaw += (turretRotY - this.cameraYaw) * yawLerp;
+
+                const lerpSpeed = this.centerCameraSpeed || 0.08;
+
+                // Нормализуем текущий угол камеры к [-PI, PI]
+                let currentAlpha = this.currentCameraAlpha;
+                while (currentAlpha > Math.PI) currentAlpha -= Math.PI * 2;
+                while (currentAlpha < -Math.PI) currentAlpha += Math.PI * 2;
+
+                // Нормализуем целевой угол к [-PI, PI]
+                let normalizedTarget = targetAlpha;
+                while (normalizedTarget > Math.PI) normalizedTarget -= Math.PI * 2;
+                while (normalizedTarget < -Math.PI) normalizedTarget += Math.PI * 2;
+
+                // Вычисляем разницу
+                let diff = normalizedTarget - currentAlpha;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+
+                this.currentCameraAlpha = currentAlpha + diff * lerpSpeed;
+                this.targetCameraAlpha = targetAlpha;
+
+                // Когда башня в центре - камера и cameraYaw тоже в центре
+                if (Math.abs(turretRotY) < 0.005) {
+                    this.currentCameraAlpha = -chassisRotY - Math.PI / 2;
+                    this.targetCameraAlpha = this.currentCameraAlpha;
+                    this.cameraYaw = 0; // Сбрасываем угол камеры
                 }
-                const chassisRotY = this._cachedChassisRotY;
-                const turretRotY = this.tank.turret.rotation.y;
+            } else {
+                // === НОВАЯ СИСТЕМА: Камера следует за мышью, башня догоняет камеру ===
 
-                // Если нужно центрировать камеру (кнопка C), камера ПЛАВНО следует за башней
-                if (this.shouldCenterCamera && this.isCenteringActive) {
-                    // Целевой угол = угол корпуса (башня движется к 0)
-                    const targetAlpha = -chassisRotY - turretRotY - Math.PI / 2;
+                // Камера = угол корпуса + угол камеры (от мыши)
+                this.targetCameraAlpha = -chassisRotY - this.cameraYaw - Math.PI / 2;
 
-                    // Плавно сбрасываем cameraYaw к углу башни при центрировании
-                    const yawLerp = 0.08;
-                    this.cameraYaw += (turretRotY - this.cameraYaw) * yawLerp;
+                // Плавно интерполируем камеру
+                const cameraLerpSpeed = 0.15; // Камера реагирует быстро
+                let diff = this.targetCameraAlpha - this.currentCameraAlpha;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                this.currentCameraAlpha += diff * cameraLerpSpeed;
 
-                    const lerpSpeed = this.centerCameraSpeed || 0.08;
+                // === БАШНЯ ДОГОНЯЕТ КАМЕРУ ===
+                if (!this.isFreeLook && this.tank && this.tank.turret && this.tank.chassis && !this.tank.turret.isDisposed()) {
+                    // ОПТИМИЗАЦИЯ: Используем кэшированный угол корпуса
+                    const currentChassisRotY = this._cachedChassisRotY;
 
-                    // Нормализуем текущий угол камеры к [-PI, PI]
-                    let currentAlpha = this.currentCameraAlpha;
-                    while (currentAlpha > Math.PI) currentAlpha -= Math.PI * 2;
-                    while (currentAlpha < -Math.PI) currentAlpha += Math.PI * 2;
+                    // Проверяем, не управляется ли башня клавиатурой (Z/X) или автоцентрированием (C)
+                    if (!this.tank.isKeyboardTurretControl && !this.tank.isAutoCentering) {
+                        // Обычное поведение: башня догоняет камеру
+                        const targetTurretRot = this.cameraYaw;
+                        let currentTurretRot = this.tank.turret.rotation.y;
 
-                    // Нормализуем целевой угол к [-PI, PI]
-                    let normalizedTarget = targetAlpha;
-                    while (normalizedTarget > Math.PI) normalizedTarget -= Math.PI * 2;
-                    while (normalizedTarget < -Math.PI) normalizedTarget += Math.PI * 2;
+                        // КРИТИЧНО: Защита от сброса башни в 0
+                        // Если башня была сброшена в 0, но должна быть на другом угле - восстанавливаем
+                        if (Math.abs(currentTurretRot) < 0.001 && Math.abs(targetTurretRot) > 0.1) {
+                            // Башня была сброшена в 0 - восстанавливаем из cameraYaw
+                            currentTurretRot = targetTurretRot;
+                            this.tank.turret.rotation.y = targetTurretRot;
+                            // Синхронизируем rotationQuaternion
+                            if (this.tank.turret.rotationQuaternion) {
+                                this.tank.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
+                                    this.tank.turret.rotation.y,
+                                    this.tank.turret.rotation.x,
+                                    this.tank.turret.rotation.z
+                                );
+                            }
+                        }
 
-                    // Вычисляем разницу
-                    let diff = normalizedTarget - currentAlpha;
-                    while (diff > Math.PI) diff -= Math.PI * 2;
-                    while (diff < -Math.PI) diff += Math.PI * 2;
+                        // Вычисляем разницу углов
+                        let turretDiff = targetTurretRot - currentTurretRot;
+                        while (turretDiff > Math.PI) turretDiff -= Math.PI * 2;
+                        while (turretDiff < -Math.PI) turretDiff += Math.PI * 2;
 
-                    this.currentCameraAlpha = currentAlpha + diff * lerpSpeed;
-                    this.targetCameraAlpha = targetAlpha;
+                        // Скорость вращения башни (используем скорость танка)
+                        // КРИТИЧНО: Проверяем и восстанавливаем turretSpeed если он невалидный
+                        let turretSpeed = this.tank.turretSpeed || 0.08;
 
-                    // Когда башня в центре - камера и cameraYaw тоже в центре
-                    if (Math.abs(turretRotY) < 0.005) {
-                        this.currentCameraAlpha = -chassisRotY - Math.PI / 2;
-                        this.targetCameraAlpha = this.currentCameraAlpha;
-                        this.cameraYaw = 0; // Сбрасываем угол камеры
-                    }
-                } else {
-                    // === НОВАЯ СИСТЕМА: Камера следует за мышью, башня догоняет камеру ===
+                        // КРИТИЧНО: Проверяем на NaN, Infinity и другие невалидные значения
+                        if (!isFinite(turretSpeed) || isNaN(turretSpeed) || turretSpeed === Infinity || turretSpeed === -Infinity) {
+                            turretSpeed = 0.08;
+                            this.tank.turretSpeed = 0.08; // Восстанавливаем в танке тоже
+                            logger.warn(`[Game] turretSpeed was invalid (NaN/Infinity), resetting to 0.08`);
+                        }
 
-                    // Камера = угол корпуса + угол камеры (от мыши)
-                    this.targetCameraAlpha = -chassisRotY - this.cameraYaw - Math.PI / 2;
+                        // Увеличиваем скорость если она слишком маленькая
+                        if (turretSpeed < 0.06) {
+                            turretSpeed = 0.08;
+                            this.tank.turretSpeed = 0.08; // Восстанавливаем в танке тоже
+                            logger.warn(`[Game] turretSpeed was too small (${this.tank.turretSpeed}), resetting to 0.08`);
+                        }
 
-                    // Плавно интерполируем камеру
-                    const cameraLerpSpeed = 0.15; // Камера реагирует быстро
-                    let diff = this.targetCameraAlpha - this.currentCameraAlpha;
-                    while (diff > Math.PI) diff -= Math.PI * 2;
-                    while (diff < -Math.PI) diff += Math.PI * 2;
-                    this.currentCameraAlpha += diff * cameraLerpSpeed;
+                        // Ограничиваем максимальную скорость (защита от слишком больших значений)
+                        const maxTurretSpeed = 0.15; // Максимальная скорость поворота башни
+                        if (turretSpeed > maxTurretSpeed) {
+                            turretSpeed = maxTurretSpeed;
+                            this.tank.turretSpeed = maxTurretSpeed; // Восстанавливаем в танке тоже
+                            logger.warn(`[Game] turretSpeed was too large (${this.tank.turretSpeed}), clamping to ${maxTurretSpeed}`);
+                        }
 
-                    // === БАШНЯ ДОГОНЯЕТ КАМЕРУ ===
-                    if (!this.isFreeLook && this.tank && this.tank.turret && this.tank.chassis && !this.tank.turret.isDisposed()) {
-                        // ОПТИМИЗАЦИЯ: Используем кэшированный угол корпуса
-                        const currentChassisRotY = this._cachedChassisRotY;
+                        // КРИТИЧНО: Финальная проверка перед использованием
+                        if (!isFinite(turretSpeed) || turretSpeed <= 0) {
+                            turretSpeed = 0.08;
+                            this.tank.turretSpeed = 0.08;
+                        }
 
-                        // Проверяем, не управляется ли башня клавиатурой (Z/X) или автоцентрированием (C)
-                        if (!this.tank.isKeyboardTurretControl && !this.tank.isAutoCentering) {
-                            // Обычное поведение: башня догоняет камеру
-                            const targetTurretRot = this.cameraYaw;
-                            let currentTurretRot = this.tank.turret.rotation.y;
+                        // Башня догоняет камеру с ограниченной скоростью
+                        const minDiff = 0.001; // Уменьшен порог для более точного наведения
 
-                            // КРИТИЧНО: Защита от сброса башни в 0
-                            // Если башня была сброшена в 0, но должна быть на другом угле - восстанавливаем
-                            if (Math.abs(currentTurretRot) < 0.001 && Math.abs(targetTurretRot) > 0.1) {
-                                // Башня была сброшена в 0 - восстанавливаем из cameraYaw
-                                currentTurretRot = targetTurretRot;
-                                this.tank.turret.rotation.y = targetTurretRot;
-                                // Синхронизируем rotationQuaternion
+                        if (Math.abs(turretDiff) > minDiff && !this.tank.turret.isDisposed()) {
+                            // КРИТИЧНО: Ограничиваем скорость поворота башни
+                            let rotationAmount = Math.sign(turretDiff) * Math.min(Math.abs(turretDiff), turretSpeed);
+
+                            // КРИТИЧНО: Дополнительная проверка на валидность и ограничение
+                            if (!isFinite(rotationAmount) || isNaN(rotationAmount) || rotationAmount === Infinity || rotationAmount === -Infinity) {
+                                logger.error(`[Game] rotationAmount is invalid (${rotationAmount}), skipping rotation`);
+                                rotationAmount = 0;
+                            }
+
+                            // КРИТИЧНО: Абсолютное ограничение максимальной скорости поворота
+                            const maxRotationAmount = 0.15; // Максимальная скорость поворота за кадр
+                            if (Math.abs(rotationAmount) > maxRotationAmount) {
+                                rotationAmount = Math.sign(rotationAmount) * maxRotationAmount;
+                                logger.warn(`[Game] rotationAmount (${rotationAmount.toFixed(4)}) exceeded max (${maxRotationAmount}), clamping`);
+                            }
+
+                            if (isFinite(rotationAmount) && !isNaN(rotationAmount) && rotationAmount !== 0) {
+                                const oldRot = this.tank.turret.rotation.y;
+                                this.tank.turret.rotation.y += rotationAmount;
+
+                                // КРИТИЧНО: Проверяем, что поворот не был сброшен
+                                const newRot = this.tank.turret.rotation.y;
+                                if (Math.abs(newRot - (oldRot + rotationAmount)) > 0.0001) {
+                                    // Поворот был сброшен - восстанавливаем
+                                    this.tank.turret.rotation.y = oldRot + rotationAmount;
+                                }
+
+                                // Синхронизируем rotationQuaternion если используется
                                 if (this.tank.turret.rotationQuaternion) {
                                     this.tank.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
                                         this.tank.turret.rotation.y,
@@ -7637,76 +7791,61 @@ export class Game {
                                     );
                                 }
                             }
+                        }
+                    } else if (!this.tank.isAutoCentering) {
+                        // Башня управляется клавиатурой (Z/X) - камера следует за башней
+                        // Check isPlane primarily to DISABLE SYNC
+                        const chassisType = this.tank?.chassisType;
+                        const isPlane = chassisType === "plane" ||
+                            (typeof chassisType === 'object' && (
+                                (chassisType as any)?.id === "plane" ||
+                                (chassisType as any)?.id?.includes("plane") ||
+                                (chassisType as any)?.id?.includes("mig31")
+                            ));
 
-                            // Вычисляем разницу углов
+                        // Башня управляется клавиатурой (Z/X) - камера следует за башней
+                        // DISABLE SYNC FOR PLANE
+                        if (this.tank.isKeyboardTurretControl && !isPlane) {
+                            // Синхронизируем cameraYaw с углом башни
+                            const currentTurretRot = this.tank.turret.rotation.y;
+                            const cameraYawDiff = currentTurretRot - this.cameraYaw;
+
+                            // Нормализуем разницу к [-PI, PI]
+                            let normalizedDiff = cameraYawDiff;
+                            while (normalizedDiff > Math.PI) normalizedDiff -= Math.PI * 2;
+                            while (normalizedDiff < -Math.PI) normalizedDiff += Math.PI * 2;
+
+                            // Плавно синхронизируем cameraYaw с башней
+                            const syncSpeed = 0.15; // Скорость синхронизации камеры
+                            this.cameraYaw += normalizedDiff * syncSpeed;
+
+                            while (this.cameraYaw > Math.PI) this.cameraYaw -= Math.PI * 2;
+                            while (this.cameraYaw < -Math.PI) this.cameraYaw += Math.PI * 2;
+                        }
+
+                        if (isPlane && !this.isAiming) {
+                            this.tank.turret.rotation.y = 0;
+                            if (this.tank.turret.rotationQuaternion) {
+                                this.tank.turret.rotationQuaternion = Quaternion.Identity();
+                            }
+                        }
+
+                        // Но если есть виртуальная фиксация - применяем её
+                        if (this.virtualTurretTarget !== null) {
+                            const targetTurretRot = this.virtualTurretTarget;
+                            const currentTurretRot = this.tank.turret.rotation.y;
+
                             let turretDiff = targetTurretRot - currentTurretRot;
                             while (turretDiff > Math.PI) turretDiff -= Math.PI * 2;
                             while (turretDiff < -Math.PI) turretDiff += Math.PI * 2;
 
-                            // Скорость вращения башни (используем скорость танка)
-                            // КРИТИЧНО: Проверяем и восстанавливаем turretSpeed если он невалидный
-                            let turretSpeed = this.tank.turretSpeed || 0.08;
-
-                            // КРИТИЧНО: Проверяем на NaN, Infinity и другие невалидные значения
-                            if (!isFinite(turretSpeed) || isNaN(turretSpeed) || turretSpeed === Infinity || turretSpeed === -Infinity) {
-                                turretSpeed = 0.08;
-                                this.tank.turretSpeed = 0.08; // Восстанавливаем в танке тоже
-                                logger.warn(`[Game] turretSpeed was invalid (NaN/Infinity), resetting to 0.08`);
-                            }
-
-                            // Увеличиваем скорость если она слишком маленькая
-                            if (turretSpeed < 0.06) {
-                                turretSpeed = 0.08;
-                                this.tank.turretSpeed = 0.08; // Восстанавливаем в танке тоже
-                                logger.warn(`[Game] turretSpeed was too small (${this.tank.turretSpeed}), resetting to 0.08`);
-                            }
-
-                            // Ограничиваем максимальную скорость (защита от слишком больших значений)
-                            const maxTurretSpeed = 0.15; // Максимальная скорость поворота башни
-                            if (turretSpeed > maxTurretSpeed) {
-                                turretSpeed = maxTurretSpeed;
-                                this.tank.turretSpeed = maxTurretSpeed; // Восстанавливаем в танке тоже
-                                logger.warn(`[Game] turretSpeed was too large (${this.tank.turretSpeed}), clamping to ${maxTurretSpeed}`);
-                            }
-
-                            // КРИТИЧНО: Финальная проверка перед использованием
-                            if (!isFinite(turretSpeed) || turretSpeed <= 0) {
-                                turretSpeed = 0.08;
-                                this.tank.turretSpeed = 0.08;
-                            }
-
-                            // Башня догоняет камеру с ограниченной скоростью
+                            const turretSpeed = this.tank.turretSpeed || 0.08;
                             const minDiff = 0.001; // Уменьшен порог для более точного наведения
 
                             if (Math.abs(turretDiff) > minDiff && !this.tank.turret.isDisposed()) {
-                                // КРИТИЧНО: Ограничиваем скорость поворота башни
-                                let rotationAmount = Math.sign(turretDiff) * Math.min(Math.abs(turretDiff), turretSpeed);
-
-                                // КРИТИЧНО: Дополнительная проверка на валидность и ограничение
-                                if (!isFinite(rotationAmount) || isNaN(rotationAmount) || rotationAmount === Infinity || rotationAmount === -Infinity) {
-                                    logger.error(`[Game] rotationAmount is invalid (${rotationAmount}), skipping rotation`);
-                                    rotationAmount = 0;
-                                }
-
-                                // КРИТИЧНО: Абсолютное ограничение максимальной скорости поворота
-                                const maxRotationAmount = 0.15; // Максимальная скорость поворота за кадр
-                                if (Math.abs(rotationAmount) > maxRotationAmount) {
-                                    rotationAmount = Math.sign(rotationAmount) * maxRotationAmount;
-                                    logger.warn(`[Game] rotationAmount (${rotationAmount.toFixed(4)}) exceeded max (${maxRotationAmount}), clamping`);
-                                }
-
+                                const rotationAmount = Math.sign(turretDiff) * Math.min(Math.abs(turretDiff), turretSpeed);
                                 if (isFinite(rotationAmount) && !isNaN(rotationAmount) && rotationAmount !== 0) {
-                                    const oldRot = this.tank.turret.rotation.y;
                                     this.tank.turret.rotation.y += rotationAmount;
-
-                                    // КРИТИЧНО: Проверяем, что поворот не был сброшен
-                                    const newRot = this.tank.turret.rotation.y;
-                                    if (Math.abs(newRot - (oldRot + rotationAmount)) > 0.0001) {
-                                        // Поворот был сброшен - восстанавливаем
-                                        this.tank.turret.rotation.y = oldRot + rotationAmount;
-                                    }
-
-                                    // Синхронизируем rotationQuaternion если используется
                                     if (this.tank.turret.rotationQuaternion) {
                                         this.tank.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
                                             this.tank.turret.rotation.y,
@@ -7715,87 +7854,42 @@ export class Game {
                                         );
                                     }
                                 }
-                            }
-                        } else if (!this.tank.isAutoCentering) {
-                            // Башня управляется клавиатурой (Z/X) - камера следует за башней
-                            if (this.tank.isKeyboardTurretControl) {
-                                // Синхронизируем cameraYaw с углом башни
-                                const currentTurretRot = this.tank.turret.rotation.y;
-                                const cameraYawDiff = currentTurretRot - this.cameraYaw;
-
-                                // Нормализуем разницу к [-PI, PI]
-                                let normalizedDiff = cameraYawDiff;
-                                while (normalizedDiff > Math.PI) normalizedDiff -= Math.PI * 2;
-                                while (normalizedDiff < -Math.PI) normalizedDiff += Math.PI * 2;
-
-                                // Плавно синхронизируем cameraYaw с башней
-                                const syncSpeed = 0.15; // Скорость синхронизации камеры
-                                this.cameraYaw += normalizedDiff * syncSpeed;
-
-                                // Нормализуем cameraYaw
-                                while (this.cameraYaw > Math.PI) this.cameraYaw -= Math.PI * 2;
-                                while (this.cameraYaw < -Math.PI) this.cameraYaw += Math.PI * 2;
-                            }
-
-                            // Но если есть виртуальная фиксация - применяем её
-                            if (this.virtualTurretTarget !== null) {
-                                const targetTurretRot = this.virtualTurretTarget;
-                                const currentTurretRot = this.tank.turret.rotation.y;
-
-                                let turretDiff = targetTurretRot - currentTurretRot;
-                                while (turretDiff > Math.PI) turretDiff -= Math.PI * 2;
-                                while (turretDiff < -Math.PI) turretDiff += Math.PI * 2;
-
-                                const turretSpeed = this.tank.turretSpeed || 0.08;
-                                const minDiff = 0.001; // Уменьшен порог для более точного наведения
-
-                                if (Math.abs(turretDiff) > minDiff && !this.tank.turret.isDisposed()) {
-                                    const rotationAmount = Math.sign(turretDiff) * Math.min(Math.abs(turretDiff), turretSpeed);
-                                    if (isFinite(rotationAmount) && !isNaN(rotationAmount) && rotationAmount !== 0) {
-                                        this.tank.turret.rotation.y += rotationAmount;
-                                        if (this.tank.turret.rotationQuaternion) {
-                                            this.tank.turret.rotationQuaternion = Quaternion.RotationYawPitchRoll(
-                                                this.tank.turret.rotation.y,
-                                                this.tank.turret.rotation.x,
-                                                this.tank.turret.rotation.z
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    // Достигли цели - сбрасываем виртуальную фиксацию
-                                    this.virtualTurretTarget = null;
-                                }
+                            } else {
+                                // Достигли цели - сбрасываем виртуальную фиксацию
+                                this.virtualTurretTarget = null;
                             }
                         }
-
-                        // Виртуальная фиксация башни при повороте корпуса
-                        if (this.settings.virtualTurretFixation) {
-                            const chassisRotDelta = currentChassisRotY - this.lastChassisRotation;
-                            if (Math.abs(chassisRotDelta) > 0.01) {
-                                // Корпус повернулся - фиксируем башню относительно камеры
-                                if (this.virtualTurretTarget === null) {
-                                    this.virtualTurretTarget = this.tank.turret.rotation.y;
-                                }
-                            }
-                        }
-
-                        // Сохраняем текущий угол корпуса для следующего кадра
-                        this.lastChassisRotation = currentChassisRotY;
                     }
+
+                    // Виртуальная фиксация башни при повороте корпуса
+                    if (this.settings.virtualTurretFixation) {
+                        const chassisRotDelta = currentChassisRotY - this.lastChassisRotation;
+                        if (Math.abs(chassisRotDelta) > 0.01) {
+                            // Корпус повернулся - фиксируем башню относительно камеры
+                            if (this.virtualTurretTarget === null) {
+                                this.virtualTurretTarget = this.tank.turret.rotation.y;
+                            }
+                        }
+                    }
+
+                    // Сохраняем текущий угол корпуса для следующего кадра
+                    this.lastChassisRotation = currentChassisRotY;
                 }
-
-                this.camera.alpha = this.currentCameraAlpha;
-                this.camera.beta = this.cameraBeta;
-
-                // ИСПРАВЛЕНИЕ JITTER: Используем absolutePosition вместо кэшированной позиции
-                // Кэш обновляется в onBeforePhysicsObservable, камера - в onAfterPhysicsObservable
-                // Разница во времени обновления вызывает дёргание/мерцание танка при движении
-                const tankPos = this.tank.chassis.absolutePosition;
-                const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
-                this.camera.target.copyFrom(lookAt);
             }
+
+            this.camera.alpha = this.currentCameraAlpha;
+            this.camera.beta = this.cameraBeta;
+
+            // ИСПРАВЛЕНИЕ JITTER: Используем absolutePosition вместо кэшированной позиции
+            // Кэш обновляется в onBeforePhysicsObservable, камера - в onAfterPhysicsObservable
+            // Разница во времени обновления вызывает дёргание/мерцание танка при движении
+            const tankPos = this.tank.chassis.absolutePosition;
+            const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
+            this.camera.target.copyFrom(lookAt);
         }
     }
+
+
 
     // Обновить эффект тряски камеры
     // ОПТИМИЗИРОВАНО: Тряска только при ОЧЕНЬ быстром движении танка (80%+ скорости)

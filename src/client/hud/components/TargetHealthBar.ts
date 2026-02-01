@@ -31,7 +31,7 @@ export class TargetHealthBar {
     private fadeAlpha = 0;
     private lastTargetTime = 0;
     private readonly FADE_DURATION = 500; // мс
-    private readonly HOLD_DURATION = 4000; // УВЕЛИЧЕНО с 3000 до 4000 мс - держать 4 сек после потери цели
+    private readonly HOLD_DURATION = 1000; // 1 секунда - плавно исчезает после потери цели
 
     constructor(parent: AdvancedDynamicTexture) {
         // === ГЛАВНЫЙ КОНТЕЙНЕР (под компасом) ===
@@ -53,7 +53,7 @@ export class TargetHealthBar {
         this.nameText.text = "< ВРАГ >";
         this.nameText.color = HUD_COLORS.DANGER;
         this.nameText.fontSize = "14px";
-        this.nameText.fontFamily = "'Consolas', 'Courier New', monospace";
+        this.nameText.fontFamily = "'Press Start 2P', monospace";
         this.nameText.fontWeight = "bold";
         this.nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
@@ -67,7 +67,7 @@ export class TargetHealthBar {
         this.bracketLeft.text = "[";
         this.bracketLeft.color = HUD_COLORS.DANGER;
         this.bracketLeft.fontSize = "32px";
-        this.bracketLeft.fontFamily = "'Consolas', monospace";
+        this.bracketLeft.fontFamily = "'Press Start 2P', monospace";
         this.bracketLeft.fontWeight = "bold";
         this.bracketLeft.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.bracketLeft.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
@@ -79,7 +79,7 @@ export class TargetHealthBar {
         this.bracketRight.text = "]";
         this.bracketRight.color = HUD_COLORS.DANGER;
         this.bracketRight.fontSize = "32px";
-        this.bracketRight.fontFamily = "'Consolas', monospace";
+        this.bracketRight.fontFamily = "'Press Start 2P', monospace";
         this.bracketRight.fontWeight = "bold";
         this.bracketRight.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         this.bracketRight.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
@@ -133,7 +133,7 @@ export class TargetHealthBar {
         this.healthText.text = "100/100";
         this.healthText.color = "#fff";
         this.healthText.fontSize = "11px";
-        this.healthText.fontFamily = "'Consolas', monospace";
+        this.healthText.fontFamily = "'Press Start 2P', monospace";
         this.healthText.fontWeight = "bold";
         this.healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.healthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
@@ -146,7 +146,7 @@ export class TargetHealthBar {
         this.distanceText.text = "DIST: 45m";
         this.distanceText.color = HUD_COLORS.WARNING;
         this.distanceText.fontSize = "22px"; // SIGNIFICANTLY INCREASED for visibility
-        this.distanceText.fontFamily = "'Orbitron', monospace"; // Game font
+        this.distanceText.fontFamily = "'Press Start 2P', monospace"; // Единый шрифт
         this.distanceText.fontWeight = "bold";
         this.distanceText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.distanceText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
@@ -177,7 +177,7 @@ export class TargetHealthBar {
             this.updateColors(color);
 
             // Обновляем дистанцию
-            this.distanceText.text = `DIST: ${Math.round(target.distance)}m`;
+            this.distanceText.text = `[${Math.round(target.distance)}m]`;
         } else {
             // ИСПРАВЛЕНО: Сбрасываем сразу - полоска должна исчезать мгновенно
             // когда враг не в прицеле
@@ -240,6 +240,9 @@ export class TargetHealthBar {
             this.healthFill.width = `${this.displayedHealth}%`;
             this.healthGlow.width = `${this.displayedHealth}%`;
             this.healthText.text = `${Math.round(this.currentTarget.health)}/${this.currentTarget.maxHealth}`;
+
+            // КРИТИЧНО: Обновляем дистанцию в реальном времени
+            this.distanceText.text = `[${Math.round(this.currentTarget.distance)}m]`;
 
             // Мигание при низком здоровье
             if (healthPercent < 25) {

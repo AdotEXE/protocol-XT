@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140375,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "sniper",
+    "name": "Sniper",
+    "barrelLength": 3,
+    "barrelWidth": 0.18,
+    "damage": 50,
+    "cooldown": 4000,
+    "projectileSpeed": 300,
+    "projectileSize": 0.18,
+    "color": "#222222",
+    "description": "High damage, long range",
+    "recoilMultiplier": 4,
+    "maxRange": 390
+  }
+}

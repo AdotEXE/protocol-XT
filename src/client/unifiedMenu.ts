@@ -769,7 +769,7 @@ export class UnifiedMenu {
                 font-size: 18px;
                 font-weight: bold;
                 text-shadow: 0 0 8px rgba(0, 255, 255, 0.6);
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .unified-body {
@@ -827,7 +827,7 @@ export class UnifiedMenu {
             .sidebar-name {
                 color: #0f0;
                 font-size: 13px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             /* Main content area */
@@ -881,7 +881,7 @@ export class UnifiedMenu {
             .tab-name {
                 color: #0f0;
                 font-size: 12px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .tab-close {
@@ -929,7 +929,7 @@ export class UnifiedMenu {
 
             .tab-content {
                 color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .tab-loading {

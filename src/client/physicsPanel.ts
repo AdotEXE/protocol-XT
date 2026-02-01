@@ -19,21 +19,21 @@ export class PhysicsPanel {
     private visible = false;
     private physicsVisualizer: PhysicsVisualizer | null = null;
     private physicsSimulator: PhysicsSimulator | null = null;
-    
+
     // Input elements
     private inputs: Map<string, HTMLInputElement> = new Map();
     private valueDisplays: Map<string, HTMLSpanElement> = new Map();
-    
+
     // Presets
     private presets: Preset[] = [];
     private maxPresets = 10; // Расширено с 5 до 10
-    
+
     private embedded = false;
-    
+
     constructor(embedded: boolean = false) {
         this.embedded = embedded;
         this.loadPresets();
-        
+
         // Не создаём overlay UI если панель будет встроена в другое меню
         if (!embedded) {
             this.createUI();
@@ -42,13 +42,13 @@ export class PhysicsPanel {
             this.container.classList.add("hidden");
             this.container.style.display = "none";
         }
-        
+
         // Touch properties to avoid unused warnings (зарезервировано для будущего расширения)
         if (this.game || this.scene) {
             // no-op
         }
     }
-    
+
     setGame(game: Game | null): void {
         this.game = game;
         if (game && game.scene) {
@@ -69,7 +69,7 @@ export class PhysicsPanel {
             }
         }
     }
-    
+
     setTank(tank: TankController): void {
         this.tank = tank;
         this.updateFromTank();
@@ -77,15 +77,15 @@ export class PhysicsPanel {
             this.physicsVisualizer.setTarget(tank.chassis, tank.physicsBody);
         }
     }
-    
+
     private createUI(): void {
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
-        
+
         this.container = document.createElement("div");
         this.container.id = "physics-panel";
         this.container.className = "panel-overlay";
-        
+
         const sections = [
             {
                 title: "ОСНОВНЫЕ",
@@ -153,7 +153,7 @@ export class PhysicsPanel {
                 ]
             }
         ];
-        
+
         let html = `
             <div class="panel">
                 <div class="panel-header">
@@ -207,11 +207,11 @@ export class PhysicsPanel {
                         </div>
                     </div>
         `;
-        
+
         sections.forEach(section => {
             html += `<div class="physics-section">
                 <div class="physics-label">${section.title}</div>`;
-            
+
             section.params.forEach(param => {
                 const id = `physics-${param.key}`;
                 html += `
@@ -226,17 +226,17 @@ export class PhysicsPanel {
                     </div>
                 `;
             });
-            
+
             html += `</div>`;
         });
-        
+
         html += `
                 </div>
             </div>
         `;
-        
+
         this.container.innerHTML = html;
-        
+
         const style = document.createElement("style");
         style.id = "physics-panel-styles";
         style.textContent = `
@@ -362,7 +362,7 @@ export class PhysicsPanel {
                 border: 1px solid #0f0;
                 color: #0f0;
                 padding: 2px 4px;
-                font-family: Consolas, Monaco, monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 10px;
                 width: 100%;
                 margin-bottom: 4px;
@@ -372,10 +372,10 @@ export class PhysicsPanel {
                 background: rgba(0, 255, 0, 0.2);
             }
         `;
-        
+
         document.head.appendChild(style);
         document.body.appendChild(this.container);
-        
+
         // Setup event listeners
         this.setupInputs();
         this.setupButtons();
@@ -383,12 +383,12 @@ export class PhysicsPanel {
         this.setupSimulation();
         this.updatePresetsList();
     }
-    
+
     private setupSimulation(): void {
         const simScenario = document.getElementById("physics-sim-scenario") as HTMLSelectElement;
         const simStart = document.getElementById("physics-sim-start");
         const simStop = document.getElementById("physics-sim-stop");
-        
+
         // Заполняем список сценариев
         if (this.physicsSimulator && simScenario) {
             const scenarios = this.physicsSimulator.getScenarios();
@@ -399,44 +399,44 @@ export class PhysicsPanel {
                 simScenario.appendChild(option);
             });
         }
-        
+
         simStart?.addEventListener("click", async () => {
             if (this.physicsSimulator && simScenario?.value) {
                 await this.physicsSimulator.runScenario(simScenario.value);
             }
         });
-        
+
         simStop?.addEventListener("click", () => {
             if (this.physicsSimulator) {
                 this.physicsSimulator.stopSimulation();
             }
         });
     }
-    
+
     private setupInputs(): void {
         const sliders = this.container.querySelectorAll(".physics-slider");
         sliders.forEach(slider => {
             const input = slider as HTMLInputElement;
             const key = input.id.replace("physics-", "");
             this.inputs.set(key, input);
-            
+
             const valueDisplay = document.getElementById(`${input.id}-value`) as HTMLSpanElement;
             if (valueDisplay) {
                 this.valueDisplays.set(key, valueDisplay);
             }
-            
+
             input.addEventListener("input", () => {
                 this.onParameterChange(key, parseFloat(input.value));
             });
         });
     }
-    
+
     private setupButtons(): void {
         const resetBtn = document.getElementById("physics-reset");
         const savePresetBtn = document.getElementById("physics-save-preset");
         const exportPresetsBtn = document.getElementById("physics-export-presets");
         const importPresetsBtn = document.getElementById("physics-import-presets");
-        
+
         if (resetBtn) {
             resetBtn.addEventListener("click", () => this.resetToDefaults());
         }
@@ -450,28 +450,28 @@ export class PhysicsPanel {
             importPresetsBtn.addEventListener("click", () => this.importPresets());
         }
     }
-    
+
     private setupToggle(): void {
         // F4 обработчик управляется в game.ts для консистентности
         // Этот метод оставлен для возможного будущего использования
     }
-    
+
     toggle(): void {
         if (!this.container) {
             logger.warn("[PhysicsPanel] Cannot toggle: container not initialized");
             return;
         }
-        
+
         this.visible = !this.visible;
         logger.debug(`[PhysicsPanel] Toggle: ${this.visible ? 'show' : 'hide'}`);
-        
+
         if (this.visible) {
             this.container.classList.remove("hidden");
             this.container.style.display = "";
             if (this.tank) {
                 this.updateFromTank();
             }
-            
+
             // Показываем курсор и выходим из pointer lock
             if (document.pointerLockElement) {
                 document.exitPointerLock();
@@ -482,7 +482,7 @@ export class PhysicsPanel {
             this.container.style.display = "none";
         }
     }
-    
+
     hide(): void {
         this.visible = false;
         this.container.classList.add("hidden");
@@ -492,10 +492,10 @@ export class PhysicsPanel {
             this.physicsVisualizer.clearVisualizations();
         }
     }
-    
+
     private updateFromTank(): void {
         if (!this.tank) return;
-        
+
         const values: { [key: string]: number } = {
             mass: this.tank.mass,
             hoverHeight: this.tank.hoverHeight,
@@ -533,12 +533,12 @@ export class PhysicsPanel {
             barrelRecoilSpeed: this.tank.barrelRecoilSpeed,
             barrelRecoilAmount: this.tank.barrelRecoilAmount,
         };
-        
+
         // Update sliders and displays
         Object.entries(values).forEach(([key, value]) => {
             const input = this.inputs.get(key);
             const display = this.valueDisplays.get(key);
-            
+
             if (input && !isNaN(value)) {
                 input.value = value.toString();
                 if (display) {
@@ -547,15 +547,15 @@ export class PhysicsPanel {
             }
         });
     }
-    
+
     private onParameterChange(key: string, value: number): void {
         if (!this.tank) return;
-        
+
         const display = this.valueDisplays.get(key);
         if (display) {
             display.textContent = this.formatValue(value, key);
         }
-        
+
         // Update tank parameter
         switch (key) {
             case "mass":
@@ -676,13 +676,13 @@ export class PhysicsPanel {
                 break;
         }
     }
-    
+
     private formatValue(value: number, key: string): string {
         if (key === "cooldown") {
             return `${Math.round(value)}мс`;
         }
-        if (key.includes("Damping") || key === "mouseSensitivity" || key === "turretSpeed" || 
-            key === "baseTurretSpeed" || key === "turretLerpSpeed" || key === "barrelRecoilSpeed" || 
+        if (key.includes("Damping") || key === "mouseSensitivity" || key === "turretSpeed" ||
+            key === "baseTurretSpeed" || key === "turretLerpSpeed" || key === "barrelRecoilSpeed" ||
             key === "barrelRecoilAmount") {
             return value.toFixed(3);
         }
@@ -694,11 +694,11 @@ export class PhysicsPanel {
         }
         return value.toFixed(1);
     }
-    
+
     private resetToDefaults(): void {
         if (!this.tank) return;
         this.updateFromTank();
-        
+
         // Show feedback
         const resetBtn = document.getElementById("physics-reset");
         if (resetBtn) {
@@ -709,41 +709,41 @@ export class PhysicsPanel {
             }, 1000);
         }
     }
-    
+
     private showSavePresetDialog(): void {
         if (this.presets.length >= this.maxPresets) {
             alert(`Максимум ${this.maxPresets} пресетов!`);
             return;
         }
-        
+
         const name = prompt("Имя пресета:", `Пресет ${this.presets.length + 1}`);
         if (!name || name.trim() === "") return;
-        
+
         this.savePreset(name.trim());
     }
-    
+
     private savePreset(name: string): void {
         if (!this.tank) return;
-        
+
         const config: { [key: string]: number } = {};
         this.inputs.forEach((input, key) => {
             config[key] = parseFloat(input.value);
         });
-        
+
         // Remove existing preset with same name
         this.presets = this.presets.filter(p => p.name !== name);
-        
+
         // Add new preset
         this.presets.push({ name, config });
-        
+
         // Keep only max presets
         if (this.presets.length > this.maxPresets) {
             this.presets.shift();
         }
-        
+
         this.savePresets();
         this.updatePresetsList();
-        
+
         // Show feedback
         const saveBtn = document.getElementById("physics-save-preset");
         if (saveBtn) {
@@ -754,13 +754,13 @@ export class PhysicsPanel {
             }, 1500);
         }
     }
-    
+
     private loadPreset(name: string): void {
         if (!this.tank) return;
-        
+
         const preset = this.presets.find(p => p.name === name);
         if (!preset) return;
-        
+
         Object.entries(preset.config).forEach(([key, value]) => {
             const input = this.inputs.get(key);
             if (input && typeof value === "number") {
@@ -768,25 +768,25 @@ export class PhysicsPanel {
                 this.onParameterChange(key, value);
             }
         });
-        
+
         // Preset loaded
     }
-    
+
     private deletePreset(name: string): void {
         this.presets = this.presets.filter(p => p.name !== name);
         this.savePresets();
         this.updatePresetsList();
     }
-    
+
     private updatePresetsList(): void {
         const list = document.getElementById("physics-presets-list");
         if (!list) return;
-        
+
         if (this.presets.length === 0) {
             list.innerHTML = `<div style="color: #666; font-size: 9px; padding: 4px;">Нет пресетов</div>`;
             return;
         }
-        
+
         let html = "";
         this.presets.forEach(preset => {
             html += `
@@ -796,9 +796,9 @@ export class PhysicsPanel {
                 </div>
             `;
         });
-        
+
         list.innerHTML = html;
-        
+
         // Setup click handlers
         list.querySelectorAll(".physics-preset-name").forEach(el => {
             el.addEventListener("click", () => {
@@ -806,7 +806,7 @@ export class PhysicsPanel {
                 if (name) this.loadPreset(name);
             });
         });
-        
+
         list.querySelectorAll(".physics-preset-btn").forEach(el => {
             el.addEventListener("click", () => {
                 const name = el.getAttribute("data-delete");
@@ -818,7 +818,7 @@ export class PhysicsPanel {
             });
         });
     }
-    
+
     private loadPresets(): void {
         const saved = localStorage.getItem("tankPhysicsPresets");
         if (saved) {
@@ -830,11 +830,11 @@ export class PhysicsPanel {
             }
         }
     }
-    
+
     private savePresets(): void {
         localStorage.setItem("tankPhysicsPresets", JSON.stringify(this.presets));
     }
-    
+
     /**
      * Экспорт пресетов в JSON файл
      */
@@ -848,7 +848,7 @@ export class PhysicsPanel {
         a.click();
         URL.revokeObjectURL(url);
     }
-    
+
     /**
      * Импорт пресетов из JSON файла
      */
@@ -859,7 +859,7 @@ export class PhysicsPanel {
         input.onchange = (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
             reader.onload = (event) => {
                 try {
@@ -868,7 +868,7 @@ export class PhysicsPanel {
                         alert('Неверный формат файла');
                         return;
                     }
-                    
+
                     // Объединяем с существующими пресетами
                     imported.forEach(preset => {
                         const existing = this.presets.findIndex(p => p.name === preset.name);
@@ -880,12 +880,12 @@ export class PhysicsPanel {
                             }
                         }
                     });
-                    
+
                     // Ограничиваем количество
                     if (this.presets.length > this.maxPresets) {
                         this.presets = this.presets.slice(0, this.maxPresets);
                     }
-                    
+
                     this.savePresets();
                     this.updatePresetsList();
                     alert(`Импортировано ${imported.length} пресетов`);
@@ -897,7 +897,7 @@ export class PhysicsPanel {
         };
         input.click();
     }
-    
+
     private setupCloseButton(): void {
         const closeBtn = document.getElementById("physics-close");
         if (closeBtn) {
@@ -905,7 +905,7 @@ export class PhysicsPanel {
                 this.hide();
             });
         }
-        
+
         // Закрытие по клику на фон
         this.container.addEventListener("click", (e) => {
             if (e.target === this.container) {
@@ -913,15 +913,15 @@ export class PhysicsPanel {
             }
         });
     }
-    
+
     isVisible(): boolean {
         return this.visible;
     }
-    
+
     dispose(): void {
         this.container.remove();
     }
-    
+
     /**
      * Рендерит контент в переданный контейнер (для UnifiedMenu)
      */
@@ -929,7 +929,7 @@ export class PhysicsPanel {
         container.innerHTML = this.getEmbeddedContentHTML();
         this.setupEmbeddedEventListeners(container);
     }
-    
+
     /**
      * Возвращает HTML контента без overlay wrapper
      */
@@ -997,7 +997,7 @@ export class PhysicsPanel {
             </div>
         `;
     }
-    
+
     /**
      * Привязывает обработчики событий для embedded режима
      */
@@ -1010,21 +1010,21 @@ export class PhysicsPanel {
         const gravityVal = container.querySelector(".phys-gravity-val");
         const applyBtn = container.querySelector(".phys-apply-btn");
         const resetBtn = container.querySelector(".phys-reset-btn");
-        
+
         // Обновление значений
         const updateSliderVal = (slider: HTMLInputElement, valEl: Element | null) => {
             if (valEl) valEl.textContent = `${slider.value}x`;
         };
-        
+
         moveSpeedSlider?.addEventListener("input", () => updateSliderVal(moveSpeedSlider, moveSpeedVal));
         turnSpeedSlider?.addEventListener("input", () => updateSliderVal(turnSpeedSlider, turnSpeedVal));
         gravitySlider?.addEventListener("input", () => updateSliderVal(gravitySlider, gravityVal));
-        
+
         applyBtn?.addEventListener("click", () => {
             if (this.tank) {
                 const speedMult = parseFloat(moveSpeedSlider?.value || "1");
                 const turnMult = parseFloat(turnSpeedSlider?.value || "1");
-                
+
                 // Применяем модификаторы
                 if ((this.tank as any).baseMoveSpeed === undefined) {
                     (this.tank as any).baseMoveSpeed = this.tank.moveSpeed;
@@ -1032,15 +1032,15 @@ export class PhysicsPanel {
                 if ((this.tank as any).baseTurnSpeed === undefined) {
                     (this.tank as any).baseTurnSpeed = this.tank.turnSpeed;
                 }
-                
+
                 this.tank.moveSpeed = (this.tank as any).baseMoveSpeed * speedMult;
                 this.tank.turnSpeed = (this.tank as any).baseTurnSpeed * turnMult;
-                
+
                 if (this.game?.hud) {
                     this.game.hud.showMessage("Параметры физики применены!", "#0f0", 2000);
                 }
             }
-            
+
             // Гравитация
             if (this.game?.scene) {
                 const gravMult = parseFloat(gravitySlider?.value || "1");
@@ -1048,12 +1048,12 @@ export class PhysicsPanel {
                 (this.game.scene as any).gravity = { x: 0, y: baseGravity * gravMult, z: 0 };
             }
         });
-        
+
         resetBtn?.addEventListener("click", () => {
             if (moveSpeedSlider) { moveSpeedSlider.value = "1"; updateSliderVal(moveSpeedSlider, moveSpeedVal); }
             if (turnSpeedSlider) { turnSpeedSlider.value = "1"; updateSliderVal(turnSpeedSlider, turnSpeedVal); }
             if (gravitySlider) { gravitySlider.value = "1"; updateSliderVal(gravitySlider, gravityVal); }
-            
+
             // Восстанавливаем базовые значения
             if (this.tank) {
                 if ((this.tank as any).baseMoveSpeed) {
@@ -1063,16 +1063,16 @@ export class PhysicsPanel {
                     this.tank.turnSpeed = (this.tank as any).baseTurnSpeed;
                 }
             }
-            
+
             if (this.game?.hud) {
                 this.game.hud.showMessage("Параметры сброшены!", "#ff0", 2000);
             }
         });
-        
+
         // Обновление текущих параметров
         this.updateEmbeddedParams(container);
     }
-    
+
     /**
      * Обновляет отображение текущих параметров
      */
@@ -1081,7 +1081,7 @@ export class PhysicsPanel {
         const accelEl = container.querySelector(".phys-accel-emb");
         const massEl = container.querySelector(".phys-mass-emb");
         const frictionEl = container.querySelector(".phys-friction-emb");
-        
+
         if (this.tank) {
             if (speedEl) speedEl.textContent = `${this.tank.moveSpeed?.toFixed(1) || "--"}`;
             if (accelEl) accelEl.textContent = `${(this.tank as any).acceleration?.toFixed(1) || "--"}`;

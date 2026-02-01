@@ -306,7 +306,7 @@ export class PerformanceMonitor {
             right: 10px;
             background: rgba(0, 0, 0, 0.85);
             color: #0f0;
-            font-family: 'Consolas', 'Monaco', monospace;
+            font-family: 'Press Start 2P', monospace;
             font-size: 11px;
             padding: 10px;
             border-radius: 5px;

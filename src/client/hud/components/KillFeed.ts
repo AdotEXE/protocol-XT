@@ -146,7 +146,7 @@ export class KillFeed {
             tb.color = color;
             tb.fontSize = fontSize;
             tb.fontWeight = weight;
-            tb.fontFamily = "Consolas, monospace";
+            tb.fontFamily = "'Press Start 2P', monospace";
             tb.resizeToFit = true;
             tb.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             // Add small margins

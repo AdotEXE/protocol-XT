@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141151,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "vortex",
+    "name": "Vortex Launcher",
+    "barrelLength": 2.5,
+    "barrelWidth": 0.29,
+    "damage": 33,
+    "cooldown": 3600,
+    "projectileSpeed": 160,
+    "projectileSize": 0.27,
+    "color": "#aa00ff",
+    "description": "Вихревой генератор, притягивает врагов. Урон: 33 | Перезарядка: 3.6с | Притягивает врагов к центру взрыва, радиус 5м.",
+    "recoilMultiplier": 2.8,
+    "maxRange": 280
+  }
+}

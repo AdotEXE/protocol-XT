@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140932,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "drone",
+    "name": "Drone Carrier",
+    "width": 2.2,
+    "height": 0.85,
+    "depth": 3.5,
+    "mass": 1800,
+    "maxHealth": 90,
+    "moveSpeed": 25,
+    "turnSpeed": 5.2,
+    "acceleration": 10500,
+    "color": "#aa00ff",
+    "description": "Носитель боевых дронов. Способность: выпуск 2 дронов, атакующих врагов (перезарядка 60 сек). Дроны наносят 15 урона каждые 2 секунды. Поддержка в бою. HP: 90 | Скорость: 25 | Броня: средняя",
+    "specialAbility": "drone"
+  }
+}

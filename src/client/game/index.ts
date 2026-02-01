@@ -33,7 +33,6 @@ export { GameSpectator } from "./GameSpectator";
 export { GameMultiplayerCallbacks } from "./GameMultiplayerCallbacks";
 
 // UI modules
-export { LoadingScreen } from "./LoadingScreen";
 export { SettingsManager } from "./SettingsManager";
 
 // Game modes

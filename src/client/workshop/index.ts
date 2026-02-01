@@ -10,5 +10,6 @@ export { default as ModelSelector } from './ModelSelector';
 export { default as ParameterEditor } from './ParameterEditor';
 export { default as AttachmentPointEditor } from './AttachmentPointEditor';
 export { default as VisualEditor } from './VisualEditor';
+export { default as TransformEditor } from './TransformEditor';
 export { default as WorkshopUI } from './WorkshopUI';
 

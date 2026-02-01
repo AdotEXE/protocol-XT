@@ -141,7 +141,13 @@ export class GameEnemies {
             if (enemy) {
                 // Устанавливаем ID врага для синхронизации
                 (enemy as any).networkId = enemyData.id;
-                this.enemyTanks.push(enemy);
+                // ОПТИМИЗАЦИЯ: Проверяем лимит перед добавлением
+                if (this.enemyTanks.length < this.MAX_ENEMIES) {
+                    this.enemyTanks.push(enemy);
+                } else {
+                    logger.warn(`[GameEnemies] Enemy limit reached (${this.MAX_ENEMIES}), skipping spawn`);
+                    enemy.dispose();
+                }
                 logger.log(`[GameEnemies] Created network enemy ${enemyData.id} at (${position.x.toFixed(1)}, ${position.y.toFixed(1)}, ${position.z.toFixed(1)})`);
             }
         }
@@ -206,7 +212,13 @@ export class GameEnemies {
                 const enemy = this.createEnemy(position, difficulty, 1.0);
                 if (enemy) {
                     (enemy as any).networkId = enemyData.id;
+                    // ОПТИМИЗАЦИЯ: Проверяем лимит перед добавлением
+                if (this.enemyTanks.length < this.MAX_ENEMIES) {
                     this.enemyTanks.push(enemy);
+                } else {
+                    logger.warn(`[GameEnemies] Enemy limit reached (${this.MAX_ENEMIES}), skipping spawn`);
+                    enemy.dispose();
+                }
                     logger.log(`[GameEnemies] Created new network enemy ${enemyData.id}`);
                 }
             }
@@ -656,8 +668,9 @@ export class GameEnemies {
 
                 // Проверяем расстояние до других ботов
                 let tooClose = false;
+                const minDistanceSq = 400; // 20^2
                 for (const existingPos of spawnPositions) {
-                    if (Vector3.Distance(pos, existingPos) < 20) {
+                    if (Vector3.DistanceSquared(pos, existingPos) < minDistanceSq) {
                         tooClose = true;
                         break;
                     }
@@ -1060,8 +1073,9 @@ export class GameEnemies {
             // Проверяем расстояние до других врагов (минимум 20м на карте Песок, 100м на других картах)
             const minBotDistance = this.systems.currentMapType === "sand" ? 20 : 100;
             let tooClose = false;
+            const minBotDistanceSq = minBotDistance * minBotDistance;
             for (const existingEnemy of this.enemyTanks) {
-                if (existingEnemy.chassis && Vector3.Distance(pos, existingEnemy.chassis.absolutePosition) < minBotDistance) {
+                if (existingEnemy.chassis && Vector3.DistanceSquared(pos, existingEnemy.chassis.absolutePosition) < minBotDistanceSq) {
                     tooClose = true;
                     break;
                 }
@@ -1201,8 +1215,9 @@ export class GameEnemies {
 
                 // Проверяем расстояние до других врагов
                 let tooClose = false;
+                const minDistanceSq = 625; // 25^2
                 for (const existingPos of spawnPositions) {
-                    if (Vector3.Distance(pos, existingPos) < 25) {
+                    if (Vector3.DistanceSquared(pos, existingPos) < minDistanceSq) {
                         tooClose = true;
                         break;
                     }
@@ -1231,7 +1246,13 @@ export class GameEnemies {
             }, groundNormal);
 
             if (enemy) {
-                this.enemyTanks.push(enemy);
+                // ОПТИМИЗАЦИЯ: Проверяем лимит перед добавлением
+                if (this.enemyTanks.length < this.MAX_ENEMIES) {
+                    this.enemyTanks.push(enemy);
+                } else {
+                    logger.warn(`[GameEnemies] Enemy limit reached (${this.MAX_ENEMIES}), skipping spawn`);
+                    enemy.dispose();
+                }
             }
         }
 
@@ -1381,8 +1402,9 @@ export class GameEnemies {
 
             // Проверяем расстояние до других врагов (минимум 20м между ботами на песке)
             let tooClose = false;
+            const minBotDistanceSq = 400; // 20^2
             for (const existingEnemy of this.enemyTanks) {
-                if (existingEnemy.chassis && Vector3.Distance(pos, existingEnemy.chassis.absolutePosition) < 20) {
+                if (existingEnemy.chassis && Vector3.DistanceSquared(pos, existingEnemy.chassis.absolutePosition) < minBotDistanceSq) {
                     tooClose = true;
                     break;
                 }
@@ -1390,8 +1412,9 @@ export class GameEnemies {
 
             // Проверяем расстояние до игрока (минимум 30м)
             if (!tooClose && this.systems.tank?.chassis) {
-                const distToPlayer = Vector3.Distance(pos, this.systems.tank.chassis.absolutePosition);
-                if (distToPlayer < 30) {
+                const distToPlayerSq = Vector3.DistanceSquared(pos, this.systems.tank.chassis.absolutePosition);
+                const minPlayerDistanceSq = 900; // 30^2
+                if (distToPlayerSq < minPlayerDistanceSq) {
                     tooClose = true;
                 }
             }
@@ -1560,8 +1583,10 @@ export class GameEnemies {
         // Проверяем расстояние до гаража игрока
         const playerGaragePos = getPlayerGaragePosition();
         if (playerGaragePos) {
-            const distToPlayer = Vector3.Distance(garagePos, playerGaragePos);
-            if (distToPlayer < 100) {
+            const distToPlayerSq = Vector3.DistanceSquared(garagePos, playerGaragePos);
+            const minGarageDistanceSq = 10000; // 100^2
+            if (distToPlayerSq < minGarageDistanceSq) {
+                const distToPlayer = Math.sqrt(distToPlayerSq);
                 logger.log(`[GameEnemies] BLOCKED: Enemy respawn too close to player garage (${distToPlayer.toFixed(1)}m)`);
                 return;
             }

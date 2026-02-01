@@ -110,7 +110,7 @@ export class ChunkSystem {
 
     // Public getter for mapType
     public get mapType(): MapType {
-        return this.config.mapType || "normal";
+        return this.config.mapType || "sand";
     }
 
     private chunks: Map<string, ChunkData> = new Map();
@@ -288,11 +288,12 @@ export class ChunkSystem {
      */
     public getHeightAt(x: number, z: number): number {
         // Если это custom карта - используем raycasting для точности
+        // Если это custom карта - используем raycasting для точности
         if (this.config.mapType === "custom" || !this.terrainGenerator) {
             // Raycast vertically downwards from high up
             const origin = new Vector3(x, 1000, z);
             const direction = new Vector3(0, -1, 0);
-            const ray = new THREE.Ray(origin, direction); // Wait, this is Babylon.js Project, not Three.js!
+
             // Correct BabylonJS Ray:
             const babylonRay = new Ray(origin, direction, 2000);
 
@@ -415,6 +416,21 @@ export class ChunkSystem {
         // Создаем локальный кэш материалов для обратной совместимости
         this.createMaterials();
 
+        // КРИТИЧНО: Для ФИКСИРОВАННЫХ КАРТ - полностью пропускаем ВСЕ генераторы!
+        // Только загружаем JSON данные через CustomMapRunner
+        const fixedMaps = ["sand", "arena", "expo", "brest", "madness"];
+        const isFixedMap = fixedMaps.includes(this.config.mapType || "");
+
+        if (isFixedMap) {
+            logger.log(`[ChunkSystem] 🏟️ FIXED MAP "${this.config.mapType}" - MINIMAL MODE (no generators)`);
+            // Загружаем ТОЛЬКО JSON геометрию
+            this.loadFixedMapContent();
+            // Выходим из конструктора - никаких генераторов!
+            return;
+        }
+
+        // ===== ДАЛЬШЕ ТОЛЬКО ДЛЯ ПРОЦЕДУРНЫХ КАРТ =====
+
         // ОПТИМИЗАЦИЯ: Инициализируем ThinInstanceManager для уменьшения draw calls
         // КРИТИЧНО: Пропускаем для custom карт - не нужны thin instances
         if (this.config.mapType !== "custom") {
@@ -423,8 +439,8 @@ export class ChunkSystem {
         }
 
         // КРИТИЧНО: Terrain generator ТОЛЬКО для НЕ-custom карт!
-        // Custom карты используют только объекты из редактора
-        if (this.config.mapType !== "custom") {
+        // Custom карты используют        // Только для обычной карты (бесконечный мир)
+        if (this.config.mapType !== "sand" && this.config.mapType !== "custom") {
             this.terrainGenerator = new TerrainGenerator(
                 this.config.worldSeed,
                 (x: number, z: number, margin: number) => this.isPositionInGarageArea(x, z, margin),
@@ -437,8 +453,8 @@ export class ChunkSystem {
             logger.log("[ChunkSystem] Custom map - skipping terrain/noise generators");
         }
 
-        // Initialize road network and terrain generator for normal map
-        if (this.config.mapType === "normal") {
+        // Initialize road network and terrain generator for sand map
+        if (this.config.mapType === "sand") {
             this.roadNetwork = new RoadNetwork(
                 this.scene,
                 {
@@ -479,6 +495,13 @@ export class ChunkSystem {
 
             // Инициализируем генераторы карт
             this.initializeMapGenerators();
+
+            // ФИКСИРОВАННЫЕ КАРТЫ: Создаём ВСЮ геометрию ОДИН РАЗ здесь!
+            // ChunkSystem.update() будет возвращаться сразу для этих карт
+            const fixedMaps = ["sand", "arena", "expo", "brest", "madness"];
+            if (fixedMaps.includes(this.config.mapType || "")) {
+                this.loadFixedMapContent();
+            }
         } else {
             // КРИТИЧНО: НЕ вызываем loadCustomMapObjects здесь!
             // CustomMapRunner уже вызван в game.ts ПЕРЕД созданием ChunkSystem
@@ -486,6 +509,120 @@ export class ChunkSystem {
         }
 
         // ChunkSystem initialized
+    }
+
+    /**
+     * Загружает контент фиксированной карты ОДИН РАЗ из JSON данных
+     * НИКАКОЙ ГЕНЕРАЦИИ - только загрузка статичных данных!
+     */
+    private loadFixedMapContent(): void {
+        const mapType = this.config.mapType || "sand";
+        logger.log(`[ChunkSystem] 🗺️ Loading fixed map from JSON: ${mapType}`);
+
+        const startTime = performance.now();
+
+        // Данные карт встроены напрямую (JSON import не работает в runtime)
+        const fixedMapsData: Record<string, any> = {
+            sand: {
+                version: 1,
+                name: "Sand Arena",
+                mapType: "sand",
+                size: 150,
+                placedObjects: [
+                    // === GROUND ===
+                    { id: "ground", type: "box", position: { x: 0, y: -0.05, z: 0 }, scale: { x: 150, y: 0.1, z: 150 }, properties: { color: "#8B7355", name: "Ground", hasCollision: true } },
+
+                    // === CENTRAL PLATFORM (40x40, height 3.5) ===
+                    { id: "platform", type: "box", position: { x: 0, y: 1.75, z: 0 }, scale: { x: 40, y: 3.5, z: 40 }, properties: { color: "#5A5A5A", name: "Platform", hasCollision: true } },
+
+                    // === 4 RAMPS to platform ===
+                    { id: "ramp_n", type: "box", position: { x: 0, y: 1.25, z: 24 }, rotation: { x: -30, y: 0, z: 0 }, scale: { x: 10, y: 0.5, z: 8 }, properties: { color: "#666666", hasCollision: true } },
+                    { id: "ramp_s", type: "box", position: { x: 0, y: 1.25, z: -24 }, rotation: { x: 30, y: 0, z: 0 }, scale: { x: 10, y: 0.5, z: 8 }, properties: { color: "#666666", hasCollision: true } },
+                    { id: "ramp_e", type: "box", position: { x: 24, y: 1.25, z: 0 }, rotation: { x: 0, y: 0, z: -30 }, scale: { x: 8, y: 0.5, z: 10 }, properties: { color: "#666666", hasCollision: true } },
+                    { id: "ramp_w", type: "box", position: { x: -24, y: 1.25, z: 0 }, rotation: { x: 0, y: 0, z: 30 }, scale: { x: 8, y: 0.5, z: 10 }, properties: { color: "#666666", hasCollision: true } },
+
+                    // === PERIMETER WALLS (height 4) ===
+                    { id: "wall_n", type: "box", position: { x: 0, y: 2, z: 75 }, scale: { x: 150, y: 4, z: 1 }, properties: { color: "#4A4A4A", hasCollision: true } },
+                    { id: "wall_s", type: "box", position: { x: 0, y: 2, z: -75 }, scale: { x: 150, y: 4, z: 1 }, properties: { color: "#4A4A4A", hasCollision: true } },
+                    { id: "wall_e", type: "box", position: { x: 75, y: 2, z: 0 }, scale: { x: 1, y: 4, z: 150 }, properties: { color: "#4A4A4A", hasCollision: true } },
+                    { id: "wall_w", type: "box", position: { x: -75, y: 2, z: 0 }, scale: { x: 1, y: 4, z: 150 }, properties: { color: "#4A4A4A", hasCollision: true } },
+
+                    // === WALKWAYS on walls ===
+                    { id: "walkway_n", type: "box", position: { x: 0, y: 4.15, z: 76.5 }, scale: { x: 150, y: 0.3, z: 3 }, properties: { color: "#555555", hasCollision: true } },
+                    { id: "walkway_s", type: "box", position: { x: 0, y: 4.15, z: -76.5 }, scale: { x: 150, y: 0.3, z: 3 }, properties: { color: "#555555", hasCollision: true } },
+                    { id: "walkway_e", type: "box", position: { x: 76.5, y: 4.15, z: 0 }, scale: { x: 3, y: 0.3, z: 150 }, properties: { color: "#555555", hasCollision: true } },
+                    { id: "walkway_w", type: "box", position: { x: -76.5, y: 4.15, z: 0 }, scale: { x: 3, y: 0.3, z: 150 }, properties: { color: "#555555", hasCollision: true } },
+
+                    // === BUILDING 1: Г-shape (NW corner) ===
+                    { id: "bld_nw_long", type: "box", position: { x: -49, y: 3, z: 45 }, scale: { x: 4, y: 6, z: 16 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "bld_nw_short", type: "box", position: { x: -43, y: 3, z: 51 }, scale: { x: 12, y: 6, z: 4 }, properties: { color: "#606060", hasCollision: true } },
+
+                    // === BUILDING 2: L-shape (SE corner) ===
+                    { id: "bld_se_long", type: "box", position: { x: 48, y: 2, z: -45 }, scale: { x: 3, y: 4, z: 10 }, properties: { color: "#8B4513", hasCollision: true } },
+                    { id: "bld_se_short", type: "box", position: { x: 45, y: 2, z: -50 }, scale: { x: 8, y: 4, z: 3 }, properties: { color: "#8B4513", hasCollision: true } },
+
+                    // === BUILDING 3: T-shape (NE corner) ===
+                    { id: "bld_ne_stem", type: "box", position: { x: 45, y: 4, z: 43 }, scale: { x: 5, y: 8, z: 14 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "bld_ne_top", type: "box", position: { x: 45, y: 4.5, z: 51 }, scale: { x: 18, y: 9, z: 4 }, properties: { color: "#606060", hasCollision: true } },
+
+                    // === BUILDING 4: П-shape (SW corner) ===
+                    { id: "bld_sw_left", type: "box", position: { x: -51, y: 2.5, z: -45 }, scale: { x: 3, y: 5, z: 14 }, properties: { color: "#8B4513", hasCollision: true } },
+                    { id: "bld_sw_right", type: "box", position: { x: -39, y: 2.5, z: -45 }, scale: { x: 3, y: 5, z: 14 }, properties: { color: "#8B4513", hasCollision: true } },
+                    { id: "bld_sw_bridge", type: "box", position: { x: -45, y: 2.5, z: -39 }, scale: { x: 15, y: 5, z: 3 }, properties: { color: "#8B4513", hasCollision: true } },
+
+                    // === RUINS on platform (Г-shaped groups) ===
+                    { id: "ruin_p1", type: "box", position: { x: -12, y: 4.6, z: 10 }, scale: { x: 6, y: 2.2, z: 0.6 }, properties: { color: "#707070", hasCollision: true } },
+                    { id: "ruin_p2", type: "box", position: { x: -14.5, y: 4.3, z: 12 }, scale: { x: 0.6, y: 1.6, z: 4 }, properties: { color: "#707070", hasCollision: true } },
+                    { id: "ruin_p3", type: "box", position: { x: 12, y: 4.4, z: -10 }, scale: { x: 5, y: 1.8, z: 0.6 }, properties: { color: "#707070", hasCollision: true } },
+                    { id: "ruin_p4", type: "box", position: { x: 14, y: 4.7, z: -12 }, scale: { x: 0.6, y: 2.4, z: 3.5 }, properties: { color: "#707070", hasCollision: true } },
+                    { id: "ruin_p5", type: "box", position: { x: 10, y: 4.2, z: 12 }, rotation: { x: 0, y: 45, z: 0 }, scale: { x: 4, y: 1.4, z: 0.5 }, properties: { color: "#707070", hasCollision: true } },
+                    { id: "ruin_p6", type: "box", position: { x: -8, y: 4.0, z: -8 }, rotation: { x: 0, y: 30, z: 0 }, scale: { x: 3, y: 1.0, z: 0.5 }, properties: { color: "#707070", hasCollision: true } },
+
+                    // === COVER WALLS (diagonal tactical covers) ===
+                    { id: "cover_1", type: "box", position: { x: -28, y: 0.9, z: -28 }, rotation: { x: 0, y: 45, z: 0 }, scale: { x: 10, y: 1.8, z: 1.8 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_2", type: "box", position: { x: 28, y: 0.9, z: -28 }, rotation: { x: 0, y: -45, z: 0 }, scale: { x: 10, y: 1.8, z: 1.8 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_3", type: "box", position: { x: 28, y: 0.9, z: 28 }, rotation: { x: 0, y: 45, z: 0 }, scale: { x: 10, y: 1.8, z: 1.8 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_4", type: "box", position: { x: -28, y: 0.9, z: 28 }, rotation: { x: 0, y: -45, z: 0 }, scale: { x: 10, y: 1.8, z: 1.8 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_5", type: "box", position: { x: -30, y: 0.9, z: 0 }, scale: { x: 8, y: 1.8, z: 1.8 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_6", type: "box", position: { x: 30, y: 0.9, z: 0 }, scale: { x: 8, y: 1.8, z: 1.8 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_7", type: "box", position: { x: 0, y: 0.9, z: -30 }, rotation: { x: 0, y: 90, z: 0 }, scale: { x: 8, y: 1.8, z: 1.8 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_8", type: "box", position: { x: 0, y: 0.9, z: 30 }, rotation: { x: 0, y: 90, z: 0 }, scale: { x: 8, y: 1.8, z: 1.8 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_9", type: "box", position: { x: -40, y: 0.75, z: -15 }, rotation: { x: 0, y: 30, z: 0 }, scale: { x: 6, y: 1.5, z: 1.5 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_10", type: "box", position: { x: 40, y: 0.75, z: -15 }, rotation: { x: 0, y: -30, z: 0 }, scale: { x: 6, y: 1.5, z: 1.5 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_11", type: "box", position: { x: -40, y: 0.75, z: 15 }, rotation: { x: 0, y: -30, z: 0 }, scale: { x: 6, y: 1.5, z: 1.5 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_12", type: "box", position: { x: 40, y: 0.75, z: 15 }, rotation: { x: 0, y: 30, z: 0 }, scale: { x: 6, y: 1.5, z: 1.5 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_13", type: "box", position: { x: -15, y: 0.75, z: -40 }, rotation: { x: 0, y: 60, z: 0 }, scale: { x: 6, y: 1.5, z: 1.5 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_14", type: "box", position: { x: 15, y: 0.75, z: -40 }, rotation: { x: 0, y: -60, z: 0 }, scale: { x: 6, y: 1.5, z: 1.5 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_15", type: "box", position: { x: -15, y: 0.75, z: 40 }, rotation: { x: 0, y: -60, z: 0 }, scale: { x: 6, y: 1.5, z: 1.5 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_16", type: "box", position: { x: 15, y: 0.75, z: 40 }, rotation: { x: 0, y: 60, z: 0 }, scale: { x: 6, y: 1.5, z: 1.5 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_17", type: "box", position: { x: -50, y: 0.6, z: -50 }, rotation: { x: 0, y: 45, z: 0 }, scale: { x: 4, y: 1.2, z: 1.2 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_18", type: "box", position: { x: 50, y: 0.6, z: -50 }, rotation: { x: 0, y: -45, z: 0 }, scale: { x: 4, y: 1.2, z: 1.2 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_19", type: "box", position: { x: 50, y: 0.6, z: 50 }, rotation: { x: 0, y: 45, z: 0 }, scale: { x: 4, y: 1.2, z: 1.2 }, properties: { color: "#606060", hasCollision: true } },
+                    { id: "cover_20", type: "box", position: { x: -50, y: 0.6, z: 50 }, rotation: { x: 0, y: -45, z: 0 }, scale: { x: 4, y: 1.2, z: 1.2 }, properties: { color: "#606060", hasCollision: true } },
+
+                    // === WALL RAMPS (to walkways) ===
+                    { id: "wall_ramp_1", type: "box", position: { x: -72, y: 2, z: -65 }, rotation: { x: -30, y: 0, z: 0 }, scale: { x: 6, y: 0.5, z: 8 }, properties: { color: "#555555", hasCollision: true } },
+                    { id: "wall_ramp_2", type: "box", position: { x: 72, y: 2, z: 65 }, rotation: { x: 30, y: 0, z: 0 }, scale: { x: 6, y: 0.5, z: 8 }, properties: { color: "#555555", hasCollision: true } },
+
+                    // === SPAWN ===
+                    { id: "spawn", type: "spawn", position: { x: -50, y: 2, z: -50 }, properties: { name: "Player Spawn" } }
+                ]
+            }
+        };
+
+        const mapData = fixedMapsData[mapType];
+        if (!mapData) {
+            logger.error(`[ChunkSystem] No JSON data for fixed map: ${mapType}`);
+            return;
+        }
+
+        // Используем CustomMapRunner для загрузки объектов
+        // skipClear: не удаляем существующие меши, skipEnvironment: не создаём лишний floor
+        const runner = new CustomMapRunner(this.scene);
+        const result = runner.run(mapData, { skipClear: true, skipEnvironment: true });
+
+        const elapsed = performance.now() - startTime;
+        logger.log(`[ChunkSystem] ✅ Fixed map "${mapType}" loaded in ${elapsed.toFixed(1)}ms, objects: ${result.objectsCreated}, meshes: ${this.scene.meshes.length}`);
     }
     /**
      * Запустить custom карту через CustomMapRunner
@@ -1206,9 +1343,15 @@ export class ChunkSystem {
 
     update(playerPos: Vector3): void {
         // CUSTOM MAPS: Полностью пропускаем генерацию чанков!
-        // Все объекты загружаются через CustomMapLoader в конструкторе
         if (this.config.mapType === "custom") {
-            return; // Никакой процедурной генерации для custom карт
+            return;
+        }
+
+        // ФИКСИРОВАННЫЕ КАРТЫ: ChunkSystem ПОЛНОСТЬЮ ОТКЛЮЧЁН!
+        // Геометрия создаётся ОДИН РАЗ в конструкторе через loadFixedMapContent()
+        const fixedMaps = ["sand", "arena", "expo", "brest", "madness"];
+        if (fixedMaps.includes(this.config.mapType || "")) {
+            return;
         }
 
         const startTime = performance.now();
@@ -1233,8 +1376,8 @@ export class ChunkSystem {
     private createAllGarages(): void {
         this._guaranteedGarageCreated = true;
 
-        // В режиме песочницы создаём только один гараж в центре
-        if (this.config.mapType === "sandbox") {
+        // Если карта обычная, создаем бесконечный ландшафт
+        if (this.config.mapType === "sand") {
             this.createGarageAt(0, 0, 0);
             // Sandbox mode: Created garage and capture points
             return;
@@ -1308,7 +1451,7 @@ export class ChunkSystem {
         ];
 
         // КРИТИЧНО: Фильтруем гаражи по границам карты!
-        const mapType = this.config.mapType || "normal";
+        const mapType = this.config.mapType || "sand";
         const garageLocations = allGarageLocations.filter(loc => {
             return isPositionInMapBounds(mapType, loc.x, loc.z);
         });
@@ -2419,6 +2562,18 @@ export class ChunkSystem {
     }
 
     private updateChunks(playerCx: number, playerCz: number): void {
+        // CUSTOM MAPS: Полностью пропускаем генерацию чанков!
+        if (this.config.mapType === "custom") {
+            return;
+        }
+
+        // ФИКСИРОВАННЫЕ КАРТЫ: ChunkSystem ПОЛНОСТЬЮ ОТКЛЮЧЁН!
+        // Геометрия создаётся ОДИН РАЗ в конструкторе через loadFixedMapContent()
+        const fixedMaps = ["sand", "arena", "expo", "brest", "madness"];
+        if (fixedMaps.includes(this.config.mapType || "")) {
+            return;
+        }
+
         const { renderDistance, unloadDistance } = this.config;
 
         // ОПТИМИЗАЦИЯ: Прогрессивная загрузка чанков
@@ -2876,13 +3031,14 @@ export class ChunkSystem {
 
         const seed = this.config.worldSeed + cx * 10000 + cz;
 
-        // ФАЗА 1: БЫСТРАЯ - создаём только базовый terrain (синхронно, ~5ms)
+        // ФАЗА 1: БЫСТРАЯ - создаём базовый terrain для ВСЕХ карт (ground нужен!)
         this.createBaseTerrain(cx, cz, cornerX, cornerZ, chunkParent, seed);
 
-        // Сохраняем чанк СРАЗУ (terrain уже готов)
+        // Сохраняем чанк
         this.chunks.set(key, chunk);
 
-        // ФАЗА 2: ЛЕНИВАЯ - детали через requestIdleCallback (не блокирует FPS)
+        // ФАЗА 2: Генерация деталей
+        // ОПТИМИЗАЦИЯ: Для фиксированных карт generateChunkDetails должен использовать mesh batching
         this.scheduleDetailsGeneration(cx, cz, chunkParent, seed);
 
         // ОПТИМИЗАЦИЯ: Сразу скрываем чанк если он за пределами unloadDistance от игрока
@@ -2907,14 +3063,21 @@ export class ChunkSystem {
             return; // Полностью пустой чанк
         }
 
-        // Sandbox, Sand, Madness, Expo, Brest, Arena - просто плоская земля БЕЗ террейна
-        if (this.config.mapType === "sandbox" || this.config.mapType === "sand" || this.config.mapType === "madness" || this.config.mapType === "expo" || this.config.mapType === "brest" || this.config.mapType === "arena") {
+        // ФИКСИРОВАННЫЕ КАРТЫ: НЕ создаём ground здесь!
+        // Генератор (SandGenerator, ArenaGenerator и т.д.) создаёт СВОЙ ground как часть арены
+        const fixedMaps = ["sand", "arena", "expo", "brest", "madness"];
+        if (fixedMaps.includes(this.config.mapType || "")) {
+            return; // Генератор создаст ground
+        }
+
+        // Sandbox - простая плоская земля
+        if (this.config.mapType === "sandbox") {
             this.createGround(cx, cz, worldX, worldZ, size, "wasteland", random, chunkParent);
             return;
         }
 
         // Специальные карты
-        const mapType = this.config.mapType || "normal";
+        const mapType = this.config.mapType || "sand";
         const specialMaps = ["polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal"];
 
         if (specialMaps.includes(mapType)) {
@@ -2930,9 +3093,9 @@ export class ChunkSystem {
             return;
         }
 
-        // Normal/tartaria карты - определяем биом
+        // Sand/tartaria карты - определяем биом
         let biome: BiomeType;
-        if (this.config.mapType === "normal") {
+        if (this.config.mapType === "sand") {
             biome = this.getRandomBiome(worldX + size / 2, worldZ + size / 2, random);
         } else if (this.config.mapType === "tartaria") {
             biome = this.getBiome(worldX + size / 2, worldZ + size / 2, random);
@@ -3015,7 +3178,7 @@ export class ChunkSystem {
             return;
         }
 
-        const mapType = this.config.mapType || "normal";
+        const mapType = this.config.mapType || "sand";
         const specialMaps = ["polygon", "frontline", "ruins", "canyon", "industrial", "urban_warfare", "underground", "coastal", "sand", "madness", "expo", "brest", "arena"];
 
         if (specialMaps.includes(mapType)) {
@@ -3051,9 +3214,9 @@ export class ChunkSystem {
             return;
         }
 
-        // Normal/tartaria карты
+        // Sand/tartaria карты
         let biome: BiomeType;
-        if (this.config.mapType === "normal") {
+        if (this.config.mapType === "sand") {
             biome = this.getRandomBiome(worldX + size / 2, worldZ + size / 2, random);
         } else {
             biome = this.getBiome(worldX + size / 2, worldZ + size / 2, random);
@@ -3079,7 +3242,7 @@ export class ChunkSystem {
         this.mergeStaticMeshesInChunk(chunkParent);
     }
 
-    // Get completely random biome for normal map (no distance dependency)
+    // Get completely random biome for sand map (no distance dependency)
     private getRandomBiome(worldX: number, worldZ: number, random: SeededRandom): BiomeType {
         const cacheKey = `rand_${Math.floor(worldX / 10)}_${Math.floor(worldZ / 10)}`;
         if (this.biomeCache.has(cacheKey)) {
@@ -3378,8 +3541,9 @@ export class ChunkSystem {
         const random = new SeededRandom(seed);
 
         // В режиме песочницы генерируем только землю
-        if (this.config.mapType === "sandbox") {
-            // Простая плоская земля для песочницы
+        if (this.config.mapType === "sand") {
+            // Для обычной карты используем процедурную генерацию
+            (this.scene as any).proceduralGeneration = true;
             this.createGround(chunkX, chunkZ, worldX, worldZ, size, "wasteland", random, chunkParent);
             // Гаражи уже созданы в createAllGarages(), пропускаем generateGarages
             return;
@@ -3440,12 +3604,17 @@ export class ChunkSystem {
                                                 this.config.mapType === "sand" ? "wasteland" :
                                                     this.config.mapType === "madness" ? "wasteland" : "military";
 
-                // Логируем создание ground mesh для отладки
-                // Отключено для снижения спама
-                // if (mapType === "frontline") {
-                //     logger.log(`[ChunkSystem] Creating ground mesh for frontline chunk (${chunkX}, ${chunkZ}) with biome: ${groundBiome}`);
-                // }
-                this.createGround(chunkX, chunkZ, worldX, worldZ, size, groundBiome, random, chunkParent);
+                // КРИТИЧНО: Для фиксированных карт (sand, arena, expo) НЕ создаём ground mesh -
+                // эти карты полностью самостоятельные и создают свой ground внутри generator.generateContent()
+                const fixedMaps = ["sand", "arena", "expo", "brest"];
+                if (!fixedMaps.includes(mapType)) {
+                    // Логируем создание ground mesh для отладки
+                    // Отключено для снижения спама
+                    // if (mapType === "frontline") {
+                    //     logger.log(`[ChunkSystem] Creating ground mesh for frontline chunk (${chunkX}, ${chunkZ}) with biome: ${groundBiome}`);
+                    // }
+                    this.createGround(chunkX, chunkZ, worldX, worldZ, size, groundBiome, random, chunkParent);
+                }
 
                 // Создаём контекст генерации чанка
                 const chunkContext: ChunkGenerationContext = {
@@ -7193,6 +7362,8 @@ export class ChunkSystem {
 
     // Legacy BLOCKY terrain generator (kept for reference; not used after heightmap switch)
     // eslint-disable-next-line @typescript-eslint/no-unused-private-class-members
+    // Optimized ThinInstance terrain generator
+    // Replaces the legacy "blocky" generator with a high-performance batching system
     private _createTerrainFromNoise(chunkX: number, chunkZ: number, worldX: number, worldZ: number, size: number, biome: BiomeType, random: SeededRandom, chunkParent: TransformNode): void {
         if (!this.terrainGenerator) return;
 
@@ -7200,7 +7371,7 @@ export class ChunkSystem {
         const gridSize = 8; // Grid for block-based terrain
         const cellSize = size / gridSize;
 
-        // Sample heights at grid points - HEIGHTS ARE ALREADY QUANTIZED in terrainGenerator
+        // Sample heights at grid points
         const heights: number[][] = [];
         for (let gx = 0; gx <= gridSize; gx++) {
             heights[gx] = [];
@@ -7214,104 +7385,156 @@ export class ChunkSystem {
             }
         }
 
-        // Create blocky terrain mesh - each cell is a rectangular block
+        // ОПТИМИЗАЦИЯ: Коллекции для батчинга
+        const matricesData: Float32Array = new Float32Array(gridSize * gridSize * 16); // 16 floats per matrix
+        const colorsData: Float32Array = new Float32Array(gridSize * gridSize * 4);    // 4 floats per color (RGBA)
+        let instanceCount = 0;
+
+        // Create blocky terrain mesh logic
         for (let gx = 0; gx < gridSize; gx++) {
             for (let gz = 0; gz < gridSize; gz++) {
                 const localX = gx * cellSize + cellSize / 2;
                 const localZ = gz * cellSize + cellSize / 2;
 
-                // Get heights at cell corners (for stepped/blended blocks)
                 const h00 = heights[gx]?.[gz] ?? 0;
                 const h10 = heights[gx + 1]?.[gz] ?? 0;
                 const h01 = heights[gx]?.[gz + 1] ?? 0;
                 const h11 = heights[gx + 1]?.[gz + 1] ?? 0;
 
-                // Use average height for this cell (or use stepped approach)
                 const avgHeight = (h00 + h10 + h01 + h11) / 4;
                 const finalHeight = avgHeight;
 
-                // Create blocky terrain - only rectangular blocks (LOW POLY style)
-                // Only create blocks for significant height differences
                 if (Math.abs(finalHeight) > 0.5) {
-                    // Create rectangular block based on height
-                    const blockSize = cellSize * 0.95; // Slightly smaller to avoid z-fighting
+                    // Размеры блока
+                    const blockSize = cellSize * 0.95;
                     const blockHeight = Math.max(Math.abs(finalHeight), 0.5);
+                    let posY = 0;
 
                     if (finalHeight > 0.5) {
-                        // Hill/raised terrain - rectangular block
-                        const hillBlock = MeshBuilder.CreateBox(`terrainHill_${gx}_${gz}`, {
+                        posY = blockHeight / 2;
+                    } else {
+                        // Для ям (valleys)
+                        posY = -blockHeight / 2;
+                    }
+
+                    // 1. Подготовка матрицы для ThinInstance
+                    const position = new Vector3(localX, posY, localZ);
+                    const scale = new Vector3(blockSize, blockHeight, blockSize); // Масштабируем единичный куб
+                    // Rotation is identity (0,0,0)
+
+                    const matrix = Matrix.Compose(
+                        scale,
+                        new Vector3(0, 0, 0).toQuaternion(),
+                        position
+                    );
+
+                    // Копируем в буфер матриц
+                    matrix.copyToArray(matricesData, instanceCount * 16);
+
+                    // 2. Расчет цвета (Material based on biome + Height Tint logic)
+                    let matName = "dirt";
+                    if (biome === "park" || biome === "residential") matName = random.chance(0.7) ? "grass" : "grassDark";
+                    else if (biome === "military") matName = "sand";
+                    else if (biome === "wasteland") matName = random.chance(0.5) ? "gravel" : "dirt";
+                    else if (biome === "city" || biome === "industrial") matName = "concrete";
+
+                    // Получаем базовый цвет материала
+                    const baseMat = this.getMat(matName);
+                    const baseColor = baseMat.diffuseColor ? baseMat.diffuseColor : new Color3(0.5, 0.5, 0.5);
+
+                    // Применяем логику tinting из getHeightTintedMaterial (инлайн для оптимизации)
+                    const absHeight = Math.abs(finalHeight); // Используем finalHeight, не blockHeight
+                    // Mножитель яркости
+                    const heightMultiplier = 0.85 + Math.min(absHeight / 15, 0.40);
+                    let tintedR = baseColor.r * heightMultiplier;
+                    let tintedG = baseColor.g * heightMultiplier;
+                    let tintedB = baseColor.b * heightMultiplier;
+
+                    // Насыщенность (Saturation boost)
+                    const maxChannel = Math.max(tintedR, tintedG, tintedB);
+                    const minChannel = Math.min(tintedR, tintedG, tintedB);
+                    const saturationBoost = Math.min((absHeight / 15) * 0.25, 0.25);
+
+                    if (maxChannel > 0) {
+                        const currentSaturation = (maxChannel - minChannel) / maxChannel;
+                        const targetSaturation = Math.min(currentSaturation + saturationBoost, 1.0);
+                        const gray = maxChannel * (1 - targetSaturation);
+
+                        tintedR = gray + (tintedR - gray) * targetSaturation;
+                        tintedG = gray + (tintedG - gray) * targetSaturation;
+                        tintedB = gray + (tintedB - gray) * targetSaturation;
+                    }
+
+                    // Записываем цвет в буфер (RGBA)
+                    colorsData[instanceCount * 4] = tintedR;
+                    colorsData[instanceCount * 4 + 1] = tintedG;
+                    colorsData[instanceCount * 4 + 2] = tintedB;
+                    colorsData[instanceCount * 4 + 3] = 1.0; // Alpha
+
+                    instanceCount++;
+
+                    // 3. Physics (Только невидимые коллайдеры для значимых высот)
+                    // Оставляем только важные блоки для физики, чтобы не перегружать движок
+                    if (blockHeight > 1.5) {
+                        const collider = MeshBuilder.CreateBox(`terrainCol_${gx}_${gz}`, {
                             width: blockSize,
                             height: blockHeight,
                             depth: blockSize
                         }, this.scene);
 
-                        hillBlock.position = new Vector3(localX, blockHeight / 2, localZ);
+                        collider.position = position; // Используем ту же позицию
+                        collider.isVisible = false;   // НЕВИДИМЫЙ
+                        collider.isPickable = false;
+                        collider.parent = chunkParent;
+                        // Экономим ресурсы на обновлении матриц коллайдеров
+                        collider.freezeWorldMatrix();
 
-                        // Material based on biome
-                        let matName = "dirt";
-                        if (biome === "park" || biome === "residential") matName = random.chance(0.7) ? "grass" : "grassDark";
-                        else if (biome === "military") matName = "sand";
-                        else if (biome === "wasteland") matName = random.chance(0.5) ? "gravel" : "dirt";
-                        else if (biome === "city" || biome === "industrial") matName = "concrete";
-
-                        // Используем материал с модификацией по высоте
-                        hillBlock.material = this.getHeightTintedMaterial(matName, blockHeight);
-                        hillBlock.parent = chunkParent;
-
-                        // Рендеринг рёбер (опционально)
-                        if (this.config.enableTerrainEdges) {
-                            hillBlock.enableEdgesRendering();
-                            const edgeColor = this.getContrastEdgeColor(matName);
-                            const edgesRenderer = (hillBlock as any)._edgesRenderer;
-                            if (edgesRenderer) {
-                                edgesRenderer.edgesWidth = 1.0;
-                                edgesRenderer.edgesColor = edgeColor;
-                            }
-                        }
-
-                        this.optimizeMesh(hillBlock);
-                        // chunk.meshes.push(hillBlock);
-
-                        // Add physics for significant blocks
-                        if (blockHeight > 1.5) {
-                            new PhysicsAggregate(hillBlock, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
-                        }
-                    } else if (finalHeight < -0.5) {
-                        // Depression/valley - create hollow rectangular block
-                        const depDepth = Math.min(Math.abs(finalHeight), 15);
-                        const depBlock = MeshBuilder.CreateBox(`terrainDep_${gx}_${gz}`, {
-                            width: blockSize,
-                            height: depDepth,
-                            depth: blockSize
-                        }, this.scene);
-
-                        depBlock.position = new Vector3(localX, -depDepth / 2, localZ);
-
-                        // Material based on biome
-                        let matName = "dirt";
-                        if (biome === "park") matName = "grassDark";
-                        else if (biome === "wasteland") matName = random.chance(0.6) ? "gravel" : "dirt";
-
-                        // Используем материал с модификацией по высоте (учитываем отрицательную высоту)
-                        depBlock.material = this.getHeightTintedMaterial(matName, -depDepth);
-                        depBlock.parent = chunkParent;
-
-                        // Рендеринг рёбер (опционально)
-                        if (this.config.enableTerrainEdges) {
-                            depBlock.enableEdgesRendering();
-                            const edgeColor = this.getContrastEdgeColor(matName);
-                            const edgesRenderer = (depBlock as any)._edgesRenderer;
-                            if (edgesRenderer) {
-                                edgesRenderer.edgesWidth = 1.0;
-                                edgesRenderer.edgesColor = edgeColor;
-                            }
-                        }
-
-                        this.optimizeMesh(depBlock);
-                        // chunk.meshes.push(depBlock);
+                        // Создаем физическое тело
+                        new PhysicsAggregate(collider, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
                     }
                 }
             }
+        }
+
+        // Если были созданы инстансы - рендерим их одним мешем
+        if (instanceCount > 0) {
+            // Создаем ОДИН меш на чанк (единичный куб)
+            const terrainMesh = MeshBuilder.CreateBox(`terrainChunk_${chunkX}_${chunkZ}`, { size: 1 }, this.scene);
+
+            // Материал для инстансов
+            const terrainMat = new StandardMaterial(`terrainMat_${chunkX}_${chunkZ}`, this.scene);
+            terrainMat.disableLighting = false; // Освещение нужно
+            terrainMat.specularColor = Color3.Black(); // Матовый
+            terrainMat.diffuseColor = Color3.White();  // Белый, чтобы tint работал корректно
+            terrainMat.freeze();
+
+            terrainMesh.material = terrainMat;
+            terrainMesh.parent = chunkParent;
+            terrainMesh.isPickable = false; // Террейн не пикается (через Raycast к земле)
+
+            // КРИТИЧНО: Устанавливаем данные ThinInstance
+            // Обрезаем массивы до реального размера, если нужно (или используем subarray view)
+            const actualMatrices = matricesData.subarray(0, instanceCount * 16);
+            const actualColors = colorsData.subarray(0, instanceCount * 4);
+
+            // 1. Устанавливаем матрицы
+            terrainMesh.thinInstanceSetBuffer("matrix", actualMatrices, 16, false);
+
+            // 2. Устанавливаем цвета (атрибут "color" автоматически подхватывается StandardMaterial)
+            terrainMesh.thinInstanceSetBuffer("color", actualColors, 4, false);
+
+            // Оптимизация меша
+            terrainMesh.freezeWorldMatrix();
+            terrainMesh.cullingStrategy = Mesh.CULLINGSTRATEGY_BOUNDINGSPHERE_ONLY;
+            terrainMesh.doNotSyncBoundingInfo = true;
+
+            // Добавляем в список мешей чанка (хотя он не передается явно в этот метод, 
+            // но он используется родителем. ChunkSystem сама управляет удалением через chunkParent?)
+            // НЕТ, chunkParent удаляется целиком, так что все дети (включая terrainMesh) удалятся.
+            // Но ChunkData.meshes массив используется для чего-то?
+            // В оригинале: chunk.meshes.push(hillBlock).
+            // Здесь мы не имеем доступа к chunk.meshes. Но если мы привязали к chunkParent, 
+            // то BabylonJS удалит ноду при dispose parent'а.
         }
     }
 

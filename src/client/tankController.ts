@@ -14,7 +14,9 @@ import {
     ActionManager,
     Ray,
     Matrix,
-    AbstractMesh
+    AbstractMesh,
+    LinesMesh,
+    CreateLines
 } from "@babylonjs/core";
 import { HUD } from "./hud";
 import { SoundManager } from "./soundManager";
@@ -42,6 +44,7 @@ import { createClientMessage } from "../shared/protocol";
 import { isMobileDevice } from "./mobile/MobileDetection";
 import { timerManager } from "./optimization/TimerManager";
 import { vector3Pool } from "./optimization/Vector3Pool";
+import { updateTrajectoryLine } from "./tank/tankTrajectoryVisualization";
 
 export class TankController {
     scene: Scene;
@@ -90,6 +93,7 @@ export class TankController {
     // DEBUG: Флаг для отображения траектории снаряда (красным цветом)
     // =========================================================================
     public showProjectileTrajectory: boolean = true; // По умолчанию ВКЛ
+    private trajectoryLine: LinesMesh | null = null; // Визуализация траектории
     private trajectoryLines: Mesh[] = []; // Линии траектории
     private trajectoryFrameCounter: number = 0; // Счётчик кадров для оптимизации
     private trajectoryTimeoutIds: number[] = []; // ID таймеров для очистки при dispose
@@ -1152,7 +1156,16 @@ export class TankController {
             const pivot = (this as any).customTurretPivot as Vector3;
             this.turret.position = pivot;
         } else {
-            this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
+            // Для самолёта перемещаем башню в нос
+            const isPlane = this.chassisType.id === "plane";
+            if (isPlane) {
+                // Башня в носу самолёта (передняя часть по Z)
+                // Для самолёта depth = 4.0, но визуальная модель имеет нос на z = 6-7.8
+                // Перемещаем башню максимально вперёд, в нос самолёта
+                this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, this.chassisType.depth * 0.6);
+            } else {
+                this.turret.position = new Vector3(0, this.chassisType.height / 2 + turretHeight / 2, 0);
+            }
         }
         this.turret.parent = this.chassis;
         (this.turret as any)._isChildMesh = true;
@@ -1191,7 +1204,18 @@ export class TankController {
 
         const barrelWidth = this.cannonType.barrelWidth;
         const barrelLength = this.cannonType.barrelLength;
-        const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
+
+        // Для самолёта ствол направлен вперёд (в нос)
+        const isPlane = this.chassisType.id === "plane";
+        let baseBarrelZ: number;
+        if (isPlane) {
+            // Для самолёта ствол в носу - позиция максимально вперёд от центра башни
+            // Башня уже смещена вперёд (depth * 0.6), так что ствол должен быть ещё дальше вперёд
+            // Ствол должен быть в самом носу самолёта
+            baseBarrelZ = turretDepth / 2 + barrelLength / 2 + (this.chassisType.depth * 0.3); // Максимально вперёд в нос
+        } else {
+            baseBarrelZ = turretDepth / 2 + barrelLength / 2; // Обычное положение
+        }
 
         this.barrel = this.visualsModule.createUniqueCannon(scene, barrelWidth, barrelLength);
         this.barrel.position = new Vector3(0, 0, baseBarrelZ);
@@ -2230,6 +2254,12 @@ export class TankController {
             this.toggleAimMode(false);
         }
 
+        // Очищаем визуализацию траектории
+        if (this.aimTrajectoryLine) {
+            disposeTrajectoryLine(this.aimTrajectoryLine);
+            this.aimTrajectoryLine = null;
+        }
+
         // КРИТИЧНО: Отправляем событие для сброса углов камеры в game.ts ПОСЛЕ сброса вращения
         // Используем несколько попыток чтобы убедиться, что башня уже сброшена
         const sendRespawnEvent = () => {
@@ -2778,6 +2808,57 @@ export class TankController {
         if (this.hud) {
             this.hud.setAimMode(enabled);
         }
+
+        // Управляем визуализацией траектории
+        if (enabled && this.showProjectileTrajectory) {
+            // Включаем траекторию при прицеливании
+            this.updateAimTrajectory();
+        } else {
+            // Скрываем траекторию когда не прицеливаемся
+            if (this.aimTrajectoryLine) {
+                this.aimTrajectoryLine.setEnabled(false);
+            }
+        }
+    }
+
+    /**
+     * Обновляет визуализацию траектории при прицеливании
+     */
+    private updateAimTrajectory(): void {
+        if (!this.isAiming || !this.showProjectileTrajectory || !this.scene || !this.barrel || !this.cannonType) {
+            if (this.aimTrajectoryLine) {
+                this.aimTrajectoryLine.setEnabled(false);
+            }
+            return;
+        }
+
+        try {
+            // Получаем позицию и направление ствола
+            this.barrel.computeWorldMatrix(true);
+            const barrelPosition = this.barrel.getAbsolutePosition();
+            const barrelDirection = this.barrel.getDirection(Vector3.Forward()).normalize();
+
+            // Вычисляем позицию дула
+            const barrelLength = this.cannonType.barrelLength || 2;
+            const muzzlePosition = barrelPosition.add(barrelDirection.scale(barrelLength));
+            muzzlePosition.y += 0.3; // Немного выше для визуализации
+
+            // Обновляем или создаем линию траектории
+            this.aimTrajectoryLine = updateTrajectoryLine(
+                this.aimTrajectoryLine,
+                this.scene,
+                this.cannonType,
+                muzzlePosition,
+                barrelDirection,
+                300 // Максимальная дальность визуализации
+            );
+
+            if (this.aimTrajectoryLine) {
+                this.aimTrajectoryLine.setEnabled(true);
+            }
+        } catch (error) {
+            console.warn("[TankController] Failed to update aim trajectory:", error);
+        }
     }
 
     // ============ MOVEMENT MODULE DELEGATION ============
@@ -2824,53 +2905,64 @@ export class TankController {
         return closestTarget;
     }
 
-    // === АВТОНАВОДКА ПО ВЕРТИКАЛИ: Найти врага в вертикальном диапазоне ±2.5° ===
+    // === АВТОНАВОДКА ПО ВЕРТИКАЛИ ===
     private findTargetInVerticalRange(
         origin: Vector3,
         barrelDirection: Vector3,
         maxDistance: number = 200,
         verticalAngleTolerance: number = 0.0436 // ±2.5° в радианах
     ): Vector3 | null {
-        // Вычисляем вертикальный угол (pitch) направления ствола
+        // Вычисляем углы ствола
         const barrelHorizontalDist = Math.sqrt(barrelDirection.x * barrelDirection.x + barrelDirection.z * barrelDirection.z);
         const barrelPitch = Math.atan2(barrelDirection.y, barrelHorizontalDist);
+        const barrelYaw = Math.atan2(barrelDirection.x, barrelDirection.z);
+
+        // Ограничение по горизонтали (Line of Attack) - ±10 градусов
+        const HORIZONTAL_TOLERANCE = 0.175; // ~10 градусов
 
         let closestTarget: Vector3 | null = null;
-        let closestDistanceSq = maxDistance * maxDistance; // Используем квадрат расстояния для оптимизации
+        let closestDistanceSq = maxDistance * maxDistance;
         const maxDistanceSq = maxDistance * maxDistance;
-        const minDistanceSq = 5 * 5; // Минимальное расстояние 5 метров
+        const minDistanceSq = 5 * 5;
+
+        const checkTarget = (targetPos: Vector3) => {
+            const toTarget = targetPos.subtract(origin);
+            const distanceSq = toTarget.lengthSquared();
+
+            if (distanceSq > maxDistanceSq || distanceSq < minDistanceSq) return;
+
+            const dx = toTarget.x;
+            const dy = toTarget.y;
+            const dz = toTarget.z;
+            const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+
+            // 1. Проверка по ВЕРТИКАЛИ (Pitch)
+            const targetPitch = Math.atan2(dy, horizontalDist);
+            const pitchDiff = Math.abs(targetPitch - barrelPitch);
+            if (pitchDiff > verticalAngleTolerance) return;
+
+            // 2. Проверка по ГОРИЗОНТАЛИ (Yaw) - "Line of Attack"
+            const targetYaw = Math.atan2(dx, dz);
+            let yawDiff = Math.abs(targetYaw - barrelYaw);
+            // Нормализация угла (чтобы -PI и +PI были рядом)
+            if (yawDiff > Math.PI) yawDiff = Math.PI * 2 - yawDiff;
+
+            if (yawDiff > HORIZONTAL_TOLERANCE) return;
+
+            // Если подходит по обоим углам
+            if (distanceSq < closestDistanceSq) {
+                closestDistanceSq = distanceSq;
+                if (closestTarget) vector3Pool.release(closestTarget);
+                closestTarget = vector3Pool.acquire(targetPos.x, targetPos.y, targetPos.z);
+            }
+        };
 
         // === ПРОВЕРКА ВРАЖЕСКИХ ТАНКОВ ===
         const enemies = EnemyTank.getAllEnemies();
         if (enemies && enemies.length > 0) {
             for (const enemy of enemies) {
                 if (!enemy.isAlive || !enemy.chassis || enemy.chassis.isDisposed()) continue;
-
-                const enemyPos = enemy.chassis.getAbsolutePosition();
-                const toEnemy = enemyPos.subtract(origin);
-                const distanceSq = toEnemy.lengthSquared();
-
-                if (distanceSq > maxDistanceSq || distanceSq < minDistanceSq) continue;
-
-                // Вычисляем горизонтальное расстояние и вертикальную разницу
-                const dx = toEnemy.x;
-                const dy = toEnemy.y;
-                const dz = toEnemy.z;
-                const horizontalDist = Math.sqrt(dx * dx + dz * dz);
-
-                // Вычисляем вертикальный угол (pitch) к врагу
-                const enemyPitch = Math.atan2(dy, horizontalDist);
-
-                // Проверяем разницу вертикальных углов
-                const pitchDiff = Math.abs(enemyPitch - barrelPitch);
-
-                // Если враг в вертикальном диапазоне ±2.5°
-                if (pitchDiff <= verticalAngleTolerance && distanceSq < closestDistanceSq) {
-                    closestDistanceSq = distanceSq;
-                    // ОПТИМИЗАЦИЯ: Используем vector3Pool вместо clone()
-                    if (closestTarget) vector3Pool.release(closestTarget);
-                    closestTarget = vector3Pool.acquire(enemyPos.x, enemyPos.y, enemyPos.z);
-                }
+                checkTarget(enemy.chassis.getAbsolutePosition());
             }
         }
 
@@ -2878,31 +2970,7 @@ export class TankController {
         if (this.enemyManager && this.enemyManager.turrets) {
             for (const turret of this.enemyManager.turrets) {
                 if (!turret.isAlive || !turret.base || turret.isDestroyed || turret.base.isDisposed()) continue;
-
-                const turretPos = turret.base.getAbsolutePosition();
-                const toTurret = turretPos.subtract(origin);
-                const distanceSq = toTurret.lengthSquared();
-
-                if (distanceSq > maxDistanceSq || distanceSq < minDistanceSq) continue;
-
-                // Вычисляем горизонтальное расстояние и вертикальную разницу
-                const dx = toTurret.x;
-                const dy = toTurret.y;
-                const dz = toTurret.z;
-                const horizontalDist = Math.sqrt(dx * dx + dz * dz);
-
-                // Вычисляем вертикальный угол (pitch) к турели
-                const turretPitch = Math.atan2(dy, horizontalDist);
-
-                // Проверяем разницу вертикальных углов
-                const pitchDiff = Math.abs(turretPitch - barrelPitch);
-
-                // Если турель в вертикальном диапазоне ±2.5°
-                if (pitchDiff <= verticalAngleTolerance && distanceSq < closestDistanceSq) {
-                    closestDistanceSq = distanceSq;
-                    if (closestTarget) vector3Pool.release(closestTarget);
-                    closestTarget = vector3Pool.acquire(turretPos.x, turretPos.y, turretPos.z);
-                }
+                checkTarget(turret.base.getAbsolutePosition());
             }
         }
 
@@ -2910,34 +2978,8 @@ export class TankController {
         if (this.networkPlayers && this.networkPlayers.size > 0) {
             for (const [playerId, networkTank] of this.networkPlayers) {
                 if (!networkTank || !networkTank.chassis || networkTank.chassis.isDisposed()) continue;
-
-                // Проверяем статус игрока (только живые)
                 if (networkTank.networkPlayer && networkTank.networkPlayer.status !== "alive") continue;
-
-                const playerPos = networkTank.chassis.getAbsolutePosition();
-                const toPlayer = playerPos.subtract(origin);
-                const distanceSq = toPlayer.lengthSquared();
-
-                if (distanceSq > maxDistanceSq || distanceSq < minDistanceSq) continue;
-
-                // Вычисляем горизонтальное расстояние и вертикальную разницу
-                const dx = toPlayer.x;
-                const dy = toPlayer.y;
-                const dz = toPlayer.z;
-                const horizontalDist = Math.sqrt(dx * dx + dz * dz);
-
-                // Вычисляем вертикальный угол (pitch) к игроку
-                const playerPitch = Math.atan2(dy, horizontalDist);
-
-                // Проверяем разницу вертикальных углов
-                const pitchDiff = Math.abs(playerPitch - barrelPitch);
-
-                // Если игрок в вертикальном диапазоне ±2.5°
-                if (pitchDiff <= verticalAngleTolerance && distanceSq < closestDistanceSq) {
-                    closestDistanceSq = distanceSq;
-                    if (closestTarget) vector3Pool.release(closestTarget);
-                    closestTarget = vector3Pool.acquire(playerPos.x, playerPos.y, playerPos.z);
-                }
+                checkTarget(networkTank.chassis.getAbsolutePosition());
             }
         }
 
@@ -2952,7 +2994,6 @@ export class TankController {
             if (this.isReloading || now - this.lastShotTime < this.cooldown) return;
 
             // Get muzzle position and direction (exactly along barrel forward)
-            // КРИТИЧЕСКИ ВАЖНО: Временно включаем barrel если он скрыт, чтобы получить правильное направление!
             const wasBarrelEnabled = this.barrel.isEnabled();
             if (!wasBarrelEnabled) {
                 this.barrel.setEnabled(true);
@@ -2964,24 +3005,47 @@ export class TankController {
             this.barrel.computeWorldMatrix(true);
 
             // КРИТИЧЕСКИ ВАЖНО: Получаем фактическое направление ствола напрямую
-            // getDirection() автоматически учитывает все повороты: chassis + turret + barrel pitch
-            // Это гарантирует, что снаряд полетит строго туда, куда смотрит ствол
             let shootDirection = this.barrel.getDirection(Vector3.Forward()).normalize();
 
             // === АВТОНАВОДКА ПО ВЕРТИКАЛИ ===
-            // Проверяем, есть ли враг в вертикальном диапазоне ±2.5°
+            // Проверяем, есть ли враг в вертикальном диапазоне ±2.5° и в секторе атаки
             const muzzlePreviewPos = this.barrel.getAbsolutePosition();
             const verticalAimTarget = this.findTargetInVerticalRange(
                 muzzlePreviewPos,
                 shootDirection,
-                200,
-                0.0436 // ±2.5° в радианах
+                200,    // Дистанция
+                0.0436  // ±2.5° Pitch tolerance
             );
 
             if (verticalAimTarget) {
-                // Враг в вертикальном диапазоне - направляем снаряд точно на него (100% коррекция)
-                const correctedDir = verticalAimTarget.subtract(muzzlePreviewPos).normalize();
-                shootDirection = correctedDir; // Полная коррекция для упрощения геймплея
+                // Враг найден в диапазоне атаки.
+                // КРИТИЧНО: Корректируем ТОЛЬКО Pitch (вертикаль), сохраняя Yaw (горизонталь) игрока.
+                // Это предотвращает "срыв" прицела в сторону.
+
+                const toTarget = verticalAimTarget.subtract(muzzlePreviewPos);
+                const horizontalDist = Math.sqrt(toTarget.x * toTarget.x + toTarget.z * toTarget.z);
+                const targetPitch = Math.atan2(toTarget.y, horizontalDist);
+
+                // Текущий Yaw ствола
+                const currentYaw = Math.atan2(shootDirection.x, shootDirection.z);
+
+                // Создаём новый вектор: Yaw как у игрока, Pitch - точно в цель
+                // Y = sin(pitch)
+                // X = cos(pitch) * sin(yaw)
+                // Z = cos(pitch) * cos(yaw)
+                // Примечание: В Babylon/Unity coordinate system Z is forward check carefully.
+                // Assuming Standard: Y up. X/Z ground. 
+                // X = sin(yaw) * horizontal_len, Z = cos(yaw) * horizontal_len
+                // horizontal_len = cos(pitch)
+
+                const cosPitch = Math.cos(targetPitch);
+                const sinPitch = Math.sin(targetPitch);
+
+                shootDirection = new Vector3(
+                    Math.sin(currentYaw) * cosPitch,
+                    sinPitch,
+                    Math.cos(currentYaw) * cosPitch
+                ).normalize();
             }
 
 
@@ -5034,6 +5098,12 @@ export class TankController {
             // КРИТИЧЕСКИ ВАЖНО: Физика танка НЕ зависит от режима прицеливания!
             // isAiming влияет ТОЛЬКО на камеру и прицел, НЕ на физику, позицию, скорость или вращение танка!
             // Танк должен вести себя одинаково независимо от режима прицеливания!
+
+            // Обновляем визуализацию траектории при прицеливании
+            if (this.isAiming && this.showProjectileTrajectory) {
+                this.updateAimTrajectory();
+            }
+
             // Update modules (movement, projectiles, visuals)
             // Calculate deltaTime in seconds (approximate for physics step)
             // Note: Physics engine handles physics steps, but we need dt for game logic
@@ -5104,6 +5174,18 @@ export class TankController {
                 (this as any).turretTurnTarget = 0;
             } else {
                 this.updateInputs();
+            }
+
+            const isPlane = this.chassisType === "plane" || (typeof this.chassisType === 'object' && (this.chassisType as any)?.id === "plane");
+
+            if (isPlane) {
+                // КРИТИЧНО: Для самолёта пропускаем стандартную физику танка (hover, upright и т.д.)
+                // Вся физика самолёта обрабатывается внутри movementModule.updateInputs -> AircraftPhysics
+
+                // DEBUG LOG (Throttled)
+                // if (Math.random() < 0.01) console.log("[TankController] Skipping tank physics for PLANE. UpdateInputs called?");
+
+                return;
             }
 
             const body = this.physicsBody;
@@ -6416,6 +6498,11 @@ export class TankController {
 
             // Вертикальный откат (подъем при выстреле, затем возврат в исходное положение)
             this._barrelRecoilY += (this._barrelRecoilYTarget - this._barrelRecoilY) * this.barrelRecoilSpeed;
+
+            // Обновляем визуализацию траектории при прицеливании
+            if (this.isAiming && this.showProjectileTrajectory) {
+                this.updateAimTrajectory();
+            }
 
             // ИСПРАВЛЕНИЕ: Применяем вертикальное движение ствола при прицеливании (aimPitch) с плавной интерполяцией
             // КРИТИЧНО: Восстанавливаем parent если он потерялся (например, после переодевания)

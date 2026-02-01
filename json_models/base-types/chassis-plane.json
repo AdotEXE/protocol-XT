@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140958,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "plane",
+    "name": "Warhawk",
+    "width": 3.5,
+    "height": 1.2,
+    "depth": 4,
+    "mass": 1500,
+    "maxHealth": 65,
+    "moveSpeed": 45,
+    "turnSpeed": 6.5,
+    "acceleration": 16000,
+    "color": "#dfeeff",
+    "description": "Штурмовой самолёт с вертикальным взлётом. Способность: полёт (Q/E). Высокая скорость и манёвренность, но слабая броня. Король воздуха. HP: 65 | Скорость: 45 | Броня: низкая",
+    "specialAbility": "flight"
+  }
+}

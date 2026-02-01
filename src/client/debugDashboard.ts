@@ -203,7 +203,7 @@ export class DebugDashboard {
                     color: #0f0;
                     cursor: pointer;
                     font-size: 9px;
-                    font-family: Consolas, monospace;
+                    font-family: 'Press Start 2P', monospace;
                 ">Export CSV</button>
                 <button id="dbg-export-json" style="
                     width: 100%;
@@ -214,7 +214,7 @@ export class DebugDashboard {
                     color: #0f0;
                     cursor: pointer;
                     font-size: 9px;
-                    font-family: Consolas, monospace;
+                    font-family: 'Press Start 2P', monospace;
                 ">Export JSON</button>
                 <button id="dbg-toggle-charts" style="
                     width: 100%;
@@ -225,7 +225,7 @@ export class DebugDashboard {
                     color: #0f0;
                     cursor: pointer;
                     font-size: 9px;
-                    font-family: Consolas, monospace;
+                    font-family: 'Press Start 2P', monospace;
                 ">📊 Графики</button>
             </div>
             <div id="metrics-charts-container"></div>
@@ -239,7 +239,7 @@ export class DebugDashboard {
                 left: clamp(5px, 1vw, 10px);
                 background: rgba(0, 0, 0, 0.85);
                 color: #0f0;
-                font-family: Consolas, Monaco, monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: clamp(9px, 1.1vw, 11px);
                 padding: clamp(6px, 0.8vh, 8px) clamp(8px, 1.2vw, 12px);
                 border-radius: clamp(3px, 0.4vw, 4px);
@@ -946,7 +946,7 @@ export class DebugDashboard {
                 border: 1px solid rgba(0, 255, 4, 0.6);
                 border-radius: 4px;
                 color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 11px;
                 font-weight: bold;
                 cursor: pointer;

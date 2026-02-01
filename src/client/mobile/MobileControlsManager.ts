@@ -53,14 +53,14 @@ export interface MobileInputState {
     zoomIn: boolean;
     zoomOut: boolean;
     zoom: number; // Текущий уровень зума (1.0 - 4.0)
-    
+
     // Возвышение орудия
     gunElevation: number; // Угол в градусах (-15 до +30)
-    
+
     // Free-look камера
     freeLookDeltaX: number;
     freeLookDeltaY: number;
-    
+
     // Auto-run
     autoRun: boolean;
 
@@ -112,7 +112,7 @@ export class MobileControlsManager {
     private freeLookZone: FreeLookZone | null = null;
     private radialMenu: RadialMenu | null = null;
     private contextualRepair: ContextualRepair | null = null;
-    
+
     // Sniper sensitivity
     private baseSensitivity: number = 0.0004;
     private sniperSensitivity: number = 0.0001;
@@ -120,7 +120,7 @@ export class MobileControlsManager {
 
     // Дополнительные кнопки
     private buttons: Map<string, Ellipse> = new Map();
-    
+
     // Update loop
     private updateLoopId: number | null = null;
 
@@ -242,7 +242,7 @@ export class MobileControlsManager {
 
         // Инициализация новых компонентов Ghost HUD
         this.initializeGhostHUD();
-        
+
         // Запуск цикла обновления
         this.startUpdateLoop();
     }
@@ -253,7 +253,7 @@ export class MobileControlsManager {
     private initializeGhostHUD(): void {
         // Dynamic Opacity Manager
         this.opacityManager = new DynamicOpacityManager();
-        
+
         // Virtual Scroll Wheel для плавного зума
         this.scrollWheel = new VirtualScrollWheel(this.guiTexture);
         this.scrollWheel.setOnZoomChange((zoom) => {
@@ -264,7 +264,7 @@ export class MobileControlsManager {
             window.dispatchEvent(new CustomEvent('mobileZoomChange', { detail: { zoom } }));
             this.notifyInputChange();
         });
-        
+
         // Gun Elevation Slider
         this.gunElevationSlider = new GunElevationSlider(this.guiTexture);
         this.gunElevationSlider.setOnAngleChange((angle) => {
@@ -272,7 +272,7 @@ export class MobileControlsManager {
             window.dispatchEvent(new CustomEvent('gunElevationChange', { detail: { angle } }));
             this.notifyInputChange();
         });
-        
+
         // Free-Look Zone
         this.freeLookZone = new FreeLookZone(this.guiTexture);
         this.freeLookZone.setOnFreeLookChange((deltaX, deltaY) => {
@@ -281,16 +281,16 @@ export class MobileControlsManager {
             window.dispatchEvent(new CustomEvent('freeLookChange', { detail: { deltaX, deltaY } }));
             this.notifyInputChange();
         });
-        
+
         // Radial Menu для модулей
         this.radialMenu = new RadialMenu(this.guiTexture);
-        
+
         // Contextual Repair
         this.contextualRepair = new ContextualRepair(this.guiTexture);
-        
+
         // Регистрация элементов в opacity manager
         this.registerOpacityElements();
-        
+
         // Auto-run для левого джойстика
         if (this.leftJoystick) {
             this.leftJoystick.setOnAutoRunChange((active) => {
@@ -298,13 +298,13 @@ export class MobileControlsManager {
                 this.notifyInputChange();
             });
         }
-        
+
         // Слушаем события повреждения модулей
         window.addEventListener('moduleDamaged', ((e: CustomEvent) => {
             const module: DamagedModule = e.detail;
             this.contextualRepair?.onModuleDamaged(module);
         }) as EventListener);
-        
+
         window.addEventListener('moduleRepaired', ((e: CustomEvent) => {
             const moduleId: string = e.detail.moduleId;
             this.contextualRepair?.onModuleRepaired(moduleId);
@@ -316,13 +316,13 @@ export class MobileControlsManager {
      */
     private registerOpacityElements(): void {
         if (!this.opacityManager) return;
-        
+
         // Регистрируем все кнопки
         this.buttons.forEach((button, id) => {
             const category = id === 'fire' ? 'critical' : 'secondary';
             this.opacityManager!.registerElement(id, button, category);
         });
-        
+
         // Регистрируем джойстики (через их контейнеры)
         // Это будет сделано после создания джойстиков
     }
@@ -333,11 +333,11 @@ export class MobileControlsManager {
     private updateSniperSensitivity(zoom: number): void {
         const isSniper = zoom >= 3.5;
         const targetSensitivity = isSniper ? this.sniperSensitivity : this.baseSensitivity;
-        
+
         // Плавная интерполяция
         const diff = targetSensitivity - this.currentSensitivity;
         this.currentSensitivity += diff * 0.15;
-        
+
         // Отправляем событие изменения чувствительности
         window.dispatchEvent(new CustomEvent('sniperSensitivityChange', {
             detail: { sensitivity: this.currentSensitivity, zoom }
@@ -491,7 +491,7 @@ export class MobileControlsManager {
         buttonText.text = text;
         buttonText.fontSize = size * 0.45;
         buttonText.fontWeight = "bold";
-        buttonText.fontFamily = "'Press Start 2P', Consolas, monospace";
+        buttonText.fontFamily = "'Press Start 2P', monospace";
         buttonText.color = "#ffffff";
         button.addControl(buttonText);
 
@@ -615,14 +615,14 @@ export class MobileControlsManager {
             this.mobileHUD.setVisible(visible);
         }
     }
-    
+
     /**
      * Получить менеджер прозрачности (для внешнего доступа)
      */
     getOpacityManager(): DynamicOpacityManager | null {
         return this.opacityManager;
     }
-    
+
     /**
      * Получить текущую чувствительность (для интеграции с камерой)
      */
@@ -648,7 +648,7 @@ export class MobileControlsManager {
             cancelAnimationFrame(this.updateLoopId);
             this.updateLoopId = null;
         }
-        
+
         // if (this.orientationHandler) {
         // this.orientationHandler.dispose();
         // }
@@ -664,7 +664,7 @@ export class MobileControlsManager {
         if (this.mobileHUD) {
             this.mobileHUD.dispose();
         }
-        
+
         // Уничтожить новые компоненты
         if (this.opacityManager) {
             this.opacityManager.dispose();
@@ -684,7 +684,7 @@ export class MobileControlsManager {
         if (this.contextualRepair) {
             this.contextualRepair.dispose();
         }
-        
+
         this.buttons.forEach(button => {
             this.guiTexture.removeControl(button);
             button.dispose();

@@ -143,7 +143,7 @@ export class VirtualScrollWheel {
         this.indicatorText.text = "1.0x";
         this.indicatorText.fontSize = 16;
         this.indicatorText.color = "#ffffff";
-        this.indicatorText.fontFamily = "'Press Start 2P', Consolas, monospace";
+        this.indicatorText.fontFamily = "'Press Start 2P', monospace";
         this.indicator.addControl(this.indicatorText);
     }
 

@@ -2,6 +2,8 @@ import { Game } from './game';
 import './styles/responsive.css';
 import { registerServiceWorker } from './serviceWorker';
 import { Logger } from "@babylonjs/core";
+// Импортируем замены для браузерных диалогов
+import './utils/dialogReplacements';
 
 // Отключаем логи Babylon.js (убираем дублирование "BJS - Babylon.js v8.40.1")
 Logger.LogLevels = Logger.NoneLogLevel;
@@ -72,19 +74,42 @@ import { showLoading, setLoadingStage, nextLoadingStage, hideLoading } from './l
 showLoading();
 setLoadingStage(0, 0); // Инициализация движка
 
-// Initialize game
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _game = new Game();
-
-// Expose game instance globally for CustomMapBridge map reload
-(window as any).gameInstance = _game;
-
-// Expose loading screen controls for game to update progress
-(window as any).loadingScreenControls = {
-    setStage: setLoadingStage,
-    nextStage: nextLoadingStage,
-    hide: hideLoading
-};
+// КРИТИЧНО: Загружаем все модели из json_models ПЕРЕД созданием Game
+// Это гарантирует, что все модели загружены из json_models, а не из хардкода
+(async () => {
+    try {
+        console.log('[Main] 🚀 Initializing model loading from json_models...');
+        setLoadingStage(0, 10); // Обновляем прогресс загрузки
+        
+        const { loadAllBaseTypes, loadCustomTankConfigs } = await import('./utils/modelLoader');
+        
+        // Загружаем все базовые типы и кастомные конфигурации
+        await Promise.all([
+            loadAllBaseTypes(),
+            loadCustomTankConfigs()
+        ]);
+        
+        console.log('[Main] ✅ All models loaded from json_models');
+        setLoadingStage(0, 20);
+    } catch (error) {
+        console.error('[Main] Failed to load models from json_models:', error);
+        console.warn('[Main] Will use fallback models from code');
+    }
+    
+    // После загрузки моделей создаём игру
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _game = new Game();
+    
+    // Expose game instance globally for CustomMapBridge map reload
+    (window as any).gameInstance = _game;
+    
+    // Expose loading screen controls for game to update progress
+    (window as any).loadingScreenControls = {
+        setStage: setLoadingStage,
+        nextStage: nextLoadingStage,
+        hide: hideLoading
+    };
+})();
 
 // Lazy load analytics after game initialization to reduce initial bundle size
 (async () => {

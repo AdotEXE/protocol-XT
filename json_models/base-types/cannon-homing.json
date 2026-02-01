@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141072,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "homing",
+    "name": "Homing Missile",
+    "barrelLength": 2.3,
+    "barrelWidth": 0.27,
+    "damage": 38,
+    "cooldown": 3800,
+    "projectileSpeed": 180,
+    "projectileSize": 0.25,
+    "color": "#ff0088",
+    "description": "Самонаводящаяся ракета, преследует цели. Урон: 38 | Перезарядка: 3.8с | Автоматическое наведение, игнорирует уклонение.",
+    "recoilMultiplier": 3,
+    "maxRange": 274
+  }
+}

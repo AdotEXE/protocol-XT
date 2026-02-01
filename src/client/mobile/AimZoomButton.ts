@@ -173,7 +173,7 @@ export class AimZoomButton {
         this.zoomInText.text = "+";
         this.zoomInText.fontSize = cfg.zoomButtonSize * 0.6;
         this.zoomInText.fontWeight = "bold";
-        this.zoomInText.fontFamily = "'Press Start 2P', Consolas, monospace";
+        this.zoomInText.fontFamily = "'Press Start 2P', monospace";
         this.zoomInText.color = "#ffffff";
         this.zoomInButton.addControl(this.zoomInText);
 
@@ -199,7 +199,7 @@ export class AimZoomButton {
         this.zoomOutText.text = "-";
         this.zoomOutText.fontSize = cfg.zoomButtonSize * 0.6;
         this.zoomOutText.fontWeight = "bold";
-        this.zoomOutText.fontFamily = "'Press Start 2P', Consolas, monospace";
+        this.zoomOutText.fontFamily = "'Press Start 2P', monospace";
         this.zoomOutText.color = "#ffffff";
         this.zoomOutButton.addControl(this.zoomOutText);
 

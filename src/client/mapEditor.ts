@@ -12,6 +12,7 @@ import { createUniqueChassis, ChassisAnimationElements } from "./tank/tankChassi
 import { createUniqueCannon, CannonAnimationElements } from "./tank/tankCannon";
 import { createVisualTracks } from "./tank/tankTracks";
 import { MODULE_PRESETS, ModuleType } from "./tank/modules/ModuleTypes";
+import { showLoading, hideLoading, setLoadingDescription } from "./loadingScreen";
 
 // ============================================
 // КОНСТАНТЫ
@@ -208,7 +209,7 @@ export interface PlacedObject {
  */
 export interface MapTrigger {
     id: string;
-    type: "spawn" | "teleport" | "damage" | "heal" | "custom";
+    type: "spawn" | "teleport" | "damage" | "heal" | "custom" | "npc" | "enemy_tank" | "enemy_turret" | "zone_damage" | "zone_heal" | "zone_teleport";
     position: { x: number; y: number; z: number };
     size: { width: number; height: number; depth: number };
     properties?: {
@@ -353,6 +354,10 @@ export class MapEditor {
         if (this.isActive) return;
         this.isActive = true;
 
+        // Показываем экран загрузки
+        showLoading();
+        setLoadingDescription("Загрузка редактора карт...");
+
         // КРИТИЧНО: Освобождаем курсор при открытии редактора
         if (document.pointerLockElement) {
             document.exitPointerLock();
@@ -364,6 +369,11 @@ export class MapEditor {
         this.createBrushIndicator();
         this.setupUpdateLoop();
         this.updateUndoRedoButtons(); // Обновляем состояние кнопок отмены/повтора
+
+        // Скрываем экран загрузки после небольшой задержки
+        setTimeout(() => {
+            hideLoading();
+        }, 500);
     }
 
     /**
@@ -429,7 +439,7 @@ export class MapEditor {
                 padding: 12px 20px;
                 cursor: pointer;
                 border-radius: 8px;
-                font-family: 'Consolas', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 14px;
                 font-weight: bold;
                 box-shadow: 0 4px 15px rgba(0, 255, 0, 0.3);
@@ -786,7 +796,7 @@ export class MapEditor {
                 color: #0f0;
                 font-size: 20px;
                 font-weight: bold;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
             .map-editor-close {
                 color: #f00;
@@ -795,7 +805,7 @@ export class MapEditor {
                 border: 1px solid #f00;
                 padding: 5px 10px;
                 cursor: pointer;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
             .map-editor-close:hover {
                 background: rgba(255, 0, 0, 0.3);
@@ -820,7 +830,7 @@ export class MapEditor {
                 border: 1px solid #0f0;
                 color: #0f0;
                 cursor: pointer;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
             .toolbar-btn:hover {
                 background: rgba(0, 70, 0, 0.9);
@@ -841,14 +851,14 @@ export class MapEditor {
             }
             .toolbar-section label {
                 color: #0f0;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
             .toolbar-section select, .toolbar-section input[type="range"] {
                 background: rgba(0, 30, 0, 0.9);
                 border: 1px solid #0f0;
                 color: #0f0;
                 padding: 5px;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
             .map-editor-content {
                 display: flex;
@@ -864,7 +874,7 @@ export class MapEditor {
                 gap: 30px;
                 flex-wrap: wrap;
                 color: #080;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 12px;
             }
             .map-editor-info span {
@@ -892,7 +902,7 @@ export class MapEditor {
                 margin-bottom: 15px;
                 padding-bottom: 10px;
                 border-bottom: 1px solid #080;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
             .properties-content {
                 display: flex !important;
@@ -915,7 +925,7 @@ export class MapEditor {
             .property-group label {
                 color: #0a0;
                 font-size: 11px;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
             .property-group input[type="number"],
             .property-group select,
@@ -926,7 +936,7 @@ export class MapEditor {
                 border: 1px solid #0f0;
                 color: #0f0;
                 padding: 5px 8px;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 12px;
             }
             .property-group input[type="number"]:focus,
@@ -940,7 +950,7 @@ export class MapEditor {
             .toolbar-hint {
                 color: #0a0;
                 font-size: 11px;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-style: italic;
             }
             .properties-section {
@@ -973,7 +983,7 @@ export class MapEditor {
                 border: 1px solid #0f0;
                 color: #0f0;
                 padding: 5px 8px;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 12px;
             }
             .properties-content {
@@ -1026,7 +1036,7 @@ export class MapEditor {
             .workshop-header h2 {
                 color: #0f0;
                 margin: 0;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 18px;
             }
             .workshop-close {
@@ -1054,7 +1064,7 @@ export class MapEditor {
                 padding: 10px 20px;
                 cursor: pointer;
                 border-radius: 6px 6px 0 0;
-                font-family: 'Consolas', monospace;
+                font-family: 'Press Start 2P', monospace;
                 transition: all 0.2s;
             }
             .workshop-tab:hover {
@@ -1099,7 +1109,7 @@ export class MapEditor {
             }
             .workshop-card-name {
                 color: #0f0;
-                font-family: 'Consolas', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 12px;
                 font-weight: bold;
             }
@@ -1129,7 +1139,7 @@ export class MapEditor {
             }
             .workshop-footer span {
                 color: #080;
-                font-family: 'Consolas', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
             .workshop-place-btn {
                 background: linear-gradient(145deg, #0a0, #060);
@@ -1138,7 +1148,7 @@ export class MapEditor {
                 padding: 10px 25px;
                 cursor: pointer;
                 border-radius: 6px;
-                font-family: 'Consolas', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-weight: bold;
             }
             .workshop-place-btn:disabled {
@@ -3744,7 +3754,7 @@ export class MapEditor {
             z-index: 10003;
             min-width: 400px;
             max-width: 600px;
-            font-family: 'Consolas', 'Monaco', monospace;
+            font-family: 'Press Start 2P', monospace;
         `;
 
         dialog.innerHTML = `
@@ -3759,7 +3769,7 @@ export class MapEditor {
                     background: rgba(0, 30, 0, 0.9);
                     border: 1px solid #0f0;
                     color: #0f0;
-                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-family: 'Press Start 2P', monospace;
                     font-size: 14px;
                     box-sizing: border-box;
                 ">
@@ -3771,7 +3781,7 @@ export class MapEditor {
                     border: 1px solid #f00;
                     color: #f00;
                     cursor: pointer;
-                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-family: 'Press Start 2P', monospace;
                 ">Отмена</button>
                 <button id="save-map-confirm" style="
                     padding: 8px 20px;
@@ -3779,7 +3789,7 @@ export class MapEditor {
                     border: 1px solid #0f0;
                     color: #0f0;
                     cursor: pointer;
-                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-family: 'Press Start 2P', monospace;
                 ">Сохранить</button>
             </div>
         `;
@@ -4002,7 +4012,7 @@ export class MapEditor {
             max-width: 600px;
             max-height: 80vh;
             overflow-y: auto;
-            font-family: 'Consolas', 'Monaco', monospace;
+            font-family: 'Press Start 2P', monospace;
         `;
 
         dialog.innerHTML = `
@@ -4041,7 +4051,7 @@ export class MapEditor {
                     border: 1px solid #f00;
                     color: #f00;
                     cursor: pointer;
-                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-family: 'Press Start 2P', monospace;
                 ">Отмена</button>
             </div>
         `;
@@ -4267,7 +4277,7 @@ export class MapEditor {
             color: #0f0;
             padding: 20px 40px;
             z-index: 10002;
-            font-family: 'Consolas', 'Monaco', monospace;
+            font-family: 'Press Start 2P', monospace;
             font-size: 16px;
         `;
         notification.textContent = message;

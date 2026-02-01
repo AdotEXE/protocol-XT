@@ -199,7 +199,7 @@ export class SocialMenu {
                 border: 1px solid #0f0;
                 color: #0f0;
                 cursor: pointer;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
             .social-btn:hover {
                 background: rgba(0, 70, 0, 0.9);
@@ -615,7 +615,7 @@ export class SocialMenu {
             z-index: 100010;
             min-width: 400px;
             max-width: 600px;
-            font-family: 'Consolas', 'Monaco', monospace;
+            font-family: 'Press Start 2P', monospace;
             box-shadow: 0 0 30px rgba(0, 255, 0, 0.5);
         `;
 
@@ -630,7 +630,7 @@ export class SocialMenu {
                     border: 1px solid #0f0;
                     border-radius: 4px;
                     color: #0f0;
-                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-family: 'Press Start 2P', monospace;
                     font-size: 14px;
                     resize: vertical;
                     outline: none;
@@ -642,7 +642,7 @@ export class SocialMenu {
                     background: rgba(0, 255, 0, 0.2);
                     border: 1px solid #0f0;
                     color: #0f0;
-                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-family: 'Press Start 2P', monospace;
                     font-size: 14px;
                     cursor: pointer;
                     border-radius: 4px;
@@ -652,7 +652,7 @@ export class SocialMenu {
                     background: rgba(255, 0, 0, 0.2);
                     border: 1px solid #f00;
                     color: #f00;
-                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-family: 'Press Start 2P', monospace;
                     font-size: 14px;
                     cursor: pointer;
                     border-radius: 4px;
@@ -764,7 +764,7 @@ export class SocialMenu {
             color: #0f0;
             padding: 20px 40px;
             z-index: 10002;
-            font-family: 'Consolas', 'Monaco', monospace;
+            font-family: 'Press Start 2P', monospace;
             font-size: 16px;
         `;
         notification.textContent = message;

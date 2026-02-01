@@ -24,12 +24,12 @@ export interface UITheme {
 export class ThemeManager {
     private currentTheme!: UITheme;
     private themes: Map<string, UITheme> = new Map();
-    
+
     constructor() {
         this.loadDefaultThemes();
         this.applyTheme('dark');
     }
-    
+
     /**
      * Загрузка предустановленных тем
      */
@@ -49,11 +49,11 @@ export class ThemeManager {
                 error: '#f00'
             },
             fonts: {
-                primary: 'Consolas, Monaco, "Courier New", monospace',
-                monospace: 'Consolas, Monaco, "Courier New", monospace'
+                primary: "'Press Start 2P', monospace",
+                monospace: "'Press Start 2P', monospace"
             }
         });
-        
+
         // Светлая тема
         this.themes.set('light', {
             name: 'Light',
@@ -69,11 +69,11 @@ export class ThemeManager {
                 error: '#a00'
             },
             fonts: {
-                primary: 'Consolas, Monaco, "Courier New", monospace',
-                monospace: 'Consolas, Monaco, "Courier New", monospace'
+                primary: "'Press Start 2P', monospace",
+                monospace: "'Press Start 2P', monospace"
             }
         });
-        
+
         // Синяя тема
         this.themes.set('blue', {
             name: 'Blue',
@@ -89,15 +89,15 @@ export class ThemeManager {
                 error: '#f00'
             },
             fonts: {
-                primary: 'Consolas, Monaco, "Courier New", monospace',
-                monospace: 'Consolas, Monaco, "Courier New", monospace'
+                primary: "'Press Start 2P', monospace",
+                monospace: "'Press Start 2P', monospace"
             }
         });
-        
+
         // Загрузка из localStorage
         this.loadThemesFromStorage();
     }
-    
+
     /**
      * Применение темы
      */
@@ -108,9 +108,9 @@ export class ThemeManager {
             this.applyTheme('dark');
             return;
         }
-        
+
         this.currentTheme = theme;
-        
+
         // Установка CSS переменных
         const root = document.documentElement;
         root.style.setProperty('--theme-bg', theme.colors.background);
@@ -124,14 +124,14 @@ export class ThemeManager {
         root.style.setProperty('--theme-error', theme.colors.error);
         root.style.setProperty('--theme-font-primary', theme.fonts.primary);
         root.style.setProperty('--theme-font-mono', theme.fonts.monospace);
-        
+
         // Сохранение выбранной темы
         localStorage.setItem('ptx_ui_theme', name);
-        
+
         // Событие изменения темы
         window.dispatchEvent(new CustomEvent('themechanged', { detail: { theme: name } }));
     }
-    
+
     /**
      * Создание кастомной темы
      */
@@ -145,21 +145,21 @@ export class ThemeManager {
         this.themes.set(name, customTheme);
         this.saveThemesToStorage();
     }
-    
+
     /**
      * Получить текущую тему
      */
     getCurrentTheme(): UITheme {
         return this.currentTheme;
     }
-    
+
     /**
      * Получить список всех тем
      */
     getThemes(): UITheme[] {
         return Array.from(this.themes.values());
     }
-    
+
     /**
      * Удалить тему
      */
@@ -167,7 +167,7 @@ export class ThemeManager {
         if (name === 'dark' || name === 'light' || name === 'blue') {
             return false; // Нельзя удалить предустановленные темы
         }
-        
+
         const deleted = this.themes.delete(name);
         if (deleted) {
             this.saveThemesToStorage();
@@ -177,7 +177,7 @@ export class ThemeManager {
         }
         return deleted;
     }
-    
+
     /**
      * Загрузка тем из localStorage
      */
@@ -190,7 +190,7 @@ export class ThemeManager {
                     this.themes.set(theme.name.toLowerCase(), theme);
                 });
             }
-            
+
             // Применить сохранённую тему
             const savedTheme = localStorage.getItem('ptx_ui_theme');
             if (savedTheme && this.themes.has(savedTheme)) {
@@ -200,7 +200,7 @@ export class ThemeManager {
             console.warn('[ThemeManager] Failed to load themes from storage:', error);
         }
     }
-    
+
     /**
      * Сохранение кастомных тем в localStorage
      */

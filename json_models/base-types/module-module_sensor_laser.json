@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140851,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "module_sensor_laser",
+    "name": "Laser Sight",
+    "description": "Improves aiming accuracy and reload speed.",
+    "type": "sensor",
+    "rarity": "common",
+    "price": 300,
+    "attachmentPoint": "turret_cheek",
+    "modelPath": "box_small",
+    "color": "#ff0000",
+    "scale": 0.5,
+    "stats": {
+      "reloadMultiplier": 0.9,
+      "radarRange": 50
+    }
+  }
+}

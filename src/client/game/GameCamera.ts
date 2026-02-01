@@ -223,6 +223,42 @@ export class GameCamera {
         window.addEventListener("keydown", (evt) => {
             if (ctx) ctx._inputMap[evt.code] = true;
 
+            // ЗУМ КАМЕРЫ: Клавиши + и - для зума
+            if (!this.isSpectating && this.camera) {
+                // Проверяем клавиши + и - (с учетом Shift для +)
+                const isZoomIn = (evt.code === "Equal" && evt.shiftKey) || evt.code === "NumpadAdd";
+                const isZoomOut = evt.code === "Minus" || evt.code === "NumpadSubtract";
+
+                if (isZoomIn || isZoomOut) {
+                    // Проверяем, не вводит ли пользователь текст
+                    const target = evt.target as HTMLElement;
+                    if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+                        return; // Пропускаем если в поле ввода
+                    }
+
+                    evt.preventDefault();
+
+                    if (this.isAiming) {
+                        // В режиме прицеливания - зум через targetAimZoom
+                        if (isZoomIn) {
+                            this.targetAimZoom = Math.min(this.maxZoom, this.targetAimZoom + this.zoomStep);
+                        } else {
+                            this.targetAimZoom = Math.max(this.minZoom, this.targetAimZoom - this.zoomStep);
+                        }
+                    } else {
+                        // В обычном режиме - зум через camera.radius
+                        const zoomDelta = 1.0; // Шаг зума
+                        if (isZoomIn) {
+                            this.camera.radius = Math.max(5, this.camera.radius - zoomDelta);
+                        } else {
+                            this.camera.radius = Math.min(25, this.camera.radius + zoomDelta);
+                        }
+                        this.normalRadius = this.camera.radius;
+                    }
+                    return;
+                }
+            }
+
             // SHIFT = Free look mode
             if (evt.code === "ShiftLeft" || evt.code === "ShiftRight") {
                 this.isFreeLook = true;

@@ -316,7 +316,7 @@ export class SessionSettings {
                 border: 1px solid rgba(0, 255, 4, 0.4);
                 border-radius: 4px;
                 color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 12px;
             }
             .session-input:focus {
@@ -420,7 +420,7 @@ export class SessionSettings {
                 border: 1px solid rgba(0, 255, 4, 0.4);
                 border-radius: 4px;
                 color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 11px;
             }
             #wave-editor-embedded .enemy-item {
@@ -469,7 +469,7 @@ export class SessionSettings {
                 border: 1px solid rgba(0, 255, 4, 0.4);
                 border-radius: 4px;
                 color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 12px;
                 cursor: pointer;
             }
@@ -1179,7 +1179,7 @@ export class SessionSettings {
                             background: rgba(0, 5, 0, 0.5);
                             border: 1px solid rgba(0, 255, 4, 0.4);
                             border-radius: 4px; color: #0f0;
-                            font-family: Consolas, Monaco, monospace;
+                            font-family: 'Press Start 2P', monospace;
                         ">
                             <option value="easy" ${this.settings.aiDifficulty === 'easy' ? 'selected' : ''}>Лёгкая</option>
                             <option value="medium" ${this.settings.aiDifficulty === 'medium' ? 'selected' : ''}>Средняя</option>
@@ -1238,7 +1238,7 @@ export class SessionSettings {
                             background: rgba(0, 5, 0, 0.5);
                             border: 1px solid rgba(0, 255, 4, 0.4);
                             border-radius: 4px; color: #0f0;
-                            font-family: Consolas, Monaco, monospace;
+                            font-family: 'Press Start 2P', monospace;
                         ">
                             <option value="normal" ${this.settings.gameMode === 'normal' ? 'selected' : ''}>Обычный</option>
                             <option value="survival" ${this.settings.gameMode === 'survival' ? 'selected' : ''}>Выживание</option>

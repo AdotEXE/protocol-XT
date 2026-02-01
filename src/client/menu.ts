@@ -15,6 +15,7 @@ import { PlayerProgressionSystem, PLAYER_ACHIEVEMENTS, PLAYER_TITLES, getLevelBo
 import { initCustomMapBridge, type TXMapData, loadCustomMap, getCustomMapsList, getCustomMapData, deleteCustomMap } from "./maps/custom";
 import { ALL_MAPS, type MapId } from "./maps";
 import { ProgressPanelModule, type IProgressPanelHost } from "./menu/modules/ProgressPanel";
+import { UnifiedPlayMenu, type UnifiedPlayMenuCallbacks } from "./menu/UnifiedPlayMenu";
 
 // Version tracking
 // Версия генерируется во время сборки и одинакова для всех пользователей
@@ -188,6 +189,7 @@ export class MainMenu {
 
     // МОДУЛИ (рефакторинг)
     private progressPanelModule: ProgressPanelModule | null = null;
+    private unifiedPlayMenu: UnifiedPlayMenu | null = null; // New lobby-style play menu
 
     // УПРАВЛЕНИЕ ИНТЕРВАЛАМИ И ТАЙМЕРАМИ (для предотвращения утечек памяти)
     private animationIntervals: NodeJS.Timeout[] = []; // Периодические обновления анимаций
@@ -331,7 +333,7 @@ export class MainMenu {
         this.createSkillsPanel();
         this.createProgressPanel();
         this.createMapSelectionPanel();
-        this.createPlayMenuPanel();
+        // this.createPlayMenuPanel(); // Replaced by UnifiedPlayMenu lazy init
         this.startAnimations();
         this.setupCanvasPointerEventsProtection();
         this.setupGlobalEventBlocking();
@@ -823,7 +825,7 @@ export class MainMenu {
                         </button>
                     </div>
                     <div class="btn-row">
-                        <button class="menu-btn secondary" id="btn-map-editor" style="${(new URLSearchParams(window.location.search).has('testMap') || localStorage.getItem("debug") === "true") ? '' : 'display: none;'}">
+                        <button class="menu-btn secondary" id="btn-map-editor">
                             <span class="btn-icon">🗺</span>
                             <span class="btn-label">РЕДАКТОР КАРТ</span>
                         </button>
@@ -836,6 +838,13 @@ export class MainMenu {
                         <span class="btn-icon" id="fullscreen-icon">⛶</span>
                         <span class="btn-label" id="fullscreen-label">${L.fullscreen}</span>
                     </button>
+                </div>
+                
+                <!-- ВРЕМЕННАЯ ТЕСТОВАЯ КНОПКА ДЛЯ ДИАЛОГОВ -->
+                <button class="menu-btn secondary" id="btn-test-dialogs" style="background: #ff6b00; border-color: #ff6b00; position: fixed; right: 20px; top: 50%; transform: translateY(-50%); z-index: 10000; min-width: 200px;">
+                    <span class="btn-icon">🧪</span>
+                    <span class="btn-label">ТЕСТ ДИАЛОГОВ</span>
+                </button>
                 </div>
 
                 <div class="menu-footer">
@@ -5205,7 +5214,7 @@ export class MainMenu {
     }
 
 
-    private openTankEditor(): void {
+    private openPolyGenEditor(): void {
         debugLog("[Menu] Opening PolyGenStudio Tank Workshop...");
 
         // Hide menu
@@ -5369,6 +5378,246 @@ export class MainMenu {
         }
     }
 
+    /**
+     * Тестовая функция для проверки внутриигровых диалогов
+     */
+    private async testDialogs(): Promise<void> {
+        console.log("[Menu] Testing in-game dialogs...");
+
+        // Проверяем, инициализированы ли диалоги
+        const game = (window as any).gameInstance;
+        if (game && game.hud) {
+            const { initializeInGameDialogs } = await import("./utils/inGameDialogs");
+            const guiTexture = game.hud.getGuiTexture();
+            if (guiTexture) {
+                initializeInGameDialogs(guiTexture);
+                console.log("[Menu] Dialogs initialized from game HUD");
+            }
+        }
+
+        // Тест 1: Alert
+        try {
+            console.log("[Menu] Test 1: Alert");
+            alert("Это тестовое уведомление!\nВнутриигровой диалог должен отображаться поверх игры.");
+        } catch (e) {
+            console.error("[Menu] Alert error:", e);
+        }
+
+        // Тест 2: Confirm (с задержкой)
+        setTimeout(() => {
+            try {
+                console.log("[Menu] Test 2: Confirm");
+                const result = confirm("Это тестовое подтверждение!\nНажмите OK или Отмена.");
+                console.log("[Menu] Confirm result:", result);
+                setTimeout(() => {
+                    alert(`Вы выбрали: ${result ? "OK" : "Отмена"}`);
+                }, 200);
+            } catch (e) {
+                console.error("[Menu] Confirm error:", e);
+            }
+        }, 1000);
+
+        // Тест 3: Prompt (с задержкой)
+        setTimeout(() => {
+            try {
+                console.log("[Menu] Test 3: Prompt");
+                const value = prompt("Введите тестовый текст:", "Тест");
+                console.log("[Menu] Prompt result:", value);
+                setTimeout(() => {
+                    if (value !== null) {
+                        alert(`Вы ввели: "${value}"`);
+                    } else {
+                        alert("Вы отменили ввод.");
+                    }
+                }, 200);
+            } catch (e) {
+                console.error("[Menu] Prompt error:", e);
+            }
+        }, 2000);
+    }
+
+    /**
+     * Улучшенная тестовая функция с проверкой инициализации
+     */
+    private async testDialogsImproved(): Promise<void> {
+        console.log("[Menu] 🧪 Testing in-game dialogs (improved)...");
+        console.log("[Menu] Step 1: Checking game instance...");
+
+        // Проверяем, инициализированы ли диалоги
+        const game = (window as any).gameInstance;
+        console.log("[Menu] Game instance:", game ? "exists" : "null");
+        console.log("[Menu] Game HUD:", game?.hud ? "exists" : "null");
+
+        let guiTexture = null;
+
+        if (game && game.hud && typeof game.hud.getGuiTexture === 'function') {
+            guiTexture = game.hud.getGuiTexture();
+            console.log("[Menu] ✅ Found game HUD, guiTexture:", guiTexture ? "exists" : "null");
+        } else {
+            console.warn("[Menu] ⚠️ Game HUD not found, trying to create temporary GUI...");
+            // Пытаемся создать временный GUI для теста
+            try {
+                const { AdvancedDynamicTexture } = await import("@babylonjs/gui");
+                const { Scene, Engine } = await import("@babylonjs/core");
+
+                // Получаем canvas
+                const canvas = document.getElementById("gameCanvas") as HTMLCanvasElement;
+                console.log("[Menu] Canvas:", canvas ? "exists" : "null");
+
+                if (canvas) {
+                    // Пытаемся получить существующий engine
+                    let engine = Engine.getLastCreatedEngine();
+                    console.log("[Menu] Engine:", engine ? "exists" : "null");
+
+                    if (!engine) {
+                        console.warn("[Menu] No engine found, cannot create GUI");
+                    } else {
+                        // Получаем первую сцену или создаем новую
+                        let scene = engine.scenes[0];
+                        if (!scene) {
+                            scene = new Scene(engine);
+                        }
+                        guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("TestDialogsUI", true, scene);
+                        console.log("[Menu] ✅ Created temporary GUI texture for testing");
+                    }
+                }
+            } catch (e) {
+                console.error("[Menu] ❌ Failed to create temporary GUI:", e);
+            }
+        }
+
+        // Инициализируем диалоги если нужно
+        if (guiTexture) {
+            console.log("[Menu] Step 2: Initializing dialogs...");
+            try {
+                const { initializeInGameDialogs } = await import("./utils/inGameDialogs");
+                initializeInGameDialogs(guiTexture);
+                console.log("[Menu] ✅ Dialogs initialized");
+            } catch (e) {
+                console.error("[Menu] ❌ Failed to initialize dialogs:", e);
+                this.showDOMDialog("⚠️ Ошибка инициализации!", `Не удалось инициализировать диалоги: ${e}`, () => { });
+                return;
+            }
+        } else {
+            console.warn("[Menu] ⚠️ Cannot initialize dialogs - no guiTexture available");
+            // Показываем сообщение через DOM диалог
+            this.showDOMDialog("⚠️ HUD не инициализирован!", "Запустите игру сначала, чтобы протестировать диалоги.", () => { });
+            return;
+        }
+
+        console.log("[Menu] Step 3: Starting dialog tests...");
+
+        // Тест 1: Alert
+        console.log("[Menu] Scheduling Test 1: Alert in 500ms...");
+        setTimeout(() => {
+            try {
+                console.log("[Menu] 🔔 Test 1: Calling alert()...");
+                alert("✅ Тест 1: Alert\nВнутриигровой диалог должен отображаться поверх игры.");
+                console.log("[Menu] ✅ Test 1: alert() called");
+            } catch (e) {
+                console.error("[Menu] ❌ Alert error:", e);
+            }
+        }, 500);
+
+        // Тест 2: Confirm
+        console.log("[Menu] Scheduling Test 2: Confirm in 3000ms...");
+        setTimeout(async () => {
+            try {
+                console.log("[Menu] 🔔 Test 2: Calling confirm()...");
+                const result = confirm("✅ Тест 2: Confirm\nНажмите OK или Отмена.");
+                console.log("[Menu] ✅ Test 2: confirm() returned:", result);
+                setTimeout(() => {
+                    console.log("[Menu] Showing confirm result...");
+                    alert(`Результат: ${result ? "OK" : "Отмена"}`);
+                }, 300);
+            } catch (e) {
+                console.error("[Menu] ❌ Confirm error:", e);
+            }
+        }, 3000);
+
+        // Тест 3: Prompt
+        console.log("[Menu] Scheduling Test 3: Prompt in 6000ms...");
+        setTimeout(async () => {
+            try {
+                console.log("[Menu] 🔔 Test 3: Calling prompt()...");
+                const value = prompt("✅ Тест 3: Prompt\nВведите текст:", "Тест");
+                console.log("[Menu] ✅ Test 3: prompt() returned:", value);
+                setTimeout(() => {
+                    console.log("[Menu] Showing prompt result...");
+                    if (value !== null && value !== undefined) {
+                        alert(`Вы ввели: "${value}"`);
+                    } else {
+                        alert("Ввод отменён.");
+                    }
+                }, 300);
+            } catch (e) {
+                console.error("[Menu] ❌ Prompt error:", e);
+            }
+        }, 6000);
+
+        console.log("[Menu] ✅ All dialog tests scheduled!");
+    }
+
+    /**
+     * Простой DOM диалог для теста (fallback)
+     */
+    private showDOMDialog(title: string, message: string, onClose: () => void): void {
+        const overlay = document.createElement("div");
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 100000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        `;
+
+        const dialog = document.createElement("div");
+        dialog.style.cssText = `
+            background: rgba(20, 20, 30, 0.98);
+            border: 2px solid #4ade80;
+            border-radius: 12px;
+            padding: 30px;
+            max-width: 500px;
+            color: #fff;
+            font-family: 'Press Start 2P', monospace;
+            font-size: 14px;
+        `;
+
+        dialog.innerHTML = `
+            <div style="color: #4ade80; font-size: 20px; margin-bottom: 15px;">${title}</div>
+            <div style="margin-bottom: 20px; line-height: 1.6;">${message.replace(/\n/g, '<br>')}</div>
+            <button id="dom-dialog-ok" style="
+                background: #4ade80;
+                border: none;
+                color: #fff;
+                padding: 10px 20px;
+                border-radius: 6px;
+                font-family: 'Press Start 2P', monospace;
+                font-size: 12px;
+                cursor: pointer;
+            ">OK</button>
+        `;
+
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+
+        const okBtn = dialog.querySelector("#dom-dialog-ok");
+        const close = () => {
+            document.body.removeChild(overlay);
+            onClose();
+        };
+
+        okBtn?.addEventListener("click", close);
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) close();
+        });
+    }
+
     private attachDirectButtonHandlers(): void {
         // Предотвращаем множественную привязку обработчиков
         if (this.buttonHandlersAttached) {
@@ -5405,7 +5654,39 @@ export class MainMenu {
                 { id: "btn-exit-battle", handler: () => this.exitBattle() },
                 { id: "btn-login", handler: () => this.showLogin() },
                 { id: "btn-register", handler: () => this.showRegister() },
-                { id: "btn-profile", handler: () => this.showProfile() }
+                { id: "btn-profile", handler: () => this.showProfile() },
+                {
+                    id: "btn-test-dialogs", handler: () => {
+                        console.log("[Menu] 🧪 Test dialogs button clicked!");
+                        console.log("[Menu] Button handler executed!");
+
+                        // Сразу показываем, что кнопка работает
+                        try {
+                            // Пробуем улучшенную версию
+                            this.testDialogsImproved().catch(e => {
+                                console.error("[Menu] ❌ Test dialogs error:", e);
+                                console.error("[Menu] Error stack:", e instanceof Error ? e.stack : String(e));
+                                // Fallback на старую версию
+                                this.testDialogs().catch(e2 => {
+                                    console.error("[Menu] ❌ Fallback test dialogs error:", e2);
+                                    // Последний fallback - обычный alert
+                                    if (typeof window !== 'undefined' && (window as any).__originalAlert) {
+                                        (window as any).__originalAlert("⚠️ Ошибка при тестировании диалогов. Проверьте консоль для деталей.");
+                                    } else {
+                                        window.alert("⚠️ Ошибка при тестировании диалогов. Проверьте консоль для деталей.");
+                                    }
+                                });
+                            });
+                        } catch (e) {
+                            console.error("[Menu] ❌ Fatal error in test dialogs handler:", e);
+                            if (typeof window !== 'undefined' && (window as any).__originalAlert) {
+                                (window as any).__originalAlert(`Критическая ошибка: ${e}`);
+                            } else {
+                                window.alert(`Критическая ошибка: ${e}`);
+                            }
+                        }
+                    }
+                }
             ];
 
             buttons.forEach(({ id, handler }) => {
@@ -6332,7 +6613,11 @@ export class MainMenu {
 
 
 
-    private createPlayMenuPanel(): void {
+    /**
+     * OLD CASCADING PLAY MENU - PRESERVED AS REFERENCE
+     * Replaced by UnifiedPlayMenu component
+     */
+    private _createPlayMenuPanel_OLD(): void {
         this.playMenuPanel = document.createElement("div");
         this.playMenuPanel.className = "panel";
         this.playMenuPanel.id = "play-menu-panel";
@@ -14107,87 +14392,85 @@ line - height: 1.4;
 
     private showPlayMenu(): void {
         debugLog("[Menu] showPlayMenu() called");
-        if (this.playMenuPanel) {
-            // Сбрасываем состояние
-            this.selectedGameMode = "";
-            this.selectedMapType = null;
-            this.currentPlayStep = 0;
 
-            // Скрываем все окна шагов
-            this.hideAllPlayWindows();
+        // Initialize Unified Play Menu if not exists
+        if (!this.unifiedPlayMenu) {
+            this.unifiedPlayMenu = new UnifiedPlayMenu({
+                onClose: () => this.hidePlayMenu(),
+                onGarage: () => {
+                    this.returnToPlayMenuAfterGarage = true;
+                    this.hidePlayMenu();
+                    this.showGarage();
+                },
+                onStartGame: (mode, mapType, chassisId, cannonId) => {
+                    // Save selections
+                    localStorage.setItem("selectedGameMode", mode);
+                    localStorage.setItem("selectedMapType", mapType);
+                    localStorage.setItem("selectedChassis", chassisId);
+                    localStorage.setItem("selectedCannon", cannonId);
 
-            // Показываем только окно выбора режима
-            this.showPlayWindow("play-window-mode", 0, 0);
+                    this.selectedGameMode = mode;
+                    this.selectedMapType = mapType;
+                    this.selectedChassis = chassisId;
+                    this.selectedCannon = cannonId;
 
-            // Сбрасываем выборы кнопок
-            document.querySelectorAll("[data-mode]").forEach(btn => {
-                (btn as HTMLButtonElement).className = "menu-btn secondary";
+                    this.hidePlayMenu();
+
+                    if (this.onStartGame) {
+                        this.onStartGame(mapType);
+                    }
+                },
+                getOwnedChassisIds: () => this.ownedChassisIds,
+                getOwnedCannonIds: () => this.ownedCannonIds,
+                selectPreset: (preset) => {
+                    let chassis = "medium";
+                    let cannon = "standard";
+
+                    switch (preset) {
+                        case "speed": chassis = "light"; cannon = "rapid"; break;
+                        case "defense": chassis = "heavy"; cannon = "shotgun"; break;
+                        case "damage": chassis = "heavy"; cannon = "sniper"; break;
+                        case "balanced": default: chassis = "medium"; cannon = "standard"; break;
+                    }
+
+                    // Fallback if specific types don't exist in ownership, try to be smart or just keep default
+                    if (!this.ownedChassisIds.has(chassis)) chassis = "medium";
+                    if (!this.ownedCannonIds.has(cannon)) cannon = "standard";
+
+                    localStorage.setItem("selectedChassis", chassis);
+                    localStorage.setItem("selectedCannon", cannon);
+                    this.selectedChassis = chassis;
+                    this.selectedCannon = cannon;
+                }
             });
-            document.querySelectorAll("[data-map]").forEach(btn => {
-                (btn as HTMLButtonElement).className = "menu-btn secondary";
-            });
-            document.querySelectorAll("[data-preset]").forEach(btn => {
-                (btn as HTMLButtonElement).className = "menu-btn secondary";
-            });
-
-            // Восстанавливаем сохраненные выборы (если есть)
-            const savedMode = localStorage.getItem("selectedGameMode");
-            const savedMap = localStorage.getItem("selectedMapType") as MapType | null;
-            const savedChassis = localStorage.getItem("selectedChassis");
-            const savedCannon = localStorage.getItem("selectedCannon");
-
-            // Если сохраненного нет или его нет в владении — сбросим
-            if (savedChassis && !this.ownedChassisIds.has(savedChassis)) {
-                localStorage.removeItem("selectedChassis");
-            }
-            if (savedCannon && !this.ownedCannonIds.has(savedCannon)) {
-                localStorage.removeItem("selectedCannon");
-            }
-
-            // Проставляем сохранённые выборы, но не переключаем шаги — режим всегда первый
-            if (savedMode) {
-                this.selectedGameMode = savedMode;
-                document.querySelectorAll("[data-mode]").forEach(btn => {
-                    const button = btn as HTMLButtonElement;
-                    button.className = button.dataset.mode === savedMode ? "menu-btn play-btn" : "menu-btn secondary";
-                });
-            }
-            if (savedMap) {
-                this.selectedMapType = savedMap;
-                document.querySelectorAll("[data-map]").forEach(btn => {
-                    const button = btn as HTMLButtonElement;
-                    button.className = button.dataset.map === savedMap ? "menu-btn play-btn" : "menu-btn secondary";
-                });
-            }
-            if (savedChassis) this.selectChassis(savedChassis);
-            if (savedCannon) this.selectCannon(savedCannon);
-
-            // Если нет сохраненных данных — открываем первый шаг
-            if (!savedMode) this.showPlayWindow("play-window-mode", 0);
-
-            // Update terminal titles
-            this.updateTerminalTitles();
-
-            this.playMenuPanel.classList.add("visible");
-            this.playMenuPanel.style.setProperty("display", "flex", "important");
-            this.playMenuPanel.style.setProperty("visibility", "visible", "important");
-            this.playMenuPanel.style.setProperty("opacity", "1", "important");
-            this.playMenuPanel.style.setProperty("z-index", "100002", "important");
-            this.enforceCanvasPointerEvents();
         }
+
+        // Hide old panel components if they exist
+        if (this.playMenuPanel) {
+            this.playMenuPanel.style.display = "none";
+            this.playMenuPanel.classList.remove("visible");
+            this.hideAllPlayWindows();
+        }
+
+        this.unifiedPlayMenu.show();
+        this.enforceCanvasPointerEvents();
     }
 
     private hidePlayMenu(): void {
         debugLog("[Menu] hidePlayMenu() called");
-        if (this.playMenuPanel) {
-            // Сначала скрываем все play-windows внутри
-            this.hideAllPlayWindows();
 
+        if (this.unifiedPlayMenu) {
+            this.unifiedPlayMenu.hide();
+        }
+
+        if (this.playMenuPanel) {
+            this.hideAllPlayWindows();
             this.playMenuPanel.classList.remove("visible");
             this.playMenuPanel.style.setProperty("display", "none", "important");
             this.playMenuPanel.style.setProperty("visibility", "hidden", "important");
-            this.enforceCanvasPointerEvents();
         }
+
+        this.enforceCanvasPointerEvents();
     }
 
     private showMapSelection(): void {
@@ -14387,26 +14670,42 @@ line - height: 1.4;
                     const isCanvasVisible = canvasDisplay !== "none" && canvasComputed !== "none";
 
                     if (isCanvasVisible) {
-                        debugLog("[Menu] Game is running, not showing menu after garage close");
+                        console.log("[Menu] Game is running, not showing menu after garage close");
                         // Восстанавливаем pointer-events для canvas
                         try {
                             this.enforceCanvasPointerEvents();
                         } catch (error) {
                             console.error("[Menu] Error enforcing canvas pointer events:", error);
                         }
+                        // НЕ показываем меню - игра продолжается
                         return;
                     }
                 }
 
+                // Показываем меню только если игра НЕ запущена или если это было запрошено явно
+                const game = (window as any).gameInstance;
+                const isGameRunning = game && game.gameStarted && !game.gamePaused;
+
+                if (isGameRunning) {
+                    console.log("[Menu] Game is running, not showing menu after garage close");
+                    // Восстанавливаем pointer-events для canvas
+                    try {
+                        this.enforceCanvasPointerEvents();
+                    } catch (error) {
+                        console.error("[Menu] Error enforcing canvas pointer events:", error);
+                    }
+                    return; // Не показываем меню если игра запущена
+                }
+
                 if (shouldReturnToPlay) {
-                    debugLog("[Menu] Returning to play menu after garage close");
+                    console.log("[Menu] Returning to play menu after garage close");
                     try {
                         this.showPlayMenu();
                     } catch (error) {
                         console.error("[Menu] Error showing play menu:", error);
                     }
                 } else if (wasVisible) {
-                    debugLog("[Menu] Showing menu after garage close");
+                    console.log("[Menu] Showing menu after garage close");
                     try {
                         this.show();
                     } catch (error) {
@@ -15201,15 +15500,35 @@ line - height: 1.4;
     }
 
     private showProfile(): void {
-        authUI.showUserProfile({
-            onAuthSuccess: () => {
-                this.updateAuthUI();
-            },
-            onClose: () => {
-                this.enforceCanvasPointerEvents();
-            }
+        // Импортируем AvatarSelector динамически
+        import("./menu/avatarSelector").then(({ AvatarSelector }) => {
+            const selector = new AvatarSelector({
+                onAvatarSelected: (avatarId: string) => {
+                    localStorage.setItem('selectedAvatar', avatarId);
+                    // Обновляем отображение аватара если метод существует
+                    if (typeof (this as any).updatePlayerAvatarDisplay === 'function') {
+                        (this as any).updatePlayerAvatarDisplay();
+                    }
+                },
+                onClose: () => {
+                    this.enforceCanvasPointerEvents();
+                }
+            });
+            selector.show();
+            this.enforceCanvasPointerEvents();
+        }).catch((error) => {
+            console.error("[Menu] Failed to load AvatarSelector:", error);
+            // Fallback на старый профиль
+            authUI.showUserProfile({
+                onAuthSuccess: () => {
+                    this.updateAuthUI();
+                },
+                onClose: () => {
+                    this.enforceCanvasPointerEvents();
+                }
+            });
+            this.enforceCanvasPointerEvents();
         });
-        this.enforceCanvasPointerEvents();
     }
 
     private async updateAuthUI(): Promise<void> {
@@ -16247,15 +16566,118 @@ line - height: 1.4;
     private setupUniversalMenuCloseHandlers(): void {
         // Обработчик ESC для всех открытых overlay
         const escHandler = (e: KeyboardEvent) => {
-            if (e.key !== "Escape" && e.key !== "Esc") return;
+            // Проверяем и Escape и code для максимальной совместимости
+            if (e.key !== "Escape" && e.key !== "Esc" && e.code !== "Escape") return;
+
+            // ЛОГИРОВАНИЕ для отладки
+            console.log("[Menu] ESC detected in setupUniversalMenuCloseHandlers", e);
+
+            // Игнорируем если пользователь вводит текст (кроме модальных окон)
+            const activeEl = document.activeElement;
+            if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || (activeEl as HTMLElement).isContentEditable)) {
+                // Разрешаем ESC только для закрытия модальных окон даже при вводе текста
+                const isModalInput = activeEl.closest('.panel-overlay, .auth-ui-container');
+                if (!isModalInput) {
+                    console.log("[Menu] ESC ignored - user is typing in non-modal input");
+                    return;
+                }
+            }
+
+            // ПРОСТАЯ ПРОВЕРКА: Проверяем все панели напрямую по ID
+            const panelIds = ['stats-panel', 'skills-panel', 'settings-panel', 'progress-panel', 'map-selection-panel'];
+            console.log("[Menu] Checking panels for ESC...");
+
+            for (const panelId of panelIds) {
+                const panel = document.getElementById(panelId);
+                if (!panel) {
+                    console.log(`[Menu] Panel ${panelId} not found in DOM`);
+                    continue;
+                }
+
+                const computedStyle = window.getComputedStyle(panel);
+                const display = computedStyle.display;
+                const visibility = computedStyle.visibility;
+                const hasOffsetParent = panel.offsetParent !== null;
+                const hasVisibleClass = panel.classList.contains("visible");
+                const inlineDisplay = panel.style.display;
+
+                console.log(`[Menu] Panel ${panelId}:`, {
+                    display,
+                    visibility,
+                    hasOffsetParent,
+                    hasVisibleClass,
+                    inlineDisplay,
+                    classes: panel.className
+                });
+
+                // Более мягкая проверка видимости
+                const isVisible = (
+                    (display !== "none" && visibility !== "hidden" && hasOffsetParent) ||
+                    (hasVisibleClass && display !== "none") ||
+                    (inlineDisplay === "flex" || inlineDisplay === "block")
+                );
+
+                if (isVisible) {
+                    console.log(`[Menu] Found visible panel: ${panelId}, closing...`);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+
+                    // Закрываем через соответствующий метод
+                    try {
+                        if (panelId === 'stats-panel') {
+                            console.log("[Menu] Calling hideStats()");
+                            this.hideStats();
+                        } else if (panelId === 'skills-panel') {
+                            console.log("[Menu] Calling hideSkills()");
+                            this.hideSkills();
+                        } else if (panelId === 'settings-panel') {
+                            console.log("[Menu] Calling hideSettings()");
+                            this.hideSettings();
+                        } else if (panelId === 'progress-panel') {
+                            console.log("[Menu] Calling hideProgress()");
+                            this.hideProgress();
+                        } else if (panelId === 'map-selection-panel') {
+                            console.log("[Menu] Closing map-selection-panel directly");
+                            panel.style.display = 'none';
+                            panel.classList.remove('visible');
+                        }
+
+                        // ПРИНУДИТЕЛЬНОЕ ЗАКРЫТИЕ на случай если метод не сработал
+                        setTimeout(() => {
+                            const stillVisible = panel.offsetParent !== null || window.getComputedStyle(panel).display !== "none";
+                            if (stillVisible) {
+                                console.log(`[Menu] Panel ${panelId} still visible after 50ms, forcing close...`);
+                                panel.style.setProperty("display", "none", "important");
+                                panel.style.setProperty("visibility", "hidden", "important");
+                                panel.classList.remove("visible");
+                                panel.classList.add("hidden");
+                            } else {
+                                console.log(`[Menu] Panel ${panelId} successfully closed`);
+                            }
+                        }, 50);
+                    } catch (error) {
+                        console.error(`[Menu] Error closing ${panelId}:`, error);
+                        // Fallback: принудительно скрываем
+                        panel.style.setProperty("display", "none", "important");
+                        panel.style.setProperty("visibility", "hidden", "important");
+                        panel.classList.remove("visible");
+                        panel.classList.add("hidden");
+                    }
+                    return;
+                }
+            }
+
+            console.log("[Menu] No visible panels found via ID check, checking other methods...");
 
             // 1. GARAGE (Самый высокий приоритет)
-            if (this.garage && (this.garage as any).isGarageOpen()) {
-                debugLog("[Menu] Closing Garage via ESC");
-                (this.garage as any).close();
+            if (this.garage && (this.garage as any).isGarageOpen && (this.garage as any).isGarageOpen()) {
+                console.log("[Menu] Closing Garage via ESC");
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation(); // Важно: предотвращаем открытие паузы
+                (this.garage as any).close();
+                // НЕ показываем меню после закрытия гаража - игра продолжается
                 return;
             }
 
@@ -16276,48 +16698,142 @@ line - height: 1.4;
             }
 
             // 3. PANELS (Обычные панели)
-            // Список панелей для проверки в порядке приоритета
-            const panelsToCheck = [
-                // Специализированные панели
-                { el: this.settingsPanel, name: "Settings" },
-                { el: this.statsPanel, name: "Stats" },
-                { el: this.skillsPanel, name: "Skills" },
-                { el: this.progressPanel, name: "Progress" },
-                { el: this.mapSelectionPanel, name: "MapSelection" },
-                { el: this.playMenuPanel, name: "PlayMenu" }
-            ];
+            // Сначала проверяем через прямые селекторы для надёжности
+            const visiblePanels = document.querySelectorAll('.panel-overlay.visible, .panel-overlay[style*="display: flex"], .panel-overlay[style*="display: block"]');
+            if (visiblePanels.length > 0) {
+                debugLog(`[Menu] Found ${visiblePanels.length} visible panels via selector`);
+                for (let i = 0; i < visiblePanels.length; i++) {
+                    const panel = visiblePanels[i] as HTMLElement;
+                    const computedStyle = window.getComputedStyle(panel);
+                    const isActuallyVisible = computedStyle.display !== "none" && computedStyle.visibility !== "hidden" && panel.offsetParent !== null;
 
-            // Проверяем явные панели
-            for (const item of panelsToCheck) {
-                if (item.el && (item.el.classList.contains("visible") || item.el.style.display === "flex" || item.el.style.display === "block")) {
-                    // Проверяем, что элемент реально видим
-                    if (item.el.offsetParent !== null) {
-                        debugLog(`[Menu] Closing ${item.name} panel via ESC`);
+                    if (isActuallyVisible) {
+                        debugLog(`[Menu] Closing visible panel via ESC: ${panel.id || panel.className}`);
 
-                        // Пытаемся найти кнопку закрытия внутри панели
-                        // Ищем стандартные классы или data-атрибуты, или специфические ID
-                        const closeBtn = item.el.querySelector('.panel-close, .garage-close, [data-nav="close"], .window-btn[data-nav="close"]');
-
+                        // Пытаемся найти кнопку закрытия
+                        const closeBtn = panel.querySelector('.panel-close, .garage-close, [data-nav="close"], #stats-close, #skills-close, #settings-close, #progress-close');
                         if (closeBtn) {
                             (closeBtn as HTMLElement).click();
                         } else {
-                            // Если кнопки нет, просто скрываем
-                            item.el.classList.remove("visible");
-                            item.el.classList.add("hidden");
-                            item.el.style.display = "none";
-
-                            // Спец. логика для PlayMenu - возвращаем главные кнопки
-                            if (item.name === "PlayMenu") {
-                                const mainButtons = document.getElementById("main-buttons");
-                                if (mainButtons) mainButtons.style.display = "flex";
+                            // Если кнопки нет, вызываем соответствующий метод закрытия
+                            const panelId = panel.id;
+                            if (panelId === 'stats-panel') {
+                                this.hideStats();
+                            } else if (panelId === 'skills-panel') {
+                                this.hideSkills();
+                            } else if (panelId === 'settings-panel') {
+                                this.hideSettings();
+                            } else if (panelId === 'progress-panel') {
+                                this.hideProgress();
+                            } else {
+                                // Fallback: просто скрываем
+                                panel.style.display = 'none';
+                                panel.classList.add('hidden');
+                                panel.classList.remove('visible');
                             }
                         }
-
                         e.preventDefault();
                         e.stopPropagation();
                         e.stopImmediatePropagation();
                         return;
                     }
+                }
+            }
+
+            // Список панелей для проверки в порядке приоритета
+            const panelsToCheck = [
+                // Специализированные панели с методами закрытия
+                {
+                    el: this.settingsPanel,
+                    name: "Settings",
+                    hideMethod: () => this.hideSettings()
+                },
+                {
+                    el: this.statsPanel,
+                    name: "Stats",
+                    hideMethod: () => this.hideStats()
+                },
+                {
+                    el: this.skillsPanel,
+                    name: "Skills",
+                    hideMethod: () => this.hideSkills()
+                },
+                {
+                    el: this.progressPanel,
+                    name: "Progress",
+                    hideMethod: () => this.hideProgress()
+                },
+                {
+                    el: this.mapSelectionPanel,
+                    name: "MapSelection",
+                    hideMethod: () => {
+                        if (this.mapSelectionPanel) {
+                            this.mapSelectionPanel.style.display = "none";
+                            this.mapSelectionPanel.classList.remove("visible");
+                        }
+                    }
+                },
+                {
+                    el: this.playMenuPanel,
+                    name: "PlayMenu",
+                    hideMethod: () => this.hidePlayMenu()
+                }
+            ];
+
+            // Проверяем явные панели
+            for (const item of panelsToCheck) {
+                if (!item.el) continue;
+
+                // Проверяем видимость панели разными способами
+                const computedStyle = window.getComputedStyle(item.el);
+                const isVisible =
+                    item.el.classList.contains("visible") ||
+                    item.el.style.display === "flex" ||
+                    item.el.style.display === "block" ||
+                    (computedStyle.display !== "none" && computedStyle.visibility !== "hidden");
+
+                // Проверяем, что элемент реально видим
+                const isActuallyVisible = isVisible && item.el.offsetParent !== null;
+
+                debugLog(`[Menu] Checking ${item.name} panel: visible=${isVisible}, offsetParent=${!!item.el.offsetParent}, actuallyVisible=${isActuallyVisible}`);
+
+                if (isActuallyVisible) {
+                    debugLog(`[Menu] Closing ${item.name} panel via ESC`);
+
+                    // Пытаемся найти кнопку закрытия внутри панели
+                    // Ищем стандартные классы или data-атрибуты, или специфические ID
+                    const closeBtn = item.el.querySelector('.panel-close, .garage-close, [data-nav="close"], .window-btn[data-nav="close"]');
+
+                    if (closeBtn) {
+                        (closeBtn as HTMLElement).click();
+                    } else if (item.hideMethod) {
+                        // Используем специальный метод закрытия для панели
+                        try {
+                            item.hideMethod();
+                        } catch (error) {
+                            debugError(`[Menu] Error closing ${item.name} panel:`, error);
+                            // Fallback: просто скрываем
+                            item.el.classList.remove("visible");
+                            item.el.classList.add("hidden");
+                            item.el.style.display = "none";
+                        }
+                    } else {
+                        // Если кнопки нет, просто скрываем
+                        item.el.classList.remove("visible");
+                        item.el.classList.add("hidden");
+                        item.el.style.display = "none";
+
+                        // Спец. логика для PlayMenu - возвращаем главные кнопки
+                        if (item.name === "PlayMenu") {
+                            const mainButtons = document.getElementById("main-buttons");
+                            if (mainButtons) mainButtons.style.display = "flex";
+                        }
+                    }
+
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    return;
                 }
             }
 
@@ -16380,8 +16896,20 @@ line - height: 1.4;
         };
 
         // Добавляем обработчики с capture чтобы перехватить до того как они уйдут в игру
-        document.addEventListener('keydown', escHandler, { capture: true, signal: this.abortController.signal });
+        // ИСПРАВЛЕНО: Используем window вместо document для более высокого приоритета
+        // И добавляем обработчик БЕЗ signal для гарантии работы
+        // ВАЖНО: Регистрируем на window с максимальным приоритетом (capture: true)
+        window.addEventListener('keydown', escHandler, { capture: true });
+        // Также регистрируем на document для надёжности
+        document.addEventListener('keydown', escHandler, { capture: true });
+
+        if (this.abortController) {
+            // Дублируем с signal для автоматической очистки
+            window.addEventListener('keydown', escHandler, { capture: true, signal: this.abortController.signal });
+        }
         document.addEventListener('click', clickOutsideHandler, { capture: true, signal: this.abortController.signal });
+
+        console.log("[Menu] ESC handler registered on window and document with capture: true");
     }
 
     /**

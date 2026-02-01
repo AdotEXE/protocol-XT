@@ -53,13 +53,14 @@ export function calculateDPS(cannon: DPSCalculable): number {
     // Извлекаем значения урона и перезарядки (поддерживаем и StatWithBonus, и обычные числа)
     const damage = typeof cannon.damage === 'object' && 'total' in cannon.damage ? cannon.damage.total : (cannon.damage as number);
     const cooldown = typeof cannon.cooldown === 'object' && 'total' in cannon.cooldown ? cannon.cooldown.total : (cannon.cooldown as number);
-    
+
     // DPS = damage / (cooldown / 1000)
     const cooldownSeconds = cooldown / 1000;
     return damage / cooldownSeconds;
 }
 
 // 15 chassis types (ordered as specified: 9, 8, 10, 11, 13, 1, 2, 3, 4, 5, 6, 7, 14, 15, 12)
+// Хардкод используется как fallback если json_models не загружен
 export const CHASSIS_TYPES: ChassisType[] = [
     // 9 - Racer
     {
@@ -295,6 +296,22 @@ export const CHASSIS_TYPES: ChassisType[] = [
         color: "#aa00ff",
         description: "Носитель боевых дронов. Способность: выпуск 2 дронов, атакующих врагов (перезарядка 60 сек). Дроны наносят 15 урона каждые 2 секунды. Поддержка в бою. HP: 90 | Скорость: 25 | Броня: средняя",
         specialAbility: "drone"
+    },
+    // 20 - Plane
+    {
+        id: "plane",
+        name: "Warhawk",
+        width: 3.5, // Широкий из-за крыльев
+        height: 1.2,
+        depth: 4.0,
+        mass: 1500,
+        maxHealth: 65, // Хрупкий
+        moveSpeed: 45, // Очень быстрый
+        turnSpeed: 6.5,
+        acceleration: 16000,
+        color: "#dfeeff",
+        description: "Штурмовой самолёт с вертикальным взлётом. Способность: полёт (Q/E). Высокая скорость и манёвренность, но слабая броня. Король воздуха. HP: 65 | Скорость: 45 | Броня: низкая",
+        specialAbility: "flight"
     }
 ];
 
@@ -709,14 +726,36 @@ export const CANNON_TYPES: CannonType[] = [
     }
 ];
 
-// Получить корпус по ID
+// Получить корпус по ID (из json_models или fallback на хардкод)
 export function getChassisById(id: string): ChassisType {
+    // Пытаемся использовать модели из json_models (из кэша)
+    try {
+        const { getChassisByIdSync } = require('./utils/modelLoader');
+        const result = getChassisByIdSync(id);
+        if (result) {
+            return result;
+        }
+    } catch (e) {
+        // Если modelLoader не загружен, используем fallback
+    }
+    // Fallback на хардкод если json_models не загружен
     const result = CHASSIS_TYPES.find(c => c.id === id) ?? CHASSIS_TYPES[1]!;
     return result;
 }
 
-// Получить пушку по ID
+// Получить пушку по ID (из json_models или fallback на хардкод)
 export function getCannonById(id: string): CannonType {
+    // Пытаемся использовать модели из json_models (из кэша)
+    try {
+        const { getCannonByIdSync } = require('./utils/modelLoader');
+        const result = getCannonByIdSync(id);
+        if (result) {
+            return result;
+        }
+    } catch (e) {
+        // Если modelLoader не загружен, используем fallback
+    }
+    // Fallback на хардкод если json_models не загружен
     const result = CANNON_TYPES.find(c => c.id === id) ?? CANNON_TYPES[1]!;
     return result;
 }

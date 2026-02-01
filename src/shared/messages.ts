@@ -52,6 +52,7 @@ export enum ClientMessageType {
     VOICE_ICE_CANDIDATE = "voice_ice_candidate",
     VOICE_JOIN = "voice_join",
     VOICE_LEAVE = "voice_leave",
+    VOICE_TALKING = "voice_talking",
 
     // Monitoring
     CLIENT_METRICS = "client_metrics",
@@ -110,6 +111,7 @@ export enum ServerMessageType {
     PLAYER_KILLED = "player_killed",
     PLAYER_DIED = "player_died",
     PLAYER_RESPAWNED = "player_respawned",
+    PLAYER_PROFILE_UPDATED = "player_profile_updated",
 
     // World
     WORLD_UPDATE = "world_update",
@@ -137,6 +139,7 @@ export enum ServerMessageType {
     VOICE_OFFER = "voice_offer",
     VOICE_ANSWER = "voice_answer",
     VOICE_ICE_CANDIDATE = "voice_ice_candidate",
+    VOICE_TALKING = "voice_talking",
 
     // Capture the Flag
     CTF_FLAG_UPDATE = "ctf_flag_update",
@@ -153,6 +156,7 @@ export enum ServerMessageType {
     // Batch updates - groups multiple messages into one
     BATCH = "batch",
     RPC = "rpc",
+    UPDATE_PROFILE = "update_profile",
 }
 
 // Specific message data types
@@ -212,6 +216,11 @@ export interface PlayerHitData {
     isCritical?: boolean;
     cannonType: string;    // Type of weapon used
     timestamp: number;     // When the hit occurred
+}
+
+export interface UpdateProfileData {
+    playerName: string;
+    // Add other fields if needed, e.g., tank customization
 }
 
 // Server-reported damage to a player
@@ -403,6 +412,11 @@ export interface PlayerRespawnedData {
     playerName: string;
     position: Vector3;
     health: number;
+}
+
+export interface PlayerProfileUpdatedData {
+    playerId: string;
+    playerName: string;
 }
 
 // Generic RPC event for visual effects and non-critical game logic

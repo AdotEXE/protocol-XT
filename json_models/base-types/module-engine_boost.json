@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140265,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "engine_boost",
+    "name": "Турбо-двигатель",
+    "description": "+10% скорости",
+    "cost": 350,
+    "unlocked": false,
+    "type": "module",
+    "stats": {
+      "speed": 0.1
+    },
+    "icon": "🚀",
+    "rarity": "common"
+  }
+}

@@ -104,7 +104,19 @@ export const TRACK_TYPES: TrackType[] = [
     }
 ];
 
+// Получить гусеницу по ID (из json_models или fallback на хардкод)
 export function getTrackById(id: string): TrackType {
+    // Пытаемся использовать модели из json_models (из кэша)
+    try {
+        const { getTrackByIdSync } = require('./utils/modelLoader');
+        const result = getTrackByIdSync(id);
+        if (result) {
+            return result;
+        }
+    } catch (e) {
+        // Если modelLoader не загружен, используем fallback
+    }
+    // Fallback на хардкод если json_models не загружен
     const track = TRACK_TYPES.find(t => t.id === id);
     if (!track) {
         console.warn(`[TrackTypes] Track type "${id}" not found, using standard`);

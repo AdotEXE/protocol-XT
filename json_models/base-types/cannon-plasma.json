@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140478,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "plasma",
+    "name": "Plasma Cannon",
+    "barrelLength": 2.3,
+    "barrelWidth": 0.28,
+    "damage": 35,
+    "cooldown": 2500,
+    "projectileSpeed": 220,
+    "projectileSize": 0.22,
+    "color": "#ff00ff",
+    "description": "Плазменная пушка с энергетическими снарядами. Урон: 35 | Перезарядка: 2.5с | Скорость снаряда: 220 м/с. Средний урон, средняя скорость перезарядки. Эффективна против легкой брони.",
+    "recoilMultiplier": 1.6,
+    "maxRange": 294
+  }
+}

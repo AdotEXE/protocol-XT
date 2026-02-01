@@ -57,7 +57,7 @@ export class CommonStyles {
                 border: 2px solid rgba(0, 255, 4, 0.6);
                 border-radius: 8px;
                 color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 box-shadow: 0 0 20px rgba(0, 255, 0, 0.4);
                 animation: slideIn 0.3s ease;
                 max-width: 90vw;
@@ -122,7 +122,7 @@ export class CommonStyles {
                 border: 1px solid rgba(0, 255, 4, 0.6);
                 border-radius: 4px;
                 color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 12px;
                 font-weight: bold;
                 cursor: pointer;

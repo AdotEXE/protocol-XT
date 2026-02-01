@@ -1,0 +1,25 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141228,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "ricochet",
+    "name": "Ricochet Master",
+    "barrelLength": 2.4,
+    "barrelWidth": 0.22,
+    "damage": 28,
+    "cooldown": 2200,
+    "projectileSpeed": 250,
+    "projectileSize": 0.18,
+    "color": "#ffd700",
+    "description": "Мастер рикошетов! До 5 отскоков на базовом уровне. Урон: 28 | Перезарядка: 2.2с | Идеален для стрельбы из-за углов и непрямого урона. Снаряды сохраняют 90% скорости при отскоке.",
+    "recoilMultiplier": 1.8,
+    "maxRicochets": 5,
+    "ricochetSpeedRetention": 0.9,
+    "ricochetAngle": 55,
+    "maxRange": 317
+  }
+}

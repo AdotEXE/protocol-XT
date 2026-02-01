@@ -2,9 +2,11 @@
 import { Vector3, PhysicsMotionType, Quaternion } from "@babylonjs/core";
 import { tankLogger } from "../utils/logger";
 import type { ITankController } from "./types";
+import { AircraftPhysics } from "./aircraftPhysics";
 
 export class TankMovementModule {
     private tank: ITankController;
+    private aircraftPhysics: AircraftPhysics | null = null;
 
     constructor(tank: ITankController) {
         this.tank = tank;
@@ -56,13 +58,38 @@ export class TankMovementModule {
         // Debug: Log input changes
 
         // Turret Control (smoothed; mouse disabled)
+        // Turret Control (smoothed; mouse disabled)
         this.tank.turretTurnTarget = 0;
         (this.tank as any).isKeyboardTurretControl = false; // Сбрасываем флаг каждый кадр
 
+        // Check if current chassis is "plane"
+        const chassisType = (this.tank as any).chassisType;
+        // Fix: check for object with id property
+        const isPlane = chassisType === "plane" || (typeof chassisType === 'object' && chassisType?.id === "plane");
+
+        // Для самолёта скрываем башню и пушку - показываем только модель МиГ-31
+        // КРИТИЧНО: Полностью отключаем танковую физику для самолёта!
+        // AircraftPhysics полностью управляет движением
+        if (isPlane) {
+            // ИСПРАВЛЕНО: Не скрываем башню и пушку, чтобы игрок мог ими управлять (Z/X)
+            // if (this.tank.turret) this.tank.turret.isVisible = false;
+            // if (this.tank.barrel) this.tank.barrel.isVisible = false;
+
+            // ОТКЛЮЧАЕМ танковую физику - AircraftPhysics контролирует самолёт!
+            this.tank.throttleTarget = 0;
+            this.tank.steerTarget = 0;
+        }
+
+        // Debug logging (throttled) - REMOVED
+        // if (Math.random() < 0.05) { ... }
+
         // Ручное управление (отменяет авто-центрирование)
         const inputMap = (this.tank as any)._inputMap;
-        const turretLeftPressed = inputMap["KeyZ"] || touchTurret.left;
-        const turretRightPressed = inputMap["KeyX"] || touchTurret.right;
+
+        // DISABLE manual turret control for Planes (camera locked to front)
+        // ИСПРАВЛЕНО: Разрешаем управление башней для самолётов (Z/X)
+        const turretLeftPressed = (inputMap["KeyZ"] || touchTurret.left);
+        const turretRightPressed = (inputMap["KeyX"] || touchTurret.right);
 
         // Аналоговое управление башней с джойстика (если есть)
         const touchTurretRotation = (this.tank as any).getTouchTurretRotation?.() ?? 0;
@@ -82,7 +109,7 @@ export class TankMovementModule {
         }
 
         // Аналоговое управление башней с правого джойстика (плавнее чем кнопки)
-        if (Math.abs(touchTurretRotation) > 0.1) {
+        if (!isPlane && Math.abs(touchTurretRotation) > 0.1) {
             this.tank.turretTurnTarget += touchTurretRotation;
             (this.tank as any).isAutoCentering = false;
             (this.tank as any).isKeyboardTurretControl = true;
@@ -91,6 +118,7 @@ export class TankMovementModule {
 
         // Автоматическое центрирование (активируется по C) - с ОБЫЧНОЙ скоростью вращения
         // НО ТОЛЬКО если игрок не управляет башней вручную (Z/X)
+        // FOR PLANES: Do NOT force auto-center (Allow Free Camera for Mouse Aim)
         const isAutoCentering = (this.tank as any).isAutoCentering;
         const shouldCenter = (isAutoCentering || inputMap["KeyC"]) && !(this.tank as any).isKeyboardTurretControl;
 
@@ -107,6 +135,7 @@ export class TankMovementModule {
             while (currentRot < -Math.PI) currentRot += Math.PI * 2;
 
             // Если башня уже в центре - завершаем центрирование
+            // For planes, we want TIGHT locking, so maybe threshold needs to be small or logic robust
             if (Math.abs(currentRot) < 0.02) {
                 // Достигли центра - останавливаем вращение
                 this.tank.turret.rotation.y = 0;
@@ -122,9 +151,10 @@ export class TankMovementModule {
                 }));
 
                 window.dispatchEvent(new CustomEvent("stopCenterCamera"));
-                console.log("[TankMovement] Центровка ЗАВЕРШЕНА - башня в центре");
+                // console.log("[TankMovement] Центровка ЗАВЕРШЕНА - башня в центре");
             } else {
                 // Башня не в центре - продолжаем центрирование
+                // For Plane, make it snap faster/harder? Using baseTurretSpeed from controller.
                 const baseTurretSpeed = (this.tank as any).baseTurretSpeed || 2.0;
 
                 // Вычисляем направление к центру
@@ -170,41 +200,34 @@ export class TankMovementModule {
         }
 
         // =========================================================================
-        // ЧИТЫ: Режим полёта (flyMode)
+        // FLIGHT MECHANICS (Plane & FlyMode)
         // Q - вверх, E - вниз
         // =========================================================================
         const flyMode = (this.tank as any).flyMode;
-        if (flyMode && this.tank.physicsBody) {
-            const flySpeed = 15; // Скорость вертикального движения
-            let verticalVelocity = 0;
+        // Check if current chassis is "plane"
+        // (isPlane is already defined above)
 
-            if (inputMap["KeyQ"]) {
-                verticalVelocity = flySpeed; // Вверх
+        // Initialize aircraft physics subsystem if needed
+        // Reverting to single check to fix Syntax/Build Error
+        if (isPlane && !this.aircraftPhysics && this.tank.physicsBody && this.tank.chassis) {
+            console.log("[TankMovement] Initializing AircraftPhysics for Plane");
+            try {
+                this.aircraftPhysics = new AircraftPhysics(this.tank.chassis, this.tank.physicsBody);
+            } catch (e) {
+                console.error("[TankMovement] Failed to init AircraftPhysics:", e);
             }
-            if (inputMap["KeyE"]) {
-                verticalVelocity = -flySpeed; // Вниз
-            }
+        }
 
-            // Получаем текущую скорость
+        // Removed cleanup logic for now to restore boot
+
+        if (this.aircraftPhysics) {
+            // Pass deltaTime for smooth interpolation (default 16ms = 60fps)
+            this.aircraftPhysics.update(0.016);
+        } else if (flyMode && this.tank.physicsBody) {
+            // Fallback for debug flyMode
             const currentVel = this.tank.physicsBody.getLinearVelocity();
-
-            // Устанавливаем вертикальную скорость (сохраняя горизонтальную)
-            if (verticalVelocity !== 0) {
-                this.tank.physicsBody.setLinearVelocity(new Vector3(
-                    currentVel.x,
-                    verticalVelocity,
-                    currentVel.z
-                ));
-            } else {
-                // Если не нажаты Q/E - плавное зависание (гасим вертикальную скорость)
-                if (Math.abs(currentVel.y) > 0.1) {
-                    this.tank.physicsBody.setLinearVelocity(new Vector3(
-                        currentVel.x,
-                        currentVel.y * 0.9, // Плавное торможение
-                        currentVel.z
-                    ));
-                }
-            }
+            if (inputMap["KeyQ"]) this.tank.physicsBody.setLinearVelocity(new Vector3(currentVel.x, 15, currentVel.z));
+            if (inputMap["KeyE"]) this.tank.physicsBody.setLinearVelocity(new Vector3(currentVel.x, -15, currentVel.z));
         }
     }
 
@@ -238,6 +261,12 @@ export class TankMovementModule {
         if (!this.tank.chassis || !this.tank.physicsBody) {
             console.error("[TANK] Reset failed - chassis or physicsBody is null!");
             return;
+        }
+
+        // КРИТИЧНО: Сбрасываем физику самолета при респавне, чтобы она пересоздалась с новым телом/состоянием
+        if (this.aircraftPhysics) {
+            this.aircraftPhysics.dispose();
+            this.aircraftPhysics = null;
         }
 
         // Убеждаемся что физика активна ПЕРЕД сбросом скорости

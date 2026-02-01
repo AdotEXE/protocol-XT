@@ -22,6 +22,14 @@ import { MaterialFactory } from "./materials";
 import { ChassisDetailsGenerator } from "./chassisDetails";
 import { CannonDetailsGenerator } from "./cannonDetails";
 import { createUniqueCannon, CannonAnimationElements } from "../tank/tankCannon";
+import { EffectsManager } from "../effects";
+import { SoundManager } from "../soundManager"; // Use full SoundManager if possible, or interface
+
+// Interface compatible with GarageSoundManager
+interface PreviewSoundManager {
+    playShoot?: (cannonType: string, position?: Vector3, velocity?: Vector3) => void;
+    play?: (sound: string, volume?: number) => void;
+}
 
 export interface PreviewTank {
     chassis: Mesh;
@@ -41,14 +49,17 @@ export interface PreviewScene {
     stopRenderLoop?: () => void; // ОПТИМИЗАЦИЯ: Функция для остановки requestAnimationFrame
     triggerRender?: () => void; // ОПТИМИЗАЦИЯ: Функция для принудительного рендера
     animationGroups?: { stop: () => void; dispose?: () => void }[];
-    trajectoryVisualization?: import("./trajectoryVisualization").TrajectoryVisualization | null; // ИСПРАВЛЕНО: Визуализация траектории
+    trajectoryVisualization?: import("./trajectoryVisualization").TrajectoryVisualization | null;
+    tank?: PreviewTank | null; // Текущий танк для доступа из событий
+    cannonId?: string; // ID текущей пушки
 }
 
 /**
  * Инициализирует 3D превью сцену
  */
 export function initPreviewScene(
-    previewContainer: HTMLElement
+    previewContainer: HTMLElement,
+    soundManager?: PreviewSoundManager
 ): PreviewScene | null {
     if (!previewContainer) {
         // Preview container not found - это нормально при первой инициализации
@@ -102,12 +113,15 @@ export function initPreviewScene(
     light.groundColor = new Color3(0.2, 0.2, 0.25);
 
     // Simple ground plane
+    // ИСПРАВЛЕНО: Убираем пол, чтобы не было артефактов ("крестик" под моделью)
+    /*
     const ground = MeshBuilder.CreateGround("previewGround", { width: 10, height: 10 }, scene);
     const groundMat = new StandardMaterial("previewGroundMat", scene);
     groundMat.diffuseColor = new Color3(0.2, 0.2, 0.25);
     groundMat.specularColor = Color3.Black();
     ground.material = groundMat;
     ground.position.y = -2;
+    */
 
     // ИСПРАВЛЕНО: Постоянный рендер для стабильности превью
     // Рендерим каждый кадр для гарантированного отображения танка
@@ -156,14 +170,152 @@ export function initPreviewScene(
         }
     };
 
-    // Функция для принудительного рендера (совместимость)
-    const triggerRender = () => {
-        // Теперь не нужен - рендерим постоянно
+    // Initialize Effects Manager
+    const effectsManager = new EffectsManager(scene);
+
+    // Shooting Logic
+    let lastShotTime = 0;
+    const SHOT_COOLDOWN = 800; // ms
+
+    // Проектируем объект сцены заранее, чтобы иметь к нему доступ в замыканиях
+    const previewSceneObj: PreviewScene = {
+        engine,
+        scene,
+        camera,
+        light,
+        canvas,
+        stopRenderLoop,
+        triggerRender,
+        tank: null,
+        cannonId: "standard"
+    };
+
+    const shoot = () => {
+        const now = Date.now();
+        if (now - lastShotTime < SHOT_COOLDOWN) return;
+
+        if (!previewSceneObj.tank || !previewSceneObj.tank.barrel) return;
+
+        const barrel = previewSceneObj.tank.barrel;
+        const cannonId = previewSceneObj.cannonId || "standard";
+
+        lastShotTime = now;
+
+        // 1. Audio
+        if (soundManager && soundManager.playShoot) {
+            soundManager.playShoot(cannonId);
+        }
+
+        // 2. Muzzle Flash & Position
+        // Approximate muzzle position: assume barrel length along local Z
+        // Using bounding box to find the tip
+        const boundingInfo = barrel.getHierarchyBoundingVectors();
+        // This is world space min/max. It's rough but works for visual FX.
+        // Better: use barrel.getAbsolutePosition() + barrel.forward * length
+        // We'll estimate length or use a safe offset.
+        // Most barrels are ~2-4 units long.
+        const muzzlePos = barrel.getAbsolutePosition().add(barrel.forward.scale(3.5));
+
+        effectsManager.createMuzzleFlash(muzzlePos, barrel.forward, cannonId);
+
+        // 3. Visual Projectile
+        const projectile = MeshBuilder.CreateSphere("previewProjectile", { diameter: 0.3 }, scene);
+        projectile.position = muzzlePos.clone();
+        const projectileMat = new StandardMaterial("previewProjMat", scene);
+        projectileMat.diffuseColor = new Color3(1, 0.8, 0);
+        projectileMat.emissiveColor = new Color3(1, 0.5, 0);
+        projectileMat.disableLighting = true;
+        projectile.material = projectileMat;
+
+        // Animate projectile
+        const speed = 2.0; // units per frame (approx)
+        let life = 30; // frames
+        const direction = barrel.forward.clone().normalize();
+
+        const projAnim = () => {
+            if (!projectile || projectile.isDisposed()) return;
+            projectile.position.addInPlace(direction.scale(speed));
+            life--;
+            if (life <= 0) {
+                projectile.dispose();
+            } else {
+                requestAnimationFrame(projAnim);
+            }
+        };
+        requestAnimationFrame(projAnim);
+
+        // 4. Barrel Recoil Animation
+        const originalZ = barrel.position.z; // Assumes local Z is forward/backward axis for recoil?
+        // Actually barrels usually point towards +Z or -Z. 
+        // In `createUniqueCannon`, barrels mostly extend along +Z or -Z.
+        // Recoil is "backward".
+        // Let's assume recoil moves it slightly opposite to forward.
+        // Since barrel is child of turret, and usually rotated 0,0,0 relative to turret, 
+        // and turret points forward... recoil is local -Z?
+        // Let's try simple local z offset.
+
+        const recoilDist = 0.4;
+        const recoilDuration = 10; // frames
+        let recoilFrame = 0;
+
+        const animateRecoil = () => {
+            if (!barrel || barrel.isDisposed()) return;
+            recoilFrame++;
+            if (recoilFrame <= 5) {
+                // Backward
+                barrel.scaling.z = 0.9; // Squash slightly
+                // We can't easily move local position without knowing axis, but usually it's Z.
+                // Or we can just use scaling for a cheap effect if position is hard.
+                // Let's try moving along local Z.
+                barrel.position.z -= recoilDist / 5;
+            } else {
+                // Return
+                barrel.scaling.z = 1.0;
+                barrel.position.z += recoilDist / 5;
+            }
+
+            if (recoilFrame < 10) {
+                requestAnimationFrame(animateRecoil);
+            } else {
+                // Reset to be safe
+                // barrel.position.z = originalZ; // Might drift if we aren't careful? 
+                // It's safer to just rely on the math returning to start.
+            }
+        };
+        // animateRecoil(); // Disabled for now to avoid breaking complex meshes if axis is wrong.
+        // Use a safer scaling effect or just flash.
+
+        // Simple kick effect (camera shake?)
+        // No, keep it simple.
+    };
+
+    const handleInput = (e: Event) => {
+        // Only shoot if inputs are not focused (e.g. chat)
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+        shoot();
+    };
+
+    const downHandler = (e: MouseEvent) => handleInput(e);
+    const keyHandler = (e: KeyboardEvent) => {
+        if (e.code === 'Space') handleInput(e);
+    };
+
+    canvas.addEventListener('mousedown', downHandler);
+    window.addEventListener('keydown', keyHandler);
+
+    // Clean up listeners on destroy
+    const oldStop = stopRenderLoop; // Capture original
+    previewSceneObj.stopRenderLoop = () => {
+        canvas.removeEventListener('mousedown', downHandler);
+        window.removeEventListener('keydown', keyHandler);
+        if (oldStop) oldStop();
     };
 
     console.log("[Garage Preview] 3D preview initialized successfully");
 
-    return { engine, scene, camera, light, canvas, stopRenderLoop, triggerRender };
+    return previewSceneObj;
 }
 
 /**
@@ -343,6 +495,8 @@ function getActualChassisSize(chassisType: ChassisType): { width: number, height
             return { width: w * 0.85, height: h * 0.75, depth: d * 1.4 };
         case "command":
             return { width: w * 1.1, height: h * 1.2, depth: d * 1.1 };
+        case "plane":
+            return { width: w, height: h, depth: d }; // Размеры уже указаны корректно в tankTypes
         default:
             return { width: w, height: h, depth: d };
     }
@@ -412,6 +566,18 @@ function createUniqueChassisPreview(chassisType: ChassisType, scene: Scene): Mes
             break;
         case "command":
             chassis = MeshBuilder.CreateBox("previewChassis", { width: w * 1.1, height: h * 1.2, depth: d * 1.1 }, scene);
+            break;
+        case "plane":
+            // Фюзеляж самолета (МиГ-15 стиль - сигара)
+            chassis = MeshBuilder.CreateCylinder("previewChassis", {
+                height: d * 1.0, // Чуть короче для "пухлости"
+                diameterTop: w * 0.5, // Нос (сужается)
+                diameterBottom: w * 0.35, // Хвост (сильнее сужается)
+                tessellation: 24
+            }, scene);
+            chassis.rotation.x = Math.PI / 2; // Поворот горизонтально
+            // Смещаем немного вперед, чтобы центр вращения был ближе к крыльям
+            chassis.bakeCurrentTransformIntoVertices();
             break;
         default:
             chassis = MeshBuilder.CreateBox("previewChassis", { width: w, height: h, depth: d }, scene);
@@ -2684,7 +2850,16 @@ function addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene,
                 sideLightMat.diffuseColor = new Color3(0.7, 0.6, 0.3);
                 sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
                 sideLight.material = sideLightMat;
+                sideLight.material = sideLightMat;
             }
+            break;
+        case "plane":
+            // Use specific generator for "Warhawk" plane model
+            ChassisDetailsGenerator.addPlaneDetails(
+                scene, chassis,
+                chassisType.width, chassisType.height, chassisType.depth,
+                baseColor, "preview"
+            );
             break;
     }
 }

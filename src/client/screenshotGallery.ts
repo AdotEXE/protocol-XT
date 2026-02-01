@@ -9,7 +9,7 @@ export class ScreenshotGallery {
     private container: HTMLDivElement | null = null;
     private screenshots: ScreenshotMetadata[] = [];
     private isVisible: boolean = false;
-    
+
     /**
      * Создание UI галереи
      */
@@ -17,7 +17,7 @@ export class ScreenshotGallery {
         if (this.container) {
             this.container.remove();
         }
-        
+
         this.container = document.createElement('div');
         this.container.id = 'screenshot-gallery';
         this.container.className = 'panel-overlay';
@@ -32,7 +32,7 @@ export class ScreenshotGallery {
             display: none;
             overflow-y: auto;
         `;
-        
+
         this.container.innerHTML = `
             <div class="gallery-header" style="
                 padding: 20px;
@@ -45,7 +45,7 @@ export class ScreenshotGallery {
                 top: 0;
                 z-index: 1;
             ">
-                <h2 style="color: #0ff; margin: 0; font-family: Consolas, monospace;">Галерея скриншотов</h2>
+                <h2 style="color: #0ff; margin: 0; font-family: 'Press Start 2P', monospace;">Галерея скриншотов</h2>
                 <div style="display: flex; gap: 10px;">
                     <button id="gallery-export-all" class="gallery-btn" style="
                         padding: 8px 16px;
@@ -53,7 +53,7 @@ export class ScreenshotGallery {
                         border: 1px solid rgba(0, 255, 4, 0.6);
                         color: #0f0;
                         cursor: pointer;
-                        font-family: Consolas, monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">Экспорт всех</button>
                     <button id="gallery-clear-all" class="gallery-btn" style="
                         padding: 8px 16px;
@@ -61,7 +61,7 @@ export class ScreenshotGallery {
                         border: 1px solid rgba(255, 0, 0, 0.6);
                         color: #f00;
                         cursor: pointer;
-                        font-family: Consolas, monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">Очистить</button>
                     <button id="gallery-close" class="gallery-btn" style="
                         padding: 8px 16px;
@@ -69,7 +69,7 @@ export class ScreenshotGallery {
                         border: 1px solid rgba(0, 255, 4, 0.6);
                         color: #0f0;
                         cursor: pointer;
-                        font-family: Consolas, monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">Закрыть</button>
                 </div>
             </div>
@@ -80,11 +80,11 @@ export class ScreenshotGallery {
                 padding: 20px;
             "></div>
         `;
-        
+
         document.body.appendChild(this.container);
         this.setupEventListeners();
     }
-    
+
     /**
      * Настройка обработчиков событий
      */
@@ -93,7 +93,7 @@ export class ScreenshotGallery {
         document.getElementById('gallery-clear-all')?.addEventListener('click', () => this.clearAll());
         document.getElementById('gallery-close')?.addEventListener('click', () => this.hide());
     }
-    
+
     /**
      * Загрузка скриншотов из localStorage
      */
@@ -106,27 +106,27 @@ export class ScreenshotGallery {
             logger.error("[ScreenshotGallery] Failed to load screenshots:", error);
         }
     }
-    
+
     /**
      * Отрисовка галереи
      */
     private renderGallery(): void {
         const grid = document.getElementById('gallery-grid');
         if (!grid) return;
-        
+
         grid.innerHTML = '';
-        
+
         if (this.screenshots.length === 0) {
             grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: #aaa; padding: 40px;">Нет сохранённых скриншотов</div>';
             return;
         }
-        
+
         this.screenshots.forEach(meta => {
             const thumbnail = this.createThumbnail(meta);
             grid.appendChild(thumbnail);
         });
     }
-    
+
     /**
      * Создание миниатюры скриншота
      */
@@ -141,7 +141,7 @@ export class ScreenshotGallery {
             cursor: pointer;
             transition: transform 0.2s, border-color 0.2s;
         `;
-        
+
         item.onmouseenter = () => {
             item.style.transform = 'scale(1.05)';
             item.style.borderColor = 'rgba(0, 255, 4, 0.8)';
@@ -150,7 +150,7 @@ export class ScreenshotGallery {
             item.style.transform = 'scale(1)';
             item.style.borderColor = 'rgba(0, 255, 4, 0.3)';
         };
-        
+
         const img = document.createElement('img');
         img.style.cssText = `
             width: 100%;
@@ -158,7 +158,7 @@ export class ScreenshotGallery {
             object-fit: cover;
             display: block;
         `;
-        
+
         const screenshot = localStorage.getItem(`ptx_screenshot_${meta.timestamp}`);
         if (screenshot) {
             img.src = screenshot;
@@ -171,14 +171,14 @@ export class ScreenshotGallery {
             img.style.display = 'none';
             item.innerHTML = '<div style="padding: 20px; text-align: center; color: #f00;">Скриншот не найден</div>';
         }
-        
+
         const info = document.createElement('div');
         info.className = 'gallery-info';
         info.style.cssText = `
             padding: 10px;
             font-size: 11px;
             color: #aaa;
-            font-family: Consolas, monospace;
+            font-family: 'Press Start 2P', monospace;
         `;
         info.innerHTML = `
             <div>${new Date(meta.timestamp).toLocaleString()}</div>
@@ -193,12 +193,12 @@ export class ScreenshotGallery {
                 font-size: 10px;
             ">Удалить</button>
         `;
-        
+
         item.appendChild(img);
         item.appendChild(info);
         return item;
     }
-    
+
     /**
      * Показать скриншот в полноэкранном режиме
      */
@@ -217,7 +217,7 @@ export class ScreenshotGallery {
             justify-content: center;
             cursor: pointer;
         `;
-        
+
         const img = document.createElement('img');
         img.src = dataUrl;
         img.style.cssText = `
@@ -225,7 +225,7 @@ export class ScreenshotGallery {
             max-height: 90%;
             object-fit: contain;
         `;
-        
+
         const info = document.createElement('div');
         info.style.cssText = `
             position: absolute;
@@ -233,34 +233,34 @@ export class ScreenshotGallery {
             left: 50%;
             transform: translateX(-50%);
             color: #0f0;
-            font-family: Consolas, monospace;
+            font-family: 'Press Start 2P', monospace;
             background: rgba(0, 10, 0, 0.8);
             padding: 10px 20px;
             border-radius: 4px;
         `;
         info.textContent = `${new Date(meta.timestamp).toLocaleString()} - ${(meta.size / 1024).toFixed(2)} KB`;
-        
+
         overlay.appendChild(img);
         overlay.appendChild(info);
         overlay.onclick = () => overlay.remove();
         document.body.appendChild(overlay);
     }
-    
+
     /**
      * Удаление скриншота
      */
     deleteScreenshot(timestamp: number): void {
         if (!confirm('Удалить этот скриншот?')) return;
-        
+
         localStorage.removeItem(`ptx_screenshot_${timestamp}`);
         this.screenshots = this.screenshots.filter(m => m.timestamp !== timestamp);
-        
+
         const metaKey = "ptx_screenshots_meta";
         localStorage.setItem(metaKey, JSON.stringify(this.screenshots));
-        
+
         this.renderGallery();
     }
-    
+
     /**
      * Экспорт всех скриншотов в ZIP
      */
@@ -284,7 +284,7 @@ export class ScreenshotGallery {
                 return;
             }
             const zip = new JSZip();
-            
+
             let count = 0;
             for (const meta of this.screenshots) {
                 const screenshot = localStorage.getItem(`ptx_screenshot_${meta.timestamp}`);
@@ -299,12 +299,12 @@ export class ScreenshotGallery {
                     }
                 }
             }
-            
+
             if (count === 0) {
                 alert('Нет скриншотов для экспорта');
                 return;
             }
-            
+
             const zipBlob = await zip.generateAsync({ type: 'blob' });
             const url = URL.createObjectURL(zipBlob);
             const a = document.createElement('a');
@@ -312,29 +312,29 @@ export class ScreenshotGallery {
             a.download = `screenshots_${Date.now()}.zip`;
             a.click();
             URL.revokeObjectURL(url);
-            
+
             logger.log(`[ScreenshotGallery] Exported ${count} screenshots`);
         } catch (error) {
             logger.error("[ScreenshotGallery] Export failed:", error);
             alert('Ошибка экспорта. Убедитесь, что библиотека JSZip установлена.');
         }
     }
-    
+
     /**
      * Очистка всех скриншотов
      */
     clearAll(): void {
         if (!confirm('Удалить ВСЕ скриншоты? Это действие нельзя отменить.')) return;
-        
+
         this.screenshots.forEach(meta => {
             localStorage.removeItem(`ptx_screenshot_${meta.timestamp}`);
         });
-        
+
         localStorage.removeItem('ptx_screenshots_meta');
         this.screenshots = [];
         this.renderGallery();
     }
-    
+
     /**
      * Показать галерею
      */
@@ -348,7 +348,7 @@ export class ScreenshotGallery {
             this.loadScreenshots();
         }
     }
-    
+
     /**
      * Скрыть галерею
      */
@@ -358,7 +358,7 @@ export class ScreenshotGallery {
             this.container.style.display = 'none';
         }
     }
-    
+
     /**
      * Переключить видимость
      */

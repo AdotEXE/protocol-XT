@@ -32,6 +32,7 @@ import { createUniqueCannon, CannonAnimationElements } from "./tank/tankCannon";
 import { CHASSIS_SIZE_MULTIPLIERS } from "./tank/tankChassis";
 import { getAttachmentOffset } from "./tank/tankEquipment";
 import type { AICoordinator } from "./ai/AICoordinator";
+import { getMapBoundsFromConfig } from "./maps/MapConstants";
 import { RicochetSystem, DEFAULT_RICOCHET_CONFIG } from "./tank/combat/RicochetSystem";
 import { GlobalIntelligenceManager } from "./ai/GlobalIntelligenceManager";
 
@@ -1063,7 +1064,15 @@ export class EnemyTank {
             depth: 2.0
         }, this.scene);
         turret.parent = this.chassis;
-        turret.position = new Vector3(0, 0.7, 0);
+        
+        // Для самолёта перемещаем башню в нос
+        const isPlane = this.chassisType?.id === "plane";
+        if (isPlane && this.chassisType) {
+            const d = this.chassisType.depth;
+            turret.position = new Vector3(0, 0.7, d * 0.6);
+        } else {
+            turret.position = new Vector3(0, 0.7, 0);
+        }
 
         const mat = new StandardMaterial(`enemyTurretMat_${this.id}`, this.scene);
         mat.diffuseColor = new Color3(0.4, 0.12, 0.08);
@@ -1091,7 +1100,18 @@ export class EnemyTank {
         );
 
         barrel.parent = this.turret;
-        barrel.position = new Vector3(0, 0.2, barrelLength * 0.5); // Позиция зависит от длины ствола
+        
+        // Для самолёта ствол направлен вперёд (в нос)
+        const isPlane = this.chassisType?.id === "plane";
+        let barrelZ: number;
+        if (isPlane && this.chassisType) {
+            const d = this.chassisType.depth;
+            const turretDepth = d * 0.6;
+            barrelZ = turretDepth / 2 + barrelLength / 2 + (d * 0.3); // Максимально вперёд в нос
+        } else {
+            barrelZ = barrelLength * 0.5; // Обычное положение
+        }
+        barrel.position = new Vector3(0, 0.2, barrelZ);
         barrel.renderingGroupId = 0;
         barrel.metadata = { type: "enemyTank", instance: this };
 
@@ -1452,7 +1472,7 @@ export class EnemyTank {
                     const ctx = this.distanceTexture?.getContext();
                     if (ctx && this.distanceTexture) {
                         ctx.clearRect(0, 0, 256, 85);
-                        ctx.font = "bold 48px Consolas";
+                        ctx.font = "bold 48px 'Press Start 2P', monospace";
                         ctx.fillStyle = "white";
                         // ИСПРАВЛЕНО: Приводим к стандартному CanvasRenderingContext2D
                         (ctx as CanvasRenderingContext2D).textAlign = "left";
@@ -2189,15 +2209,27 @@ export class EnemyTank {
         const finalDir = impulseDir.add(sideDir).normalize();
         this.physicsBody.applyImpulse(finalDir.scale(4000), this.chassis.absolutePosition);
 
-        // 4. Генерируем новую точку патруля в случайном направлении
+        // 4. Генерируем новую точку патруля в случайном направлении (в пределах карты)
         const myPos = this.chassis.absolutePosition;
         const newAngle = Math.random() * Math.PI * 2;
-        const newDist = 50 + Math.random() * 100;
-        const newTarget = new Vector3(
-            myPos.x + Math.cos(newAngle) * newDist,
-            myPos.y,
-            myPos.z + Math.sin(newAngle) * newDist
-        );
+
+        // ИСПРАВЛЕНО: Получаем границы карты и масштабируем расстояние
+        const game = (window as any).gameInstance;
+        const currentMapType = game?.mapType || "normal";
+        const mapBounds = getMapBoundsFromConfig(currentMapType);
+        const mapSize = Math.max(mapBounds.maxX - mapBounds.minX, mapBounds.maxZ - mapBounds.minZ);
+        // Расстояние = 20-40% от размера карты (вместо фиксированных 50-150м)
+        const newDist = mapSize * (0.2 + Math.random() * 0.2);
+
+        let newX = myPos.x + Math.cos(newAngle) * newDist;
+        let newZ = myPos.z + Math.sin(newAngle) * newDist;
+
+        // Ограничиваем границами карты с отступом
+        const margin = 5;
+        newX = Math.max(mapBounds.minX + margin, Math.min(mapBounds.maxX - margin, newX));
+        newZ = Math.max(mapBounds.minZ + margin, Math.min(mapBounds.maxZ - margin, newZ));
+
+        const newTarget = new Vector3(newX, myPos.y, newZ);
 
         // 5. Перезаписываем текущую точку патруля
         if (this.patrolPoints.length > 0) {
@@ -2355,7 +2387,15 @@ export class EnemyTank {
         // УЛУЧШЕНО: Генерируем умный маршрут патрулирования с стратегическими точками
         // Боты должны выезжать из гаража и ездить везде, включая высоты и укрытия!
 
-        const patrolRadius = 150 + Math.random() * 200; // 150-350 единиц от старта
+        // ИСПРАВЛЕНО: Получаем реальные границы карты из MapConstants
+        const game = (window as any).gameInstance;
+        const currentMapType = game?.mapType || "normal";
+        const mapBounds = getMapBoundsFromConfig(currentMapType);
+
+        // Вычисляем размер карты и масштабируем патрульный радиус
+        const mapSize = Math.max(mapBounds.maxX - mapBounds.minX, mapBounds.maxZ - mapBounds.minZ);
+        // Патрульный радиус = 30-60% от размера карты (вместо фиксированных 150-350)
+        const patrolRadius = mapSize * (0.3 + Math.random() * 0.3);
         const numPoints = 8 + Math.floor(Math.random() * 5); // 8-12 точек маршрута
 
         // Очищаем старые точки
@@ -2369,9 +2409,10 @@ export class EnemyTank {
         const nearExitPoint = new Vector3(nearExitX, center.y, nearExitZ);
         this.patrolPoints.push(nearExitPoint);
 
-        // Вторая точка - дальше для продолжения движения
-        const farExitX = center.x + Math.cos(exitAngle) * 60;
-        const farExitZ = center.z + Math.sin(exitAngle) * 60;
+        // Вторая точка - дальше для продолжения движения (но в пределах карты)
+        const farDist = Math.min(60, mapSize * 0.3); // Не более 60 или 30% карты
+        const farExitX = center.x + Math.cos(exitAngle) * farDist;
+        const farExitZ = center.z + Math.sin(exitAngle) * farDist;
         const farExitPoint = new Vector3(farExitX, center.y, farExitZ);
         this.patrolPoints.push(farExitPoint);
 
@@ -2381,20 +2422,21 @@ export class EnemyTank {
             const angle = (Math.PI * 2 / numPoints) * i + Math.random() * 1.2 - 0.6;
             const dist = patrolRadius * (0.4 + Math.random() * 0.6);
 
-            // Смещаем от центра карты, а не от гаража
-            const offsetX = (Math.random() - 0.5) * 200;
-            const offsetZ = (Math.random() - 0.5) * 200;
+            // Смещаем от центра карты, а не от гаража (масштабируем под размер карты)
+            const offsetScale = mapSize * 0.3; // 30% от размера карты
+            const offsetX = (Math.random() - 0.5) * offsetScale;
+            const offsetZ = (Math.random() - 0.5) * offsetScale;
 
             const x = Math.cos(angle) * dist + offsetX;
             const z = Math.sin(angle) * dist + offsetZ;
 
-            // Ограничиваем карту (1000x1000 для тестов)
-            const clampedX = Math.max(-500, Math.min(500, x));
-            const clampedZ = Math.max(-500, Math.min(500, z));
+            // ИСПРАВЛЕНО: Используем реальные границы карты с отступом 5м от краёв
+            const margin = 5;
+            const clampedX = Math.max(mapBounds.minX + margin, Math.min(mapBounds.maxX - margin, x));
+            const clampedZ = Math.max(mapBounds.minZ + margin, Math.min(mapBounds.maxZ - margin, z));
 
             // УЛУЧШЕНО: Пытаемся найти высоту для точки патруля (используем высоту террейна)
             let pointY = center.y;
-            const game = (window as any).gameInstance;
             if (game && typeof game.getGroundHeight === 'function') {
                 const groundHeight = game.getGroundHeight(clampedX, clampedZ);
                 pointY = Math.max(groundHeight + 1.0, center.y); // Минимум 1м над террейном
@@ -2416,7 +2458,7 @@ export class EnemyTank {
 
         // Начинаем патруль сразу!
         this.state = "patrol";
-        logger.debug(`[EnemyTank ${this.id}] Generated ${this.patrolPoints.length} patrol points, radius: ${patrolRadius.toFixed(0)}`);
+        logger.debug(`[EnemyTank ${this.id}] Generated ${this.patrolPoints.length} patrol points, radius: ${patrolRadius.toFixed(0)}, map bounds: [${mapBounds.minX}, ${mapBounds.maxX}]x[${mapBounds.minZ}, ${mapBounds.maxZ}]`);
     }
 
     setTarget(target: { chassis: Mesh, isAlive: boolean, currentHealth?: number }): void {
@@ -2777,30 +2819,40 @@ export class EnemyTank {
                 }
             }
 
+            // ОПТИМИЗАЦИЯ: Для дальних врагов упрощаем логику AI
+            const isFarEnemy = distance > this.MID_DISTANCE_SQ; // > 150м
+            
             // КРИТИЧНО: Обновляем скорость цели если видим её
             if (canSeeTarget && distance < this.detectRange) {
-                // УЛУЧШЕНО: Более точное отслеживание скорости цели для лучшего предсказания
-                if (this.lastTargetPos.length() > 0) {
-                    // Используем сглаживание для более стабильного предсказания
-                    const newVelocity = targetPos.subtract(this.lastTargetPos).scale(30); // ~30 fps
-                    // Сглаживаем скорость (70% новая, 30% старая) для уменьшения дрожания
-                    this.targetVelocity = this.targetVelocity.scale(0.3).add(newVelocity.scale(0.7));
+                // ОПТИМИЗАЦИЯ: Для дальних врагов не обновляем детальную информацию
+                if (!isFarEnemy) {
+                    // УЛУЧШЕНО: Более точное отслеживание скорости цели для лучшего предсказания
+                    if (this.lastTargetPos.length() > 0) {
+                        // Используем сглаживание для более стабильного предсказания
+                        const newVelocity = targetPos.subtract(this.lastTargetPos).scale(30); // ~30 fps
+                        // Сглаживаем скорость (70% новая, 30% старая) для уменьшения дрожания
+                        this.targetVelocity = this.targetVelocity.scale(0.3).add(newVelocity.scale(0.7));
+                    } else {
+                        this.targetVelocity = Vector3.Zero();
+                    }
+                    this.lastTargetPos.copyFrom(targetPos);
+                    this.lastTargetSeenTime = now; // Запоминаем время последнего наблюдения
+
+                    // УЛУЧШЕНО: Обновляем историю позиций для улучшенного предсказания
+                    if (now - this.lastPositionHistoryUpdate >= this.POSITION_HISTORY_INTERVAL) {
+                        this.updateTargetPositionHistory(targetPos.clone(), now);
+                        this.lastPositionHistoryUpdate = now;
+                    }
+
+                    // УЛУЧШЕНО: Анализируем паттерн движения периодически
+                    if (now - this.lastPatternAnalysisTime >= this.PATTERN_ANALYSIS_INTERVAL) {
+                        this.analyzeMovementPattern();
+                        this.lastPatternAnalysisTime = now;
+                    }
                 } else {
-                    this.targetVelocity = Vector3.Zero();
-                }
-                this.lastTargetPos.copyFrom(targetPos);
-                this.lastTargetSeenTime = now; // Запоминаем время последнего наблюдения
-
-                // УЛУЧШЕНО: Обновляем историю позиций для улучшенного предсказания
-                if (now - this.lastPositionHistoryUpdate >= this.POSITION_HISTORY_INTERVAL) {
-                    this.updateTargetPositionHistory(targetPos.clone(), now);
-                    this.lastPositionHistoryUpdate = now;
-                }
-
-                // УЛУЧШЕНО: Анализируем паттерн движения периодически
-                if (now - this.lastPatternAnalysisTime >= this.PATTERN_ANALYSIS_INTERVAL) {
-                    this.analyzeMovementPattern();
-                    this.lastPatternAnalysisTime = now;
+                    // Для дальних врагов - только базовая информация
+                    this.lastTargetPos.copyFrom(targetPos);
+                    this.lastTargetSeenTime = now;
                 }
             } else if (distance > this.detectRange * 1.5) {
                 // ИСПРАВЛЕНО: НЕ сбрасываем позицию - продолжаем преследовать даже если далеко!
@@ -2812,7 +2864,9 @@ export class EnemyTank {
 
             // КРИТИЧНО: makeDecision() вызывается ВСЕГДА, не только при видимости цели!
             // Это гарантирует что боты всегда активны (патрулируют, преследуют и т.д.)
-            if (now - this.lastDecisionTime > this.decisionInterval) {
+            // ОПТИМИЗАЦИЯ: Для дальних врагов увеличиваем интервал принятия решений
+            const decisionInterval = isFarEnemy ? this.decisionInterval * 2 : this.decisionInterval;
+            if (now - this.lastDecisionTime > decisionInterval) {
                 this.lastDecisionTime = now;
                 // Передаём distance и canSeeTarget для правильной логики преследования
                 this.makeDecision(distance, canSeeTarget);

@@ -1034,7 +1034,7 @@ export class NetworkMenu {
                             background: rgba(0, 5, 0, 0.5);
                             border: 1px solid rgba(0, 255, 4, 0.4);
                             border-radius: 4px; color: #0f0;
-                            font-family: Consolas, Monaco, monospace;
+                            font-family: 'Press Start 2P', monospace;
                             box-sizing: border-box;
                         ">
                     </div>
@@ -1045,7 +1045,7 @@ export class NetworkMenu {
                             background: rgba(0, 5, 0, 0.5);
                             border: 1px solid rgba(0, 255, 4, 0.4);
                             border-radius: 4px; color: #0f0;
-                            font-family: Consolas, Monaco, monospace;
+                            font-family: 'Press Start 2P', monospace;
                             box-sizing: border-box;
                         ">
                     </div>

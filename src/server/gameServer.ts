@@ -118,16 +118,16 @@ export class GameServer {
         serverLogger.log(`[Server] 📍 Локальный доступ:`);
         serverLogger.log(`[Server]    → ws://localhost:${port}`);
         serverLogger.log(`[Server]    → ws://127.0.0.1:${port}`);
-        
+
         const localIP = getLocalIP();
         const allIPs = getAllLocalIPs();
-        
+
         if (localIP) {
             serverLogger.log(`[Server] `);
             serverLogger.log(`[Server] 🌐 Сетевой доступ (для других ПК в сети):`);
             serverLogger.log(`[Server]    → ws://${localIP}:${port}`);
         }
-        
+
         if (allIPs.length > 1) {
             serverLogger.log(`[Server] `);
             serverLogger.log(`[Server] 📡 Все доступные IP-адреса:`);
@@ -135,7 +135,7 @@ export class GameServer {
                 serverLogger.log(`[Server]    → ws://${ip}:${port}`);
             });
         }
-        
+
         serverLogger.log(`[Server] ═══════════════════════════════════════════════════════════`);
         serverLogger.log(``);
     }
@@ -417,7 +417,13 @@ export class GameServer {
             case ClientMessageType.VOICE_OFFER:
             case ClientMessageType.VOICE_ANSWER:
             case ClientMessageType.VOICE_ICE_CANDIDATE:
-                if (player) this._handleVoiceSignaling(player, message);
+                if (player) {
+                    if (message.type === ClientMessageType.VOICE_TALKING) {
+                        this._handleVoiceTalking(player, message);
+                    } else {
+                        this._handleVoiceSignaling(player, message);
+                    }
+                }
                 break;
 
             case ClientMessageType.PING:
@@ -426,6 +432,10 @@ export class GameServer {
 
             case ClientMessageType.CHANGE_ROOM_SETTINGS:
                 if (player) this.handleChangeRoomSettings(player, message.data);
+                break;
+
+            case ClientMessageType.UPDATE_PROFILE:
+                if (player) this.handleUpdateProfile(player, message.data);
                 break;
 
             default:
@@ -492,6 +502,38 @@ export class GameServer {
                 }, 3000);
                 break;
             }
+        }
+    }
+
+    private handleUpdateProfile(player: ServerPlayer, data: any): void {
+        const { playerName } = data;
+        if (!playerName || typeof playerName !== 'string') return;
+
+        // Валидация имени
+        const cleanName = playerName.trim().substring(0, 20); // Limit length
+        if (cleanName.length < 1) return;
+
+        serverLogger.log(`[Server] 👤 Игрок ${player.id} сменил имя с "${player.name}" на "${cleanName}"`);
+
+        // Обновляем имя игрока
+        player.name = cleanName;
+
+        // Уведомляем всех в комнате (если игрок в комнате)
+        if (player.roomId) {
+            const room = this.rooms.get(player.roomId);
+            if (room) {
+                // Broadcast to everyone in room including sender
+                this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_PROFILE_UPDATED, {
+                    playerId: player.id,
+                    playerName: player.name
+                }));
+            }
+        } else {
+            // Если не в комнате, отправляем подтверждение самому игроку
+            this.send(player.socket, createServerMessage(ServerMessageType.PLAYER_PROFILE_UPDATED, {
+                playerId: player.id,
+                playerName: player.name
+            }));
         }
     }
 
@@ -674,7 +716,7 @@ export class GameServer {
                 room.startMatch();
                 const enemyData = room.getEnemyData();
                 serverLogger.log(`[Server] ✅ Игра с ботами запущена: ${enemyData.length} ботов`);
-                
+
                 // Отправляем сигнал старта игры создателю
                 this.send(player.socket, createServerMessage(ServerMessageType.GAME_START, {
                     roomId: room.id,
@@ -1121,7 +1163,7 @@ export class GameServer {
         const throttle = data.throttle || 0;
         const steer = data.steer || 0;
         const hasMovement = Math.abs(throttle) > 0.01 || Math.abs(steer) > 0.01;
-        
+
         if (!player._inputLogCount) player._inputLogCount = 0;
         if (player._inputLogCount < 3 || (hasMovement && player._inputLogCount % 60 === 0)) {
             const pos = player.position;
@@ -1612,6 +1654,32 @@ export class GameServer {
         }
     }
 
+    /**
+     * Обработка события о том, что игрок говорит по радио
+     * Рассылает уведомление всем игрокам в комнате
+     */
+    private _handleVoiceTalking(sender: ServerPlayer, message: ClientMessage): void {
+        if (!sender.roomId) return;
+
+        const room = this.rooms.get(sender.roomId);
+        if (!room) return;
+
+        const talking = message.data.talking || false;
+
+        // Рассылаем уведомление всем игрокам в комнате (кроме отправителя)
+        const notificationData = {
+            playerId: sender.id,
+            playerName: sender.name,
+            talking: talking
+        };
+
+        room.players.forEach((player) => {
+            if (player.id !== sender.id) {
+                this.send(player.socket, createServerMessage(ServerMessageType.VOICE_TALKING, notificationData));
+            }
+        });
+    }
+
     private handleConsumablePickup(player: ServerPlayer, data: any): void {
         if (!player.roomId) return;
 
@@ -1837,7 +1905,7 @@ export class GameServer {
     private startPeriodicStats(): void {
         // Сохраняем предыдущие значения для сравнения
         let lastStats: { rooms: number; activeRooms: number; players: number; connectedPlayers: number } | null = null;
-        
+
         // Выводим статистику каждые 5 минут или при изменениях
         setInterval(() => {
             const activeRooms = Array.from(this.rooms.values()).filter(r => r.isActive).length;
@@ -1846,20 +1914,20 @@ export class GameServer {
             const connectedPlayers = Array.from(this.players.values()).filter(p => p.connected).length;
 
             const currentStats = { rooms: totalRooms, activeRooms, players: totalPlayers, connectedPlayers };
-            
+
             // Логируем только если статистика изменилась или прошло 5 минут
-            const statsChanged = !lastStats || 
+            const statsChanged = !lastStats ||
                 lastStats.rooms !== currentStats.rooms ||
                 lastStats.activeRooms !== currentStats.activeRooms ||
                 lastStats.players !== currentStats.players ||
                 lastStats.connectedPlayers !== currentStats.connectedPlayers;
-            
+
             if (statsChanged) {
                 serverLogger.log(`[Server] 📊 Статистика: комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
                 lastStats = currentStats;
             }
         }, 30000); // Проверяем каждые 30 секунд, но логируем только при изменениях
-        
+
         // Также логируем каждые 5 минут независимо от изменений (для мониторинга)
         setInterval(() => {
             const activeRooms = Array.from(this.rooms.values()).filter(r => r.isActive).length;

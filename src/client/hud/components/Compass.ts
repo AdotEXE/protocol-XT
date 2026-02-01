@@ -58,12 +58,12 @@ export class Compass {
     private ticks: Rectangle[] = [];
     private cardinalLabels: TextBlock[] = [];
     private config: CompassConfig;
-    
+
     private currentAngle: number = 0;
-    
+
     constructor(parent: AdvancedDynamicTexture, config: Partial<CompassConfig> = {}) {
         this.config = { ...DEFAULT_COMPASS_CONFIG, ...config };
-        
+
         // Контейнер компаса
         this.container = new Rectangle("compassContainer");
         this.container.width = `${this.config.width}px`;
@@ -75,7 +75,7 @@ export class Compass {
         this.container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.container.top = "10px";
         parent.addControl(this.container);
-        
+
         // Контейнер для меток (обрезается)
         this.tickContainer = new Rectangle("tickContainer");
         this.tickContainer.width = `${this.config.width - 10}px`;
@@ -84,10 +84,10 @@ export class Compass {
         this.tickContainer.background = "transparent";
         this.tickContainer.clipChildren = true;
         this.container.addControl(this.tickContainer);
-        
+
         // Создать метки
         this.createTicks();
-        
+
         // Центральный индикатор
         this.centerIndicator = new Rectangle("compassCenter");
         this.centerIndicator.width = "2px";
@@ -97,27 +97,27 @@ export class Compass {
         this.centerIndicator.shadowColor = HUD_COLORS.PRIMARY;
         this.centerIndicator.shadowBlur = 5;
         this.container.addControl(this.centerIndicator);
-        
+
         // Текст градусов
         if (this.config.showDegrees) {
             this.degreeText = new TextBlock("degreeText");
             this.degreeText.text = "0°";
             this.degreeText.fontSize = 12;
             this.degreeText.color = HUD_COLORS.PRIMARY;
-            this.degreeText.fontFamily = "'Consolas', monospace";
+            this.degreeText.fontFamily = "'Press Start 2P', monospace";
             this.degreeText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             this.degreeText.top = "15px";
             this.container.addControl(this.degreeText);
         }
     }
-    
+
     /**
      * Создать метки компаса
      */
     private createTicks(): void {
         const tickWidth = this.config.width * 2; // Расширенная область для скроллинга
         const tickSpacing = tickWidth / 360 * this.config.tickInterval;
-        
+
         for (let angle = 0; angle < 360; angle += this.config.tickInterval) {
             // Основная метка
             const tick = new Rectangle(`tick_${angle}`);
@@ -128,7 +128,7 @@ export class Compass {
             tick.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             this.tickContainer.addControl(tick);
             this.ticks.push(tick);
-            
+
             // Буквенные обозначения
             if (this.config.showCardinals && angle % 45 === 0) {
                 const cardinal = CARDINAL_DIRECTIONS.find(c => c.angle === angle);
@@ -137,7 +137,7 @@ export class Compass {
                     label.text = cardinal.label;
                     label.fontSize = 10;
                     label.color = cardinal.color;
-                    label.fontFamily = "'Consolas', monospace";
+                    label.fontFamily = "'Press Start 2P', monospace";
                     label.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
                     label.top = "-2px";
                     this.tickContainer.addControl(label);
@@ -146,36 +146,36 @@ export class Compass {
             }
         }
     }
-    
+
     /**
      * Установить направление компаса
      * @param angle - Угол в градусах (0 = север)
      */
     setAngle(angle: number): void {
         this.currentAngle = ((angle % 360) + 360) % 360;
-        
+
         // Обновить позиции меток
         const containerWidth = this.config.width - 10;
         const pixelsPerDegree = containerWidth / 60; // 60 градусов видимо
-        
+
         let tickIndex = 0;
         let labelIndex = 0;
-        
+
         for (let a = 0; a < 360; a += this.config.tickInterval) {
             // Вычислить относительный угол
             let relAngle = a - this.currentAngle;
             if (relAngle > 180) relAngle -= 360;
             if (relAngle < -180) relAngle += 360;
-            
+
             const x = relAngle * pixelsPerDegree;
-            
+
             const tick = this.ticks[tickIndex];
             if (tick) {
                 tick.left = `${x}px`;
                 tick.isVisible = Math.abs(relAngle) <= 30;
             }
             tickIndex++;
-            
+
             // Обновить буквенные метки
             if (this.config.showCardinals && a % 45 === 0) {
                 const label = this.cardinalLabels[labelIndex];
@@ -186,27 +186,27 @@ export class Compass {
                 labelIndex++;
             }
         }
-        
+
         // Обновить текст градусов
         if (this.degreeText) {
             this.degreeText.text = `${Math.round(this.currentAngle)}°`;
         }
     }
-    
+
     /**
      * Получить текущий угол
      */
     getAngle(): number {
         return this.currentAngle;
     }
-    
+
     /**
      * Показать/скрыть
      */
     setVisible(visible: boolean): void {
         this.container.isVisible = visible;
     }
-    
+
     /**
      * Освободить ресурсы
      */

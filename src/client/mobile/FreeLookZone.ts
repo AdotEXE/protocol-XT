@@ -101,7 +101,7 @@ export class FreeLookZone {
         this.indicatorText.text = "FREE LOOK";
         this.indicatorText.fontSize = 20 * this.scale;
         this.indicatorText.color = this.config.indicatorColor;
-        this.indicatorText.fontFamily = "'Press Start 2P', Consolas, monospace";
+        this.indicatorText.fontFamily = "'Press Start 2P', monospace";
         this.indicatorText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.indicatorText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.indicatorText.top = "20px";

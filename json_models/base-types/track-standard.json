@@ -1,0 +1,20 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919139906,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "standard",
+    "name": "Standard Tracks",
+    "description": "Balanced tracks for all terrain",
+    "width": 0.4,
+    "height": 0.5,
+    "depth": 3.4,
+    "color": "#1a1a1a",
+    "style": "standard",
+    "stats": {},
+    "cost": 0
+  }
+}

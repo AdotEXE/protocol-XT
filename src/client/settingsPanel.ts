@@ -444,7 +444,7 @@ export class SettingsPanel {
                     cursor: pointer;
                     border-bottom: 2px solid transparent;
                     transition: all 0.2s;
-                    font-family: 'Press Start 2P', 'Courier New', monospace;
+                    font-family: 'Press Start 2P', monospace;
                     font-size: 11px;
                     letter-spacing: 0.5px;
                 }

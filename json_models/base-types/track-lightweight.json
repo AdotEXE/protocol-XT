@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140433,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "lightweight",
+    "name": "Lightweight Tracks",
+    "description": "Ultra-light tracks for maximum speed",
+    "width": 0.35,
+    "height": 0.4,
+    "depth": 3.2,
+    "color": "#0f0f0f",
+    "style": "lightweight",
+    "stats": {
+      "speedBonus": 0.25
+    },
+    "cost": 450
+  }
+}

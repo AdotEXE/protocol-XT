@@ -86,7 +86,7 @@ export class MapEditorLauncher {
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
-            font-family: 'Consolas', 'Monaco', monospace !important;
+            font-family: 'Press Start 2P', monospace !important;
             pointer-events: auto !important;
         `;
 
@@ -184,7 +184,7 @@ export class MapEditorLauncher {
                             background: rgba(0, 0, 0, 0.5);
                             border: 1px solid #0f0;
                             color: #fff;
-                            font-family: 'Consolas', 'Monaco', monospace;
+                            font-family: 'Press Start 2P', monospace;
                         ">
                         <button id="check-location-btn" style="
                             padding: 8px 15px;
@@ -209,7 +209,7 @@ export class MapEditorLauncher {
                         background: rgba(0, 0, 0, 0.5);
                         border: 1px solid #0f0;
                         color: #0f0;
-                        font-family: 'Consolas', 'Monaco', monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">
                         <option value="250">250x250 (маленькая)</option>
                         <option value="500" selected>500x500 (средняя)</option>
@@ -230,7 +230,7 @@ export class MapEditorLauncher {
                         background: rgba(0, 0, 0, 0.5);
                         border: 1px solid #0f0;
                         color: #0f0;
-                        font-family: 'Consolas', 'Monaco', monospace;
+                        font-family: 'Press Start 2P', monospace;
                         font-size: 14px;
                     ">
                         ${MAP_TYPES.map(type => `
@@ -283,7 +283,7 @@ export class MapEditorLauncher {
                                         border: 1px solid #f00;
                                         color: #f00;
                                         cursor: pointer;
-                                        font-family: 'Consolas', 'Monaco', monospace;
+                                        font-family: 'Press Start 2P', monospace;
                                         font-size: 12px;
                                         border-radius: 4px;
                                         margin-left: 10px;
@@ -311,7 +311,7 @@ export class MapEditorLauncher {
                     border: 2px solid #f00;
                     color: #f00;
                     cursor: pointer;
-                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-family: 'Press Start 2P', monospace;
                     font-size: 14px;
                     border-radius: 4px;
                     transition: all 0.2s;
@@ -322,7 +322,7 @@ export class MapEditorLauncher {
                     border: 2px solid #0f0;
                     color: #0f0;
                     cursor: pointer;
-                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-family: 'Press Start 2P', monospace;
                     font-size: 14px;
                     border-radius: 4px;
                     transition: all 0.2s;

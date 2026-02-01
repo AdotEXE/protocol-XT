@@ -183,7 +183,6 @@ export class WorldGenerationMenu {
         const mapInfoEl = document.getElementById("current-map-info");
         if (mapInfoEl) {
             const mapNames: Record<MapType, string> = {
-                normal: "Обычная",
                 sandbox: "Песочница",
                 sand: "Песок",
                 madness: "Безумие",
@@ -246,7 +245,7 @@ export class WorldGenerationMenu {
         mapInfo.style.cssText = `
             font-size: 12px;
             color: #7f7;
-            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
         `;
 
         titleGroup.appendChild(title);
@@ -291,7 +290,7 @@ export class WorldGenerationMenu {
                 border-radius: 4px;
                 color: ${this.currentTab === tab.id ? "#0f0" : "#7f7"};
                 font-size: 12px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 cursor: pointer;
                 transition: all 0.3s ease;
                 white-space: nowrap;
@@ -331,7 +330,7 @@ export class WorldGenerationMenu {
             align-items: center;
             gap: 10px;
             flex-wrap: wrap;
-            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
         `;
 
         const infoText = document.createElement("div");
@@ -341,7 +340,7 @@ export class WorldGenerationMenu {
             font-size: 12px;
             display: flex;
             align-items: center;
-            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
         `;
 
         const buttonGroup = document.createElement("div");
@@ -1482,7 +1481,7 @@ export class WorldGenerationMenu {
                             background: rgba(0, 5, 0, 0.5);
                             border: 1px solid rgba(0, 255, 4, 0.4);
                             border-radius: 4px; color: #0f0;
-                            font-family: Consolas, Monaco, monospace;
+                            font-family: 'Press Start 2P', monospace;
                         ">
                         <button class="panel-btn world-random-seed-btn" style="padding: 8px 12px;">🎲</button>
                     </div>
@@ -1498,7 +1497,7 @@ export class WorldGenerationMenu {
                         background: rgba(0, 5, 0, 0.5);
                         border: 1px solid rgba(0, 255, 4, 0.4);
                         border-radius: 4px; color: #0f0;
-                        font-family: Consolas, Monaco, monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">
                         <option value="small">Маленький (512x512)</option>
                         <option value="medium" selected>Средний (1024x1024)</option>
@@ -1517,7 +1516,7 @@ export class WorldGenerationMenu {
                         background: rgba(0, 5, 0, 0.5);
                         border: 1px solid rgba(0, 255, 4, 0.4);
                         border-radius: 4px; color: #0f0;
-                        font-family: Consolas, Monaco, monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">
                         <option value="plains">Равнины</option>
                         <option value="desert">Пустыня</option>

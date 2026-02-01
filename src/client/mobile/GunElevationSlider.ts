@@ -150,7 +150,7 @@ export class GunElevationSlider {
             this.angleText.text = "0°";
             this.angleText.fontSize = 12 * this.scale;
             this.angleText.color = "#ffffff";
-            this.angleText.fontFamily = "'Press Start 2P', Consolas, monospace";
+            this.angleText.fontFamily = "'Press Start 2P', monospace";
             this.angleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             this.angleText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             this.angleText.top = "-5px";

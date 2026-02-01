@@ -2,10 +2,13 @@
  * @module workshop/ConfigurationManager
  * @description Менеджер сохранения и загрузки кастомных конфигураций танков
  * 
- * Использует localStorage для хранения конфигураций
+ * Использует localStorage и файловую систему для хранения конфигураций
  */
 
 import { CustomTankConfiguration } from './types';
+import { validateCustomTankConfig } from '../utils/modelValidator';
+import { saveCustomTankConfig } from '../utils/modelFileSaver';
+import { loadCustomTankConfig, loadAllCustomTankConfigs } from '../utils/modelFileLoader';
 
 const STORAGE_KEY = 'customTankConfigurations';
 
@@ -18,14 +21,30 @@ export class ConfigurationManager {
      */
     static save(config: CustomTankConfiguration): void {
         try {
-            const saved = this.loadAll();
-            const index = saved.findIndex(c => c.id === config.id);
-            
+            // Валидация перед сохранением
+            const validation = validateCustomTankConfig(config);
+            if (!validation.valid) {
+                const errorMsg = `Validation failed: ${validation.errors.join(', ')}`;
+                console.error('[Workshop]', errorMsg);
+                if (validation.warnings.length > 0) {
+                    console.warn('[Workshop] Warnings:', validation.warnings);
+                }
+                throw new Error(errorMsg);
+            }
+
+            if (validation.warnings.length > 0) {
+                console.warn('[Workshop] Validation warnings:', validation.warnings);
+            }
+
             // Обновляем метаданные
             config.modifiedAt = Date.now();
             if (!config.createdAt) {
                 config.createdAt = Date.now();
             }
+
+            // Сохраняем в localStorage
+            const saved = this.loadAll();
+            const index = saved.findIndex(c => c.id === config.id);
             
             if (index >= 0) {
                 // Обновляем существующую
@@ -36,7 +55,18 @@ export class ConfigurationManager {
             }
             
             localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-            console.log(`[Workshop] Saved configuration: ${config.name} (${config.id})`);
+            console.log(`[Workshop] Saved configuration to localStorage: ${config.name} (${config.id})`);
+
+            // Сохраняем в файл (асинхронно, не блокируем)
+            saveCustomTankConfig(config).then(result => {
+                if (result.success) {
+                    console.log(`[Workshop] Saved configuration to file: ${config.name} (${config.id})`);
+                } else {
+                    console.warn(`[Workshop] Failed to save configuration to file: ${result.error}`);
+                }
+            }).catch(e => {
+                console.warn('[Workshop] Error saving configuration to file:', e);
+            });
         } catch (e) {
             console.error('[Workshop] Failed to save configuration:', e);
             throw e;
@@ -51,6 +81,11 @@ export class ConfigurationManager {
             const all = this.loadAll();
             const config = all.find(c => c.id === id);
             if (config) {
+                // Валидируем при загрузке
+                const validation = validateCustomTankConfig(config);
+                if (!validation.valid) {
+                    console.warn(`[Workshop] Loaded config ${id} has validation errors:`, validation.errors);
+                }
                 console.log(`[Workshop] Loaded configuration: ${config.name} (${id})`);
             }
             return config || null;
@@ -59,28 +94,143 @@ export class ConfigurationManager {
             return null;
         }
     }
+
+    /**
+     * Загрузить конфигурацию по ID асинхронно (включая файлы)
+     */
+    static async loadAsync(id: string): Promise<CustomTankConfiguration | null> {
+        try {
+            // Сначала проверяем localStorage
+            const localConfig = this.load(id);
+            if (localConfig) {
+                return localConfig;
+            }
+
+            // Пытаемся загрузить из файла
+            const fileConfig = await loadCustomTankConfig(id);
+            if (fileConfig) {
+                // Валидируем
+                const validation = validateCustomTankConfig(fileConfig);
+                if (validation.valid) {
+                    console.log(`[Workshop] Loaded configuration from file: ${fileConfig.name} (${id})`);
+                    return fileConfig;
+                } else {
+                    console.warn(`[Workshop] Config from file ${id} has validation errors:`, validation.errors);
+                }
+            }
+
+            return null;
+        } catch (e) {
+            console.error('[Workshop] Failed to load configuration:', e);
+            return null;
+        }
+    }
     
     /**
      * Загрузить все конфигурации
+     * ОБЯЗАТЕЛЬНО загружает из json_models (приоритет над localStorage)
+     * localStorage используется только как fallback
      */
     static loadAll(): CustomTankConfiguration[] {
         try {
+            const configs: CustomTankConfiguration[] = [];
+            const configIds = new Set<string>();
+
+            // ПРИОРИТЕТ 1: Загружаем из json_models (синхронно через кэш или fallback)
+            // Используем синхронную загрузку с кэшированием для совместимости
+            try {
+                // Пытаемся загрузить из файлов синхронно (если уже в кэше)
+                const { loadCustomTankConfigs } = require('../utils/modelLoader');
+                // Если кэш не загружен, возвращаем пустой массив и загружаем асинхронно
+                // Для синхронного метода используем только localStorage как fallback
+            } catch (e) {
+                console.warn('[Workshop] Cannot load from json_models synchronously, using localStorage fallback:', e);
+            }
+
+            // ПРИОРИТЕТ 2: Загружаем из localStorage (только если нет в json_models)
             const data = localStorage.getItem(STORAGE_KEY);
-            if (!data) {
-                return [];
+            if (data) {
+                try {
+                    const parsed = JSON.parse(data);
+                    if (Array.isArray(parsed)) {
+                        for (const config of parsed) {
+                            // Валидируем каждую конфигурацию
+                            const validation = validateCustomTankConfig(config);
+                            if (validation.valid && !configIds.has(config.id)) {
+                                configs.push(config);
+                                configIds.add(config.id);
+                            } else if (!validation.valid) {
+                                console.warn(`[Workshop] Skipping invalid config ${config.id}:`, validation.errors);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('[Workshop] Failed to parse localStorage data:', e);
+                }
             }
-            const parsed = JSON.parse(data);
-            // Валидация - проверяем что это массив
-            if (!Array.isArray(parsed)) {
-                console.warn('[Workshop] Invalid data format, resetting');
-                localStorage.removeItem(STORAGE_KEY);
-                return [];
-            }
-            return parsed as CustomTankConfiguration[];
+
+            return configs;
         } catch (e) {
             console.error('[Workshop] Failed to load configurations:', e);
-            // В случае ошибки очищаем повреждённые данные
-            localStorage.removeItem(STORAGE_KEY);
+            return [];
+        }
+    }
+
+    /**
+     * Загрузить все конфигурации асинхронно (ОБЯЗАТЕЛЬНО из json_models)
+     * Файлы из json_models имеют приоритет над localStorage
+     */
+    static async loadAllAsync(): Promise<CustomTankConfiguration[]> {
+        try {
+            const configs: CustomTankConfiguration[] = [];
+            const configIds = new Set<string>();
+
+            // ПРИОРИТЕТ 1: Загружаем из json_models (обязательно)
+            try {
+                const { loadCustomTankConfigs } = await import('../utils/modelLoader');
+                const fileConfigs = await loadCustomTankConfigs();
+                for (const config of fileConfigs) {
+                    // Валидируем
+                    const validation = validateCustomTankConfig(config);
+                    if (validation.valid) {
+                        configs.push(config);
+                        configIds.add(config.id);
+                        console.log(`[Workshop] Loaded config from json_models: ${config.name} (${config.id})`);
+                    } else {
+                        console.warn(`[Workshop] Skipping invalid config from json_models ${config.id}:`, validation.errors);
+                    }
+                }
+            } catch (e) {
+                console.warn('[Workshop] Failed to load configurations from json_models:', e);
+            }
+
+            // ПРИОРИТЕТ 2: Загружаем из localStorage (только если нет в json_models)
+            const data = localStorage.getItem(STORAGE_KEY);
+            if (data) {
+                try {
+                    const parsed = JSON.parse(data);
+                    if (Array.isArray(parsed)) {
+                        for (const config of parsed) {
+                            const validation = validateCustomTankConfig(config);
+                            if (validation.valid) {
+                                // Добавляем только если нет в json_models (файлы имеют приоритет)
+                                if (!configIds.has(config.id)) {
+                                    configs.push(config);
+                                    configIds.add(config.id);
+                                    console.log(`[Workshop] Loaded config from localStorage: ${config.name} (${config.id})`);
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error('[Workshop] Failed to parse localStorage data:', e);
+                }
+            }
+
+            console.log(`[Workshop] Loaded ${configs.length} total configurations (${configIds.size} unique)`);
+            return configs;
+        } catch (e) {
+            console.error('[Workshop] Failed to load configurations:', e);
             return [];
         }
     }

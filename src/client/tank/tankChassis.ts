@@ -30,7 +30,8 @@ export const CHASSIS_SIZE_MULTIPLIERS: Record<string, { width: number, height: n
     "artillery": { width: 1.2, height: 1.25, depth: 1.15 },
     "destroyer": { width: 0.85, height: 0.75, depth: 1.4 },
     "command": { width: 1.1, height: 1.2, depth: 1.1 },
-    "medium": { width: 1.0, height: 1.0, depth: 1.0 }
+    "medium": { width: 1.0, height: 1.0, depth: 1.0 },
+    "plane": { width: 1.0, height: 1.0, depth: 1.0 }
 };
 
 export interface ChassisAnimationElements {
@@ -152,6 +153,11 @@ export function createUniqueChassis(
     // Хитбокс создаётся ТОЛЬКО для основного корпуса (chassis mesh) как простой прямоугольник
     addChassisDetails(chassis, chassisType, scene, color, animationElements);
 
+    // Для самолёта скрываем основной меш (коробку) - показываем только детали МиГ-31
+    if (chassisType.id === "plane") {
+        chassis.isVisible = false;
+    }
+
     return chassis;
 }
 
@@ -170,8 +176,8 @@ export function addChassisDetails(
     baseColor: Color3,
     animationElements: ChassisAnimationElements
 ): void {
-    // ФИЛЬТР: Детали только для light, medium, racer, scout
-    const detailedChassis = ["light", "medium", "racer", "scout"];
+    // ФИЛЬТР: Детали только для light, medium, racer, scout, plane
+    const detailedChassis = ["light", "medium", "racer", "scout", "plane"];
     if (!detailedChassis.includes(chassisType.id)) {
         return; // Нет деталей для других корпусов
     }
@@ -314,6 +320,13 @@ export function addChassisDetails(
             for (let i = 0; i < 2; i++) {
                 ChassisDetailsGenerator.createTailLight(scene, chassis, new Vector3((i === 0 ? -1 : 1) * w * 0.3, h * 0.12, -d * 0.49), 0.04, 0.06, 0.03, i, "gameScout");
             }
+            break;
+        case "plane":
+            ChassisDetailsGenerator.addPlaneDetails(
+                scene, chassis,
+                w, h, d,
+                baseColor, "game"
+            );
             break;
     }
 }

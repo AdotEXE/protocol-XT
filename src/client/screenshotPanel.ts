@@ -14,33 +14,33 @@ export class ScreenshotPanel {
     private gallery: ScreenshotGallery;
     private game: any;
     private embedded: boolean = false;
-    
+
     constructor(screenshotManager: ScreenshotManager, game: any, embedded: boolean = false) {
         this.screenshotManager = screenshotManager;
         this.game = game;
         this.gallery = new ScreenshotGallery();
         this.embedded = embedded;
-        
+
         // Не создаём overlay UI если панель будет встроена в другое меню
         if (!embedded) {
             this.createUI();
             this.setupEventListeners();
         }
     }
-    
+
     /**
      * Создание UI панели
      */
     private createUI(): void {
         // Инжектируем общие стили если еще не инжектированы
         CommonStyles.initialize();
-        
-        
+
+
         this.container = document.createElement('div');
         this.container.id = 'screenshot-panel';
         this.container.className = 'panel-overlay';
-        
-        
+
+
         this.container.innerHTML = `
             <div class="panel" style="width: min(600px, 90vw); max-height: min(800px, 90vh);">
                 <div class="panel-header">
@@ -58,7 +58,7 @@ export class ScreenshotPanel {
                         border: 1px solid rgba(0, 255, 4, 0.4);
                         border-radius: 4px;
                         color: #0f0;
-                        font-family: Consolas, monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">
                         <option value="png">PNG</option>
                         <option value="jpeg">JPEG</option>
@@ -88,7 +88,7 @@ export class ScreenshotPanel {
                         border: 1px solid rgba(0, 255, 4, 0.4);
                         border-radius: 4px;
                         color: #0f0;
-                        font-family: Consolas, monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">
                         <option value="full">Полный экран</option>
                         <option value="game">Только игра</option>
@@ -192,7 +192,7 @@ export class ScreenshotPanel {
                     border: 1px solid rgba(0, 255, 4, 0.6);
                     border-radius: 4px;
                     color: #0f0;
-                    font-family: Consolas, monospace;
+                    font-family: 'Press Start 2P', monospace;
                     font-weight: bold;
                     cursor: pointer;
                 ">Сделать скриншот</button>
@@ -203,22 +203,22 @@ export class ScreenshotPanel {
                     border: 1px solid rgba(0, 255, 4, 0.6);
                     border-radius: 4px;
                     color: #0f0;
-                    font-family: Consolas, monospace;
+                    font-family: 'Press Start 2P', monospace;
                     cursor: pointer;
                 ">Галерея</button>
             </div>
         `;
-        
+
         document.body.appendChild(this.container);
     }
-    
+
     /**
      * Настройка обработчиков событий
      */
     private setupEventListeners(): void {
         // Закрытие панели
         document.getElementById('screenshot-panel-close')?.addEventListener('click', () => this.hide());
-        
+
         // Формат - показывать/скрывать качество для JPEG/WebP
         document.getElementById('screenshot-format')?.addEventListener('change', (e) => {
             const format = (e.target as HTMLSelectElement).value;
@@ -228,7 +228,7 @@ export class ScreenshotPanel {
             }
             this.saveSettings();
         });
-        
+
         // Качество
         document.getElementById('screenshot-quality')?.addEventListener('input', (e) => {
             const value = (e.target as HTMLInputElement).value;
@@ -236,10 +236,10 @@ export class ScreenshotPanel {
             if (display) display.textContent = `${value}%`;
             this.saveSettings();
         });
-        
+
         // Режим
         document.getElementById('screenshot-mode')?.addEventListener('change', () => this.saveSettings());
-        
+
         // Фильтры
         ['brightness', 'contrast', 'saturation'].forEach(filter => {
             const slider = document.getElementById(`filter-${filter}`);
@@ -250,7 +250,7 @@ export class ScreenshotPanel {
                 this.saveSettings();
             });
         });
-        
+
         // Водяной знак
         document.getElementById('watermark-enabled')?.addEventListener('change', (e) => {
             const enabled = (e.target as HTMLInputElement).checked;
@@ -258,10 +258,10 @@ export class ScreenshotPanel {
             if (controls) controls.style.display = enabled ? 'block' : 'none';
             this.saveSettings();
         });
-        
+
         document.getElementById('watermark-text')?.addEventListener('input', () => this.saveSettings());
         document.getElementById('watermark-position')?.addEventListener('change', () => this.saveSettings());
-        
+
         // Автоматические скриншоты
         document.getElementById('auto-interval')?.addEventListener('change', (e) => {
             const enabled = (e.target as HTMLInputElement).checked;
@@ -269,24 +269,24 @@ export class ScreenshotPanel {
             if (controls) controls.style.display = enabled ? 'block' : 'none';
             this.saveSettings();
         });
-        
+
         ['auto-kill', 'auto-death', 'auto-achievement', 'auto-interval'].forEach(id => {
             document.getElementById(id)?.addEventListener('change', () => this.saveSettings());
         });
-        
+
         document.getElementById('interval-seconds')?.addEventListener('change', () => this.saveSettings());
-        
+
         // Кнопки
         document.getElementById('take-screenshot')?.addEventListener('click', () => this.takeScreenshot());
         document.getElementById('open-gallery')?.addEventListener('click', () => {
             this.hide();
             this.gallery.show();
         });
-        
+
         // Загрузка сохранённых настроек
         this.loadSettings();
     }
-    
+
     /**
      * Сохранение настроек в localStorage
      */
@@ -300,14 +300,14 @@ export class ScreenshotPanel {
         const watermarkEnabled = (document.getElementById('watermark-enabled') as HTMLInputElement)?.checked || false;
         const watermarkText = (document.getElementById('watermark-text') as HTMLInputElement)?.value || '';
         const watermarkPosition = (document.getElementById('watermark-position') as HTMLSelectElement)?.value || 'bottom-right';
-        
+
         localStorage.setItem('ptx_screenshot_format', format);
         localStorage.setItem('ptx_screenshot_mode', mode);
         localStorage.setItem('ptx_screenshot_quality', quality);
         localStorage.setItem('ptx_screenshot_filters', JSON.stringify({ brightness: parseInt(brightness), contrast: parseInt(contrast), saturation: parseInt(saturation) }));
         localStorage.setItem('ptx_screenshot_watermark', JSON.stringify({ enabled: watermarkEnabled, text: watermarkText, position: watermarkPosition }));
     }
-    
+
     /**
      * Загрузка настроек из localStorage
      */
@@ -317,7 +317,7 @@ export class ScreenshotPanel {
         const quality = localStorage.getItem('ptx_screenshot_quality') || '92';
         const filters = JSON.parse(localStorage.getItem('ptx_screenshot_filters') || '{"brightness":0,"contrast":0,"saturation":0}');
         const watermark = JSON.parse(localStorage.getItem('ptx_screenshot_watermark') || '{"enabled":false,"text":"","position":"bottom-right"}');
-        
+
         (document.getElementById('screenshot-format') as HTMLSelectElement).value = format;
         (document.getElementById('screenshot-mode') as HTMLSelectElement).value = mode;
         (document.getElementById('screenshot-quality') as HTMLInputElement).value = quality;
@@ -331,7 +331,7 @@ export class ScreenshotPanel {
         (document.getElementById('watermark-enabled') as HTMLInputElement).checked = watermark.enabled || false;
         (document.getElementById('watermark-text') as HTMLInputElement).value = watermark.text || '';
         (document.getElementById('watermark-position') as HTMLSelectElement).value = watermark.position || 'bottom-right';
-        
+
         // Показать/скрыть контролы
         const qualityControl = document.getElementById('quality-control');
         if (qualityControl) {
@@ -342,7 +342,7 @@ export class ScreenshotPanel {
             watermarkControls.style.display = watermark.enabled ? 'block' : 'none';
         }
     }
-    
+
     /**
      * Создание скриншота с текущими настройками
      */
@@ -357,7 +357,7 @@ export class ScreenshotPanel {
             const watermarkEnabled = (document.getElementById('watermark-enabled') as HTMLInputElement)?.checked || false;
             const watermarkText = (document.getElementById('watermark-text') as HTMLInputElement)?.value || '';
             const watermarkPosition = (document.getElementById('watermark-position') as HTMLSelectElement)?.value || 'bottom-right';
-            
+
             const formatMap: { [key: string]: ScreenshotFormat } = {
                 'png': ScreenshotFormat.PNG,
                 'jpeg': ScreenshotFormat.JPEG,
@@ -369,7 +369,7 @@ export class ScreenshotPanel {
                 'ui': ScreenshotMode.UI_ONLY,
                 'region': ScreenshotMode.REGION
             };
-            
+
             const options: ScreenshotOptions = {
                 format: formatMap[format] || ScreenshotFormat.PNG,
                 quality: quality,
@@ -386,15 +386,15 @@ export class ScreenshotPanel {
                     fontSize: 24
                 } : undefined
             };
-            
+
             const blob = await this.screenshotManager.capture(options);
             await this.screenshotManager.copyToClipboard(blob);
             await this.screenshotManager.saveToLocalStorage(blob, options);
-            
+
             if (this.game?.hud) {
                 this.game.hud.showMessage("📸 Screenshot saved! (Ctrl+2)", "#0f0", 3000);
             }
-            
+
             logger.log("[ScreenshotPanel] Screenshot taken with options:", options);
         } catch (error) {
             logger.error("[ScreenshotPanel] Screenshot failed:", error);
@@ -403,7 +403,7 @@ export class ScreenshotPanel {
             }
         }
     }
-    
+
     /**
      * Показать панель
      */
@@ -413,14 +413,14 @@ export class ScreenshotPanel {
             this.container.style.display = 'flex';
             this.loadSettings();
         }
-        
+
         // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {
             document.exitPointerLock();
         }
         document.body.style.cursor = 'default';
     }
-    
+
     /**
      * Скрыть панель
      */
@@ -430,23 +430,23 @@ export class ScreenshotPanel {
             this.container.style.display = 'none';
         }
     }
-    
+
     /**
      * Переключить видимость
      */
     toggle(): void {
-        
+
         if (this._isVisible) {
             this.hide();
         } else {
             this.show();
         }
     }
-    
+
     isVisible(): boolean {
         return this._isVisible;
     }
-    
+
     /**
      * Рендерит контент панели в переданный контейнер (для UnifiedMenu)
      */
@@ -455,7 +455,7 @@ export class ScreenshotPanel {
         this.setupEmbeddedEventListeners(container);
         this.loadEmbeddedSettings(container);
     }
-    
+
     /**
      * Возвращает HTML контента без overlay wrapper
      */
@@ -476,7 +476,7 @@ export class ScreenshotPanel {
                         border: 1px solid rgba(0, 255, 4, 0.4);
                         border-radius: 4px;
                         color: #0f0;
-                        font-family: Consolas, monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">
                         <option value="png">PNG</option>
                         <option value="jpeg">JPEG</option>
@@ -500,7 +500,7 @@ export class ScreenshotPanel {
                         border: 1px solid rgba(0, 255, 4, 0.4);
                         border-radius: 4px;
                         color: #0f0;
-                        font-family: Consolas, monospace;
+                        font-family: 'Press Start 2P', monospace;
                     ">
                         <option value="full">Полный экран</option>
                         <option value="game">Только игра</option>
@@ -573,7 +573,7 @@ export class ScreenshotPanel {
             </div>
         `;
     }
-    
+
     /**
      * Привязывает обработчики событий для embedded режима
      */
@@ -586,7 +586,7 @@ export class ScreenshotPanel {
         const watermarkControls = container.querySelector(".ss-watermark-controls-embedded") as HTMLElement;
         const takeBtn = container.querySelector(".ss-take-btn-embedded");
         const galleryBtn = container.querySelector(".ss-gallery-btn-embedded");
-        
+
         // Формат
         formatSelect?.addEventListener("change", () => {
             const format = formatSelect.value;
@@ -595,13 +595,13 @@ export class ScreenshotPanel {
             }
             this.saveEmbeddedSettings(container);
         });
-        
+
         // Качество
         qualitySlider?.addEventListener("input", () => {
             if (qualityValue) qualityValue.textContent = `${qualitySlider.value}%`;
             this.saveEmbeddedSettings(container);
         });
-        
+
         // Фильтры
         ["brightness", "contrast", "saturation"].forEach(filter => {
             const slider = container.querySelector(`.ss-${filter}-embedded`) as HTMLInputElement;
@@ -611,7 +611,7 @@ export class ScreenshotPanel {
                 this.saveEmbeddedSettings(container);
             });
         });
-        
+
         // Водяной знак
         watermarkEnabled?.addEventListener("change", () => {
             if (watermarkControls) {
@@ -619,14 +619,14 @@ export class ScreenshotPanel {
             }
             this.saveEmbeddedSettings(container);
         });
-        
+
         // Кнопка скриншота
         takeBtn?.addEventListener("click", () => this.takeEmbeddedScreenshot(container));
-        
+
         // Кнопка галереи
         galleryBtn?.addEventListener("click", () => this.gallery.show());
     }
-    
+
     /**
      * Загрузка настроек для embedded режима
      */
@@ -636,13 +636,13 @@ export class ScreenshotPanel {
         const quality = localStorage.getItem("ptx_screenshot_quality") || "92";
         const filters = JSON.parse(localStorage.getItem("ptx_screenshot_filters") || '{"brightness":0,"contrast":0,"saturation":0}');
         const watermark = JSON.parse(localStorage.getItem("ptx_screenshot_watermark") || '{"enabled":false,"text":"","position":"bottom-right"}');
-        
+
         const formatSelect = container.querySelector(".ss-format-embedded") as HTMLSelectElement;
         const modeSelect = container.querySelector(".ss-mode-embedded") as HTMLSelectElement;
         const qualitySlider = container.querySelector(".ss-quality-embedded") as HTMLInputElement;
         const qualityValue = container.querySelector(".ss-quality-value-embedded") as HTMLElement;
         const qualityControl = container.querySelector(".ss-quality-control-embedded") as HTMLElement;
-        
+
         if (formatSelect) formatSelect.value = format;
         if (modeSelect) modeSelect.value = mode;
         if (qualitySlider) qualitySlider.value = quality;
@@ -650,19 +650,19 @@ export class ScreenshotPanel {
         if (qualityControl) {
             qualityControl.style.display = (format === "jpeg" || format === "webp") ? "block" : "none";
         }
-        
+
         ["brightness", "contrast", "saturation"].forEach(filter => {
             const slider = container.querySelector(`.ss-${filter}-embedded`) as HTMLInputElement;
             const valueDisplay = container.querySelector(`.ss-${filter}-value-embedded`) as HTMLElement;
             if (slider) slider.value = filters[filter] || "0";
             if (valueDisplay) valueDisplay.textContent = filters[filter] || "0";
         });
-        
+
         const watermarkEnabled = container.querySelector(".ss-watermark-enabled-embedded") as HTMLInputElement;
         const watermarkText = container.querySelector(".ss-watermark-text-embedded") as HTMLInputElement;
         const watermarkPosition = container.querySelector(".ss-watermark-position-embedded") as HTMLSelectElement;
         const watermarkControls = container.querySelector(".ss-watermark-controls-embedded") as HTMLElement;
-        
+
         if (watermarkEnabled) watermarkEnabled.checked = watermark.enabled || false;
         if (watermarkText) watermarkText.value = watermark.text || "";
         if (watermarkPosition) watermarkPosition.value = watermark.position || "bottom-right";
@@ -670,7 +670,7 @@ export class ScreenshotPanel {
             watermarkControls.style.display = watermark.enabled ? "block" : "none";
         }
     }
-    
+
     /**
      * Сохранение настроек для embedded режима
      */
@@ -684,14 +684,14 @@ export class ScreenshotPanel {
         const watermarkEnabled = (container.querySelector(".ss-watermark-enabled-embedded") as HTMLInputElement)?.checked || false;
         const watermarkText = (container.querySelector(".ss-watermark-text-embedded") as HTMLInputElement)?.value || "";
         const watermarkPosition = (container.querySelector(".ss-watermark-position-embedded") as HTMLSelectElement)?.value || "bottom-right";
-        
+
         localStorage.setItem("ptx_screenshot_format", format);
         localStorage.setItem("ptx_screenshot_mode", mode);
         localStorage.setItem("ptx_screenshot_quality", quality);
         localStorage.setItem("ptx_screenshot_filters", JSON.stringify({ brightness: parseInt(brightness), contrast: parseInt(contrast), saturation: parseInt(saturation) }));
         localStorage.setItem("ptx_screenshot_watermark", JSON.stringify({ enabled: watermarkEnabled, text: watermarkText, position: watermarkPosition }));
     }
-    
+
     /**
      * Создание скриншота для embedded режима
      */
@@ -706,7 +706,7 @@ export class ScreenshotPanel {
             const watermarkEnabled = (container.querySelector(".ss-watermark-enabled-embedded") as HTMLInputElement)?.checked || false;
             const watermarkText = (container.querySelector(".ss-watermark-text-embedded") as HTMLInputElement)?.value || "";
             const watermarkPosition = (container.querySelector(".ss-watermark-position-embedded") as HTMLSelectElement)?.value || "bottom-right";
-            
+
             const formatMap: { [key: string]: ScreenshotFormat } = {
                 "png": ScreenshotFormat.PNG,
                 "jpeg": ScreenshotFormat.JPEG,
@@ -718,7 +718,7 @@ export class ScreenshotPanel {
                 "ui": ScreenshotMode.UI_ONLY,
                 "region": ScreenshotMode.REGION
             };
-            
+
             const options: ScreenshotOptions = {
                 format: formatMap[format] || ScreenshotFormat.PNG,
                 quality: quality,
@@ -735,15 +735,15 @@ export class ScreenshotPanel {
                     fontSize: 24
                 } : undefined
             };
-            
+
             const blob = await this.screenshotManager.capture(options);
             await this.screenshotManager.copyToClipboard(blob);
             await this.screenshotManager.saveToLocalStorage(blob, options);
-            
+
             if (this.game?.hud) {
                 this.game.hud.showMessage("📸 Screenshot saved!", "#0f0", 3000);
             }
-            
+
             logger.log("[ScreenshotPanel] Embedded screenshot taken with options:", options);
         } catch (error) {
             logger.error("[ScreenshotPanel] Embedded screenshot failed:", error);

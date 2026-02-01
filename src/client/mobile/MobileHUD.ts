@@ -37,22 +37,22 @@ export class MobileHUD {
     private guiTexture: AdvancedDynamicTexture;
     private config: MobileHUDConfig;
     private scale: number;
-    
+
     // Health bar
     private healthContainer: Rectangle | null = null;
     private healthFill: Rectangle | null = null;
     private healthText: TextBlock | null = null;
     private healthIcon: TextBlock | null = null;
-    
+
     // Ammo display
     private ammoContainer: Rectangle | null = null;
     private ammoText: TextBlock | null = null;
     private ammoIcon: TextBlock | null = null;
-    
+
     // Kills counter
     private killsContainer: Rectangle | null = null;
     private killsText: TextBlock | null = null;
-    
+
     constructor(
         guiTexture: AdvancedDynamicTexture,
         config: Partial<MobileHUDConfig> = {}
@@ -68,7 +68,7 @@ export class MobileHUD {
         };
         this.create();
     }
-    
+
     /**
      * Создать элементы HUD
      */
@@ -77,13 +77,13 @@ export class MobileHUD {
         this.createAmmoDisplay();
         this.createKillsCounter();
     }
-    
+
     /**
      * Создать полосу здоровья
      */
     private createHealthBar(): void {
         const cfg = this.config;
-        
+
         // Контейнер
         this.healthContainer = new Rectangle("mobileHealthContainer");
         this.healthContainer.width = `${cfg.healthBarWidth}px`;
@@ -97,7 +97,7 @@ export class MobileHUD {
         this.healthContainer.top = `${cfg.margin}px`;
         this.healthContainer.zIndex = 1000;
         this.guiTexture.addControl(this.healthContainer);
-        
+
         // Иконка
         this.healthIcon = new TextBlock("mobileHealthIcon");
         this.healthIcon.text = "❤️";
@@ -106,7 +106,7 @@ export class MobileHUD {
         this.healthIcon.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.healthIcon.left = "5px";
         this.healthContainer.addControl(this.healthIcon);
-        
+
         // Заполнение
         this.healthFill = new Rectangle("mobileHealthFill");
         this.healthFill.width = "0%";
@@ -116,25 +116,25 @@ export class MobileHUD {
         this.healthFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.healthFill.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.healthContainer.addControl(this.healthFill);
-        
+
         // Текст
         this.healthText = new TextBlock("mobileHealthText");
         this.healthText.text = "100/100";
         this.healthText.fontSize = cfg.fontSize * 0.7;
         this.healthText.fontWeight = "bold";
-        this.healthText.fontFamily = "'Press Start 2P', Consolas, monospace";
+        this.healthText.fontFamily = "'Press Start 2P', monospace";
         this.healthText.color = "#ffffff";
         this.healthText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.healthText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.healthContainer.addControl(this.healthText);
     }
-    
+
     /**
      * Создать отображение боеприпасов
      */
     private createAmmoDisplay(): void {
         const cfg = this.config;
-        
+
         // Контейнер
         this.ammoContainer = new Rectangle("mobileAmmoContainer");
         this.ammoContainer.width = `${cfg.healthBarWidth * 0.6}px`;
@@ -148,7 +148,7 @@ export class MobileHUD {
         this.ammoContainer.top = `${cfg.margin + cfg.healthBarHeight + 10}px`;
         this.ammoContainer.zIndex = 1000;
         this.guiTexture.addControl(this.ammoContainer);
-        
+
         // Иконка
         this.ammoIcon = new TextBlock("mobileAmmoIcon");
         this.ammoIcon.text = "💥";
@@ -157,25 +157,25 @@ export class MobileHUD {
         this.ammoIcon.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.ammoIcon.left = "5px";
         this.ammoContainer.addControl(this.ammoIcon);
-        
+
         // Текст
         this.ammoText = new TextBlock("mobileAmmoText");
         this.ammoText.text = "30/30";
         this.ammoText.fontSize = cfg.fontSize * 0.7;
         this.ammoText.fontWeight = "bold";
-        this.ammoText.fontFamily = "'Press Start 2P', Consolas, monospace";
+        this.ammoText.fontFamily = "'Press Start 2P', monospace";
         this.ammoText.color = "#ffffff";
         this.ammoText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.ammoText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.ammoContainer.addControl(this.ammoText);
     }
-    
+
     /**
      * Создать счётчик убийств
      */
     private createKillsCounter(): void {
         const cfg = this.config;
-        
+
         // Контейнер
         this.killsContainer = new Rectangle("mobileKillsContainer");
         this.killsContainer.width = `${cfg.healthBarWidth * 0.4}px`;
@@ -189,29 +189,29 @@ export class MobileHUD {
         this.killsContainer.top = `${cfg.margin}px`;
         this.killsContainer.zIndex = 1000;
         this.guiTexture.addControl(this.killsContainer);
-        
+
         // Текст
         this.killsText = new TextBlock("mobileKillsText");
         this.killsText.text = "0";
         this.killsText.fontSize = cfg.fontSize * 0.8;
         this.killsText.fontWeight = "bold";
-        this.killsText.fontFamily = "'Press Start 2P', Consolas, monospace";
+        this.killsText.fontFamily = "'Press Start 2P', monospace";
         this.killsText.color = "#ffffff";
         this.killsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.killsText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         this.killsContainer.addControl(this.killsText);
     }
-    
+
     /**
      * Обновить здоровье
      */
     updateHealth(current: number, max: number): void {
         if (!this.healthFill || !this.healthText) return;
-        
+
         const percent = Math.max(0, Math.min(100, (current / max) * 100));
         this.healthFill.width = `${percent}%`;
         this.healthText.text = `${Math.floor(current)}/${Math.floor(max)}`;
-        
+
         // Изменение цвета в зависимости от здоровья
         if (percent < 25) {
             this.healthFill.background = "#ff0000";
@@ -221,7 +221,7 @@ export class MobileHUD {
             this.healthFill.background = "#00ff00";
         }
     }
-    
+
     /**
      * Обновить боеприпасы
      */
@@ -229,7 +229,7 @@ export class MobileHUD {
         if (!this.ammoText) return;
         this.ammoText.text = `${current}/${max}`;
     }
-    
+
     /**
      * Обновить счётчик убийств
      */
@@ -237,7 +237,7 @@ export class MobileHUD {
         if (!this.killsText) return;
         this.killsText.text = `${count}`;
     }
-    
+
     /**
      * Показать/скрыть HUD
      */
@@ -252,7 +252,7 @@ export class MobileHUD {
             this.killsContainer.isVisible = visible;
         }
     }
-    
+
     /**
      * Уничтожить HUD
      */

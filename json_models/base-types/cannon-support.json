@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141170,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "support",
+    "name": "Support Beam",
+    "barrelLength": 2.2,
+    "barrelWidth": 0.24,
+    "damage": 20,
+    "cooldown": 1500,
+    "projectileSpeed": 250,
+    "projectileSize": 0.2,
+    "color": "#00ff88",
+    "description": "Ремонтный луч, лечит союзников. Урон: 20 | Перезарядка: 1.5с | Лечит союзников на 30 HP, наносит урон врагов. Поддержка команды.",
+    "recoilMultiplier": 0.6,
+    "maxRange": 301
+  }
+}

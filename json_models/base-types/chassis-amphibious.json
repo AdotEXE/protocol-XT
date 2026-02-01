@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140324,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "amphibious",
+    "name": "Amphibious",
+    "width": 2.1,
+    "height": 0.8,
+    "depth": 3.6,
+    "mass": 1600,
+    "maxHealth": 95,
+    "moveSpeed": 26,
+    "turnSpeed": 5.6,
+    "acceleration": 11000,
+    "color": "#0088ff",
+    "description": "Амфибийный корпус для работы на суше и воде. Способность: движение по воде без штрафа к скорости. Универсальный выбор для карт с водоемами. HP: 95 | Скорость: 26 | Броня: средняя",
+    "specialAbility": "amphibious"
+  }
+}

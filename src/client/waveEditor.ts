@@ -25,12 +25,12 @@ export class WaveEditor {
     private visible: boolean = false;
     private waves: Wave[] = [];
     private currentWave: Wave | null = null;
-    
+
     constructor() {
         this.waves = this.loadWaves();
         this.createUI();
     }
-    
+
     /**
      * Создание UI
      */
@@ -38,7 +38,7 @@ export class WaveEditor {
         this.container = document.createElement("div");
         this.container.id = "wave-editor";
         this.container.className = "panel-overlay";
-        
+
         const style = document.createElement("style");
         style.textContent = `
             /* ИСПРАВЛЕНИЕ: Переопределяем стили panel-overlay для wave-editor */
@@ -65,7 +65,7 @@ export class WaveEditor {
                 border: 2px solid rgba(0, 255, 4, 0.6);
                 border-radius: 8px;
                 color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
@@ -214,7 +214,7 @@ export class WaveEditor {
                 border: 1px solid rgba(0, 255, 4, 0.4);
                 border-radius: 4px;
                 color: #0f0;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-size: 12px;
             }
             .enemy-list {
@@ -251,12 +251,12 @@ export class WaveEditor {
             }
         `;
         document.head.appendChild(style);
-        
+
         this.updateUI();
         document.body.appendChild(this.container);
         this.setupEventListeners();
     }
-    
+
     /**
      * Обновление UI
      */
@@ -280,25 +280,25 @@ export class WaveEditor {
                 </div>
             </div>
         `;
-        
+
         this.renderWaveList();
         const detailsDiv = document.getElementById("wave-details");
         if (detailsDiv) {
             detailsDiv.innerHTML = this.currentWave ? this.renderWaveDetails() : '<div style="color: #666; text-align: center; padding: 40px;">Выберите волну для редактирования</div>';
         }
     }
-    
+
     /**
      * Рендер встроенного редактора волн (для SessionSettings)
      */
     renderEmbeddedEditor(): void {
         const listContainer = document.getElementById("wave-list-items-embedded");
         const detailsContainer = document.getElementById("wave-details-embedded");
-        
+
         if (listContainer) {
             this.renderEmbeddedWaveList(listContainer);
         }
-        
+
         if (detailsContainer) {
             if (this.currentWave) {
                 detailsContainer.innerHTML = this.renderWaveDetails();
@@ -307,18 +307,18 @@ export class WaveEditor {
             }
         }
     }
-    
+
     /**
      * Рендер списка волн для встроенного редактора
      */
     private renderEmbeddedWaveList(container: HTMLElement): void {
         container.innerHTML = '';
-        
+
         if (this.waves.length === 0) {
             container.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">Нет волн. Добавьте первую волну.</div>';
             return;
         }
-        
+
         this.waves.forEach((wave, index) => {
             const item = document.createElement("div");
             item.style.cssText = `
@@ -340,7 +340,7 @@ export class WaveEditor {
                 this.currentWave = wave;
                 this.renderEmbeddedEditor();
             });
-            
+
             const deleteBtn = document.createElement("button");
             deleteBtn.textContent = "✕";
             deleteBtn.style.cssText = `
@@ -366,25 +366,25 @@ export class WaveEditor {
                 }
             });
             item.appendChild(deleteBtn);
-            
+
             container.appendChild(item);
         });
     }
-    
+
     /**
      * Рендер списка волн
      */
     private renderWaveList(): void {
         const list = document.getElementById("wave-list-items");
         if (!list) return;
-        
+
         list.innerHTML = '';
-        
+
         if (this.waves.length === 0) {
             list.innerHTML = '<div style="color: #666; text-align: center; padding: 20px;">Нет волн. Добавьте первую волну.</div>';
             return;
         }
-        
+
         this.waves.forEach((wave, index) => {
             const item = document.createElement("div");
             item.className = `wave-item ${wave === this.currentWave ? 'active' : ''}`;
@@ -398,7 +398,7 @@ export class WaveEditor {
                 this.currentWave = wave;
                 this.updateUI();
             });
-            
+
             const deleteBtn = document.createElement("button");
             deleteBtn.textContent = "✕";
             deleteBtn.className = "wave-editor-btn";
@@ -415,17 +415,17 @@ export class WaveEditor {
                 }
             });
             item.appendChild(deleteBtn);
-            
+
             list.appendChild(item);
         });
     }
-    
+
     /**
      * Рендер деталей волны
      */
     private renderWaveDetails(): string {
         if (!this.currentWave) return '';
-        
+
         let enemiesHTML = '';
         if (this.currentWave.enemies.length === 0) {
             enemiesHTML = '<div style="color: #666; text-align: center; padding: 20px;">Нет врагов. Добавьте врага.</div>';
@@ -460,7 +460,7 @@ export class WaveEditor {
                 </div>
             `).join('');
         }
-        
+
         return `
             <div class="wave-control">
                 <label class="wave-label">Название волны:</label>
@@ -488,7 +488,7 @@ export class WaveEditor {
             </div>
         `;
     }
-    
+
     /**
      * Настройка обработчиков событий
      */
@@ -497,7 +497,7 @@ export class WaveEditor {
         document.getElementById("wave-editor-close")?.addEventListener("click", () => {
             this.hide();
         });
-        
+
         // Добавление волны
         document.getElementById("wave-add")?.addEventListener("click", () => {
             const newWave: Wave = {
@@ -513,7 +513,7 @@ export class WaveEditor {
             this.saveWaves();
             this.updateUI();
         });
-        
+
         // Экспорт/импорт
         document.getElementById("wave-export")?.addEventListener("click", () => {
             const data = this.exportWaves();
@@ -525,16 +525,16 @@ export class WaveEditor {
             a.click();
             URL.revokeObjectURL(url);
         });
-        
+
         document.getElementById("wave-import")?.addEventListener("click", () => {
             this.importWavesFromFile();
         });
-        
+
         // Обновление обработчиков при изменении UI
         this.container.addEventListener("input", (e) => {
             const target = e.target as HTMLElement;
             if (!this.currentWave) return;
-            
+
             if (target.id === "wave-name") {
                 this.currentWave.name = (target as HTMLInputElement).value;
             } else if (target.id === "wave-delay") {
@@ -542,16 +542,16 @@ export class WaveEditor {
             } else if (target.id === "wave-pattern") {
                 this.currentWave.spawnPattern = (target as HTMLSelectElement).value as any;
             }
-            
+
             this.saveWaves();
             this.renderWaveList();
         });
-        
+
         // Обработчик добавления врага
         this.container.addEventListener("click", (e) => {
             const target = e.target as HTMLElement;
             if (!this.currentWave) return;
-            
+
             if (target.id === "enemy-add") {
                 const newEnemy: WaveEnemy = {
                     type: "basic",
@@ -571,12 +571,12 @@ export class WaveEditor {
                 }
             }
         });
-        
+
         // Обработчики изменения врагов
         this.container.addEventListener("change", (e) => {
             const target = e.target as HTMLElement;
             if (!this.currentWave) return;
-            
+
             const match = target.id?.match(/^enemy-(\d+)-(type|count|level|delay)$/);
             if (match) {
                 const index = parseInt(match[1]!, 10);
@@ -597,7 +597,7 @@ export class WaveEditor {
             }
         });
     }
-    
+
     /**
      * Добавление волны (публичный метод для совместимости с планом)
      */
@@ -606,21 +606,21 @@ export class WaveEditor {
         this.saveWaves();
         this.updateUI();
     }
-    
+
     /**
      * Получить все волны
      */
     getWaves(): Wave[] {
         return [...this.waves];
     }
-    
+
     /**
      * Получить волну по ID
      */
     getWave(id: string): Wave | undefined {
         return this.waves.find(w => w.id === id);
     }
-    
+
     /**
      * Удалить волну
      */
@@ -634,7 +634,7 @@ export class WaveEditor {
         }
         return false;
     }
-    
+
     /**
      * Импорт волн
      */
@@ -653,14 +653,14 @@ export class WaveEditor {
             logger.error("[WaveEditor] Failed to import waves:", error);
         }
     }
-    
+
     /**
      * Экспорт волн (публичный метод)
      */
     exportWaves(): string {
         return JSON.stringify(this.waves, null, 2);
     }
-    
+
     /**
      * Импорт волн (старый метод для UI)
      */
@@ -671,7 +671,7 @@ export class WaveEditor {
         input.onchange = (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
             reader.onload = (event) => {
                 try {
@@ -686,7 +686,7 @@ export class WaveEditor {
         };
         input.click();
     }
-    
+
     /**
      * Загрузка волн из localStorage
      */
@@ -701,7 +701,7 @@ export class WaveEditor {
         }
         return [];
     }
-    
+
     /**
      * Сохранение волн в localStorage
      */
@@ -712,7 +712,7 @@ export class WaveEditor {
             logger.warn("[WaveEditor] Failed to save waves:", error);
         }
     }
-    
+
     /**
      * Показать редактор
      */
@@ -721,14 +721,14 @@ export class WaveEditor {
         this.container.classList.remove("hidden");
         this.container.style.display = "flex"; // ИСПРАВЛЕНИЕ: Явно устанавливаем display
         this.container.style.display = "flex";
-        
+
         // Показываем курсор и выходим из pointer lock
         if (document.pointerLockElement) {
             document.exitPointerLock();
         }
         document.body.style.cursor = 'default';
     }
-    
+
     /**
      * Скрыть редактор
      */
@@ -738,7 +738,7 @@ export class WaveEditor {
         this.container.style.display = "none"; // ИСПРАВЛЕНИЕ: Явно скрываем
         this.container.style.display = "none";
     }
-    
+
     /**
      * Переключение видимости
      */

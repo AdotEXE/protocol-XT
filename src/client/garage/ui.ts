@@ -22,6 +22,12 @@ export function injectGarageStyles(): void {
     const style = document.createElement('style');
     style.id = 'garage-styles';
     style.textContent = `
+        /* Шрифты: Press Start 2P для заголовков, Consolas для мелкого текста */
+        :root {
+            --garage-font-heading: 'Press Start 2P', monospace;
+            --garage-font-body: 'Consolas', 'Courier New', monospace;
+        }
+        
         .garage-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -30,7 +36,7 @@ export function injectGarageStyles(): void {
             display: flex;
             justify-content: center;
             align-items: center;
-            font-family: 'Consolas', 'Monaco', monospace;
+            font-family: var(--garage-font-heading);
             animation: fadeIn 0.3s ease-out;
             cursor: default;
         }
@@ -149,7 +155,7 @@ export function injectGarageStyles(): void {
             border: 1px solid #0aa;
             color: #0f0;
             padding: 6px;
-            font-family: inherit;
+            font-family: var(--garage-font-body);
             font-size: 11px;
         }
         .garage-filters {
@@ -166,6 +172,7 @@ export function injectGarageStyles(): void {
             color: #080;
             cursor: pointer;
             font-size: 9px;
+            font-family: var(--garage-font-body);
         }
         .garage-filter-btn.active { border-color: #0f0; color: #0f0; background: rgba(0,255,0,0.2); }
         .garage-sort-btn {
@@ -175,6 +182,7 @@ export function injectGarageStyles(): void {
             color: #0aa;
             cursor: pointer;
             font-size: 9px;
+            font-family: var(--garage-font-body);
         }
         .garage-sort-btn:hover { border-color: #0ff; color: #0ff; background: rgba(0,255,255,0.2); }
         .garage-items {
@@ -238,10 +246,10 @@ export function injectGarageStyles(): void {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
-        .garage-item-name { color: #0f0; font-size: clamp(10px, 1.2vw, 12px); font-weight: bold; }
-        .garage-item-desc { color: #080; font-size: clamp(8px, 1vw, 10px); margin-top: clamp(2px, 0.3vh, 3px); }
-        .garage-item-stats { color: #0aa; font-size: clamp(8px, 0.9vw, 9px); margin-top: clamp(3px, 0.4vh, 4px); }
-        .garage-item-price { color: #ff0; font-size: clamp(9px, 1.1vw, 11px); float: right; }
+        .garage-item-name { color: #0f0; font-size: clamp(10px, 1.2vw, 12px); font-weight: bold; font-family: var(--garage-font-heading); }
+        .garage-item-desc { color: #080; font-size: clamp(8px, 1vw, 10px); margin-top: clamp(2px, 0.3vh, 3px); font-family: var(--garage-font-body); line-height: 1.4; }
+        .garage-item-stats { color: #0aa; font-size: clamp(8px, 0.9vw, 9px); margin-top: clamp(3px, 0.4vh, 4px); font-family: var(--garage-font-body); }
+        .garage-item-price { color: #ff0; font-size: clamp(9px, 1.1vw, 11px); float: right; font-family: var(--garage-font-body); }
         .garage-item.owned .garage-item-price { color: #0f0; }
         .garage-right {
             width: 55%;
@@ -283,6 +291,7 @@ export function injectGarageStyles(): void {
             z-index: 1;
             text-transform: uppercase;
             letter-spacing: 2px;
+            font-family: var(--garage-font-heading);
         }
         .garage-preview-info { 
             color: #0f0; 
@@ -291,6 +300,7 @@ export function injectGarageStyles(): void {
             z-index: 1;
             text-align: center;
             line-height: 1.6;
+            font-family: var(--garage-font-body);
         }
         .garage-preview-canvas {
             position: absolute;
@@ -326,11 +336,11 @@ export function injectGarageStyles(): void {
             background: linear-gradient(180deg, #0f0, #6f6);
             box-shadow: 0 0 8px rgba(0,255,80,0.6);
         }
-        .garage-details-title { color: #0f0; font-size: clamp(12px, 1.4vw, 14px); font-weight: bold; margin-bottom: clamp(6px, 0.8vh, 8px); }
-        .garage-details-desc { color: #0a0; font-size: clamp(9px, 1.1vw, 11px); margin-bottom: clamp(8px, 1vh, 10px); }
+        .garage-details-title { color: #0f0; font-size: clamp(12px, 1.4vw, 14px); font-weight: bold; margin-bottom: clamp(6px, 0.8vh, 8px); font-family: var(--garage-font-heading); }
+        .garage-details-desc { color: #0a0; font-size: clamp(9px, 1.1vw, 11px); margin-bottom: clamp(8px, 1vh, 10px); font-family: var(--garage-font-body); line-height: 1.5; }
         .garage-stats-row { display: flex; justify-content: space-between; padding: clamp(3px, 0.4vh, 4px) 0; border-bottom: clamp(1px, 0.1vw, 1px) solid #030; }
-        .garage-stat-name { color: #0aa; font-size: clamp(8px, 1vw, 10px); }
-        .garage-stat-value { color: #0f0; font-size: clamp(8px, 1vw, 10px); }
+        .garage-stat-name { color: #0aa; font-size: clamp(8px, 1vw, 10px); font-family: var(--garage-font-body); }
+        .garage-stat-value { color: #0f0; font-size: clamp(8px, 1vw, 10px); font-family: var(--garage-font-body); }
         .garage-stat-change.positive { color: #0f0; }
         .garage-stat-change.negative { color: #f00; }
         .garage-action-btn {
@@ -356,6 +366,7 @@ export function injectGarageStyles(): void {
             justify-content: center;
             color: #060;
             font-size: clamp(8px, 0.9vw, 9px);
+            font-family: var(--garage-font-body);
             flex-shrink: 0;
         }
         
@@ -506,7 +517,7 @@ export function createGarageOverlay(
                 <div id="garage-upgrade-content" style="display: none; width: 100%; height: 100%; position: relative;"></div>
             </div>
             <div class="garage-footer">
-                [↑↓] Navigate | [Enter] Select | [1-6] Categories | [ESC] Close
+                [↑↓] Navigate | [Home/End] First/Last | [PgUp/PgDn] Page | [Enter] Select | [1-8] Categories | [ESC] Close
             </div>
         </div>
     `;
@@ -679,7 +690,7 @@ export function getComparisonHTML(
         const armorDiff = (next.maxHealth / 50) - (current.maxHealth / 50);
         rows = `
             <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;">
-                <div style="color: #0aa; font-size: 10px; margin-bottom: 8px; font-weight: bold;">COMPARISON</div>
+                <div style="color: #0aa; font-size: 10px; margin-bottom: 8px; font-weight: bold; font-family: var(--garage-font-body);">COMPARISON</div>
                 <div class="garage-stats-row">
                     <span class="garage-stat-name">HP</span>
                     <span class="garage-stat-value">
@@ -714,7 +725,7 @@ export function getComparisonHTML(
         const projSpeedDiff = next.projectileSpeed - current.projectileSpeed;
         rows = `
             <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #030;">
-                <div style="color: #0aa; font-size: 10px; margin-bottom: 8px; font-weight: bold;">COMPARISON</div>
+                <div style="color: #0aa; font-size: 10px; margin-bottom: 8px; font-weight: bold; font-family: var(--garage-font-body);">COMPARISON</div>
                 <div class="garage-stats-row">
                     <span class="garage-stat-name">Damage</span>
                     <span class="garage-stat-value">

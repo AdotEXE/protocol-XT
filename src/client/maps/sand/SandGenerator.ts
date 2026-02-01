@@ -68,18 +68,21 @@ export class SandGenerator extends BaseMapGenerator {
     generateContent(context: ChunkGenerationContext): void {
         const { worldX, worldZ, size, chunkParent } = context;
 
-        // Режим редактора: worldX=0 и size >= arenaSize означает что генерируем всю карту
-        const isEditorMode = worldX === 0 && worldZ === 0 && size >= this.config.arenaSize;
+        // Режим "вся карта": чанк покрывает всю арену (для loadFixedMapContent или редактора)
+        // Арена 150x150 центрирована на 0,0
+        const arenaHalf = this.config.arenaSize / 2;
+        // Если размер чанка >= размера арены - генерируем ВСЁ
+        const isFullMapMode = size >= this.config.arenaSize;
 
         // Границы текущего чанка
         const chunkMinX = worldX;
         const chunkMaxX = worldX + size;
         const chunkMinZ = worldZ;
         const chunkMaxZ = worldZ + size;
-        const arenaHalf = this.config.arenaSize / 2;
+
 
         // Проверяем, пересекается ли чанк с картой
-        if (!isEditorMode) {
+        if (!isFullMapMode) {
             if (chunkMaxX < -arenaHalf || chunkMinX > arenaHalf ||
                 chunkMaxZ < -arenaHalf || chunkMinZ > arenaHalf) {
                 return; // Чанк вне карты
@@ -88,24 +91,71 @@ export class SandGenerator extends BaseMapGenerator {
 
         // Вспомогательная функция для преобразования координат
         const toLocal = (x: number, z: number) => ({
-            x: isEditorMode ? x : x - worldX,
-            z: isEditorMode ? z : z - worldZ
+            x: isFullMapMode ? x : x - worldX,
+            z: isFullMapMode ? z : z - worldZ
         });
 
         // Вспомогательная функция для проверки, находится ли точка в чанке
         const isInChunk = (x: number, z: number) => {
-            if (isEditorMode) return true;
+            if (isFullMapMode) return true;
             return x >= chunkMinX && x < chunkMaxX && z >= chunkMinZ && z < chunkMaxZ;
         };
 
+        // КРИТИЧНО: Создаём ОДИН большой ground для всей арены
+        // ChunkSystem НЕ создаёт ground для fixed maps!
+        if (isFullMapMode || (worldX <= 0 && worldZ <= 0 && worldX + size >= 0 && worldZ + size >= 0)) {
+            // Только центральный чанк создаёт ground (чтобы не дублировать)
+            this.generateGround(context);
+        }
+
         // Генерируем все элементы карты
-        this.generateCentralPlatform(context, isEditorMode, toLocal, isInChunk);
-        this.generateRamps(context, isEditorMode, toLocal, isInChunk);
-        this.generateRuins(context, isEditorMode, toLocal, isInChunk);
-        this.generateBuildings(context, isEditorMode, toLocal, isInChunk);
-        this.generatePerimeter(context, isEditorMode, toLocal, isInChunk);
-        this.generateCornerRamps(context, isEditorMode, toLocal, isInChunk);
-        this.generateCoverWalls(context, isEditorMode, toLocal, isInChunk);
+        this.generateCentralPlatform(context, isFullMapMode, toLocal, isInChunk);
+        this.generateRamps(context, isFullMapMode, toLocal, isInChunk);
+        this.generateRuins(context, isFullMapMode, toLocal, isInChunk);
+        this.generateBuildings(context, isFullMapMode, toLocal, isInChunk);
+        this.generatePerimeter(context, isFullMapMode, toLocal, isInChunk);
+        this.generateCornerRamps(context, isFullMapMode, toLocal, isInChunk);
+        this.generateCornerRamps(context, isFullMapMode, toLocal, isInChunk);
+        this.generateCoverWalls(context, isFullMapMode, toLocal, isInChunk);
+
+        // ОПТИМИЗАЦИЯ: Объединяем все статические меши в один меш на материал
+        // Это снижает Draw Calls с ~200 до ~5
+        this.mergePendingMeshes(chunkParent);
+    }
+
+    /**
+     * Генерация ground (пола) всей арены
+     * Создаётся ОДИН меш для всей карты
+     */
+    private generateGround(context: ChunkGenerationContext): void {
+        const { chunkParent, scene } = context;
+        const arenaSize = this.config.arenaSize;
+
+        // Создаём один большой ground
+        const ground = MeshBuilder.CreateGround("sand_ground", {
+            width: arenaSize,
+            height: arenaSize,
+            subdivisions: 1 // Минимум subdivision = минимум вершин (4 вершины)
+        }, scene);
+
+        ground.position = new Vector3(0, 0, 0);
+        ground.parent = chunkParent;
+
+        // Материал - используем getMat() API из BaseMapGenerator
+        const mat = this.getMat("dirt");
+        if (mat) {
+            ground.material = mat;
+        }
+
+        // Физика для земли
+        new PhysicsAggregate(ground, PhysicsShapeType.BOX, {
+            mass: 0, // Статический
+            restitution: 0.1,
+            friction: 0.8
+        }, scene);
+
+        ground.receiveShadows = true;
+        ground.freezeWorldMatrix();
     }
 
     /**
@@ -123,17 +173,19 @@ export class SandGenerator extends BaseMapGenerator {
         // Центр платформы в (0, 0)
         if (isEditorMode || isInChunk(0, 0)) {
             const local = toLocal(0, 0);
-            const box = MeshBuilder.CreateBox("sand_platform", {
-                width: this.config.platformSize,
-                height: this.config.platformHeight,
-                depth: this.config.platformSize
-            }, this.scene);
-            box.position = new Vector3(local.x, this.config.platformHeight / 2, local.z);
-            box.material = this.getMat("concrete");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            this.createBox(
+                "sand_platform",
+                {
+                    width: this.config.platformSize,
+                    height: this.config.platformHeight,
+                    depth: this.config.platformSize
+                },
+                new Vector3(local.x, this.config.platformHeight / 2, local.z),
+                "concrete",
+                chunkParent,
+                true, // addPhysics
+                true  // deferMerge
+            );
         }
     }
 
@@ -164,19 +216,21 @@ export class SandGenerator extends BaseMapGenerator {
         rampPositions.forEach((pos, index) => {
             if (isEditorMode || isInChunk(pos.x, pos.z)) {
                 const local = toLocal(pos.x, pos.z);
-                const ramp = MeshBuilder.CreateBox(`sand_ramp_${index}`, {
-                    width: rampWidth,
-                    height: rampThickness,
-                    depth: rampDepth
-                }, this.scene);
-                ramp.position = new Vector3(local.x, rampHeight / 2 - rampThickness / 2, local.z);
+                const ramp = this.createBox(
+                    `sand_ramp_${index}`,
+                    {
+                        width: rampWidth,
+                        height: rampThickness,
+                        depth: rampDepth
+                    },
+                    new Vector3(local.x, rampHeight / 2 - rampThickness / 2, local.z),
+                    "concrete",
+                    chunkParent,
+                    true, // addPhysics
+                    true  // deferMerge
+                );
                 ramp.rotation.x = pos.rotationX;
                 ramp.rotation.z = pos.rotationZ;
-                ramp.material = this.getMat("concrete");
-                ramp.parent = chunkParent;
-                ramp.freezeWorldMatrix();
-                ramp.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-                this.addPhysicsIfAvailable(ramp, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
     }
@@ -228,18 +282,20 @@ export class SandGenerator extends BaseMapGenerator {
         platformRuins.forEach((ruin, index) => {
             if (isEditorMode || isInChunk(ruin.x, ruin.z)) {
                 const local = toLocal(ruin.x, ruin.z);
-                const ruinWall = MeshBuilder.CreateBox(`sand_ruin_platform_${index}`, {
-                    width: ruin.width,
-                    height: ruin.height,
-                    depth: ruin.depth
-                }, this.scene);
-                ruinWall.position = new Vector3(local.x, platformHeight + ruin.height / 2, local.z);
+                const ruinWall = this.createBox(
+                    `sand_ruin_platform_${index}`,
+                    {
+                        width: ruin.width,
+                        height: ruin.height,
+                        depth: ruin.depth
+                    },
+                    new Vector3(local.x, platformHeight + ruin.height / 2, local.z),
+                    "concrete",
+                    chunkParent,
+                    true, // addPhysics
+                    true  // deferMerge
+                );
                 ruinWall.rotation.y = ruin.rotation;
-                ruinWall.material = this.getMat("concrete");
-                ruinWall.parent = chunkParent;
-                ruinWall.freezeWorldMatrix();
-                ruinWall.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-                this.addPhysicsIfAvailable(ruinWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
 
@@ -283,19 +339,20 @@ export class SandGenerator extends BaseMapGenerator {
         perimeterRuins.forEach((ruin, index) => {
             if (isEditorMode || isInChunk(ruin.x, ruin.z)) {
                 const local = toLocal(ruin.x, ruin.z);
-                const ruinWall = MeshBuilder.CreateBox(`sand_ruin_perimeter_${index}`, {
-                    width: ruin.width,
-                    height: ruin.height,
-                    depth: ruin.depth
-                }, this.scene);
-                // На земле (y = 0)
-                ruinWall.position = new Vector3(local.x, ruin.height / 2, local.z);
+                const ruinWall = this.createBox(
+                    `sand_ruin_perimeter_${index}`,
+                    {
+                        width: ruin.width,
+                        height: ruin.height,
+                        depth: ruin.depth
+                    },
+                    new Vector3(local.x, ruin.height / 2, local.z),
+                    "concrete",
+                    chunkParent,
+                    true, // addPhysics
+                    true  // deferMerge
+                );
                 ruinWall.rotation.y = ruin.rotation;
-                ruinWall.material = this.getMat("concrete");
-                ruinWall.parent = chunkParent;
-                ruinWall.freezeWorldMatrix();
-                ruinWall.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-                this.addPhysicsIfAvailable(ruinWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
 
@@ -324,19 +381,20 @@ export class SandGenerator extends BaseMapGenerator {
         groundRuins.forEach((ruin, index) => {
             if (isEditorMode || isInChunk(ruin.x, ruin.z)) {
                 const local = toLocal(ruin.x, ruin.z);
-                const ruinWall = MeshBuilder.CreateBox(`sand_ruin_ground_${index}`, {
-                    width: ruin.width,
-                    height: ruin.height,
-                    depth: ruin.depth
-                }, this.scene);
-                // На земле (y = 0)
-                ruinWall.position = new Vector3(local.x, ruin.height / 2, local.z);
+                const ruinWall = this.createBox(
+                    `sand_ruin_ground_${index}`,
+                    {
+                        width: ruin.width,
+                        height: ruin.height,
+                        depth: ruin.depth
+                    },
+                    new Vector3(local.x, ruin.height / 2, local.z),
+                    "concrete",
+                    chunkParent,
+                    true, // addPhysics
+                    true  // deferMerge
+                );
                 ruinWall.rotation.y = ruin.rotation;
-                ruinWall.material = this.getMat("concrete");
-                ruinWall.parent = chunkParent;
-                ruinWall.freezeWorldMatrix();
-                ruinWall.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-                this.addPhysicsIfAvailable(ruinWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
     }
@@ -358,67 +416,32 @@ export class SandGenerator extends BaseMapGenerator {
         if (isEditorMode || isInChunk(nwX, nwZ)) {
             const local = toLocal(nwX, nwZ);
             // Длинная часть
-            let box = MeshBuilder.CreateBox("sand_bld_nw_long", {
+            this.createBox("sand_bld_nw_long", {
                 width: 4, height: 6, depth: 16
-            }, this.scene);
-            box.position = new Vector3(local.x - 4, 3, local.z);
-            box.material = this.getMat("concrete");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x - 4, 3, local.z), "concrete", chunkParent, true, true);
 
             // Короткая часть
-            box = MeshBuilder.CreateBox("sand_bld_nw_short", {
+            this.createBox("sand_bld_nw_short", {
                 width: 12, height: 6, depth: 4
-            }, this.scene);
-            box.position = new Vector3(local.x + 2, 3, local.z + 6);
-            box.material = this.getMat("concrete");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x + 2, 3, local.z + 6), "concrete", chunkParent, true, true);
 
             // Окно в длинной части
-            box = MeshBuilder.CreateBox("sand_bld_nw_window", {
+            this.createBox("sand_bld_nw_window", {
                 width: 4.2, height: 1.5, depth: 3
-            }, this.scene);
-            box.position = new Vector3(local.x - 4, 2.5, local.z);
-            box.material = this.getMat("sand");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x - 4, 2.5, local.z), "sand", chunkParent, true, true);
         }
 
         // Здание 2: L-образное (юго-восток) - высота 4
         const seX = 45, seZ = -45;
         if (isEditorMode || isInChunk(seX, seZ)) {
             const local = toLocal(seX, seZ);
-            let box = MeshBuilder.CreateBox("sand_bld_se_long", {
+            this.createBox("sand_bld_se_long", {
                 width: 3, height: 4, depth: 10
-            }, this.scene);
-            box.position = new Vector3(local.x + 3, 2, local.z);
-            box.material = this.getMat("brick");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x + 3, 2, local.z), "brick", chunkParent, true, true);
 
-            box = MeshBuilder.CreateBox("sand_bld_se_short", {
+            this.createBox("sand_bld_se_short", {
                 width: 8, height: 4, depth: 3
-            }, this.scene);
-            box.position = new Vector3(local.x, 2, local.z - 5);
-            box.material = this.getMat("brick");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x, 2, local.z - 5), "brick", chunkParent, true, true);
         }
 
         // Здание 3: Т-образное (северо-восток) - высота 8
@@ -426,28 +449,14 @@ export class SandGenerator extends BaseMapGenerator {
         if (isEditorMode || isInChunk(neX, neZ)) {
             const local = toLocal(neX, neZ);
             // Ножка
-            let box = MeshBuilder.CreateBox("sand_bld_ne_stem", {
+            this.createBox("sand_bld_ne_stem", {
                 width: 5, height: 8, depth: 14
-            }, this.scene);
-            box.position = new Vector3(local.x, 4, local.z - 2);
-            box.material = this.getMat("concrete");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x, 4, local.z - 2), "concrete", chunkParent, true, true);
 
             // Шапка
-            box = MeshBuilder.CreateBox("sand_bld_ne_top", {
+            this.createBox("sand_bld_ne_top", {
                 width: 18, height: 9, depth: 4
-            }, this.scene);
-            box.position = new Vector3(local.x, 4.5, local.z + 6);
-            box.material = this.getMat("concrete");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x, 4.5, local.z + 6), "concrete", chunkParent, true, true);
         }
 
         // Здание 4: П-образное (юго-запад) - высота 5
@@ -455,40 +464,19 @@ export class SandGenerator extends BaseMapGenerator {
         if (isEditorMode || isInChunk(swX, swZ)) {
             const local = toLocal(swX, swZ);
             // Левая стенка
-            let box = MeshBuilder.CreateBox("sand_bld_sw_left", {
+            this.createBox("sand_bld_sw_left", {
                 width: 3, height: 5, depth: 14
-            }, this.scene);
-            box.position = new Vector3(local.x - 6, 2.5, local.z);
-            box.material = this.getMat("brick");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x - 6, 2.5, local.z), "brick", chunkParent, true, true);
 
             // Правая стенка
-            box = MeshBuilder.CreateBox("sand_bld_sw_right", {
+            this.createBox("sand_bld_sw_right", {
                 width: 3, height: 5, depth: 14
-            }, this.scene);
-            box.position = new Vector3(local.x + 6, 2.5, local.z);
-            box.material = this.getMat("brick");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x + 6, 2.5, local.z), "brick", chunkParent, true, true);
 
             // Перемычка
-            box = MeshBuilder.CreateBox("sand_bld_sw_bridge", {
+            this.createBox("sand_bld_sw_bridge", {
                 width: 15, height: 5, depth: 3
-            }, this.scene);
-            box.position = new Vector3(local.x, 2.5, local.z + 6);
-            box.material = this.getMat("brick");
-            box.parent = chunkParent;
-            box.freezeWorldMatrix();
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            box.doNotSyncBoundingInfo = true; // ОПТИМИЗАЦИЯ: Не синхронизировать bounding box
-            this.addPhysicsIfAvailable(box, PhysicsShapeType.BOX, { mass: 0 });
+            }, new Vector3(local.x, 2.5, local.z + 6), "brick", chunkParent, true, true);
         }
     }
 
@@ -510,65 +498,33 @@ export class SandGenerator extends BaseMapGenerator {
         // Северная стена
         if (isEditorMode || isInChunk(0, arenaHalf)) {
             const local = toLocal(0, arenaHalf);
-            const wall = MeshBuilder.CreateBox("sand_wall_n", {
-                width: wallLength,
-                height: wallHeight,
-                depth: wallThickness
-            }, this.scene);
-            wall.position = new Vector3(local.x, wallHeight / 2, local.z);
-            wall.material = this.getMat("concrete");
-            wall.parent = chunkParent;
-            wall.freezeWorldMatrix();
-            wall.freezeWorldMatrix();
-            this.addPhysicsIfAvailable(wall, PhysicsShapeType.BOX, { mass: 0 });
+            this.createBox("sand_wall_n", {
+                width: wallLength, height: wallHeight, depth: wallThickness
+            }, new Vector3(local.x, wallHeight / 2, local.z), "concrete", chunkParent, true, true);
         }
 
         // Южная стена
         if (isEditorMode || isInChunk(0, -arenaHalf)) {
             const local = toLocal(0, -arenaHalf);
-            const wall = MeshBuilder.CreateBox("sand_wall_s", {
-                width: wallLength,
-                height: wallHeight,
-                depth: wallThickness
-            }, this.scene);
-            wall.position = new Vector3(local.x, wallHeight / 2, local.z);
-            wall.material = this.getMat("concrete");
-            wall.parent = chunkParent;
-            wall.freezeWorldMatrix();
-            wall.freezeWorldMatrix();
-            this.addPhysicsIfAvailable(wall, PhysicsShapeType.BOX, { mass: 0 });
+            this.createBox("sand_wall_s", {
+                width: wallLength, height: wallHeight, depth: wallThickness
+            }, new Vector3(local.x, wallHeight / 2, local.z), "concrete", chunkParent, true, true);
         }
 
         // Восточная стена
         if (isEditorMode || isInChunk(arenaHalf, 0)) {
             const local = toLocal(arenaHalf, 0);
-            const wall = MeshBuilder.CreateBox("sand_wall_e", {
-                width: wallThickness,
-                height: wallHeight,
-                depth: wallLength
-            }, this.scene);
-            wall.position = new Vector3(local.x, wallHeight / 2, local.z);
-            wall.material = this.getMat("concrete");
-            wall.parent = chunkParent;
-            wall.freezeWorldMatrix();
-            wall.freezeWorldMatrix();
-            this.addPhysicsIfAvailable(wall, PhysicsShapeType.BOX, { mass: 0 });
+            this.createBox("sand_wall_e", {
+                width: wallThickness, height: wallHeight, depth: wallLength
+            }, new Vector3(local.x, wallHeight / 2, local.z), "concrete", chunkParent, true, true);
         }
 
         // Западная стена
         if (isEditorMode || isInChunk(-arenaHalf, 0)) {
             const local = toLocal(-arenaHalf, 0);
-            const wall = MeshBuilder.CreateBox("sand_wall_w", {
-                width: wallThickness,
-                height: wallHeight,
-                depth: wallLength
-            }, this.scene);
-            wall.position = new Vector3(local.x, wallHeight / 2, local.z);
-            wall.material = this.getMat("concrete");
-            wall.parent = chunkParent;
-            wall.freezeWorldMatrix();
-            wall.freezeWorldMatrix();
-            this.addPhysicsIfAvailable(wall, PhysicsShapeType.BOX, { mass: 0 });
+            this.createBox("sand_wall_w", {
+                width: wallThickness, height: wallHeight, depth: wallLength
+            }, new Vector3(local.x, wallHeight / 2, local.z), "concrete", chunkParent, true, true);
         }
 
         // Платформа-дорожка по верху забора
@@ -595,65 +551,33 @@ export class SandGenerator extends BaseMapGenerator {
         // Северная дорожка
         if (isEditorMode || isInChunk(0, arenaHalf + walkwayWidth / 2)) {
             const local = toLocal(0, arenaHalf + walkwayWidth / 2);
-            const walkway = MeshBuilder.CreateBox("sand_walkway_n", {
-                width: walkwayLength,
-                height: walkwayThickness,
-                depth: walkwayWidth
-            }, this.scene);
-            walkway.position = new Vector3(local.x, y, local.z);
-            walkway.material = this.getMat("concrete");
-            walkway.parent = chunkParent;
-            walkway.freezeWorldMatrix();
-            walkway.freezeWorldMatrix();
-            this.addPhysicsIfAvailable(walkway, PhysicsShapeType.BOX, { mass: 0 });
+            this.createBox("sand_walkway_n", {
+                width: walkwayLength, height: walkwayThickness, depth: walkwayWidth
+            }, new Vector3(local.x, y, local.z), "concrete", chunkParent, true, true);
         }
 
         // Южная дорожка
         if (isEditorMode || isInChunk(0, -arenaHalf - walkwayWidth / 2)) {
             const local = toLocal(0, -arenaHalf - walkwayWidth / 2);
-            const walkway = MeshBuilder.CreateBox("sand_walkway_s", {
-                width: walkwayLength,
-                height: walkwayThickness,
-                depth: walkwayWidth
-            }, this.scene);
-            walkway.position = new Vector3(local.x, y, local.z);
-            walkway.material = this.getMat("concrete");
-            walkway.parent = chunkParent;
-            walkway.freezeWorldMatrix();
-            walkway.freezeWorldMatrix();
-            this.addPhysicsIfAvailable(walkway, PhysicsShapeType.BOX, { mass: 0 });
+            this.createBox("sand_walkway_s", {
+                width: walkwayLength, height: walkwayThickness, depth: walkwayWidth
+            }, new Vector3(local.x, y, local.z), "concrete", chunkParent, true, true);
         }
 
         // Восточная дорожка
         if (isEditorMode || isInChunk(arenaHalf + walkwayWidth / 2, 0)) {
             const local = toLocal(arenaHalf + walkwayWidth / 2, 0);
-            const walkway = MeshBuilder.CreateBox("sand_walkway_e", {
-                width: walkwayWidth,
-                height: walkwayThickness,
-                depth: walkwayLength
-            }, this.scene);
-            walkway.position = new Vector3(local.x, y, local.z);
-            walkway.material = this.getMat("concrete");
-            walkway.parent = chunkParent;
-            walkway.freezeWorldMatrix();
-            walkway.freezeWorldMatrix();
-            this.addPhysicsIfAvailable(walkway, PhysicsShapeType.BOX, { mass: 0 });
+            this.createBox("sand_walkway_e", {
+                width: walkwayWidth, height: walkwayThickness, depth: walkwayLength
+            }, new Vector3(local.x, y, local.z), "concrete", chunkParent, true, true);
         }
 
         // Западная дорожка
         if (isEditorMode || isInChunk(-arenaHalf - walkwayWidth / 2, 0)) {
             const local = toLocal(-arenaHalf - walkwayWidth / 2, 0);
-            const walkway = MeshBuilder.CreateBox("sand_walkway_w", {
-                width: walkwayWidth,
-                height: walkwayThickness,
-                depth: walkwayLength
-            }, this.scene);
-            walkway.position = new Vector3(local.x, y, local.z);
-            walkway.material = this.getMat("concrete");
-            walkway.parent = chunkParent;
-            walkway.freezeWorldMatrix();
-            walkway.freezeWorldMatrix();
-            this.addPhysicsIfAvailable(walkway, PhysicsShapeType.BOX, { mass: 0 });
+            this.createBox("sand_walkway_w", {
+                width: walkwayWidth, height: walkwayThickness, depth: walkwayLength
+            }, new Vector3(local.x, y, local.z), "concrete", chunkParent, true, true);
         }
     }
 
@@ -683,20 +607,21 @@ export class SandGenerator extends BaseMapGenerator {
         wallRamps.forEach((ramp, index) => {
             if (isEditorMode || isInChunk(ramp.x, ramp.z)) {
                 const local = toLocal(ramp.x, ramp.z);
-                const cornerRampMesh = MeshBuilder.CreateBox(`sand_wall_ramp_${index}`, {
-                    width: rampWidth,
-                    height: rampThickness,
-                    depth: rampLength
-                }, this.scene);
-
-                cornerRampMesh.position = new Vector3(local.x, wallHeight / 2, local.z);
+                const cornerRampMesh = this.createBox(
+                    `sand_wall_ramp_${index}`,
+                    {
+                        width: rampWidth,
+                        height: rampThickness,
+                        depth: rampLength
+                    },
+                    new Vector3(local.x, wallHeight / 2, local.z),
+                    "concrete",
+                    chunkParent,
+                    true, // addPhysics
+                    true  // deferMerge
+                );
                 cornerRampMesh.rotation.y = ramp.rotationY;
                 cornerRampMesh.rotation.x = ramp.rotationX;
-                cornerRampMesh.material = this.getMat("concrete");
-                cornerRampMesh.parent = chunkParent;
-                cornerRampMesh.freezeWorldMatrix();
-                cornerRampMesh.freezeWorldMatrix();
-                this.addPhysicsIfAvailable(cornerRampMesh, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
     }
@@ -741,18 +666,20 @@ export class SandGenerator extends BaseMapGenerator {
         coverWalls.forEach((wall, index) => {
             if (isEditorMode || isInChunk(wall.x, wall.z)) {
                 const local = toLocal(wall.x, wall.z);
-                const coverWall = MeshBuilder.CreateBox(`sand_cover_wall_${index}`, {
-                    width: wall.width,
-                    height: wall.height,
-                    depth: wall.depth
-                }, this.scene);
-                coverWall.position = new Vector3(local.x, wall.height / 2, local.z);
+                const coverWall = this.createBox(
+                    `sand_cover_wall_${index}`,
+                    {
+                        width: wall.width,
+                        height: wall.height,
+                        depth: wall.depth
+                    },
+                    new Vector3(local.x, wall.height / 2, local.z),
+                    "concrete",
+                    chunkParent,
+                    true, // addPhysics
+                    true  // deferMerge
+                );
                 coverWall.rotation.y = wall.rotation;
-                coverWall.material = this.getMat("concrete");
-                coverWall.parent = chunkParent;
-                coverWall.freezeWorldMatrix();
-                coverWall.freezeWorldMatrix();
-                this.addPhysicsIfAvailable(coverWall, PhysicsShapeType.BOX, { mass: 0 });
             }
         });
     }

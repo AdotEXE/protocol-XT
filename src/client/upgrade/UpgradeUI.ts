@@ -30,7 +30,7 @@ const UPGRADE_UI_STYLES = `
     border-radius: 12px;
     padding: 16px;
     min-width: 320px;
-    font-family: 'Rajdhani', 'Segoe UI', sans-serif;
+    font-family: 'Press Start 2P', monospace;
     color: #e0e0e0;
     box-shadow: 0 4px 20px rgba(255, 215, 0, 0.3);
     z-index: 1000;

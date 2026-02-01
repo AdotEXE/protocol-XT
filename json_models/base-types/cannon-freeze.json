@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140961,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "freeze",
+    "name": "Cryo Cannon",
+    "barrelLength": 2,
+    "barrelWidth": 0.2,
+    "damage": 22,
+    "cooldown": 2400,
+    "projectileSpeed": 160,
+    "projectileSize": 0.19,
+    "color": "#00ccff",
+    "description": "Криогенная пушка с замораживанием. Урон: 22 | Перезарядка: 2.4с | Эффект: замедление на 50% на 4 сек. Контроль врагов.",
+    "recoilMultiplier": 1.4,
+    "maxRange": 240
+  }
+}

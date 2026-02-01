@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141035,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "shotgun",
+    "name": "Shotgun",
+    "barrelLength": 1.4,
+    "barrelWidth": 0.34,
+    "damage": 8,
+    "cooldown": 1200,
+    "projectileSpeed": 130,
+    "projectileSize": 0.1,
+    "color": "#cc6600",
+    "description": "Дробовик с множественными снарядами. Урон: 8 (×10 снарядов) | Перезарядка: 1.2с | Эффективен вблизи, разброс урона.",
+    "recoilMultiplier": 2.8,
+    "maxRange": 177
+  }
+}

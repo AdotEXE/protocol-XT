@@ -78,6 +78,8 @@ export class CustomMapRunner {
     private createdMeshes: Mesh[] = [];
     private floor: GroundMesh | null = null;
     private spawnPosition: Vector3 | null = null;
+    // ОПТИМИЗАЦИЯ: Кэш материалов по цвету для уменьшения draw calls
+    private materialCache: Map<string, StandardMaterial> = new Map();
 
     constructor(scene: Scene) {
         this.scene = scene;
@@ -91,22 +93,28 @@ export class CustomMapRunner {
 
     /**
      * ГЛАВНАЯ ФУНКЦИЯ: Запустить custom карту
-     * 1. Удаляет ВСЕ меши кроме танка/камеры
-     * 2. Создаёт пустой пол
+     * 1. Удаляет ВСЕ меши кроме танка/камеры (если не skipClear)
+     * 2. Создаёт пустой пол (если не skipEnvironment)
      * 3. Загружает объекты из localStorage или переданных данных
      */
-    public run(mapData?: CustomMapData): RunResult {
+    public run(mapData?: CustomMapData, options?: { skipClear?: boolean; skipEnvironment?: boolean }): RunResult {
+        const { skipClear = false, skipEnvironment = false } = options || {};
+
         // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
         if (process.env.NODE_ENV === 'development') {
             logger.log("[CustomMapRunner] ===== STARTING CUSTOM MAP =====");
         }
 
         try {
-            // ШАГ 1: Очистить сцену от ВСЕГО лишнего
-            this.clearScene();
+            // ШАГ 1: Очистить сцену от ВСЕГО лишнего (если нужно)
+            if (!skipClear) {
+                this.clearScene();
+            }
 
-            // ШАГ 2: Создать базовую среду (пол, свет)
-            this.createEnvironment();
+            // ШАГ 2: Создать базовую среду - пол, свет (если нужно)
+            if (!skipEnvironment) {
+                this.createEnvironment();
+            }
 
             // ШАГ 3: Загрузить объекты
             const result = this.loadEditorObjects(mapData);
@@ -350,11 +358,64 @@ export class CustomMapRunner {
             logger.log(`[CustomMapRunner] ✅ Created ${created}/${mapData.placedObjects.length} objects`);
         }
 
+        // ОПТИМИЗАЦИЯ: Merge meshes по материалам для уменьшения draw calls
+        // DISABLED: Физика требует отдельных мешей (для PhysicsAggregate)
+        // this.mergeMeshesByMaterial();
+
         return {
             success: true,
             objectsCreated: created,
             mapName: mapData.name
         };
+    }
+
+    /**
+     * ОПТИМИЗАЦИЯ: Объединяет меши с одинаковым материалом для уменьшения draw calls
+     */
+    private mergeMeshesByMaterial(): void {
+        // Группируем меши по материалу
+        const meshesByMaterial = new Map<string, Mesh[]>();
+
+        for (const mesh of this.createdMeshes) {
+            if (!mesh.material) continue;
+            const matName = mesh.material.name;
+            if (!meshesByMaterial.has(matName)) {
+                meshesByMaterial.set(matName, []);
+            }
+            meshesByMaterial.get(matName)!.push(mesh);
+        }
+
+        let mergedCount = 0;
+        for (const [matName, meshes] of meshesByMaterial) {
+            if (meshes.length < 2) continue; // Нечего мержить
+
+            try {
+                // Babylon's Mesh.MergeMeshes объединяет меши в один
+                const merged = Mesh.MergeMeshes(
+                    meshes,
+                    true,  // disposeSource - удалить исходные меши
+                    true,  // allow32BitsIndices
+                    undefined, // parent
+                    false, // subdivideWithSubMeshes
+                    true   // multiMultiMaterials
+                );
+
+                if (merged) {
+                    merged.name = `merged_${matName}`;
+                    merged.parent = this.parentNode;
+                    mergedCount += meshes.length;
+                }
+            } catch (e) {
+                // Если merge падает - оставляем как есть
+                if (process.env.NODE_ENV === 'development') {
+                    console.warn(`[CustomMapRunner] Failed to merge meshes for ${matName}:`, e);
+                }
+            }
+        }
+
+        if (process.env.NODE_ENV === 'development') {
+            logger.log(`[CustomMapRunner] 🔨 Merged ${mergedCount} meshes into ${meshesByMaterial.size} groups`);
+        }
     }
 
 
@@ -441,9 +502,9 @@ export class CustomMapRunner {
             // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
             if (process.env.NODE_ENV === 'development') {
                 console.log(`[CustomMapRunner] Object #${this.createdMeshes.length + 1}: ` +
-                `pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) ` +
-                `scale=(${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)}) ` +
-                `color=${colorHex} type=${obj.type} isPolygon=${obj.isPolygon || false}`);
+                    `pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) ` +
+                    `scale=(${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)}) ` +
+                    `color=${colorHex} type=${obj.type} isPolygon=${obj.isPolygon || false}`);
             }
         }
 
@@ -514,10 +575,11 @@ export class CustomMapRunner {
 
             mesh.parent = this.parentNode;
             mesh.metadata = {
-                customMapObject: true,
-                objectId: obj.id,
                 objectType: 'garage'
             };
+
+            // Physics for Garage
+            new PhysicsAggregate(mesh, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
 
             return mesh;
         }
@@ -540,10 +602,14 @@ export class CustomMapRunner {
             (rot.z || 0) * Math.PI / 180
         );
 
-        // Материал с цветом из редактора
-        const mat = new StandardMaterial(`customMat_${obj.id}`, this.scene);
-        mat.diffuseColor = this.hexToColor3(colorHex);
-        mat.specularColor = new Color3(0.1, 0.1, 0.1);
+        // Материал с цветом из редактора - ИСПОЛЬЗУЕМ КЭШ для batching!
+        let mat = this.materialCache.get(colorHex);
+        if (!mat) {
+            mat = new StandardMaterial(`sharedMat_${colorHex}`, this.scene);
+            mat.diffuseColor = this.hexToColor3(colorHex);
+            mat.specularColor = new Color3(0.1, 0.1, 0.1);
+            this.materialCache.set(colorHex, mat);
+        }
         mesh.material = mat;
 
         // Родительский узел

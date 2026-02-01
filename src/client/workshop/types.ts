@@ -161,3 +161,24 @@ export function coordsToVector3(coords: { x: number; y: number; z: number }): Ve
     return new Vector3(coords.x, coords.y, coords.z);
 }
 
+/**
+ * Метаданные модели для версионирования и совместимости
+ */
+export interface ModelMetadata {
+    version: string;           // Версия формата модели (например "1.0")
+    gameVersion: string;       // Версия игры (из package.json)
+    savedAt: number;           // Timestamp сохранения
+    compatibility: {
+        minGameVersion?: string; // Минимальная версия игры для совместимости
+        maxGameVersion?: string; // Максимальная версия игры (опционально)
+    };
+}
+
+/**
+ * Обертка модели с метаданными
+ */
+export interface ModelWithMetadata<T> {
+    metadata: ModelMetadata;
+    data: T;
+}
+

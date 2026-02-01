@@ -39,7 +39,7 @@ export class AuthUI {
                 justify-content: center;
                 align-items: center;
                 z-index: 100001;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 animation: fadeIn 0.2s ease;
             }
 
@@ -87,7 +87,7 @@ export class AuthUI {
                 font-size: 20px;
                 font-weight: bold;
                 text-shadow: 0 0 10px rgba(0, 255, 255, 0.6);
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 letter-spacing: 1px;
             }
 
@@ -104,7 +104,7 @@ export class AuthUI {
                 align-items: center;
                 justify-content: center;
                 transition: all 0.3s ease;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .auth-close:hover {
@@ -129,7 +129,7 @@ export class AuthUI {
                 font-weight: bold;
                 text-transform: uppercase;
                 letter-spacing: 1px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .auth-field input {
@@ -140,7 +140,7 @@ export class AuthUI {
                 border-radius: 4px;
                 color: #0f0;
                 font-size: 13px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 box-sizing: border-box;
                 transition: all 0.3s ease;
             }
@@ -161,7 +161,7 @@ export class AuthUI {
                 color: rgba(0, 255, 4, 0.5);
                 font-size: 10px;
                 margin-top: 4px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .username-check {
@@ -169,7 +169,7 @@ export class AuthUI {
                 font-size: 11px;
                 padding: 4px 8px;
                 border-radius: 4px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 font-weight: bold;
             }
 
@@ -201,7 +201,7 @@ export class AuthUI {
                 align-items: center;
                 justify-content: center;
                 gap: 8px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 text-transform: uppercase;
                 letter-spacing: 1px;
             }
@@ -272,7 +272,7 @@ export class AuthUI {
                 color: #0ff;
                 font-weight: bold;
                 font-size: 12px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .auth-divider {
@@ -281,7 +281,7 @@ export class AuthUI {
                 margin: 20px 0;
                 position: relative;
                 font-size: 11px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 text-transform: uppercase;
             }
 
@@ -315,7 +315,7 @@ export class AuthUI {
                 display: block;
                 margin: 8px 0;
                 transition: all 0.3s ease;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 text-transform: uppercase;
             }
 
@@ -333,7 +333,7 @@ export class AuthUI {
                 border-radius: 4px;
                 margin-bottom: 16px;
                 font-size: 12px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 text-shadow: 0 0 5px #f00;
             }
 
@@ -345,13 +345,13 @@ export class AuthUI {
                 border-radius: 4px;
                 margin-bottom: 16px;
                 font-size: 12px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 text-shadow: 0 0 5px #0f0;
             }
 
             .user-profile {
                 color: #7f7;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .profile-field {
@@ -365,7 +365,7 @@ export class AuthUI {
                 margin-bottom: 6px;
                 font-weight: bold;
                 text-transform: uppercase;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .profile-value {
@@ -375,7 +375,7 @@ export class AuthUI {
                 background: rgba(0, 5, 0, 0.5);
                 border: 1px solid rgba(0, 255, 4, 0.3);
                 border-radius: 4px;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
             }
 
             .verified {
@@ -442,7 +442,7 @@ export class AuthUI {
         this.container.id = "auth-ui-container";
         this.container.className = "auth-overlay";
         this.container.style.display = "none";
-        
+
         return this.container;
     }
 
@@ -453,7 +453,7 @@ export class AuthUI {
         console.log("[AuthUI] showLoginForm() called - IMMEDIATE");
         this.callbacks = callbacks || {};
         this.currentForm = "login";
-        
+
         // СРАЗУ показываем контейнер, потом рендерим содержимое
         if (!this.container) {
             this.createContainer();
@@ -461,7 +461,7 @@ export class AuthUI {
                 document.body.appendChild(this.container);
             }
         }
-        
+
         // Показываем контейнер СРАЗУ
         if (this.container) {
             this.container.style.display = "flex";
@@ -469,7 +469,7 @@ export class AuthUI {
             this.container.style.visibility = "visible";
             this.container.style.opacity = "1";
         }
-        
+
         // Рендерим содержимое (может быть асинхронным, но окно уже видно)
         this.render().catch(err => {
             console.error("[AuthUI] Error rendering login form:", err);
@@ -483,7 +483,7 @@ export class AuthUI {
         console.log("[AuthUI] showRegisterForm() called - IMMEDIATE");
         this.callbacks = callbacks || {};
         this.currentForm = "register";
-        
+
         // СРАЗУ показываем контейнер, потом рендерим содержимое
         if (!this.container) {
             this.createContainer();
@@ -491,7 +491,7 @@ export class AuthUI {
                 document.body.appendChild(this.container);
             }
         }
-        
+
         // Показываем контейнер СРАЗУ
         if (this.container) {
             this.container.style.display = "flex";
@@ -499,7 +499,7 @@ export class AuthUI {
             this.container.style.visibility = "visible";
             this.container.style.opacity = "1";
         }
-        
+
         // Рендерим содержимое (может быть асинхронным, но окно уже видно)
         this.render().catch(err => {
             console.error("[AuthUI] Error rendering register form:", err);
@@ -772,7 +772,7 @@ export class AuthUI {
             submitBtn.textContent = "ВХОД...";
 
             const result = await firebaseService.signInWithEmail(email, password);
-            
+
             if (result.success) {
                 this.hide();
                 if (this.callbacks.onAuthSuccess) {
@@ -791,7 +791,7 @@ export class AuthUI {
             btn.textContent = "ВХОД...";
 
             const result = await firebaseService.signInWithGoogle();
-            
+
             if (result.success) {
                 this.hide();
                 if (this.callbacks.onAuthSuccess) {
@@ -815,7 +815,7 @@ export class AuthUI {
             const adminPassword = "admin";
 
             const result = await firebaseService.signInWithEmail(adminEmail, adminPassword);
-            
+
             if (result.success) {
                 this.hide();
                 if (this.callbacks.onAuthSuccess) {
@@ -873,7 +873,7 @@ export class AuthUI {
         usernameInput?.addEventListener("input", async () => {
             clearTimeout(checkTimeout);
             const username = usernameInput.value.trim();
-            
+
             if (username.length < 3) {
                 usernameCheck!.style.display = "none";
                 return;
@@ -892,14 +892,14 @@ export class AuthUI {
         form?.addEventListener("submit", async (e) => {
             e.preventDefault();
             console.log("[AuthUI] Register form submitted");
-            
+
             const username = usernameInput?.value.trim();
             const email = (document.getElementById("register-email") as HTMLInputElement)?.value;
             const password = (document.getElementById("register-password") as HTMLInputElement)?.value;
             const passwordConfirm = (document.getElementById("register-password-confirm") as HTMLInputElement)?.value;
 
-            console.log("[AuthUI] Registration data:", { 
-                username: username?.substring(0, 3) + "...", 
+            console.log("[AuthUI] Registration data:", {
+                username: username?.substring(0, 3) + "...",
                 email: email?.substring(0, 3) + "...",
                 hasPassword: !!password,
                 hasPasswordConfirm: !!passwordConfirm
@@ -939,7 +939,7 @@ export class AuthUI {
             console.log("[AuthUI] Calling firebaseService.signUpWithEmail...");
             const result = await firebaseService.signUpWithEmail(email, password, username);
             console.log("[AuthUI] Registration result:", result.success ? "SUCCESS" : "FAILED", result.error || "");
-            
+
             if (result.success) {
                 console.log("[AuthUI] Registration successful!");
                 this.showError("", false);
@@ -965,7 +965,7 @@ export class AuthUI {
             btn.textContent = "РЕГИСТРАЦИЯ...";
 
             const result = await firebaseService.signInWithGoogle();
-            
+
             if (result.success) {
                 this.hide();
                 if (this.callbacks.onAuthSuccess) {
@@ -1010,7 +1010,7 @@ export class AuthUI {
             submitBtn.textContent = "ОТПРАВКА...";
 
             const result = await firebaseService.sendPasswordResetEmail(email);
-            
+
             if (result.success) {
                 this.showError("", false);
                 this.showSuccess("Письмо для сброса пароля отправлено на " + email);
@@ -1055,7 +1055,7 @@ export class AuthUI {
             btn.textContent = "ОТПРАВКА...";
 
             const result = await firebaseService.sendEmailVerification();
-            
+
             if (result.success) {
                 this.showSuccess("Письмо для верификации отправлено");
             } else {

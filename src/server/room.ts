@@ -85,12 +85,15 @@ export class GameRoom {
 
     // Track destroyed objects for synchronization
     private destroyedObjectIds: Set<string> = new Set();
+    private readonly MAX_DESTROYED_OBJECTS = 5000; // Максимальное количество отслеживаемых уничтоженных объектов
 
     // Game mode rules
     private gameModeRules: GameModeRules;
 
     // Damage events queue for broadcasting
     damageEvents: any[] = [];
+    private readonly MAX_DAMAGE_EVENTS = 1000; // Максимальное количество событий урона
+    private readonly DAMAGE_EVENT_MAX_AGE = 5000; // Максимальный возраст события в мс (5 секунд)
 
     // CTF system
     // CTF system
@@ -100,7 +103,7 @@ export class GameRoom {
     worldSeed: number;
 
     // Map type
-    mapType: string = "normal";
+    mapType: string = "sandbox";
     customMapData: any = null; // Store custom map JSON data
 
     // Room deletion timer
@@ -124,14 +127,19 @@ export class GameRoom {
 
         // Валидация и установка mapType
         // Список допустимых типов карт для предотвращения инъекции невалидных значений
-        const validMapTypes = ["normal", "desert", "snow", "sandbox", "city", "forest", "swamp", "volcanic", "arctic", "tropical", "sand"];
+        const validMapTypes = [
+            "sandbox", "desert", "snow", "city", "forest", "swamp", "volcanic", "arctic", "tropical",
+            "sand", "arena", "expo", "brest", "madness",  // Fixed maps
+            "polygon", "frontline", "ruins", "canyon", "industrial", "urban", "underground", "coastal",  // Procedural maps
+            "custom"  // Custom maps from editor
+        ];
         if (mapType && validMapTypes.includes(mapType)) {
             this.mapType = mapType;
         } else {
             if (mapType) {
-                serverLogger.warn(`[Room] Невалидный mapType: '${mapType}', используем 'normal'. Допустимые: ${validMapTypes.join(', ')}`);
+                serverLogger.warn(`[Room] Невалидный mapType: '${mapType}', используем 'sandbox'. Допустимые: ${validMapTypes.join(', ')}`);
             }
-            this.mapType = "normal";
+            this.mapType = "sandbox";
         }
         serverLogger.log(`[Room] Комната создана с mapType: ${this.mapType}, worldSeed: ${this.worldSeed}`);
 
@@ -341,6 +349,14 @@ export class GameRoom {
 
     markObjectDestroyed(objectId: string): void {
         if (!this.destroyedObjectIds.has(objectId)) {
+            // ОПТИМИЗАЦИЯ: Ограничиваем размер Set для предотвращения утечек памяти
+            if (this.destroyedObjectIds.size >= this.MAX_DESTROYED_OBJECTS) {
+                // Удаляем самый старый ID (первый в Set)
+                const firstId = this.destroyedObjectIds.values().next().value;
+                if (firstId) {
+                    this.destroyedObjectIds.delete(firstId);
+                }
+            }
             this.destroyedObjectIds.add(objectId);
             this.worldUpdates.destroyedObjects.push(objectId);
         }
@@ -354,6 +370,12 @@ export class GameRoom {
         if (!this.isActive) return;
 
         this.gameTime += deltaTime;
+
+        // ОПТИМИЗАЦИЯ: Очищаем старые события урона для предотвращения утечек памяти
+        const now = Date.now();
+        this.damageEvents = this.damageEvents.filter(event => {
+            return event.timestamp && (now - event.timestamp) < this.DAMAGE_EVENT_MAX_AGE;
+        });
 
         // Update player positions based on input
         for (const player of this.players.values()) {
@@ -546,8 +568,15 @@ export class GameRoom {
                         attackerName: this.players.get(projectile.ownerId)?.name || "Unknown",
                         damage: projectile.damage,
                         newHealth: player.health,
-                        maxHealth: player.maxHealth
+                        maxHealth: player.maxHealth,
+                        timestamp: Date.now() // Добавляем timestamp для очистки старых событий
                     };
+
+                    // ОПТИМИЗАЦИЯ: Ограничиваем размер массива событий
+                    if (this.damageEvents.length >= this.MAX_DAMAGE_EVENTS) {
+                        // Удаляем самое старое событие (первое в массиве)
+                        this.damageEvents.shift();
+                    }
                     this.damageEvents.push(damageEvent);
 
                     // Remove projectile

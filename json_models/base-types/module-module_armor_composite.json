@@ -1,0 +1,26 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140626,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "module_armor_composite",
+    "name": "Composite Armor",
+    "description": "Heavy plating that increases HP but reduces speed slightly.",
+    "type": "armor",
+    "rarity": "common",
+    "price": 500,
+    "attachmentPoint": "chassis_front",
+    "modelPath": "box",
+    "color": "#4a5d4a",
+    "scale": 1,
+    "stats": {
+      "hpAdd": 200,
+      "massAdd": 500,
+      "speedMultiplier": 0.95,
+      "armorMultiplier": 1.2
+    }
+  }
+}

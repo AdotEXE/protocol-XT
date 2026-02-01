@@ -2,13 +2,12 @@
  * @module workshop/WorkshopUI
  * @description Главный UI для Workshop Editor
  * 
- * Объединяет все редакторы в единый интерфейс
- * 
- * TODO: ТРЕБУЕТСЯ ДОРАБОТКА
- * - Реализовать выделение объектов для трансформации (как в редакторе карт > WORKSHOP)
- * - Добавить функционал трансформации объектов (перемещение, вращение, масштабирование)
- * - Интегрировать весь функционал из редактора карт > WORKSHOP в редактор танков
- * - Добавить возможность сохранения/загрузки кастомных конфигураций танков
+ * Объединяет все редакторы в единый интерфейс:
+ * - ModelSelector: Выбор базовой модели танка
+ * - ParameterEditor: Редактирование параметров (движение, бой, физика)
+ * - AttachmentPointEditor: Точки крепления башни и ствола
+ * - VisualEditor: Цвета частей танка
+ * - TransformEditor: Перемещение, вращение, масштабирование частей танка
  */
 
 import { Scene } from '@babylonjs/core';
@@ -21,6 +20,7 @@ import ModelSelector from './ModelSelector';
 import ParameterEditor from './ParameterEditor';
 import AttachmentPointEditor from './AttachmentPointEditor';
 import VisualEditor from './VisualEditor';
+import TransformEditor from './TransformEditor';
 
 export class WorkshopUI {
     private overlay: HTMLDivElement | null = null;
@@ -31,8 +31,10 @@ export class WorkshopUI {
     private parameterEditor: ParameterEditor | null = null;
     private attachmentEditor: AttachmentPointEditor | null = null;
     private visualEditor: VisualEditor | null = null;
+    private transformEditor: TransformEditor | null = null;
 
     private currentConfig: Partial<CustomTankConfiguration> = {};
+    private escHandler: ((e: KeyboardEvent) => void) | null = null;
 
     constructor(private scene: Scene) {
         this.createUI();
@@ -47,7 +49,7 @@ export class WorkshopUI {
         this.overlay.id = 'workshop-overlay';
 
         const html = `
-            <div class="panel" style="max-width: 1400px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+            <div class="panel" style="max-width: 1400px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; margin: auto; position: relative;">
                 <div class="panel-header">
                     <div class="panel-title">WORKSHOP - Редактор Танков</div>
                     <button class="panel-close" id="workshop-close">✕</button>
@@ -64,6 +66,7 @@ export class WorkshopUI {
                         <div id="preview-container" style="width: 100%; height: 400px; background: #1a1a1a; border: 1px solid #0f0; border-radius: 4px; position: relative; overflow: hidden;"></div>
                         <div id="attachment-editor-container"></div>
                         <div id="visual-editor-container"></div>
+                        <div id="transform-editor-container"></div>
                         
                         <!-- Кнопки сохранения -->
                         <div class="workshop-actions" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; padding: 15px; background: rgba(0, 20, 0, 0.3); border: 1px solid rgba(0, 255, 0, 0.2); border-radius: 4px;">
@@ -130,6 +133,13 @@ export class WorkshopUI {
         if (visualContainer) {
             this.visualEditor = new VisualEditor(visualContainer as HTMLDivElement, this.previewTank);
         }
+
+        // TransformEditor для перемещения/вращения/масштабирования частей танка
+        const transformContainer = document.getElementById('transform-editor-container');
+        if (transformContainer) {
+            this.transformEditor = new TransformEditor(transformContainer as HTMLDivElement);
+            // Инициализируем с preview сценой когда модель будет загружена
+        }
     }
 
     private loadModel(chassisId: string, cannonId: string, trackId: string): void {
@@ -151,6 +161,12 @@ export class WorkshopUI {
         // Обновляем visual editor
         if (this.visualEditor && this.previewTank) {
             this.visualEditor.setPreviewTank(this.previewTank);
+        }
+
+        // Обновляем transform editor
+        if (this.transformEditor && this.previewScene && this.previewTank) {
+            this.transformEditor.initialize(this.previewScene.scene, this.previewTank);
+            this.transformEditor.setPreviewTank(this.previewTank);
         }
 
         // Загружаем параметры по умолчанию из типов
@@ -211,7 +227,14 @@ export class WorkshopUI {
 
     private setupHandlers(): void {
         // Close button
-        document.getElementById('workshop-close')?.addEventListener('click', () => this.hide());
+        const closeBtn = document.getElementById('workshop-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.hide();
+            });
+        }
 
         // Save button
         document.getElementById('save-tank')?.addEventListener('click', () => this.saveTank());
@@ -230,6 +253,31 @@ export class WorkshopUI {
                 }
             });
         }
+
+        // Закрытие по ESC - используем capture: true для приоритета
+        this.escHandler = (e: KeyboardEvent) => {
+            // Проверяем, что WORKSHOP виден и ESC не заблокирован другими элементами
+            if (e.code === 'Escape' && this.isVisible()) {
+                // Проверяем, что фокус не в поле ввода
+                const activeElement = document.activeElement;
+                const isInputFocused = activeElement && (
+                    activeElement.tagName === 'INPUT' ||
+                    activeElement.tagName === 'TEXTAREA' ||
+                    (activeElement as HTMLElement).isContentEditable
+                );
+                
+                // Если фокус в поле ввода, не закрываем (пользователь может редактировать текст)
+                if (isInputFocused) {
+                    return;
+                }
+                
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                this.hide();
+            }
+        };
+        window.addEventListener('keydown', this.escHandler, { capture: true });
     }
 
     private saveTank(): void {
@@ -434,6 +482,10 @@ export class WorkshopUI {
         if (this.overlay) {
             this.overlay.classList.remove('hidden');
             this.overlay.classList.add('visible');
+            // Блокируем взаимодействие с игрой когда Workshop открыт
+            if (this.overlay.style) {
+                this.overlay.style.pointerEvents = 'auto';
+            }
         }
     }
 
@@ -441,10 +493,28 @@ export class WorkshopUI {
         if (this.overlay) {
             this.overlay.classList.add('hidden');
             this.overlay.classList.remove('visible');
+            // Восстанавливаем взаимодействие с игрой
+            if (this.overlay.style) {
+                this.overlay.style.pointerEvents = 'none';
+            }
         }
     }
 
+    isVisible(): boolean {
+        return this.overlay !== null && !this.overlay.classList.contains('hidden');
+    }
+
     dispose(): void {
+        // Удаляем обработчик ESC
+        if (this.escHandler) {
+            window.removeEventListener('keydown', this.escHandler, { capture: true });
+            this.escHandler = null;
+        }
+
+        if (this.transformEditor) {
+            this.transformEditor.dispose();
+        }
+
         if (this.attachmentEditor) {
             this.attachmentEditor.dispose();
         }

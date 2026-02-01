@@ -42,6 +42,7 @@ export interface GarageTankController {
 export interface GarageSoundManager {
     play: (sound: string, volume?: number) => void;
     playGarageOpen?: () => void;
+    playShoot?: (cannonType: string, position?: Vector3, velocity?: Vector3) => void;
 }
 
 export interface GarageChatSystem {
@@ -355,7 +356,7 @@ export class Garage {
                 display: flex;
                 justify-content: center;
                 align-items: center;
-                font-family: 'Consolas', 'Monaco', monospace;
+                font-family: 'Press Start 2P', monospace;
                 animation: fadeIn 0.3s ease-out;
                 cursor: default;
             }
@@ -815,6 +816,7 @@ export class Garage {
                 gameInstance.multiplayerManager.sendRpc("DRESS_UPDATE", {
                     chassisType: tank.chassisType.id,
                     cannonType: tank.cannonType.id,
+                    trackType: tank.trackType?.id || localStorage.getItem("selectedTrack") || "standard",
                     tankColor: tank.tankColor || localStorage.getItem("selectedColor") || "#00ff00",
                     turretColor: tank.turretColor || localStorage.getItem("selectedTurretColor") || "#888888"
                 });
@@ -1041,6 +1043,10 @@ export class Garage {
 
         console.log("[Garage] Closing garage...");
 
+        // НЕ очищаем обработчики клавиатуры при закрытии - они остаются активными
+        // и проверяют this.isOpen, так что не будут обрабатывать события когда гараж закрыт
+        // Обработчики будут очищены только при уничтожении гаража (если нужно)
+
         // Останавливаем анимацию вращения башни
         if (this.previewTurretAnimationFrame !== null) {
             cancelAnimationFrame(this.previewTurretAnimationFrame);
@@ -1146,18 +1152,9 @@ export class Garage {
             // ignore
         }
 
-        // 7. Снимаем паузу игры, если она была поставлена
-        try {
-            const game = (window as any).gameInstance;
-            if (game && game.gameStarted && game.gamePaused) {
-                if (typeof game.togglePause === 'function') {
-                    game.togglePause();
-                    console.log("[Garage] Game unpaused after closing garage");
-                }
-            }
-        } catch (error) {
-            console.error("[Garage] Error unpausing game:", error);
-        }
+        // 7. НЕ меняем состояние паузы при закрытии гаража
+        // Игра должна оставаться в том же состоянии (пауза/не пауза), что и была
+        // Гараж не должен влиять на состояние паузы игры
 
         // 8. ВЫЗЫВАЕМ CALLBACK В САМОМ КОНЦЕ (после всей очистки)
         try {
@@ -1189,7 +1186,7 @@ export class Garage {
         }
 
         // Initialize preview scene using module
-        this.previewSceneData = initPreviewScene(previewContainer as HTMLElement);
+        this.previewSceneData = initPreviewScene(previewContainer as HTMLElement, this.soundManager);
 
         if (this.previewSceneData && this.previewSceneData.scene) {
             // Initial render
@@ -1215,6 +1212,12 @@ export class Garage {
             this.previewSceneData.scene
         );
 
+        // Update previewSceneData properties for shooting logic
+        if (this.previewSceneData) {
+            this.previewSceneData.tank = this.previewTank;
+            this.previewSceneData.cannonId = cannonId;
+        }
+
         // Восстанавливаем угол поворота башни после обновления
         if (this.previewTank && this.previewTank.turret) {
             this.previewTank.turret.rotation.y = savedTurretRotation;
@@ -1232,14 +1235,12 @@ export class Garage {
                     this.previewTank.chassis.absoluteRotationQuaternion
                 );
 
-                // Обновляем визуализацию траектории
-                this.previewSceneData.trajectoryVisualization = updateTrajectoryVisualization(
-                    this.previewSceneData.trajectoryVisualization || null,
-                    this.previewSceneData.scene,
-                    cannonType,
-                    tankPosition,
-                    barrelDirection
-                );
+                // ОТКЛЮЧЕНО: Визуализация траектории отключена по запросу пользователя
+                // Очищаем старую визуализацию если она есть
+                if (this.previewSceneData.trajectoryVisualization) {
+                    disposeTrajectoryVisualization(this.previewSceneData.trajectoryVisualization);
+                    this.previewSceneData.trajectoryVisualization = null;
+                }
             }
         } else {
             // Скрываем траекторию для других категорий
@@ -3585,13 +3586,6 @@ export class Garage {
     private workshopUI: any = null;
 
     private openWorkshop(): void {
-        // TODO: WORKSHOP - РЕДАКТОР ТАНКОВ
-        // ТРЕБУЕТСЯ ДОРАБОТКА:
-        // 1. Реализовать выделение объектов для трансформации (как в редакторе карт > WORKSHOP)
-        // 2. Добавить функционал трансформации объектов (перемещение, вращение, масштабирование)
-        // 3. Интегрировать весь функционал из редактора карт > WORKSHOP в редактор танков
-        // 4. Добавить возможность сохранения/загрузки кастомных конфигураций танков
-        // 
         // Импортируем и открываем WorkshopUI
         import('./workshop/WorkshopUI').then(module => {
             if (!this.workshopUI) {
@@ -3601,6 +3595,13 @@ export class Garage {
         }).catch(e => {
             console.error('[Garage] Failed to open Workshop:', e);
         });
+    }
+    
+    /**
+     * Проверяет, открыт ли Workshop
+     */
+    public isWorkshopOpen(): boolean {
+        return this.workshopUI !== null && this.workshopUI.isVisible && this.workshopUI.isVisible();
     }
 
     private getItemsForCategory(): (TankPart | TankUpgrade)[] {
@@ -4122,7 +4123,7 @@ export class Garage {
             color: ${color.text};
             padding: 15px 25px;
             z-index: 10001;
-            font-family: 'Consolas', 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
             font-size: 14px;
             font-weight: bold;
             box-shadow: 0 4px 12px rgba(0,0,0,0.5);
@@ -4617,13 +4618,20 @@ export class Garage {
                             this.previewTank.chassis.absoluteRotationQuaternion
                         );
 
-                        this.previewSceneData.trajectoryVisualization = updateTrajectoryVisualization(
-                            this.previewSceneData.trajectoryVisualization || null,
-                            this.previewSceneData.scene,
-                            cannonType,
-                            tankPosition,
-                            barrelDirection
-                        );
+                        // ОТКЛЮЧЕНО: Визуализация траектории отключена по запросу пользователя
+                        // this.previewSceneData.trajectoryVisualization = updateTrajectoryVisualization(
+                        //     this.previewSceneData.trajectoryVisualization || null,
+                        //     this.previewSceneData.scene,
+                        //     cannonType,
+                        //     tankPosition,
+                        //     barrelDirection
+                        // );
+
+                        // Очищаем старую визуализацию если она есть
+                        if (this.previewSceneData.trajectoryVisualization) {
+                            disposeTrajectoryVisualization(this.previewSceneData.trajectoryVisualization);
+                            this.previewSceneData.trajectoryVisualization = null;
+                        }
                     }
                 }
             }
@@ -5038,11 +5046,22 @@ export class Garage {
     }
 
     // ============ KEYBOARD NAVIGATION ============
+    private keyboardHandler: ((e: KeyboardEvent) => void) | null = null;
+    private keyboardNavigationSetup: boolean = false;
+
     private setupKeyboardNavigation(): void {
-        window.addEventListener('keydown', (e) => {
+        // Защита от повторной регистрации
+        if (this.keyboardNavigationSetup) {
+            console.warn("[Garage] Keyboard navigation already setup, skipping...");
+            return;
+        }
+
+        // Сохраняем ссылку на обработчик для последующего удаления
+        this.keyboardHandler = (e: KeyboardEvent) => {
             if (!this.isOpen) return;
 
             // Блокируем навигацию если фокус в поле ввода
+            // Улучшенная проверка: проверяем что это именно поле поиска гаража или другое поле ввода
             const activeElement = document.activeElement;
             const isInputFocused = activeElement && (
                 activeElement.tagName === 'INPUT' ||
@@ -5050,13 +5069,36 @@ export class Garage {
                 (activeElement as HTMLElement).isContentEditable
             );
 
-            if (isInputFocused && e.code !== 'Escape' && e.code !== 'Enter') return;
-            // Разрешаем Escape для закрытия и Enter для подтверждения поиска, но блокируем стрелки и т.д.
-            // Но если Enter в поиске - не должны покупать!
-            if (isInputFocused && e.code === 'Enter') return;
+            // Дополнительная проверка: если это поле поиска гаража, разрешаем некоторые клавиши
+            const isGarageSearchInput = activeElement && (
+                activeElement.id === 'garage-search-input' ||
+                (activeElement as HTMLElement).closest?.('.garage-search')
+            );
+
+            // Если фокус в поле ввода (но не в поле поиска гаража), блокируем навигацию
+            // Для поля поиска гаража разрешаем Escape и Enter, но блокируем остальное
+            if (isInputFocused && !isGarageSearchInput && e.code !== 'Escape') return;
+
+            // Если фокус в поле поиска гаража, разрешаем Escape и Enter, но блокируем навигацию
+            if (isGarageSearchInput && e.code !== 'Escape' && e.code !== 'Enter') return;
+
+            // Если Enter в поле поиска - не обрабатываем как выбор элемента
+            if (isGarageSearchInput && e.code === 'Enter') return;
 
             // Закрытие гаража: Escape, G или B
+            // НО: если открыт Workshop, сначала закрываем его
             if (e.code === 'Escape' || e.code === 'KeyG' || e.code === 'KeyB') {
+                // Проверяем, открыт ли Workshop
+                if (this.workshopUI && this.workshopUI.isVisible && this.workshopUI.isVisible()) {
+                    // Закрываем Workshop вместо гаража
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    this.workshopUI.hide();
+                    return;
+                }
+                
+                // Если Workshop не открыт, закрываем гараж
                 e.preventDefault();
                 e.stopPropagation();
                 e.stopImmediatePropagation();
@@ -5113,13 +5155,70 @@ export class Garage {
                 this.selectedItemIndex = Math.min(this.filteredItems.length - 1, this.selectedItemIndex + 1);
                 this.refreshItemList();
                 this.scrollToSelectedItem(isFastNavigation);
+            } else if (e.code === 'Home') {
+                // Переход к первому элементу
+                e.preventDefault();
+                if (this.filteredItems.length > 0) {
+                    this.selectedItemIndex = 0;
+                    this.refreshItemList();
+                    this.scrollToSelectedItem(false);
+                }
+            } else if (e.code === 'End') {
+                // Переход к последнему элементу
+                e.preventDefault();
+                if (this.filteredItems.length > 0) {
+                    this.selectedItemIndex = this.filteredItems.length - 1;
+                    this.refreshItemList();
+                    this.scrollToSelectedItem(false);
+                }
+            } else if (e.code === 'PageUp') {
+                // Прокрутка на страницу вверх (10 элементов)
+                e.preventDefault();
+                if (this.filteredItems.length > 0) {
+                    const pageSize = 10;
+                    this.selectedItemIndex = Math.max(0, this.selectedItemIndex - pageSize);
+                    this.refreshItemList();
+                    this.scrollToSelectedItem(false);
+                }
+            } else if (e.code === 'PageDown') {
+                // Прокрутка на страницу вниз (10 элементов)
+                e.preventDefault();
+                if (this.filteredItems.length > 0) {
+                    const pageSize = 10;
+                    this.selectedItemIndex = Math.min(this.filteredItems.length - 1, this.selectedItemIndex + pageSize);
+                    this.refreshItemList();
+                    this.scrollToSelectedItem(false);
+                }
             }
 
             if ((e.code === 'Enter' || e.code === 'Space')) {
+                // Проверяем, что фокус НЕ в поле ввода
+                // Если фокус в поле ввода (включая поле поиска) - не обрабатываем Enter/Space
+                if (isInputFocused) return;
+
+                // Проверяем, что есть элементы в списке
+                if (this.filteredItems.length === 0) {
+                    console.warn("[Garage] No items to select");
+                    return;
+                }
+
+                // Проверяем, что индекс валидный
+                if (this.selectedItemIndex < 0 || this.selectedItemIndex >= this.filteredItems.length) {
+                    console.warn(`[Garage] Invalid item index: ${this.selectedItemIndex}, total items: ${this.filteredItems.length}`);
+                    // Исправляем индекс
+                    this.selectedItemIndex = Math.max(0, Math.min(this.filteredItems.length - 1, this.selectedItemIndex));
+                    this.refreshItemList();
+                    return;
+                }
+
                 const item = this.filteredItems[this.selectedItemIndex];
                 if (item) {
                     e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
                     this.handleAction(item);
+                } else {
+                    console.warn(`[Garage] Item at index ${this.selectedItemIndex} is null or undefined`);
                 }
             }
 
@@ -5155,10 +5254,14 @@ export class Garage {
                     }
                 }
             }
-        });
+        };
+
+        // Используем capture: true чтобы обработчик вызывался раньше других
+        // Это гарантирует, что Enter в гараже обрабатывается до обработчика чата в game.ts
+        window.addEventListener('keydown', this.keyboardHandler, { capture: true });
 
         // Обработка отпускания клавиш
-        window.addEventListener('keyup', (e) => {
+        const keyupHandler = (e: KeyboardEvent) => {
             if (!this.isOpen) return;
 
             if (e.code === 'KeyZ') {
@@ -5168,7 +5271,35 @@ export class Garage {
                 this.previewTurretKeysPressed.x = false;
                 this.stopPreviewTurretAnimationIfNeeded();
             }
-        });
+        };
+
+        window.addEventListener('keyup', keyupHandler);
+
+        // Сохраняем ссылки для очистки
+        (this as any)._keyboardHandlers = {
+            keydown: this.keyboardHandler,
+            keyup: keyupHandler
+        };
+
+        this.keyboardNavigationSetup = true;
+    }
+
+    private cleanupKeyboardNavigation(): void {
+        if (this.keyboardHandler) {
+            window.removeEventListener('keydown', this.keyboardHandler, { capture: true });
+            this.keyboardHandler = null;
+        }
+
+        const handlers = (this as any)._keyboardHandlers;
+        if (handlers) {
+            if (handlers.keyup) {
+                window.removeEventListener('keyup', handlers.keyup);
+            }
+            (this as any)._keyboardHandlers = null;
+        }
+
+        // НЕ сбрасываем keyboardNavigationSetup - обработчики остаются зарегистрированными
+        // и будут работать при следующем открытии гаража
     }
 
     /**

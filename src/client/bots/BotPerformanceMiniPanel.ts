@@ -11,32 +11,32 @@ export class BotPerformanceMiniPanel {
     private texture: AdvancedDynamicTexture;
     private container: Rectangle | null = null;
     private _isVisible: boolean = false;
-    
+
     private updateTimer: NodeJS.Timeout | null = null;
     private buttonObservers: Array<{ button: Button; observer: any }> = [];
-    
+
     constructor(monitor: BotPerformanceMonitor, texture: AdvancedDynamicTexture) {
         this.monitor = monitor;
         this.texture = texture;
     }
-    
+
     /**
      * Показать мини-панель
      */
     show(): void {
         if (this._isVisible) return;
-        
+
         this.createUI();
         this._isVisible = true;
         this.startUpdates();
     }
-    
+
     /**
      * Скрыть мини-панель
      */
     hide(): void {
         if (!this._isVisible) return;
-        
+
         try {
             // Удаляем наблюдатели
             this.buttonObservers.forEach(({ button, observer }) => {
@@ -49,7 +49,7 @@ export class BotPerformanceMiniPanel {
                 }
             });
             this.buttonObservers = [];
-            
+
             if (this.container) {
                 try {
                     this.container.dispose();
@@ -58,10 +58,10 @@ export class BotPerformanceMiniPanel {
                 }
                 this.container = null;
             }
-            
+
             this.stopUpdates();
             this._isVisible = false;
-            
+
             logger.log("[BotPerformanceMiniPanel] Mini panel hidden");
         } catch (e) {
             logger.error("[BotPerformanceMiniPanel] Error hiding mini panel:", e);
@@ -71,14 +71,14 @@ export class BotPerformanceMiniPanel {
             this.buttonObservers = [];
         }
     }
-    
+
     /**
      * Проверить, видна ли мини-панель
      */
     isVisible(): boolean {
         return this._isVisible;
     }
-    
+
     /**
      * Создать UI
      */
@@ -95,19 +95,19 @@ export class BotPerformanceMiniPanel {
         container.top = "10px";
         container.zIndex = 500;
         container.isPointerBlocker = false; // Не блокируем клики
-        
+
         this.container = container;
         this.texture.addControl(container);
-        
+
         this.updateMetrics();
     }
-    
+
     /**
      * Обновить метрики
      */
     private updateMetrics(): void {
         if (!this.container || !this.monitor) return;
-        
+
         try {
             // Очищаем старые элементы (кроме контейнера)
             const controlsToRemove: Control[] = [];
@@ -123,39 +123,39 @@ export class BotPerformanceMiniPanel {
                     // Игнорируем ошибки
                 }
             });
-            
+
             const metrics = this.monitor.getAggregatedMetrics();
             if (!metrics) return;
-            
+
             let yOffset = -50;
             const lineHeight = 18;
-            
+
             // Заголовок
             const title = new TextBlock("miniTitle", "🤖 БОТЫ");
             title.color = "#0f0";
             title.fontSize = 14;
-            title.fontFamily = "Consolas, monospace";
+            title.fontFamily = "'Press Start 2P', monospace";
             title.top = `${yOffset}px`;
             title.left = "-110px";
             title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
             this.container.addControl(title);
             yOffset += lineHeight + 5;
-            
+
             // Ключевые метрики
             const fpsColor = metrics.averageFPSImpact > 5 ? "#f00" : metrics.averageFPSImpact > 2 ? "#ff0" : "#0f0";
             this.addMiniLine(`FPS: ${metrics.averageFPSImpact.toFixed(1)}%`, yOffset, fpsColor);
             yOffset += lineHeight;
-            
+
             this.addMiniLine(`Ботов: ${metrics.aliveBots}/${metrics.totalBots}`, yOffset);
             yOffset += lineHeight;
-            
+
             const cpuColor = metrics.averageCPUUsage > 50 ? "#f00" : metrics.averageCPUUsage > 30 ? "#ff0" : "#0f0";
             this.addMiniLine(`CPU: ${metrics.averageCPUUsage.toFixed(1)}%`, yOffset, cpuColor);
             yOffset += lineHeight;
-            
+
             this.addMiniLine(`Время AI: ${metrics.averageAITiming.totalAITime.toFixed(1)}ms`, yOffset);
             yOffset += lineHeight;
-            
+
             // Кнопка развернуть
             const expandButton = Button.CreateSimpleButton("expand", "📊");
             expandButton.width = "30px";
@@ -179,39 +179,39 @@ export class BotPerformanceMiniPanel {
             });
             this.buttonObservers.push({ button: expandButton, observer: expandObserver });
             this.container.addControl(expandButton);
-            
+
         } catch (e) {
             logger.warn("[BotPerformanceMiniPanel] Error updating metrics:", e);
         }
     }
-    
+
     /**
      * Добавить строку метрики
      */
     private addMiniLine(text: string, top: number, color: string = "#0f0"): void {
         if (!this.container) return;
-        
+
         const line = new TextBlock(`mini_${top}`, text);
         line.color = color;
         line.fontSize = 11;
-        line.fontFamily = "Consolas, monospace";
+        line.fontFamily = "'Press Start 2P', monospace";
         line.top = `${top}px`;
         line.left = "-110px";
         line.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.container.addControl(line);
     }
-    
+
     /**
      * Запустить обновления
      */
     private startUpdates(): void {
         if (this.updateTimer) return;
-        
+
         this.updateTimer = setInterval(() => {
             this.updateMetrics();
         }, 2000); // Обновляем каждые 2 секунды
     }
-    
+
     /**
      * Остановить обновления
      */
@@ -221,7 +221,7 @@ export class BotPerformanceMiniPanel {
             this.updateTimer = null;
         }
     }
-    
+
     /**
      * Очистить ресурсы
      */

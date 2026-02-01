@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140535,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "heavy",
+    "name": "Heavy",
+    "width": 2.6,
+    "height": 0.9,
+    "depth": 4,
+    "mass": 2500,
+    "maxHealth": 150,
+    "moveSpeed": 18,
+    "turnSpeed": 4,
+    "acceleration": 7500,
+    "color": "#8b4513",
+    "description": "Slow but very durable"
+  }
+}

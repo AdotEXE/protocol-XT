@@ -12,51 +12,51 @@ export const HUD_COLORS = {
     ACCENT: "#00ffff",
     WARNING: "#ffff00",
     DANGER: "#ff0000",
-    
+
     // Фоны
     BG_DARK: "#000000",
     BG_PANEL: "#0a0a0a",
     BG_OVERLAY: "rgba(0, 0, 0, 0.8)",
-    
+
     // Здоровье
     HEALTH_FULL: "#00ff00",
     HEALTH_MEDIUM: "#ffff00",
     HEALTH_LOW: "#ff0000",
     HEALTH_CRITICAL: "#ff0000",
-    
+
     // Арсенал
     ARSENAL_ACTIVE: "#00ff00",
     ARSENAL_INACTIVE: "#666666",
     ARSENAL_COOLDOWN: "#ff6600",
-    
+
     // Типы боеприпасов
     AMMO_TRACER: "#f80",
     AMMO_AP: "#0ff",
     AMMO_APCR: "#0af",
     AMMO_HE: "#f60",
     AMMO_APDS: "#0fa",
-    
+
     // Эффекты
     EFFECT_POSITIVE: "#00ff00",
     EFFECT_NEGATIVE: "#ff0000",
     EFFECT_NEUTRAL: "#ffffff",
-    
+
     // Миникарта
     MINIMAP_BG: "#0a0a0a",
     MINIMAP_PLAYER: "#00ff00",
     MINIMAP_ENEMY: "#ff0000",
     MINIMAP_ALLY: "#00ffff",
     MINIMAP_POI: "#ffff00",
-    
+
     // Топливо
     FUEL_FULL: "#00cc00",
     FUEL_WARNING: "#ffcc00",
     FUEL_CRITICAL: "#ff3300",
-    
+
     // Броня
     ARMOR_FULL: "#3399ff",
     ARMOR_DAMAGED: "#ff9900",
-    
+
     // Прицел (дополнительные)
     crosshair: "#00ff00",
     crosshairGlow: "#00ff0066",
@@ -77,26 +77,26 @@ export const HUD_SIZES = {
     HEALTH_BAR_HEIGHT: 20,
     RELOAD_BAR_WIDTH: 150,
     RELOAD_BAR_HEIGHT: 8,
-    
+
     // Миникарта
     MINIMAP_SIZE: 180,
     MINIMAP_MARGIN: 10,
-    
+
     // Арсенал
     ARSENAL_SLOT_SIZE: 50,
     ARSENAL_SLOT_MARGIN: 5,
-    
+
     // Прицел
     CROSSHAIR_SIZE: 20,
     CROSSHAIR_GAP: 4,
     CROSSHAIR_THICKNESS: 2,
-    
+
     // Текст
     FONT_SIZE_SMALL: 12,
     FONT_SIZE_MEDIUM: 16,
     FONT_SIZE_LARGE: 24,
     FONT_SIZE_TITLE: 32,
-    
+
     // Отступы
     PADDING_SMALL: 5,
     PADDING_MEDIUM: 10,
@@ -107,9 +107,9 @@ export const HUD_SIZES = {
  * Шрифты HUD
  */
 export const HUD_FONTS = {
-    PRIMARY: "'Consolas', 'Monaco', monospace",
+    PRIMARY: "'Press Start 2P', monospace",
     SECONDARY: "'Arial', sans-serif",
-    DIGITAL: "'Orbitron', 'Consolas', monospace"
+    DIGITAL: "'Press Start 2P', monospace"
 };
 
 /**

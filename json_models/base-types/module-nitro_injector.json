@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140500,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "nitro_injector",
+    "name": "Нитро-инжектор",
+    "description": "+20% скорости, -10% расход топлива",
+    "cost": 700,
+    "unlocked": false,
+    "type": "module",
+    "stats": {
+      "speed": 0.2,
+      "fuelEfficiency": 0.1
+    },
+    "icon": "💨",
+    "rarity": "rare"
+  }
+}

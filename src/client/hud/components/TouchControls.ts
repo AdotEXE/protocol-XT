@@ -25,17 +25,17 @@ export interface TouchControlsConfig {
     joystickSize: number;          // Размер зоны джойстика
     joystickKnobSize: number;      // Размер внутреннего "стика"
     joystickMargin: number;        // Отступ от края экрана
-    
+
     // Кнопка огня
     fireButtonSize: number;        // Размер кнопки стрельбы
-    
+
     // Цвета
     leftJoystickColor: string;     // Цвет левого джойстика
     rightJoystickColor: string;    // Цвет правого джойстика
     fireColor: string;             // Цвет кнопки огня
     knobColor: string;             // Цвет "стиков"
     backgroundColor: string;       // Цвет фона
-    
+
     // Прозрачность
     baseAlpha: number;             // Прозрачность в покое
     activeAlpha: number;           // Прозрачность при активации
@@ -46,17 +46,17 @@ export const DEFAULT_TOUCH_CONTROLS_CONFIG: TouchControlsConfig = {
     joystickSize: 140,
     joystickKnobSize: 55,
     joystickMargin: 15, // Небольшой отступ от края экрана
-    
+
     // Кнопка огня
     fireButtonSize: 80,
-    
+
     // Яркие видимые цвета
     leftJoystickColor: "#00ff44",      // Зелёный для движения
     rightJoystickColor: "#00aaff",     // Голубой для башни
     fireColor: "#ff3333",              // Красный для огня
     knobColor: "#ffffff",              // Белые "стики"
     backgroundColor: "rgba(0,0,0,0.4)", // Полупрозрачный фон
-    
+
     // Высокая видимость
     baseAlpha: 0.7,
     activeAlpha: 1.0
@@ -70,29 +70,29 @@ export interface TouchInputState {
     // Левый джойстик - движение
     throttle: number;      // -1 (назад) до 1 (вперёд)
     steer: number;         // -1 (влево) до 1 (вправо)
-    
+
     // Правый джойстик - башня
     turretLeft: boolean;
     turretRight: boolean;
     turretRotation: number; // -1 до 1 для плавного поворота
     aimPitch: number;       // -1 до 1 для наклона пушки
-    
+
     // Действия
     fire: boolean;
     aim: boolean;
-    
+
     // Прицеливание и зум
     zoomIn: boolean;
     zoomOut: boolean;
-    
+
     // Управление башней и камерой
     centerTurret: boolean;
     cameraUp: boolean;
     cameraDown: boolean;
-    
+
     // Пауза
     pause: boolean;
-    
+
     // Расходники 1-9
     consumable1: boolean;
     consumable2: boolean;
@@ -127,21 +127,21 @@ interface JoystickData {
 export class TouchControls {
     private guiTexture: AdvancedDynamicTexture;
     private config: TouchControlsConfig;
-    
+
     // Главный контейнер
     private mainContainer: Rectangle | null = null;
-    
+
     // Джойстики
     private leftJoystick: JoystickData | null = null;
     private rightJoystick: JoystickData | null = null;
-    
+
     // Кнопка огня
     private fireButton: Ellipse | null = null;
     private firePointerId: number | null = null;
-    
+
     // Хранилище кнопок для управления
     private buttons: Map<string, Ellipse> = new Map();
-    
+
     // Состояние ввода
     private inputState: TouchInputState = {
         throttle: 0,
@@ -168,13 +168,13 @@ export class TouchControls {
         consumable8: false,
         consumable9: false
     };
-    
+
     // Callback для изменения состояния
     private onInputChange: ((state: TouchInputState) => void) | null = null;
-    
+
     // Отслеживание активных касаний для мультитач
     private activeTouches: Map<number, { element: string; startX: number; startY: number }> = new Map();
-    
+
     constructor(
         guiTexture: AdvancedDynamicTexture,
         config: Partial<TouchControlsConfig> = {}
@@ -184,11 +184,11 @@ export class TouchControls {
         this.create();
         this.setupGlobalTouchHandlers();
     }
-    
+
     // ============================================
     // СОЗДАНИЕ UI
     // ============================================
-    
+
     private create(): void {
         this.createMainContainer();
         this.createLeftJoystick();
@@ -198,7 +198,7 @@ export class TouchControls {
         this.createControlButtons();
         this.createConsumableButtons();
     }
-    
+
     private createMainContainer(): void {
         this.mainContainer = new Rectangle("touchControlsMain");
         this.mainContainer.width = "100%";
@@ -209,17 +209,17 @@ export class TouchControls {
         this.mainContainer.isVisible = true;
         this.guiTexture.addControl(this.mainContainer);
     }
-    
+
     // ============================================
     // ЛЕВЫЙ ДЖОЙСТИК (ДВИЖЕНИЕ)
     // ============================================
-    
+
     private createLeftJoystick(): void {
         const cfg = this.config;
         const size = cfg.joystickSize;
         const knobSize = cfg.joystickKnobSize;
         const margin = cfg.joystickMargin;
-        
+
         const container = new Rectangle("leftJoystickContainer");
         container.width = `${size + 40}px`;
         container.height = `${size + 40}px`;
@@ -231,7 +231,7 @@ export class TouchControls {
         container.isPointerBlocker = true;
         container.zIndex = 101;
         this.mainContainer!.addControl(container);
-        
+
         const base = new Ellipse("leftJoystickBase");
         base.width = `${size}px`;
         base.height = `${size}px`;
@@ -242,9 +242,9 @@ export class TouchControls {
         base.shadowColor = cfg.leftJoystickColor;
         base.shadowBlur = 10;
         container.addControl(base);
-        
+
         this.addJoystickGuides(base, cfg.leftJoystickColor);
-        
+
         const knob = new Ellipse("leftJoystickKnob");
         knob.width = `${knobSize}px`;
         knob.height = `${knobSize}px`;
@@ -256,17 +256,17 @@ export class TouchControls {
         knob.shadowBlur = 8;
         knob.isPointerBlocker = false;
         container.addControl(knob);
-        
+
         const label = new TextBlock("leftJoystickLabel");
         label.text = "MOVE";
         label.color = cfg.leftJoystickColor;
         label.fontSize = 12;
         label.fontWeight = "bold";
-        label.fontFamily = "'Press Start 2P', Consolas, monospace";
+        label.fontFamily = "'Press Start 2P', monospace";
         label.top = `${size / 2 + 15}px`;
         label.alpha = 0.8;
         container.addControl(label);
-        
+
         this.leftJoystick = {
             container,
             base,
@@ -277,20 +277,20 @@ export class TouchControls {
             valueX: 0,
             valueY: 0
         };
-        
+
         this.setupJoystickEvents(this.leftJoystick, "left");
     }
-    
+
     // ============================================
     // ПРАВЫЙ ДЖОЙСТИК (БАШНЯ)
     // ============================================
-    
+
     private createRightJoystick(): void {
         const cfg = this.config;
         const size = cfg.joystickSize;
         const knobSize = cfg.joystickKnobSize;
         const margin = cfg.joystickMargin;
-        
+
         const container = new Rectangle("rightJoystickContainer");
         container.width = `${size + 40}px`;
         container.height = `${size + 40}px`;
@@ -302,7 +302,7 @@ export class TouchControls {
         container.isPointerBlocker = true;
         container.zIndex = 101;
         this.mainContainer!.addControl(container);
-        
+
         const base = new Ellipse("rightJoystickBase");
         base.width = `${size}px`;
         base.height = `${size}px`;
@@ -313,9 +313,9 @@ export class TouchControls {
         base.shadowColor = cfg.rightJoystickColor;
         base.shadowBlur = 10;
         container.addControl(base);
-        
+
         this.addJoystickGuides(base, cfg.rightJoystickColor);
-        
+
         const knob = new Ellipse("rightJoystickKnob");
         knob.width = `${knobSize}px`;
         knob.height = `${knobSize}px`;
@@ -327,17 +327,17 @@ export class TouchControls {
         knob.shadowBlur = 8;
         knob.isPointerBlocker = false;
         container.addControl(knob);
-        
+
         const label = new TextBlock("rightJoystickLabel");
         label.text = "TURRET";
         label.color = cfg.rightJoystickColor;
         label.fontSize = 12;
         label.fontWeight = "bold";
-        label.fontFamily = "'Press Start 2P', Consolas, monospace";
+        label.fontFamily = "'Press Start 2P', monospace";
         label.top = `${size / 2 + 15}px`;
         label.alpha = 0.8;
         container.addControl(label);
-        
+
         this.rightJoystick = {
             container,
             base,
@@ -348,20 +348,20 @@ export class TouchControls {
             valueX: 0,
             valueY: 0
         };
-        
+
         this.setupJoystickEvents(this.rightJoystick, "right");
     }
-    
+
     // ============================================
     // КНОПКА ОГНЯ
     // ============================================
-    
+
     private createFireButton(): void {
         const cfg = this.config;
         const size = cfg.fireButtonSize;
         const margin = cfg.joystickMargin;
         const joystickHeight = cfg.joystickSize + 40;
-        
+
         this.fireButton = new Ellipse("fireButton");
         this.fireButton.width = `${size}px`;
         this.fireButton.height = `${size}px`;
@@ -378,12 +378,12 @@ export class TouchControls {
         this.fireButton.isPointerBlocker = true;
         this.fireButton.zIndex = 102;
         this.mainContainer!.addControl(this.fireButton);
-        
+
         const fireText = new TextBlock("fireText");
         fireText.text = "🔥";
         fireText.fontSize = 32;
         this.fireButton.addControl(fireText);
-        
+
         this.fireButton.onPointerDownObservable.add((eventData) => {
             this.firePointerId = (eventData as any).pointerId ?? 0;
             this.inputState.fire = true;
@@ -392,7 +392,7 @@ export class TouchControls {
             this.fireButton!.thickness = 8;
             this.notifyInputChange();
         });
-        
+
         this.fireButton.onPointerUpObservable.add(() => {
             this.firePointerId = null;
             this.inputState.fire = false;
@@ -401,7 +401,7 @@ export class TouchControls {
             this.fireButton!.thickness = 5;
             this.notifyInputChange();
         });
-        
+
         this.fireButton.onPointerOutObservable.add(() => {
             if (this.firePointerId !== null) {
                 this.firePointerId = null;
@@ -413,17 +413,17 @@ export class TouchControls {
             }
         });
     }
-    
+
     // ============================================
     // КНОПКИ ПРИЦЕЛИВАНИЯ И ЗУМА
     // ============================================
-    
+
     private createAimingButtons(): void {
         const cfg = this.config;
         const margin = cfg.joystickMargin;
         const joystickHeight = cfg.joystickSize + 40;
         const fireButtonSize = cfg.fireButtonSize;
-        
+
         // Кнопка прицеливания - слева от кнопки огня
         const aimButtonSize = 65;
         const aimButton = this.createActionButton(
@@ -437,7 +437,7 @@ export class TouchControls {
             "🎯"
         );
         this.setupHoldButton(aimButton, "aim", "ControlLeft");
-        
+
         // Кнопки зума - над кнопкой прицеливания
         const zoomButtonSize = 45;
         const zoomInButton = this.createActionButton(
@@ -451,7 +451,7 @@ export class TouchControls {
             "+"
         );
         this.setupClickButton(zoomInButton, "zoomIn", "Equal");
-        
+
         const zoomOutButton = this.createActionButton(
             "zoomOut",
             zoomButtonSize,
@@ -464,15 +464,15 @@ export class TouchControls {
         );
         this.setupClickButton(zoomOutButton, "zoomOut", "Minus");
     }
-    
+
     // ============================================
     // КНОПКИ УПРАВЛЕНИЯ (Центрирование, Камера, Пауза)
     // ============================================
-    
+
     private createControlButtons(): void {
         const cfg = this.config;
         const margin = cfg.joystickMargin;
-        
+
         // Кнопка паузы - левый верхний угол
         const pauseButton = this.createActionButton(
             "pause",
@@ -485,7 +485,7 @@ export class TouchControls {
             "⏸"
         );
         this.setupClickButton(pauseButton, "pause", "Escape");
-        
+
         // Кнопка центрирования башни
         const centerButton = this.createActionButton(
             "centerTurret",
@@ -498,7 +498,7 @@ export class TouchControls {
             "C"
         );
         this.setupClickButton(centerButton, "centerTurret", "KeyC");
-        
+
         // Кнопки управления камерой
         const cameraUpButton = this.createActionButton(
             "cameraUp",
@@ -511,7 +511,7 @@ export class TouchControls {
             "Q"
         );
         this.setupHoldButton(cameraUpButton, "cameraUp", "KeyQ");
-        
+
         const cameraDownButton = this.createActionButton(
             "cameraDown",
             45,
@@ -524,17 +524,17 @@ export class TouchControls {
         );
         this.setupHoldButton(cameraDownButton, "cameraDown", "KeyE");
     }
-    
+
     // ============================================
     // КНОПКИ РАСХОДНИКОВ
     // ============================================
-    
+
     private createConsumableButtons(): void {
         const buttonSize = 40;
         const buttonGap = 5;
         const totalWidth = 5 * buttonSize + 4 * buttonGap;
         const startX = -totalWidth / 2;
-        
+
         // Расходники 1-5 (первый ряд)
         for (let i = 1; i <= 5; i++) {
             const button = this.createActionButton(
@@ -549,7 +549,7 @@ export class TouchControls {
             );
             this.setupClickButton(button, `consumable${i}` as keyof TouchInputState, `Digit${i}`);
         }
-        
+
         // Расходники 6-9 (второй ряд)
         const row2StartX = -(4 * buttonSize + 3 * buttonGap) / 2;
         for (let i = 6; i <= 9; i++) {
@@ -566,11 +566,11 @@ export class TouchControls {
             this.setupClickButton(button, `consumable${i}` as keyof TouchInputState, `Digit${i}`);
         }
     }
-    
+
     // ============================================
     // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ КНОПОК
     // ============================================
-    
+
     private createActionButton(
         id: string,
         size: number,
@@ -598,22 +598,22 @@ export class TouchControls {
         button.isPointerBlocker = true;
         button.zIndex = 102;
         this.mainContainer!.addControl(button);
-        
+
         const buttonText = new TextBlock(`text_${id}`);
         buttonText.text = text;
         buttonText.fontSize = size * 0.45;
         buttonText.fontWeight = "bold";
-        buttonText.fontFamily = "'Press Start 2P', Consolas, monospace";
+        buttonText.fontFamily = "'Press Start 2P', monospace";
         buttonText.color = "#fff";
         button.addControl(buttonText);
-        
+
         this.buttons.set(id, button);
         return button;
     }
-    
+
     private setupClickButton(button: Ellipse, stateKey: keyof TouchInputState, keyCode: string): void {
         const cfg = this.config;
-        
+
         button.onPointerDownObservable.add(() => {
             (this.inputState as any)[stateKey] = true;
             button.alpha = cfg.activeAlpha;
@@ -622,7 +622,7 @@ export class TouchControls {
             this.emulateKeyPress(keyCode, true);
             this.notifyInputChange();
         });
-        
+
         button.onPointerUpObservable.add(() => {
             (this.inputState as any)[stateKey] = false;
             button.alpha = cfg.baseAlpha;
@@ -631,7 +631,7 @@ export class TouchControls {
             this.emulateKeyPress(keyCode, false);
             this.notifyInputChange();
         });
-        
+
         button.onPointerOutObservable.add(() => {
             (this.inputState as any)[stateKey] = false;
             button.alpha = cfg.baseAlpha;
@@ -641,10 +641,10 @@ export class TouchControls {
             this.notifyInputChange();
         });
     }
-    
+
     private setupHoldButton(button: Ellipse, stateKey: keyof TouchInputState, keyCode: string): void {
         const cfg = this.config;
-        
+
         button.onPointerDownObservable.add(() => {
             (this.inputState as any)[stateKey] = true;
             button.alpha = cfg.activeAlpha;
@@ -653,7 +653,7 @@ export class TouchControls {
             this.emulateKeyPress(keyCode, true);
             this.notifyInputChange();
         });
-        
+
         button.onPointerUpObservable.add(() => {
             (this.inputState as any)[stateKey] = false;
             button.alpha = cfg.baseAlpha;
@@ -662,7 +662,7 @@ export class TouchControls {
             this.emulateKeyPress(keyCode, false);
             this.notifyInputChange();
         });
-        
+
         button.onPointerOutObservable.add(() => {
             (this.inputState as any)[stateKey] = false;
             button.alpha = cfg.baseAlpha;
@@ -672,7 +672,7 @@ export class TouchControls {
             this.notifyInputChange();
         });
     }
-    
+
     private emulateKeyPress(keyCode: string, isDown: boolean): void {
         const eventType = isDown ? 'keydown' : 'keyup';
         const event = new KeyboardEvent(eventType, {
@@ -683,7 +683,7 @@ export class TouchControls {
         });
         window.dispatchEvent(event);
     }
-    
+
     private getKeyFromCode(code: string): string {
         const keyMap: { [key: string]: string } = {
             'Digit1': '1', 'Digit2': '2', 'Digit3': '3', 'Digit4': '4', 'Digit5': '5',
@@ -695,11 +695,11 @@ export class TouchControls {
         };
         return keyMap[code] || code;
     }
-    
+
     // ============================================
     // ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ДЛЯ ДЖОЙСТИКОВ
     // ============================================
-    
+
     private addJoystickGuides(base: Ellipse, color: string): void {
         const vLine = new Rectangle("vGuide");
         vLine.width = "2px";
@@ -708,7 +708,7 @@ export class TouchControls {
         vLine.background = color;
         vLine.alpha = 0.3;
         base.addControl(vLine);
-        
+
         const hLine = new Rectangle("hGuide");
         hLine.width = "60%";
         hLine.height = "2px";
@@ -717,31 +717,31 @@ export class TouchControls {
         hLine.alpha = 0.3;
         base.addControl(hLine);
     }
-    
+
     private setupJoystickEvents(joystick: JoystickData, side: "left" | "right"): void {
         const cfg = this.config;
         const maxRadius = (cfg.joystickSize - cfg.joystickKnobSize) / 2;
-        
+
         joystick.container.onPointerDownObservable.add((eventData) => {
             const pointerId = (eventData as any).pointerId ?? Date.now();
             joystick.pointerId = pointerId;
             joystick.base.alpha = cfg.activeAlpha;
             joystick.startX = eventData.x;
             joystick.startY = eventData.y;
-            
+
             this.activeTouches.set(pointerId, {
                 element: side,
                 startX: eventData.x,
                 startY: eventData.y
             });
         });
-        
+
         joystick.container.onPointerMoveObservable.add((eventData) => {
             if (joystick.pointerId !== null) {
                 this.updateJoystickFromPointer(joystick, eventData.x, eventData.y, maxRadius, side);
             }
         });
-        
+
         joystick.container.onPointerUpObservable.add((eventData) => {
             const pointerId = (eventData as any).pointerId ?? 0;
             if (joystick.pointerId === pointerId || joystick.pointerId !== null) {
@@ -750,7 +750,7 @@ export class TouchControls {
             }
         });
     }
-    
+
     private updateJoystickFromPointer(
         joystick: JoystickData,
         pointerX: number,
@@ -760,20 +760,20 @@ export class TouchControls {
     ): void {
         let deltaX = pointerX - joystick.startX;
         let deltaY = pointerY - joystick.startY;
-        
+
         const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
         if (distance > maxRadius) {
             const scale = maxRadius / distance;
             deltaX *= scale;
             deltaY *= scale;
         }
-        
+
         joystick.knob.left = `${deltaX}px`;
         joystick.knob.top = `${deltaY}px`;
-        
+
         joystick.valueX = deltaX / maxRadius;
         joystick.valueY = -deltaY / maxRadius;
-        
+
         if (side === "left") {
             this.inputState.steer = joystick.valueX;
             this.inputState.throttle = joystick.valueY;
@@ -783,20 +783,20 @@ export class TouchControls {
             this.inputState.turretLeft = joystick.valueX < -0.3;
             this.inputState.turretRight = joystick.valueX > 0.3;
         }
-        
+
         this.notifyInputChange();
     }
-    
+
     private resetJoystick(joystick: JoystickData, side: "left" | "right"): void {
         const cfg = this.config;
-        
+
         joystick.pointerId = null;
         joystick.valueX = 0;
         joystick.valueY = 0;
         joystick.knob.left = "0px";
         joystick.knob.top = "0px";
         joystick.base.alpha = cfg.baseAlpha;
-        
+
         if (side === "left") {
             this.inputState.steer = 0;
             this.inputState.throttle = 0;
@@ -806,34 +806,34 @@ export class TouchControls {
             this.inputState.turretLeft = false;
             this.inputState.turretRight = false;
         }
-        
+
         this.notifyInputChange();
     }
-    
+
     // ============================================
     // ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ДЛЯ МУЛЬТИТАЧ
     // ============================================
-    
+
     private setupGlobalTouchHandlers(): void {
         const canvas = this.guiTexture.getScene()?.getEngine().getRenderingCanvas();
         if (!canvas) return;
-        
+
         const cfg = this.config;
         const maxRadius = (cfg.joystickSize - cfg.joystickKnobSize) / 2;
-        
+
         canvas.addEventListener('touchmove', (e) => {
             if (this.activeTouches.size > 0) {
                 e.preventDefault();
             }
-            
+
             for (const touch of Array.from(e.changedTouches)) {
                 const touchInfo = this.activeTouches.get(touch.identifier);
                 if (!touchInfo) continue;
-                
+
                 const rect = canvas.getBoundingClientRect();
                 const x = touch.clientX - rect.left;
                 const y = touch.clientY - rect.top;
-                
+
                 if (touchInfo.element === "left" && this.leftJoystick?.pointerId === touch.identifier) {
                     this.updateJoystickFromPointer(this.leftJoystick, x, y, maxRadius, "left");
                 } else if (touchInfo.element === "right" && this.rightJoystick?.pointerId === touch.identifier) {
@@ -841,80 +841,80 @@ export class TouchControls {
                 }
             }
         }, { passive: false });
-        
+
         canvas.addEventListener('touchend', (e) => {
             for (const touch of Array.from(e.changedTouches)) {
                 const touchInfo = this.activeTouches.get(touch.identifier);
                 if (!touchInfo) continue;
-                
+
                 if (touchInfo.element === "left" && this.leftJoystick?.pointerId === touch.identifier) {
                     this.resetJoystick(this.leftJoystick, "left");
                 } else if (touchInfo.element === "right" && this.rightJoystick?.pointerId === touch.identifier) {
                     this.resetJoystick(this.rightJoystick, "right");
                 }
-                
+
                 this.activeTouches.delete(touch.identifier);
             }
         }, { passive: true });
-        
+
         canvas.addEventListener('touchcancel', (e) => {
             for (const touch of Array.from(e.changedTouches)) {
                 const touchInfo = this.activeTouches.get(touch.identifier);
                 if (!touchInfo) continue;
-                
+
                 if (touchInfo.element === "left" && this.leftJoystick) {
                     this.resetJoystick(this.leftJoystick, "left");
                 } else if (touchInfo.element === "right" && this.rightJoystick) {
                     this.resetJoystick(this.rightJoystick, "right");
                 }
-                
+
                 this.activeTouches.delete(touch.identifier);
             }
         }, { passive: true });
     }
-    
+
     // ============================================
     // ПУБЛИЧНЫЕ МЕТОДЫ
     // ============================================
-    
+
     setOnInputChange(callback: (state: TouchInputState) => void): void {
         this.onInputChange = callback;
     }
-    
+
     getInputState(): TouchInputState {
         return { ...this.inputState };
     }
-    
+
     setVisible(visible: boolean): void {
         if (this.mainContainer) {
             this.mainContainer.isVisible = visible;
         }
     }
-    
+
     isVisible(): boolean {
         return this.mainContainer?.isVisible ?? false;
     }
-    
+
     updateConfig(config: Partial<TouchControlsConfig>): void {
         this.config = { ...this.config, ...config };
         this.dispose();
         this.create();
     }
-    
+
     dispose(): void {
         if (this.mainContainer) {
             this.guiTexture.removeControl(this.mainContainer);
             this.mainContainer.dispose();
             this.mainContainer = null;
         }
-        
+
         this.leftJoystick = null;
         this.rightJoystick = null;
         this.fireButton = null;
         this.buttons.clear();
         this.activeTouches.clear();
     }
-    
+
     private notifyInputChange(): void {
         if (this.onInputChange) {
             this.onInputChange(this.getInputState());

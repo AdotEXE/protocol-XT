@@ -47,6 +47,7 @@ import type { TouchInputState } from "./hud/components";
 import { MobileControlsManager, type MobileInputState } from "./mobile";
 import { isMobileDevice } from "./mobile/MobileDetection";
 import { timerManager } from "./optimization/TimerManager";
+import { initializeInGameDialogs } from "./utils/inGameDialogs";
 
 // ULTRA SIMPLE HUD - NO gradients, NO shadows, NO alpha, NO transparency
 // Pure solid colors only!
@@ -146,7 +147,7 @@ export class HUD {
     private pingText: TextBlock | null = null;
     private driftText: TextBlock | null = null;
     private packetLossIcon: Rectangle | null = null;
-    
+
     // Editor Button (visible only in TEST mode)
     private editorButton: Button | null = null;
     // Буквенное обозначение направления движения над радаром
@@ -442,6 +443,9 @@ export class HUD {
     constructor(scene: Scene) {
         this.scene = scene;
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI", true, scene);
+        
+        // Инициализируем внутриигровые диалоги
+        initializeInGameDialogs(this.guiTexture);
 
         // === МИНИМАЛЬНЫЙ HUD ===
         this.createHealthBar();        // Тонкие полоски слева сверху
@@ -632,7 +636,7 @@ export class HUD {
         if (this.lowHpVignetteComponent) {
             this.lowHpVignetteComponent.update(this.currentHealth, this.maxHealth, deltaTime);
         }
-        
+
         // Обновляем видимость кнопки редактора (проверяем каждые 60 кадров ~1 раз в секунду)
         this.editorButtonCheckFrame++;
         if (this.editorButtonCheckFrame >= 60) {
@@ -932,7 +936,7 @@ export class HUD {
         sysHeader.text = ">>> SYSTEM MESSAGE <<<";
         sysHeader.color = "#0f0";
         sysHeader.fontSize = this.scaleFontSize(10, 8, 12);
-        sysHeader.fontFamily = "Consolas, 'Courier New', monospace";
+        sysHeader.fontFamily = "'Press Start 2P', monospace";
         sysHeader.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         sysHeader.top = this.scalePx(-90);
         container.addControl(sysHeader);
@@ -943,7 +947,7 @@ export class HUD {
         mainTitle.color = isMilestone ? "#ffd700" : "#0f0";
         mainTitle.fontSize = this.scaleFontSize(28, 20, 36);
         mainTitle.fontWeight = "bold";
-        mainTitle.fontFamily = "Consolas, 'Courier New', monospace";
+        mainTitle.fontFamily = "'Press Start 2P', monospace";
         mainTitle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         mainTitle.top = this.scalePx(-55);
         mainTitle.shadowBlur = 10;
@@ -957,7 +961,7 @@ export class HUD {
         levelText.color = "#0ff";
         levelText.fontSize = this.scaleFontSize(20, 16, 26);
         levelText.fontWeight = "bold";
-        levelText.fontFamily = "Consolas, 'Courier New', monospace";
+        levelText.fontFamily = "'Press Start 2P', monospace";
         levelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         levelText.top = this.scalePx(-15);
         container.addControl(levelText);
@@ -967,7 +971,7 @@ export class HUD {
         rewardsText.text = `> CREDITS: +${credits} | SKILL POINTS: +${skillPoints}`;
         rewardsText.color = "#ff0";
         rewardsText.fontSize = this.scaleFontSize(12, 10, 16);
-        rewardsText.fontFamily = "Consolas, 'Courier New', monospace";
+        rewardsText.fontFamily = "'Press Start 2P', monospace";
         rewardsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         rewardsText.top = this.scalePx(25);
         container.addControl(rewardsText);
@@ -977,7 +981,7 @@ export class HUD {
         bonusesText.text = `HP+${bonuses.healthBonus} | DMG+${bonuses.damageBonus.toFixed(1)} | SPD+${bonuses.speedBonus.toFixed(1)}`;
         bonusesText.color = "#0af";
         bonusesText.fontSize = this.scaleFontSize(11, 9, 14);
-        bonusesText.fontFamily = "Consolas, 'Courier New', monospace";
+        bonusesText.fontFamily = "'Press Start 2P', monospace";
         bonusesText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         bonusesText.top = this.scalePx(55);
         container.addControl(bonusesText);
@@ -987,7 +991,7 @@ export class HUD {
         footer.text = "[PRESS ANY KEY TO CONTINUE]";
         footer.color = "#0f0";
         footer.fontSize = this.scaleFontSize(9, 7, 11);
-        footer.fontFamily = "Consolas, 'Courier New', monospace";
+        footer.fontFamily = "'Press Start 2P', monospace";
         footer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         footer.top = this.scalePx(85);
         footer.alpha = 0.7;
@@ -1069,7 +1073,7 @@ export class HUD {
         sysHeader.text = `>>> ${typeName} UPGRADE <<<`;
         sysHeader.color = "#0f0";
         sysHeader.fontSize = this.scaleFontSize(9, 7, 11);
-        sysHeader.fontFamily = "Consolas, 'Courier New', monospace";
+        sysHeader.fontFamily = "'Press Start 2P', monospace";
         sysHeader.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         sysHeader.top = this.scalePx(-35);
         container.addControl(sysHeader);
@@ -1080,7 +1084,7 @@ export class HUD {
         titleText.color = typeColor;
         titleText.fontSize = this.scaleFontSize(22, 16, 28);
         titleText.fontWeight = "bold";
-        titleText.fontFamily = "Consolas, 'Courier New', monospace";
+        titleText.fontFamily = "'Press Start 2P', monospace";
         titleText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         titleText.top = this.scalePx(-8);
         titleText.shadowBlur = 8;
@@ -1092,7 +1096,7 @@ export class HUD {
         levelText.text = `[${typeName}] LVL ${level}: ${title.toUpperCase()}`;
         levelText.color = "#fff";
         levelText.fontSize = this.scaleFontSize(14, 11, 18);
-        levelText.fontFamily = "Consolas, 'Courier New', monospace";
+        levelText.fontFamily = "'Press Start 2P', monospace";
         levelText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         levelText.top = this.scalePx(25);
         container.addControl(levelText);
@@ -1183,7 +1187,7 @@ export class HUD {
         header.text = ">>> BATTLE REPORT <<<";
         header.color = mainColor;
         header.fontSize = this.scaleFontSize(14, 10, 18);
-        header.fontFamily = "Consolas, 'Courier New', monospace";
+        header.fontFamily = "'Press Start 2P', monospace";
         header.top = this.scalePx(-160);
         panel.addControl(header);
 
@@ -1204,7 +1208,7 @@ export class HUD {
         winnerText.text = isVictory ? "You are victorious!" : `Winner: ${data.winnerName || "Unknown"}`;
         winnerText.color = "#fff";
         winnerText.fontSize = this.scaleFontSize(18, 14, 22);
-        winnerText.fontFamily = "Consolas, 'Courier New', monospace";
+        winnerText.fontFamily = "'Press Start 2P', monospace";
         winnerText.top = this.scalePx(-40);
         panel.addControl(winnerText);
 
@@ -1215,7 +1219,7 @@ export class HUD {
             statsText.text = `Kills: ${data.stats.kills || 0} | Deaths: ${data.stats.deaths || 0}`;
             statsText.color = "#ccc";
             statsText.fontSize = this.scaleFontSize(16, 12, 20);
-            statsText.fontFamily = "Consolas, 'Courier New', monospace";
+            statsText.fontFamily = "'Press Start 2P', monospace";
             statsText.top = this.scalePx(20);
             panel.addControl(statsText);
         }
@@ -1380,7 +1384,7 @@ export class HUD {
         this.pingText.text = "PING: 0 ms";
         this.pingText.color = "#00FF00";
         this.pingText.fontSize = "14px";
-        this.pingText.fontFamily = "Consolas, monospace";
+        this.pingText.fontFamily = "'Press Start 2P', monospace";
         this.pingText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.pingText.height = "20px";
         stack.addControl(this.pingText);
@@ -1390,7 +1394,7 @@ export class HUD {
         this.driftText.text = "DRIFT: 0.00 m";
         this.driftText.color = "#00FF00";
         this.driftText.fontSize = "14px";
-        this.driftText.fontFamily = "Consolas, monospace";
+        this.driftText.fontFamily = "'Press Start 2P', monospace";
         this.driftText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.driftText.height = "20px";
         stack.addControl(this.driftText);
@@ -3052,9 +3056,9 @@ export class HUD {
 
         // Distance (far right, more visible)
         this.targetDistanceText = new TextBlock("targetDistance");
-        this.targetDistanceText.text = "0m";
+        this.targetDistanceText.text = "[0m]";
         this.targetDistanceText.color = "#ff0";
-        this.targetDistanceText.fontSize = 12;
+        this.targetDistanceText.fontSize = 16;
         this.targetDistanceText.fontWeight = "bold";
         this.targetDistanceText.fontFamily = "'Press Start 2P', monospace";
         this.targetDistanceText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
@@ -3871,7 +3875,7 @@ export class HUD {
             nameText.color = "#0f0";
             nameText.fontSize = this.scaleFontSize(7, 6, 10);
             nameText.fontWeight = "bold";
-            nameText.fontFamily = "Consolas, monospace";
+            nameText.fontFamily = "'Press Start 2P', monospace";
             nameText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             nameText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             nameText.top = this.scalePx(2);
@@ -3885,7 +3889,7 @@ export class HUD {
             timerText.color = "#0f0";
             timerText.fontSize = this.scaleFontSize(8, 6, 12);
             timerText.fontWeight = "bold";
-            timerText.fontFamily = "Consolas, monospace";
+            timerText.fontFamily = "'Press Start 2P', monospace";
             timerText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             timerText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             timerText.top = this.scalePx(-2);
@@ -4156,7 +4160,7 @@ export class HUD {
         const urlParams = new URLSearchParams(window.location.search);
         const testMapParam = urlParams.get('testMap');
         const isTestMode = testMapParam === 'current' || !!localStorage.getItem('tx_test_map');
-        
+
         const editorBtn = Button.CreateSimpleButton("editorButton", "🛠️ РЕДАКТОР");
         editorBtn.width = "150px";
         editorBtn.height = "40px";
@@ -4172,10 +4176,10 @@ export class HUD {
         editorBtn.top = "10px";
         // ИСПРАВЛЕНО: Показываем кнопку ТОЛЬКО в режиме TEST
         editorBtn.isVisible = isTestMode;
-        
+
         // Сохраняем ссылку для обновления видимости
         this.editorButton = editorBtn;
-        
+
         editorBtn.onPointerClickObservable.add(() => {
             const game = (window as any).gameInstance;
             if (game && game.mapEditor) {
@@ -4222,18 +4226,18 @@ export class HUD {
         });
         this.guiTexture.addControl(editorBtn);
     }
-    
+
     /**
      * Обновить видимость кнопки редактора (только в режиме TEST)
      */
     private updateEditorButtonVisibility(): void {
         if (!this.editorButton) return;
-        
+
         // Проверяем режим TEST из редактора карт
         const urlParams = new URLSearchParams(window.location.search);
         const testMapParam = urlParams.get('testMap');
         const isTestMode = testMapParam === 'current' || !!localStorage.getItem('tx_test_map');
-        
+
         this.editorButton.isVisible = isTestMode;
     }
 
@@ -6801,7 +6805,7 @@ export class HUD {
         this.fpsText.text = "-- FPS";
         this.fpsText.color = "#0f0";
         this.fpsText.fontSize = this.scaleFontSize(18, 14, 24); // Увеличено
-        this.fpsText.fontFamily = "Consolas, monospace";
+        this.fpsText.fontFamily = "'Press Start 2P', monospace";
         this.fpsText.fontWeight = "bold";
         this.fpsText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.fpsText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
@@ -7362,7 +7366,7 @@ export class HUD {
         title.color = "#0ff";
         title.fontSize = 18;
         title.fontWeight = "bold";
-        title.fontFamily = "Consolas, Monaco, 'Courier New', monospace";
+        title.fontFamily = "'Press Start 2P', monospace";
         title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         title.top = "12px";
         title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -7476,7 +7480,7 @@ export class HUD {
         hint.text = "Press [M] to close • Zoom: Mouse Wheel";
         hint.color = "#0f0";
         hint.fontSize = 11;
-        hint.fontFamily = "Consolas, Monaco, 'Courier New', monospace";
+        hint.fontFamily = "'Press Start 2P', monospace";
         hint.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         hint.top = "-12px";
         hint.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
@@ -7487,7 +7491,7 @@ export class HUD {
         legend.text = "● You  ● Enemies  ▢ Explored Areas";
         legend.color = "#0aa";
         legend.fontSize = 10;
-        legend.fontFamily = "Consolas, Monaco, 'Courier New', monospace";
+        legend.fontFamily = "'Press Start 2P', monospace";
         legend.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         legend.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
         legend.left = "20px";
@@ -8600,7 +8604,7 @@ export class HUD {
             countText.color = ammoType.color;
             countText.fontSize = this.scaleFontSize(10, 8, 14);
             countText.fontWeight = "bold";
-            countText.fontFamily = "Consolas, monospace";
+            countText.fontFamily = "'Press Start 2P', monospace";
             countText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             countText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             countText.top = this.scalePx(-2); // Внизу слота
@@ -8614,7 +8618,7 @@ export class HUD {
             label.color = ammoType.color;
             label.fontSize = this.scaleFontSize(7, 6, 10);
             label.fontWeight = "bold";
-            label.fontFamily = "Consolas, monospace";
+            label.fontFamily = "'Press Start 2P', monospace";
             label.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             label.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             label.top = this.scalePx(2);
@@ -8892,7 +8896,7 @@ export class HUD {
         textBlock.text = text;
         textBlock.color = "#fff";
         textBlock.fontSize = "14px";
-        textBlock.fontFamily = "Consolas, 'Courier New', monospace";
+        textBlock.fontFamily = "'Press Start 2P', monospace";
         textBlock.textWrapping = true;
         textBlock.resizeToFit = true; // Auto height based on text
         textBlock.width = "460px"; // 500 - (15+15 padding) - 10 safety
@@ -10158,7 +10162,7 @@ export class HUD {
             title.color = "#0ff";
             title.fontSize = "14px";
             title.fontWeight = "bold";
-            title.fontFamily = "Consolas, monospace";
+            title.fontFamily = "'Press Start 2P', monospace";
             title.top = "6px";
             title.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             this.missionPanel.addControl(title);
@@ -10224,7 +10228,7 @@ export class HUD {
         label.text = "Карта:";
         label.color = "#0f0";
         label.fontSize = "10px";
-        label.fontFamily = "Consolas, monospace";
+        label.fontFamily = "'Press Start 2P', monospace";
         label.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         label.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         label.left = "5px";
@@ -10257,7 +10261,7 @@ export class HUD {
         this.mapLoadingText.text = "100%";
         this.mapLoadingText.color = "#0f0";
         this.mapLoadingText.fontSize = "10px";
-        this.mapLoadingText.fontFamily = "Consolas, monospace";
+        this.mapLoadingText.fontFamily = "'Press Start 2P', monospace";
         this.mapLoadingText.fontWeight = "bold";
         this.mapLoadingText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.mapLoadingText.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
@@ -10991,7 +10995,7 @@ export class HUD {
         this.pingText.text = "PING: --";
         this.pingText.color = "#0f0";
         this.pingText.fontSize = "12px";
-        this.pingText.fontFamily = "Consolas, monospace";
+        this.pingText.fontFamily = "'Press Start 2P', monospace";
         this.pingText.fontWeight = "bold";
         this.pingText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         this.pingText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;

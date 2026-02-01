@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140856,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "destroyer",
+    "name": "Tank Destroyer",
+    "width": 2.5,
+    "height": 0.95,
+    "depth": 4,
+    "mass": 2200,
+    "maxHealth": 105,
+    "moveSpeed": 21,
+    "turnSpeed": 4.8,
+    "acceleration": 8500,
+    "color": "#ff8800",
+    "description": "Истребитель танков с усиленным уроном. Способность: +30% урона к вражеским танкам. Специализируется на уничтожении тяжелых целей. HP: 105 | Скорость: 21 | Броня: средняя",
+    "specialAbility": "destroyer"
+  }
+}

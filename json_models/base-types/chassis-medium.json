@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140502,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "medium",
+    "name": "Medium",
+    "width": 2.2,
+    "height": 0.8,
+    "depth": 3.5,
+    "mass": 1875,
+    "maxHealth": 100,
+    "moveSpeed": 24,
+    "turnSpeed": 5,
+    "acceleration": 10000,
+    "color": "#00ff00",
+    "description": "Balanced tank"
+  }
+}

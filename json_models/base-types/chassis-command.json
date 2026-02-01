@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140901,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "command",
+    "name": "Command",
+    "width": 2.4,
+    "height": 0.88,
+    "depth": 3.9,
+    "mass": 1950,
+    "maxHealth": 115,
+    "moveSpeed": 23,
+    "turnSpeed": 5,
+    "acceleration": 9500,
+    "color": "#ffd700",
+    "description": "Командный корпус с поддержкой союзников. Способность: бафф +15% к урону и скорости для всех союзников в радиусе 20м (перезарядка 60 сек). Сила команды. HP: 115 | Скорость: 23 | Броня: высокая",
+    "specialAbility": "command"
+  }
+}

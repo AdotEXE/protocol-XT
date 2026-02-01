@@ -152,7 +152,7 @@ export class HelpMenu {
                             border: 1px solid rgba(0, 255, 4, 0.4);
                             border-radius: 4px;
                             color: #0f0;
-                            font-family: Consolas, Monaco, 'Courier New', monospace;
+                            font-family: 'Press Start 2P', monospace;
                             font-size: 12px;
                         ">
                     </div>
@@ -219,7 +219,7 @@ export class HelpMenu {
                                 background: rgba(0, 255, 4, 0.1);
                                 border: 1px solid rgba(0, 255, 4, 0.3);
                                 border-radius: 3px;
-                                font-family: Consolas, Monaco, 'Courier New', monospace;
+                                font-family: 'Press Start 2P', monospace;
                             ">${control.key}</span>
                         </div>
                     `).join("")}
@@ -349,7 +349,7 @@ export class HelpMenu {
                         border: 1px solid rgba(0, 255, 4, 0.4);
                         border-radius: 4px;
                         color: #0f0;
-                        font-family: Consolas, Monaco, 'Courier New', monospace;
+                        font-family: 'Press Start 2P', monospace;
                         font-size: 12px;
                         box-sizing: border-box;
                     ">
@@ -397,7 +397,7 @@ export class HelpMenu {
                                 background: rgba(0, 255, 4, 0.1);
                                 border: 1px solid rgba(0, 255, 4, 0.3);
                                 border-radius: 3px;
-                                font-family: Consolas, Monaco, 'Courier New', monospace;
+                                font-family: 'Press Start 2P', monospace;
                             ">${control.key}</span>
                         </div>
                     `).join("")}

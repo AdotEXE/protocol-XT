@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140822,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "hover",
+    "name": "Hover",
+    "width": 2,
+    "height": 0.75,
+    "depth": 3.3,
+    "mass": 1400,
+    "maxHealth": 85,
+    "moveSpeed": 32,
+    "turnSpeed": 7.6,
+    "acceleration": 14000,
+    "color": "#00aaff",
+    "description": "Корпус на воздушной подушке. Способность: увеличенная высота полета, плавное движение по любой местности. Игнорирует мелкие препятствия. Отличная маневренность. HP: 85 | Скорость: 32 | Броня: средняя",
+    "specialAbility": "hover"
+  }
+}

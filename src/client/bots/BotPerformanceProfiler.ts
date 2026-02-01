@@ -14,7 +14,7 @@ export class BotPerformanceProfiler {
     private selectedBotId: string | null = null;
     private updateTimer: NodeJS.Timeout | null = null;
     private buttonObservers: Array<{ button: Button; observer: any }> = [];
-    
+
     // Фильтрация и поиск
     private searchQuery: string = "";
     private filterState: "all" | "alive" | "dead" = "alive";
@@ -22,36 +22,36 @@ export class BotPerformanceProfiler {
     private filterPerformance: "all" | "high" | "medium" | "low" = "all";
     private sortBy: "id" | "distance" | "fpsImpact" | "cpuUsage" = "distance";
     private sortOrder: "asc" | "desc" = "asc";
-    
+
     constructor(monitor: BotPerformanceMonitor, texture: AdvancedDynamicTexture) {
         this.monitor = monitor;
         this.texture = texture;
     }
-    
+
     /**
      * Показать профилировщик
      */
     show(botId?: string): void {
         if (this.isVisible) return;
-        
+
         if (botId) {
             this.selectedBotId = botId;
         }
-        
+
         this.createUI();
         this.isVisible = true;
     }
-    
+
     /**
      * Скрыть профилировщик
      */
     hide(): void {
         if (!this.isVisible) return;
-        
+
         try {
             // Останавливаем обновления
             this.stopUpdates();
-            
+
             // Удаляем наблюдатели
             this.buttonObservers.forEach(({ button, observer }) => {
                 try {
@@ -63,7 +63,7 @@ export class BotPerformanceProfiler {
                 }
             });
             this.buttonObservers = [];
-            
+
             if (this.container) {
                 try {
                     this.container.dispose();
@@ -72,10 +72,10 @@ export class BotPerformanceProfiler {
                 }
                 this.container = null;
             }
-            
+
             this.isVisible = false;
             this.selectedBotId = null;
-            
+
             logger.log("[BotPerformanceProfiler] Profiler hidden");
         } catch (e) {
             logger.error("[BotPerformanceProfiler] Error hiding profiler:", e);
@@ -86,7 +86,7 @@ export class BotPerformanceProfiler {
             this.selectedBotId = null;
         }
     }
-    
+
     /**
      * Создать UI
      */
@@ -100,40 +100,40 @@ export class BotPerformanceProfiler {
         container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         container.zIndex = 1500;
-        
+
         // Заголовок
         const title = new TextBlock("title", "🔍 ПРОФИЛИРОВАНИЕ БОТА");
         title.color = "#0f0";
         title.fontSize = 18;
-        title.fontFamily = "Consolas, monospace";
+        title.fontFamily = "'Press Start 2P', monospace";
         title.top = "-320px";
         title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         container.addControl(title);
-        
+
         // Загрузка сохраненных фильтров
         this.loadFilters();
-        
+
         // Поиск и фильтры
         this.renderFilters(container);
-        
+
         // Список ботов
         const botListLabel = new TextBlock("bot_list_label", "Выберите бота:");
         botListLabel.color = "#0f0";
         botListLabel.fontSize = 12;
-        botListLabel.fontFamily = "Consolas, monospace";
+        botListLabel.fontFamily = "'Press Start 2P', monospace";
         botListLabel.top = "-180px";
         botListLabel.left = "-240px";
         botListLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         container.addControl(botListLabel);
-        
+
         // Рендерим отфильтрованный список ботов
         this.renderBotList(container);
-        
+
         // Профиль выбранного бота
         if (this.selectedBotId) {
             this.renderBotProfile(container, this.selectedBotId);
         }
-        
+
         // Кнопка закрытия
         const closeButton = Button.CreateSimpleButton("close", "✕ ЗАКРЫТЬ");
         closeButton.width = "200px";
@@ -154,27 +154,27 @@ export class BotPerformanceProfiler {
         });
         this.buttonObservers.push({ button: closeButton, observer: closeObserver });
         container.addControl(closeButton);
-        
+
         this.container = container;
         this.texture.addControl(container);
-        
+
         // Обновляем профиль каждую секунду
         this.startUpdates();
     }
-    
+
     /**
      * Запустить обновления
      */
     private startUpdates(): void {
         if (this.updateTimer) return;
-        
+
         this.updateTimer = setInterval(() => {
             if (this.isVisible && this.selectedBotId) {
                 this.updateProfile();
             }
         }, 1000);
     }
-    
+
     /**
      * Остановить обновления
      */
@@ -184,24 +184,24 @@ export class BotPerformanceProfiler {
             this.updateTimer = null;
         }
     }
-    
+
     /**
      * Отрисовать фильтры и поиск
      */
     private renderFilters(container: Rectangle): void {
         let yOffset = -270;
-        
+
         // Поиск
         const searchLabel = new TextBlock("search_label", "🔍 Поиск:");
         searchLabel.color = "#0f0";
         searchLabel.fontSize = 11;
-        searchLabel.fontFamily = "Consolas, monospace";
+        searchLabel.fontFamily = "'Press Start 2P', monospace";
         searchLabel.top = `${yOffset}px`;
         searchLabel.left = "-240px";
         searchLabel.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         container.addControl(searchLabel);
         yOffset += 20;
-        
+
         // Кнопки поиска (упрощенный вариант - можно улучшить с HTML input)
         const searchClearBtn = Button.CreateSimpleButton("search_clear", this.searchQuery || "Очистить");
         searchClearBtn.width = "100px";
@@ -218,18 +218,18 @@ export class BotPerformanceProfiler {
         });
         this.buttonObservers.push({ button: searchClearBtn, observer: searchObserver });
         container.addControl(searchClearBtn);
-        
+
         // Фильтр по состоянию
         yOffset += 30;
         const stateLabel = new TextBlock("state_label", "Состояние:");
         stateLabel.color = "#0f0";
         stateLabel.fontSize = 11;
-        stateLabel.fontFamily = "Consolas, monospace";
+        stateLabel.fontFamily = "'Press Start 2P', monospace";
         stateLabel.top = `${yOffset}px`;
         stateLabel.left = "-240px";
         container.addControl(stateLabel);
         yOffset += 20;
-        
+
         const stateOptions = [
             { value: "all" as const, label: "Все" },
             { value: "alive" as const, label: "Живые" },
@@ -252,18 +252,18 @@ export class BotPerformanceProfiler {
             this.buttonObservers.push({ button: btn, observer: obs });
             container.addControl(btn);
         });
-        
+
         // Сортировка
         yOffset += 30;
         const sortLabel = new TextBlock("sort_label", "Сортировка:");
         sortLabel.color = "#0f0";
         sortLabel.fontSize = 11;
-        sortLabel.fontFamily = "Consolas, monospace";
+        sortLabel.fontFamily = "'Press Start 2P', monospace";
         sortLabel.top = `${yOffset}px`;
         sortLabel.left = "-240px";
         container.addControl(sortLabel);
         yOffset += 20;
-        
+
         const sortOptions = [
             { value: "distance" as const, label: "Расстояние" },
             { value: "fpsImpact" as const, label: "FPS" },
@@ -291,7 +291,7 @@ export class BotPerformanceProfiler {
             this.buttonObservers.push({ button: btn, observer: obs });
             container.addControl(btn);
         });
-        
+
         // Кнопка изменения порядка сортировки
         const orderBtn = Button.CreateSimpleButton("sort_order", this.sortOrder === "asc" ? "↑" : "↓");
         orderBtn.width = "30px";
@@ -309,17 +309,17 @@ export class BotPerformanceProfiler {
         this.buttonObservers.push({ button: orderBtn, observer: orderObs });
         container.addControl(orderBtn);
     }
-    
+
     /**
      * Отрисовать список ботов с фильтрацией
      */
     private renderBotList(container: Rectangle): void {
         const allBots = this.monitor.getAllBots();
         const filtered = this.filterAndSortBots(allBots);
-        
+
         let yOffset = -150;
         const maxBots = 15;
-        
+
         filtered.slice(0, maxBots).forEach((bot, index) => {
             const metrics = bot.metrics;
             const botButton = Button.CreateSimpleButton(
@@ -329,8 +329,8 @@ export class BotPerformanceProfiler {
             botButton.width = "460px";
             botButton.height = "22px";
             botButton.color = this.selectedBotId === metrics.id ? "#0ff" : "#0f0";
-            botButton.background = this.selectedBotId === metrics.id 
-                ? "rgba(0, 100, 100, 0.8)" 
+            botButton.background = this.selectedBotId === metrics.id
+                ? "rgba(0, 100, 100, 0.8)"
                 : "rgba(0, 50, 0, 0.8)";
             botButton.top = `${yOffset}px`;
             botButton.left = "-230px";
@@ -343,32 +343,32 @@ export class BotPerformanceProfiler {
             container.addControl(botButton);
             yOffset += 24;
         });
-        
+
         // Показываем количество отфильтрованных ботов
         if (filtered.length > maxBots) {
             const moreLabel = new TextBlock("more_bots", `... и еще ${filtered.length - maxBots} ботов`);
             moreLabel.color = "#0a0";
             moreLabel.fontSize = 10;
-            moreLabel.fontFamily = "Consolas, monospace";
+            moreLabel.fontFamily = "'Press Start 2P', monospace";
             moreLabel.top = `${yOffset}px`;
             moreLabel.left = "-230px";
             container.addControl(moreLabel);
         }
     }
-    
+
     /**
      * Фильтрация и сортировка ботов
      */
     private filterAndSortBots(bots: Array<{ metrics: BotMetrics }>): Array<{ metrics: BotMetrics }> {
         let filtered = bots;
-        
+
         // Фильтр по состоянию
         if (this.filterState === "alive") {
             filtered = filtered.filter(b => b.metrics.isAlive);
         } else if (this.filterState === "dead") {
             filtered = filtered.filter(b => !b.metrics.isAlive);
         }
-        
+
         // Фильтр по расстоянию
         if (this.filterDistance === "near") {
             filtered = filtered.filter(b => b.metrics.distance < 50);
@@ -377,7 +377,7 @@ export class BotPerformanceProfiler {
         } else if (this.filterDistance === "far") {
             filtered = filtered.filter(b => b.metrics.distance >= 100);
         }
-        
+
         // Фильтр по производительности
         if (this.filterPerformance === "high") {
             filtered = filtered.filter(b => b.metrics.fpsImpact > 5);
@@ -386,16 +386,16 @@ export class BotPerformanceProfiler {
         } else if (this.filterPerformance === "low") {
             filtered = filtered.filter(b => b.metrics.fpsImpact < 2);
         }
-        
+
         // Поиск
         if (this.searchQuery) {
             const query = this.searchQuery.toLowerCase();
-            filtered = filtered.filter(b => 
+            filtered = filtered.filter(b =>
                 b.metrics.id.toLowerCase().includes(query) ||
                 b.metrics.state.toLowerCase().includes(query)
             );
         }
-        
+
         // Сортировка
         filtered.sort((a, b) => {
             let aVal: number, bVal: number;
@@ -418,16 +418,16 @@ export class BotPerformanceProfiler {
             }
             return this.sortOrder === "asc" ? aVal - bVal : bVal - aVal;
         });
-        
+
         return filtered;
     }
-    
+
     /**
      * Обновить список ботов
      */
     private updateBotList(): void {
         if (!this.container) return;
-        
+
         // Удаляем старые кнопки ботов
         const controlsToRemove: Control[] = [];
         this.container.children.forEach(child => {
@@ -442,7 +442,7 @@ export class BotPerformanceProfiler {
                 // Игнорируем ошибки
             }
         });
-        
+
         // Удаляем метку "еще ботов"
         const moreLabel = this.container.children.find(c => c.name === "more_bots");
         if (moreLabel) {
@@ -452,11 +452,11 @@ export class BotPerformanceProfiler {
                 // Игнорируем ошибки
             }
         }
-        
+
         // Рендерим новый список
         this.renderBotList(this.container);
     }
-    
+
     /**
      * Сохранить фильтры в localStorage
      */
@@ -474,7 +474,7 @@ export class BotPerformanceProfiler {
             logger.warn("[BotPerformanceProfiler] Failed to save filters:", e);
         }
     }
-    
+
     /**
      * Загрузить фильтры из localStorage
      */
@@ -494,88 +494,88 @@ export class BotPerformanceProfiler {
             logger.warn("[BotPerformanceProfiler] Failed to load filters:", e);
         }
     }
-    
+
     /**
      * Отрисовать профиль бота
      */
     private renderBotProfile(container: Rectangle, botId: string): void {
         if (!this.monitor || !botId) return;
-        
+
         try {
             const profile = this.monitor.getBotProfile(botId);
             if (!profile || !profile.metrics) return;
-        
-        let yOffset = 50;
-        const lineHeight = 18;
-        
-        // Performance Score
-        const scoreColor = profile.performanceScore > 70 ? "#0f0" : 
-                          profile.performanceScore > 40 ? "#ff0" : "#f00";
-        this.addProfileLine(container, `Performance Score: ${profile.performanceScore.toFixed(0)}/100`, 
-            yOffset, true, scoreColor);
-        yOffset += lineHeight + 5;
-        
-        // Метрики
-        this.addProfileLine(container, "📊 МЕТРИКИ", yOffset, true);
-        yOffset += lineHeight + 5;
-        this.addProfileLine(container, `Состояние: ${profile.metrics.state}`, yOffset);
-        yOffset += lineHeight;
-        this.addProfileLine(container, `Расстояние: ${profile.metrics.distance.toFixed(1)}м`, yOffset);
-        yOffset += lineHeight;
-        this.addProfileLine(container, `LOD: ${profile.metrics.lodLevel}`, yOffset);
-        yOffset += lineHeight;
-        this.addProfileLine(container, `Физика: ${profile.metrics.hasPhysics ? "Да" : "Нет"}`, yOffset);
-        yOffset += lineHeight + 5;
-        
-        // Производительность
-        this.addProfileLine(container, "⚡ ПРОИЗВОДИТЕЛЬНОСТЬ", yOffset, true);
-        yOffset += lineHeight + 5;
-        this.addProfileLine(container, `Время обновления: ${profile.metrics.averageUpdateTime.toFixed(2)}мс`, yOffset);
-        yOffset += lineHeight;
-        this.addProfileLine(container, `Влияние на FPS: ${profile.metrics.fpsImpact.toFixed(2)}%`, yOffset);
-        yOffset += lineHeight;
-        this.addProfileLine(container, `CPU: ${profile.metrics.cpuUsage.toFixed(2)}%`, yOffset);
-        yOffset += lineHeight;
-        this.addProfileLine(container, `Память: ${profile.metrics.memoryUsage.toFixed(1)}KB`, yOffset);
-        yOffset += lineHeight + 5;
-        
-        // AI Timing
-        this.addProfileLine(container, "🧠 AI TIMING", yOffset, true);
-        yOffset += lineHeight + 5;
-        this.addProfileLine(container, `updateAI: ${profile.metrics.aiTiming.updateAITime.toFixed(2)}мс`, yOffset);
-        yOffset += lineHeight;
-        this.addProfileLine(container, `makeDecision: ${profile.metrics.aiTiming.makeDecisionTime.toFixed(2)}мс`, yOffset);
-        yOffset += lineHeight;
-        this.addProfileLine(container, `raycast: ${profile.metrics.aiTiming.raycastTime.toFixed(2)}мс`, yOffset);
-        yOffset += lineHeight;
-        this.addProfileLine(container, `pathfinding: ${profile.metrics.aiTiming.pathfindingTime.toFixed(2)}мс`, yOffset);
-        yOffset += lineHeight + 5;
-        
-        // Bottlenecks
-        if (profile.bottlenecks.length > 0) {
-            this.addProfileLine(container, "⚠️ УЗКИЕ МЕСТА", yOffset, true, "#ff0");
+
+            let yOffset = 50;
+            const lineHeight = 18;
+
+            // Performance Score
+            const scoreColor = profile.performanceScore > 70 ? "#0f0" :
+                profile.performanceScore > 40 ? "#ff0" : "#f00";
+            this.addProfileLine(container, `Performance Score: ${profile.performanceScore.toFixed(0)}/100`,
+                yOffset, true, scoreColor);
             yOffset += lineHeight + 5;
-            profile.bottlenecks.forEach(bottleneck => {
-                this.addProfileLine(container, `• ${bottleneck}`, yOffset, false, "#ff0");
-                yOffset += lineHeight;
-            });
-            yOffset += 5;
-        }
-        
-        // Рекомендации
-        if (profile.recommendations.length > 0) {
-            this.addProfileLine(container, "💡 РЕКОМЕНДАЦИИ", yOffset, true);
+
+            // Метрики
+            this.addProfileLine(container, "📊 МЕТРИКИ", yOffset, true);
             yOffset += lineHeight + 5;
-            profile.recommendations.forEach(rec => {
-                this.addProfileLine(container, `• ${rec}`, yOffset);
-                yOffset += lineHeight;
-            });
-        }
+            this.addProfileLine(container, `Состояние: ${profile.metrics.state}`, yOffset);
+            yOffset += lineHeight;
+            this.addProfileLine(container, `Расстояние: ${profile.metrics.distance.toFixed(1)}м`, yOffset);
+            yOffset += lineHeight;
+            this.addProfileLine(container, `LOD: ${profile.metrics.lodLevel}`, yOffset);
+            yOffset += lineHeight;
+            this.addProfileLine(container, `Физика: ${profile.metrics.hasPhysics ? "Да" : "Нет"}`, yOffset);
+            yOffset += lineHeight + 5;
+
+            // Производительность
+            this.addProfileLine(container, "⚡ ПРОИЗВОДИТЕЛЬНОСТЬ", yOffset, true);
+            yOffset += lineHeight + 5;
+            this.addProfileLine(container, `Время обновления: ${profile.metrics.averageUpdateTime.toFixed(2)}мс`, yOffset);
+            yOffset += lineHeight;
+            this.addProfileLine(container, `Влияние на FPS: ${profile.metrics.fpsImpact.toFixed(2)}%`, yOffset);
+            yOffset += lineHeight;
+            this.addProfileLine(container, `CPU: ${profile.metrics.cpuUsage.toFixed(2)}%`, yOffset);
+            yOffset += lineHeight;
+            this.addProfileLine(container, `Память: ${profile.metrics.memoryUsage.toFixed(1)}KB`, yOffset);
+            yOffset += lineHeight + 5;
+
+            // AI Timing
+            this.addProfileLine(container, "🧠 AI TIMING", yOffset, true);
+            yOffset += lineHeight + 5;
+            this.addProfileLine(container, `updateAI: ${profile.metrics.aiTiming.updateAITime.toFixed(2)}мс`, yOffset);
+            yOffset += lineHeight;
+            this.addProfileLine(container, `makeDecision: ${profile.metrics.aiTiming.makeDecisionTime.toFixed(2)}мс`, yOffset);
+            yOffset += lineHeight;
+            this.addProfileLine(container, `raycast: ${profile.metrics.aiTiming.raycastTime.toFixed(2)}мс`, yOffset);
+            yOffset += lineHeight;
+            this.addProfileLine(container, `pathfinding: ${profile.metrics.aiTiming.pathfindingTime.toFixed(2)}мс`, yOffset);
+            yOffset += lineHeight + 5;
+
+            // Bottlenecks
+            if (profile.bottlenecks.length > 0) {
+                this.addProfileLine(container, "⚠️ УЗКИЕ МЕСТА", yOffset, true, "#ff0");
+                yOffset += lineHeight + 5;
+                profile.bottlenecks.forEach(bottleneck => {
+                    this.addProfileLine(container, `• ${bottleneck}`, yOffset, false, "#ff0");
+                    yOffset += lineHeight;
+                });
+                yOffset += 5;
+            }
+
+            // Рекомендации
+            if (profile.recommendations.length > 0) {
+                this.addProfileLine(container, "💡 РЕКОМЕНДАЦИИ", yOffset, true);
+                yOffset += lineHeight + 5;
+                profile.recommendations.forEach(rec => {
+                    this.addProfileLine(container, `• ${rec}`, yOffset);
+                    yOffset += lineHeight;
+                });
+            }
         } catch (e) {
             logger.warn(`[BotPerformanceProfiler] Error rendering profile for bot ${botId}:`, e);
         }
     }
-    
+
     /**
      * Добавить строку профиля
      */
@@ -589,7 +589,7 @@ export class BotPerformanceProfiler {
         const line = new TextBlock(`profile_${top}`, text);
         line.color = color;
         line.fontSize = isHeader ? 12 : 10;
-        line.fontFamily = "Consolas, monospace";
+        line.fontFamily = "'Press Start 2P', monospace";
         line.top = `${top}px`;
         line.left = "-240px";
         line.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -597,13 +597,13 @@ export class BotPerformanceProfiler {
         line.width = "480px";
         container.addControl(line);
     }
-    
+
     /**
      * Обновить профиль
      */
     private updateProfile(): void {
         if (!this.container || !this.selectedBotId || !this.monitor) return;
-        
+
         try {
             // Удаляем старые элементы профиля
             const oldProfile = this.container.children?.filter(c => c.name && c.name.startsWith("profile_")) || [];
@@ -614,14 +614,14 @@ export class BotPerformanceProfiler {
                     // Игнорируем ошибки при dispose
                 }
             });
-            
+
             // Отрисовываем новый профиль
             this.renderBotProfile(this.container, this.selectedBotId);
         } catch (e) {
             logger.warn("[BotPerformanceProfiler] Error updating profile:", e);
         }
     }
-    
+
     /**
      * Очистить ресурсы
      */

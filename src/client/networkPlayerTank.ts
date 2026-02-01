@@ -34,6 +34,9 @@ export class NetworkPlayerTank {
     private leftTrack: Mesh | null = null;   // Левая гусеница
     private rightTrack: Mesh | null = null;  // Правая гусеница
 
+    // ОПТИМИЗАЦИЯ: Кэш дочерних мешей для LOD (избегаем getChildMeshes() каждый кадр)
+    private _cachedDetailMeshes: AbstractMesh[] | null = null;
+
     // === МОДУЛИ (ПОДГОТОВКА ДЛЯ БУДУЩЕГО) ===
     // Модули крепятся на танк и отображаются только если приобретены и выбраны
     private attachedModules: Map<string, Mesh> = new Map();
@@ -121,6 +124,18 @@ export class NetworkPlayerTank {
 
     // Debug counter for update logging
     private _updateCounter: number = 0;
+
+    // ОПТИМИЗАЦИЯ: Счетчик кадров для throttling дорогих операций
+    private _frameCounter: number = 0;
+
+    // ОПТИМИЗАЦИЯ: Кэш Euler углов (избегаем toEulerAngles() каждый кадр)
+    private _cachedEulerYaw: number = 0;
+    private _cachedEulerPitch: number = 0;
+    private _cachedEulerRoll: number = 0;
+
+    // ИСПРАВЛЕНИЕ: Сохраняем последнее валидное значение поворота башни
+    // чтобы предотвратить "пропадание" поворота при потере пакетов
+    private _lastValidTurretRotation: number = 0;
 
     // Animation elements for chassis (hover, stealth, etc.)
     private chassisAnimationElements: ChassisAnimationElements = {};
@@ -237,12 +252,13 @@ export class NetworkPlayerTank {
      * Updates the visual parts of the tank (chassis, turret, barrel, colors).
      * Used when receiving DRESS_UPDATE RPC or when player properties change.
      */
-    updateParts(data: { chassisType?: string; cannonType?: string; tankColor?: string; turretColor?: string }): void {
+    updateParts(data: { chassisType?: string; cannonType?: string; trackType?: string; tankColor?: string; turretColor?: string }): void {
         console.log(`[NetworkPlayerTank] 🛠️ Updating parts for ${this.playerId}:`, data);
 
         // Update local data
         if (data.chassisType) this.networkPlayer.chassisType = data.chassisType;
         if (data.cannonType) this.networkPlayer.cannonType = data.cannonType;
+        if (data.trackType) this.networkPlayer.trackType = data.trackType;
         if (data.tankColor) this.networkPlayer.tankColor = data.tankColor;
         if (data.turretColor) this.networkPlayer.turretColor = data.turretColor;
 
@@ -335,6 +351,12 @@ export class NetworkPlayerTank {
         const turretMsgRot = this.turret ? this.turret.rotation.y : 0;
         const barrelRot = this.barrel ? this.barrel.rotation.x : 0;
 
+        // КРИТИЧНО: Очищаем кэш дочерних мешей перед удалением (старые меши будут удалены)
+        this._cachedDetailMeshes = null;
+
+        // КРИТИЧНО: Очищаем анимации перед удалением (старые меши будут удалены)
+        this.chassisAnimationElements = {};
+
         // Dispose everything
         if (this.healthBar) this.healthBar.dispose();
         if (this.healthBarBackground) this.healthBarBackground.dispose();
@@ -409,6 +431,9 @@ export class NetworkPlayerTank {
 
         // Restore modules
         this.updateModules(this.networkPlayer.modules);
+
+        // КРИТИЧНО: Кэш дочерних мешей будет пересоздан при следующем вызове updateVisibility()
+        // (кэш проверяется на null и пересоздается автоматически)
     }
 
     /**
@@ -568,7 +593,14 @@ export class NetworkPlayerTank {
         );
 
         // Позиционируем башню на корпусе (как у локального игрока)
-        turret.position.y = h / 2 + turretHeight / 2;
+        // Для самолёта перемещаем башню в нос
+        const isPlane = this.chassisType.id === "plane";
+        if (isPlane) {
+            // Башня в носу самолёта (передняя часть по Z)
+            turret.position = new Vector3(0, h / 2 + turretHeight / 2, d * 0.6);
+        } else {
+            turret.position = new Vector3(0, h / 2 + turretHeight / 2, 0);
+        }
         turret.parent = this.chassis;
 
         // Материал башни - используем тот же цвет что и корпус (как у локального игрока)
@@ -630,13 +662,21 @@ export class NetworkPlayerTank {
         // ИСПРАВЛЕНИЕ: Не применяем цвет танка к стволу, оставляем серый (как у реальной модели)
         // Код применения цвета удалён по требованию пользователя
 
-        // КРИТИЧНО: Позиция ствола ИДЕНТИЧНА локальному игроку (TankController строка 1102-1105)
-        // Формула: turretDepth / 2 + barrelLength / 2
+        // КРИТИЧНО: Позиция ствола ИДЕНТИЧНА локальному игроку (TankController)
         const w = this.chassisType.width;
         const h = this.chassisType.height;
         const d = this.chassisType.depth;
         const turretDepth = d * 0.6; // Те же пропорции что в createDetailedTurret
-        const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
+        
+        // Для самолёта ствол направлен вперёд (в нос)
+        const isPlane = this.chassisType.id === "plane";
+        let baseBarrelZ: number;
+        if (isPlane) {
+            // Для самолёта ствол в носу - позиция максимально вперёд от центра башни
+            baseBarrelZ = turretDepth / 2 + barrelLength / 2 + (d * 0.3); // Максимально вперёд в нос
+        } else {
+            baseBarrelZ = turretDepth / 2 + barrelLength / 2; // Обычное положение
+        }
         barrel.position = new Vector3(0, 0, baseBarrelZ);
         barrel.parent = this.turret;
 
@@ -865,8 +905,13 @@ export class NetworkPlayerTank {
      * УПРОЩЕНО: Используем только линейную интерполяцию для стабильности
      */
     update(deltaTime: number): void {
-        // Проверяем и восстанавливаем иерархию (корпус -> башня -> ствол)
-        this.validateParts();
+        // ОПТИМИЗАЦИЯ: Инкремент счетчика кадров
+        this._frameCounter++;
+
+        // ОПТИМИЗАЦИЯ: Проверяем иерархию только каждые 30 кадров (было каждый кадр)
+        if (this._frameCounter % 30 === 0) {
+            this.validateParts();
+        }
 
         if (!this.chassis || !this.networkPlayer) return;
 
@@ -877,22 +922,22 @@ export class NetworkPlayerTank {
         const targetZ = typeof np.position?.z === 'number' ? np.position.z : 0;
         const targetRotation = typeof np.rotation === 'number' ? np.rotation : 0;
 
-        // ДИАГНОСТИКА: Логируем обновление позиции (только первые несколько раз)
-        if (this._updateCounter === undefined) this._updateCounter = 0;
-        if (this._updateCounter < 5 || this._updateCounter % 120 === 0) {
+        // ДИАГНОСТИКА: Логируем обновление позиции только каждые 300 кадров (5 секунд)
+        this._updateCounter++;
+        if (this._updateCounter < 3 || this._updateCounter % 300 === 0) {
             const currentPos = this.chassis.position;
-            const distance = Math.sqrt(
-                Math.pow(currentPos.x - targetX, 2) +
-                Math.pow(currentPos.z - targetZ, 2)
-            );
-            if (distance > 0.1 || this._updateCounter < 5) {
-                console.log(`[NetworkPlayerTank] ${this.playerId} update: target=(${targetX.toFixed(1)}, ${targetZ.toFixed(1)}), current=(${currentPos.x.toFixed(1)}, ${currentPos.z.toFixed(1)}), distance=${distance.toFixed(2)}`);
+            const dx = currentPos.x - targetX;
+            const dz = currentPos.z - targetZ;
+            const distanceSq = dx * dx + dz * dz;
+            if (distanceSq > 0.01 || this._updateCounter < 3) {
+                console.log(`[NetworkPlayerTank] ${this.playerId} update: target=(${targetX.toFixed(1)}, ${targetZ.toFixed(1)}), dist=${Math.sqrt(distanceSq).toFixed(2)}`);
             }
         }
-        this._updateCounter = (this._updateCounter || 0) + 1;
 
-        // Update health bar visibility and distance text
-        this.updateHealthBarVisibilityAndDistance();
+        // ОПТИМИЗАЦИЯ: Update health bar visibility каждые 10 кадров
+        if (this._frameCounter % 10 === 0) {
+            this.updateHealthBarVisibilityAndDistance();
+        }
 
         // КРИТИЧНО: При первом обновлении - МГНОВЕННАЯ телепортация к серверной позиции
         if (this.needsInitialSync) {
@@ -1010,18 +1055,15 @@ export class NetworkPlayerTank {
         const finalTargetY = this._smoothedTargetY;
         const finalTargetZ = targetZ * smoothFactor + avgZ * (1 - smoothFactor);
 
-        // ОПТИМИЗАЦИЯ: Пропускаем интерполяцию для очень малых изменений
+        // ОПТИМИЗАЦИЯ: Пропускаем интерполяцию ПОЗИЦИИ для очень малых изменений
+        // КРИТИЧНО: НЕ пропускаем update целиком - башня и ствол должны обновляться всегда!
         const MIN_CHANGE_THRESHOLD = 0.001; // Минимальное изменение для интерполяции
         const dx = finalTargetX - this.chassis.position.x;
         const dy = finalTargetY - this.chassis.position.y;
         const dz = finalTargetZ - this.chassis.position.z;
-
-        // Пропускаем если изменение слишком мало
-        if (Math.abs(dx) < MIN_CHANGE_THRESHOLD &&
-            Math.abs(dy) < MIN_CHANGE_THRESHOLD &&
-            Math.abs(dz) < MIN_CHANGE_THRESHOLD) {
-            return; // Не обновляем позицию
-        }
+        const shouldUpdatePosition = Math.abs(dx) >= MIN_CHANGE_THRESHOLD ||
+            Math.abs(dy) >= MIN_CHANGE_THRESHOLD ||
+            Math.abs(dz) >= MIN_CHANGE_THRESHOLD;
 
         // УПРОЩЁННАЯ ЛИНЕЙНАЯ ИНТЕРПОЛЯЦИЯ
         // Используем базовую интерполяцию без экстраполяции (dead reckoning отключён)
@@ -1030,32 +1072,40 @@ export class NetworkPlayerTank {
         const yLerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED * 0.15); // Y интерполируется в 6.7 раз медленнее (было 0.4)
 
         // Интерполяция позиции (оптимизированная версия)
-        this.chassis.position.x += dx * lerpFactor;
+        // КРИТИЧНО: Обновляем позицию только если есть значимые изменения
+        if (shouldUpdatePosition) {
+            this.chassis.position.x += dx * lerpFactor;
 
-        // КРИТИЧНО: Фильтрация малых изменений Y (шум квантования)
-        // Если изменение меньше 8 см - вообще не двигаем по Y!
-        if (Math.abs(dy) > 0.08) {
-            this.chassis.position.y += dy * yLerpFactor;
-        } else {
-            // ПОЛНОСТЬЮ ИГНОРИРУЕМ малые изменения (раньше тут была микро-интерполяция)
-            // this.chassis.position.y += dy * yLerpFactor * 0.3; 
+            // КРИТИЧНО: Фильтрация малых изменений Y (шум квантования)
+            // Если изменение меньше 8 см - вообще не двигаем по Y!
+            if (Math.abs(dy) > 0.08) {
+                this.chassis.position.y += dy * yLerpFactor;
+            }
+            this.chassis.position.z += dz * lerpFactor;
         }
-        this.chassis.position.z += dz * lerpFactor;
 
         // Интерполяция вращения корпуса (Yaw, Pitch, Roll)
         // КРИТИЧНО: Используем Quaternion, так как PhysicsAggregate может его создать, 
         // и тогда rotation (Euler) будет игнорироваться.
 
-        let currentYaw = this.chassis.rotation.y;
-        let currentPitch = this.chassis.rotation.x;
-        let currentRoll = this.chassis.rotation.z;
+        let currentYaw = this._cachedEulerYaw;
+        let currentPitch = this._cachedEulerPitch;
+        let currentRoll = this._cachedEulerRoll;
 
-        // Если есть quaternion, конвертируем в Euler для интерполяции
-        if (this.chassis.rotationQuaternion) {
+        // ОПТИМИЗАЦИЯ: конвертируем quaternion в Euler только каждые 5 кадров
+        // toEulerAngles() - дорогая тригонометрическая операция
+        if (this.chassis.rotationQuaternion && this._frameCounter % 5 === 0) {
             const euler = this.chassis.rotationQuaternion.toEulerAngles();
+            this._cachedEulerPitch = euler.x;
+            this._cachedEulerYaw = euler.y;
+            this._cachedEulerRoll = euler.z;
             currentPitch = euler.x;
             currentYaw = euler.y;
             currentRoll = euler.z;
+        } else if (!this.chassis.rotationQuaternion) {
+            currentYaw = this.chassis.rotation.y;
+            currentPitch = this.chassis.rotation.x;
+            currentRoll = this.chassis.rotation.z;
         }
 
         // 1. Yaw (Y)
@@ -1101,8 +1151,18 @@ export class NetworkPlayerTank {
         */
 
         // Интерполяция вращения башни
+        // ИСПРАВЛЕНИЕ: Сохраняем последнее валидное значение для защиты от undefined/NaN
         if (this.turret) {
-            const targetTurretRot = np.turretRotation || 0;
+            let targetTurretRot = np.turretRotation;
+
+            // Проверяем валидность значения
+            if (typeof targetTurretRot === 'number' && Number.isFinite(targetTurretRot)) {
+                this._lastValidTurretRotation = targetTurretRot;
+            } else {
+                // Используем последнее валидное значение если текущее невалидно
+                targetTurretRot = this._lastValidTurretRotation;
+            }
+
             let turretDiff = targetTurretRot - this.turret.rotation.y;
             while (turretDiff > Math.PI) turretDiff -= Math.PI * 2;
             while (turretDiff < -Math.PI) turretDiff += Math.PI * 2;
@@ -1142,8 +1202,11 @@ export class NetworkPlayerTank {
             this.chassis.position.y = 2; // Телепорт обратно наверх
         }
 
-        // Обновление видимости на основе статуса
-        this.updateVisibility();
+        // ОПТИМИЗАЦИЯ: Обновление видимости каждые 15 кадров (было каждый кадр)
+        // updateVisibility() итерирует по всем child meshes - дорогая операция
+        if (this._frameCounter % 15 === 0) {
+            this.updateVisibility();
+        }
 
         // Check for status changes (ANIMATIONS)
         const currentStatus = this.networkPlayer.status || "alive";
@@ -1339,19 +1402,23 @@ export class NetworkPlayerTank {
             // LOD оптимизация - отключаем детали на расстоянии > 100м
             const camera = this.scene.activeCamera;
             if (camera && shouldBeVisible) {
-                const distance = Vector3.Distance(this.chassis.position, camera.position);
-                const isNear = distance < 100;
+                const distanceSq = Vector3.DistanceSquared(this.chassis.position, camera.position);
+                const nearDistanceSq = 10000; // 100^2
+                const isNear = distanceSq < nearDistanceSq;
 
-                // Дочерние детализированные меши отключаем на расстоянии
-                this.chassis.getChildMeshes().forEach(child => {
-                    // Пропускаем основные части (башня, ствол, гусеницы)
-                    if (child === this.turret || child === this.barrel ||
-                        child === this.leftTrack || child === this.rightTrack) {
-                        return;
-                    }
-                    // Мелкие детали скрываем на большом расстоянии
+                // ОПТИМИЗАЦИЯ: Кэшируем дочерние меши при первом вызове
+                // Избегаем getChildMeshes() — дорогой обход scene graph
+                if (!this._cachedDetailMeshes) {
+                    this._cachedDetailMeshes = this.chassis.getChildMeshes().filter(child =>
+                        child !== this.turret && child !== this.barrel &&
+                        child !== this.leftTrack && child !== this.rightTrack
+                    );
+                }
+
+                // Мелкие детали скрываем на большом расстоянии
+                for (const child of this._cachedDetailMeshes) {
                     child.isVisible = isNear && shouldBeVisible;
-                });
+                }
 
                 // Замораживаем world matrix для далёких танков (оптимизация)
                 if (!isNear) {
@@ -1629,7 +1696,7 @@ export class NetworkPlayerTank {
                         ctx.clearRect(0, 0, 256, 85);
                         // ctx.fillStyle = "rgba(0,0,0,0.5)";
                         // ctx.fillRect(0,0,128,64);
-                        ctx.font = "bold 60px Orbitron";
+                        ctx.font = "bold 60px 'Press Start 2P', monospace";
                         ctx.fillStyle = "white";
                         ctx.textAlign = "left";
                         ctx.textBaseline = "middle";

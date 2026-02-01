@@ -19,7 +19,7 @@ export const CSS_VARIABLES = {
     "--color-primary-light": "#66ff66",
     "--color-secondary": "#008800",
     "--color-accent": "#ffff00",
-    
+
     // Фоны
     "--bg-dark": "rgba(0, 10, 0, 0.95)",
     "--bg-panel": "rgba(0, 20, 0, 0.9)",
@@ -27,19 +27,19 @@ export const CSS_VARIABLES = {
     "--bg-button": "rgba(0, 40, 0, 0.8)",
     "--bg-button-hover": "rgba(0, 60, 0, 0.9)",
     "--bg-input": "rgba(0, 30, 0, 0.7)",
-    
+
     // Границы
     "--border-color": "#00ff00",
     "--border-dim": "#006600",
     "--border-width": "2px",
     "--border-radius": "5px",
     "--border-radius-lg": "10px",
-    
+
     // Тени
     "--shadow-glow": "0 0 10px rgba(0, 255, 0, 0.5)",
     "--shadow-strong": "0 0 20px rgba(0, 255, 0, 0.8)",
     "--shadow-panel": "0 4px 20px rgba(0, 0, 0, 0.5)",
-    
+
     // Текст
     "--text-primary": "#ffffff",
     "--text-secondary": "#aaaaaa",
@@ -47,24 +47,24 @@ export const CSS_VARIABLES = {
     "--text-success": "#00ff00",
     "--text-warning": "#ffff00",
     "--text-danger": "#ff0000",
-    
+
     // Шрифты
     "--font-primary": "'Press Start 2P', monospace",
-    "--font-secondary": "'Courier New', monospace",
+    "--font-secondary": "'Press Start 2P', monospace",
     "--font-size-xs": "10px",
     "--font-size-sm": "12px",
     "--font-size-md": "14px",
     "--font-size-lg": "18px",
     "--font-size-xl": "24px",
     "--font-size-xxl": "32px",
-    
+
     // Размеры
     "--spacing-xs": "4px",
     "--spacing-sm": "8px",
     "--spacing-md": "16px",
     "--spacing-lg": "24px",
     "--spacing-xl": "32px",
-    
+
     // Переходы
     "--transition-fast": "0.15s ease",
     "--transition-normal": "0.3s ease",
@@ -88,43 +88,43 @@ export const BUTTON_STYLES = {
         text-transform: uppercase;
         letter-spacing: 1px;
     `,
-    
+
     primary: `
         background: linear-gradient(180deg, #004400 0%, #002200 100%);
         border-color: var(--color-primary);
         color: var(--color-primary);
         box-shadow: var(--shadow-glow);
     `,
-    
+
     secondary: `
         background: transparent;
         border-color: var(--border-dim);
         color: var(--text-secondary);
     `,
-    
+
     danger: `
         background: linear-gradient(180deg, #440000 0%, #220000 100%);
         border-color: var(--text-danger);
         color: var(--text-danger);
     `,
-    
+
     hover: `
         background: var(--bg-button-hover);
         box-shadow: var(--shadow-strong);
         transform: scale(1.02);
     `,
-    
+
     disabled: `
         opacity: 0.5;
         cursor: not-allowed;
         pointer-events: none;
     `,
-    
+
     large: `
         font-size: var(--font-size-md);
         padding: var(--spacing-md) var(--spacing-lg);
     `,
-    
+
     small: `
         font-size: var(--font-size-xs);
         padding: var(--spacing-xs) var(--spacing-sm);
@@ -143,7 +143,7 @@ export const PANEL_STYLES = {
         padding: var(--spacing-md);
         box-shadow: var(--shadow-panel);
     `,
-    
+
     overlay: `
         position: fixed;
         top: 50%;
@@ -151,7 +151,7 @@ export const PANEL_STYLES = {
         transform: translate(-50%, -50%);
         z-index: 1000;
     `,
-    
+
     sidebar: `
         position: fixed;
         top: 0;
@@ -159,13 +159,13 @@ export const PANEL_STYLES = {
         height: 100vh;
         width: 350px;
     `,
-    
+
     modal: `
         max-width: 600px;
         max-height: 80vh;
         overflow-y: auto;
     `,
-    
+
     transparent: `
         background: transparent;
         border: none;
@@ -188,12 +188,12 @@ export const INPUT_STYLES = {
         outline: none;
         transition: border-color var(--transition-fast);
     `,
-    
+
     focus: `
         border-color: var(--color-primary);
         box-shadow: 0 0 5px var(--color-primary);
     `,
-    
+
     slider: `
         -webkit-appearance: none;
         width: 100%;
@@ -202,7 +202,7 @@ export const INPUT_STYLES = {
         border-radius: 4px;
         outline: none;
     `,
-    
+
     sliderThumb: `
         -webkit-appearance: none;
         width: 16px;
@@ -211,13 +211,13 @@ export const INPUT_STYLES = {
         border-radius: 50%;
         cursor: pointer;
     `,
-    
+
     checkbox: `
         width: 20px;
         height: 20px;
         accent-color: var(--color-primary);
     `,
-    
+
     select: `
         appearance: none;
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='%2300ff00' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
@@ -239,49 +239,49 @@ export const ANIMATIONS = {
             to { opacity: 1; }
         }
     `,
-    
+
     fadeOut: `
         @keyframes fadeOut {
             from { opacity: 1; }
             to { opacity: 0; }
         }
     `,
-    
+
     slideIn: `
         @keyframes slideIn {
             from { transform: translateY(-20px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
     `,
-    
+
     slideOut: `
         @keyframes slideOut {
             from { transform: translateY(0); opacity: 1; }
             to { transform: translateY(-20px); opacity: 0; }
         }
     `,
-    
+
     pulse: `
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
     `,
-    
+
     glow: `
         @keyframes glow {
             0%, 100% { box-shadow: 0 0 5px var(--color-primary); }
             50% { box-shadow: 0 0 20px var(--color-primary); }
         }
     `,
-    
+
     scan: `
         @keyframes scan {
             0% { transform: translateY(-100%); }
             100% { transform: translateY(100%); }
         }
     `,
-    
+
     blink: `
         @keyframes blink {
             0%, 100% { opacity: 1; }
@@ -310,7 +310,7 @@ export const THEMES: Record<string, MenuTheme> = {
             "--border-color": "#00ff00"
         }
     },
-    
+
     cyberpunk: {
         name: "Киберпанк",
         cssVariables: {
@@ -321,7 +321,7 @@ export const THEMES: Record<string, MenuTheme> = {
             "--border-color": "#00ffff"
         }
     },
-    
+
     classic: {
         name: "Классика",
         cssVariables: {
@@ -332,7 +332,7 @@ export const THEMES: Record<string, MenuTheme> = {
             "--border-color": "#ffaa00"
         }
     },
-    
+
     minimal: {
         name: "Минимализм",
         cssVariables: {
@@ -363,7 +363,7 @@ export function generateCSSVariables(variables: Record<string, string> = CSS_VAR
 export function applyTheme(themeName: string): void {
     const theme = THEMES[themeName];
     if (!theme) return;
-    
+
     const root = document.documentElement;
     for (const [key, value] of Object.entries(theme.cssVariables)) {
         root.style.setProperty(key, value);
@@ -375,13 +375,13 @@ export function applyTheme(themeName: string): void {
  */
 export function getCurrentTheme(): string {
     const primary = getComputedStyle(document.documentElement).getPropertyValue("--color-primary").trim();
-    
+
     for (const [name, theme] of Object.entries(THEMES)) {
         if (theme.cssVariables["--color-primary"] === primary) {
             return name;
         }
     }
-    
+
     return "military";
 }
 
@@ -394,11 +394,11 @@ export function generateButtonStyle(
     disabled: boolean = false
 ): string {
     let style = BUTTON_STYLES.base + BUTTON_STYLES[variant];
-    
+
     if (size === "small") style += BUTTON_STYLES.small;
     if (size === "large") style += BUTTON_STYLES.large;
     if (disabled) style += BUTTON_STYLES.disabled;
-    
+
     return style;
 }
 
@@ -420,11 +420,11 @@ export function generatePanelStyle(
 export function hexToRgba(hex: string, alpha: number = 1): string {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     if (!result) return hex;
-    
+
     const r = parseInt(result[1] || "0", 16);
     const g = parseInt(result[2] || "0", 16);
     const b = parseInt(result[3] || "0", 16);
-    
+
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
@@ -434,11 +434,11 @@ export function hexToRgba(hex: string, alpha: number = 1): string {
 export function darkenColor(hex: string, percent: number): string {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     if (!result) return hex;
-    
+
     const r = Math.max(0, Math.floor(parseInt(result[1] || "0", 16) * (1 - percent / 100)));
     const g = Math.max(0, Math.floor(parseInt(result[2] || "0", 16) * (1 - percent / 100)));
     const b = Math.max(0, Math.floor(parseInt(result[3] || "0", 16) * (1 - percent / 100)));
-    
+
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 
@@ -448,11 +448,11 @@ export function darkenColor(hex: string, percent: number): string {
 export function lightenColor(hex: string, percent: number): string {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     if (!result) return hex;
-    
+
     const r = Math.min(255, Math.floor(parseInt(result[1] || "0", 16) * (1 + percent / 100)));
     const g = Math.min(255, Math.floor(parseInt(result[2] || "0", 16) * (1 + percent / 100)));
     const b = Math.min(255, Math.floor(parseInt(result[3] || "0", 16) * (1 + percent / 100)));
-    
+
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
 }
 

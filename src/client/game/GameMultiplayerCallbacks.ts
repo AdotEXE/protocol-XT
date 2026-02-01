@@ -99,6 +99,7 @@ export class GameMultiplayerCallbacks {
 
     // Сетевые снаряды
     private networkProjectiles: Map<string, NetworkProjectile> = new Map(); // Changed type to NetworkProjectile
+    private readonly MAX_NETWORK_PROJECTILES = 200; // Максимальное количество сетевых снарядов
     private projectileTemplate: Mesh | null = null; // Template for cloning
 
     constructor() {
@@ -1081,8 +1082,48 @@ export class GameMultiplayerCallbacks {
         this.processPendingNetworkPlayers();
 
         // Update network players interpolation
+        // ОПТИМИЗАЦИЯ: Distance-based обновление для снижения нагрузки
         // Используем networkPlayerTanks из deps, а не getNetworkPlayers()
-        if (this.deps.networkPlayerTanks) {
+        if (this.deps.networkPlayerTanks && this.deps.tank?.chassis) {
+            const playerPos = this.deps.tank.chassis.position;
+            const nearDistanceSq = 2500; // 50^2
+            const midDistanceSq = 22500; // 150^2
+
+            let updateTick = 0;
+            this.deps.networkPlayerTanks.forEach(tank => {
+                if (!tank || typeof tank.update !== 'function') return;
+
+                // Вычисляем расстояние до танка игрока
+                const tankPos = tank.chassis?.position;
+                if (!tankPos) {
+                    // Если позиция недоступна, обновляем каждый кадр (безопасность)
+                    tank.update(deltaTime);
+                    return;
+                }
+
+                const distanceSq = Vector3.DistanceSquared(playerPos, tankPos);
+
+                // Определяем частоту обновления на основе расстояния
+                let shouldUpdate = false;
+                if (distanceSq < nearDistanceSq) {
+                    // Близкие танки (<50м) - каждый кадр
+                    shouldUpdate = true;
+                } else if (distanceSq < midDistanceSq) {
+                    // Средние танки (50-150м) - каждые 3 кадра
+                    shouldUpdate = (updateTick % 3 === 0);
+                } else {
+                    // Дальние танки (>150м) - каждые 10 кадров
+                    shouldUpdate = (updateTick % 10 === 0);
+                }
+
+                if (shouldUpdate) {
+                    tank.update(deltaTime);
+                }
+
+                updateTick++;
+            });
+        } else if (this.deps.networkPlayerTanks) {
+            // Fallback: обновляем все танки если нет позиции игрока
             this.deps.networkPlayerTanks.forEach(tank => {
                 if (tank && typeof tank.update === 'function') {
                     tank.update(deltaTime);
@@ -2143,6 +2184,7 @@ export class GameMultiplayerCallbacks {
                         (tank as any).updateParts({
                             chassisType: data.payload.chassisType,
                             cannonType: data.payload.cannonType,
+                            trackType: data.payload.trackType,
                             tankColor: data.payload.tankColor,
                             turretColor: data.payload.turretColor
                         });
@@ -2727,7 +2769,7 @@ export class GameMultiplayerCallbacks {
             color: ${color};
             padding: 12px 24px;
             border-radius: 8px;
-            font-family: 'Rajdhani', sans-serif;
+            font-family: 'Press Start 2P', monospace;
             font-size: 16px;
             font-weight: 600;
             z-index: 10000;
@@ -2853,6 +2895,19 @@ export class GameMultiplayerCallbacks {
             delay,
             cannonType // Передаём тип пушки для синхронизации цвета трейла
         );
+
+        // ОПТИМИЗАЦИЯ: Ограничиваем количество снарядов для предотвращения утечек памяти
+        if (this.networkProjectiles.size >= this.MAX_NETWORK_PROJECTILES) {
+            // Удаляем самый старый снаряд (первый в Map)
+            const firstId = this.networkProjectiles.keys().next().value;
+            if (firstId) {
+                const oldProj = this.networkProjectiles.get(firstId);
+                if (oldProj) {
+                    oldProj.dispose();
+                }
+                this.networkProjectiles.delete(firstId);
+            }
+        }
 
         // Add to map for updates
         this.networkProjectiles.set(id, netProjectile);

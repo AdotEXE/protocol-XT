@@ -5,7 +5,10 @@ import {
     StandardMaterial,
     Color3,
     Mesh,
-    TrailMesh
+    TrailMesh,
+    Observer,
+    Observable,
+    EventState
 } from "@babylonjs/core";
 import { ParticleEffects } from "./effects/ParticleEffects";
 import { EFFECTS_CONFIG } from "./effects/EffectsConfig";
@@ -27,13 +30,19 @@ export class EffectsManager {
     // УЛУЧШЕНО: Флаги для дыма и пыли (по умолчанию выключены)
     private enableSmoke: boolean = false;
     private enableDust: boolean = false;
-    
+
     // ОПТИМИЗАЦИЯ: Ограничение активных эффектов для предотвращения деградации производительности
     private MAX_ACTIVE_EFFECTS = 50; // Изменено с readonly для динамической настройки
     private activeEffects: Set<Mesh> = new Set();
-    
+
     // ОПТИМИЗАЦИЯ: Хранение всех таймеров для очистки при dispose
     private activeTimeouts: Set<number> = new Set();
+    private _observers: { observable: Observable<any>, observer: Observer<any> }[] = [];
+
+    // ОПТИМИЗАЦИЯ: Расстояние для оптимизации эффектов
+    private readonly EFFECT_DISTANCE_NEAR = 50; // Близкие эффекты - полное качество
+    private readonly EFFECT_DISTANCE_MID = 150; // Средние эффекты - уменьшенное качество
+    private readonly EFFECT_DISTANCE_FAR = 300; // Дальние эффекты - минимальное качество или отключение
 
     constructor(scene: Scene, useParticles: boolean = true) {
         this.scene = scene;
@@ -112,14 +121,14 @@ export class EffectsManager {
     getDustEnabled(): boolean {
         return this.enableDust;
     }
-    
+
     /**
      * ОПТИМИЗАЦИЯ: Установка максимального количества активных эффектов
      */
     setMaxEffects(maxEffects: number): void {
         this.MAX_ACTIVE_EFFECTS = Math.max(1, Math.min(100, maxEffects)); // Ограничиваем 1-100
     }
-    
+
     /**
      * Получить текущий лимит эффектов
      */
@@ -397,7 +406,7 @@ export class EffectsManager {
                 this.activeEffects.delete(oldest);
             }
         }
-        
+
         const flash = this.createEffectMesh("flash", { width: flashSize, height: flashSize, depth: 0.3 });
         flash.position = position.add(direction.scale(0.5));
         this.activeEffects.add(flash); // Добавить в отслеживание
@@ -436,8 +445,34 @@ export class EffectsManager {
         animate();
     }
 
-        // УЛУЧШЕНО: Enhanced explosion - более эффектные взрывы
+    // УЛУЧШЕНО: Enhanced explosion - более эффектные взрывы
     createExplosion(position: Vector3, scale: number = 1.0): void {
+        // ОПТИМИЗАЦИЯ: Проверка расстояния до камеры для оптимизации эффектов
+        const camera = this.scene.activeCamera;
+        let distanceSq = 0;
+        let effectQuality: "full" | "reduced" | "minimal" | "skip" = "full";
+        
+        if (camera) {
+            const cameraPos = camera.position;
+            distanceSq = Vector3.DistanceSquared(position, cameraPos);
+            const nearSq = this.EFFECT_DISTANCE_NEAR * this.EFFECT_DISTANCE_NEAR;
+            const midSq = this.EFFECT_DISTANCE_MID * this.EFFECT_DISTANCE_MID;
+            const farSq = this.EFFECT_DISTANCE_FAR * this.EFFECT_DISTANCE_FAR;
+            
+            if (distanceSq > farSq) {
+                effectQuality = "skip"; // Пропускаем дальние эффекты
+            } else if (distanceSq > midSq) {
+                effectQuality = "minimal"; // Минимальное качество
+            } else if (distanceSq > nearSq) {
+                effectQuality = "reduced"; // Уменьшенное качество
+            }
+        }
+        
+        // Пропускаем очень дальние эффекты
+        if (effectQuality === "skip") {
+            return;
+        }
+        
         // ОПТИМИЗАЦИЯ: Проверка лимита активных эффектов
         if (this.activeEffects.size >= this.MAX_ACTIVE_EFFECTS) {
             const oldest = Array.from(this.activeEffects)[0];
@@ -446,10 +481,13 @@ export class EffectsManager {
                 this.activeEffects.delete(oldest);
             }
         }
-        
+
         // УЛУЧШЕНО: Используем улучшенную систему частиц если доступна
+        // ОПТИМИЗАЦИЯ: Уменьшаем масштаб для дальних эффектов
+        const adjustedScale = effectQuality === "minimal" ? scale * 0.5 : 
+                              effectQuality === "reduced" ? scale * 0.75 : scale;
         if (this.particleEffects) {
-            this.particleEffects.createExplosion(position, scale);
+            this.particleEffects.createExplosion(position, adjustedScale);
             // Также создаём простой эффект для совместимости
         }
 
@@ -502,7 +540,7 @@ export class EffectsManager {
                         this.activeEffects.delete(oldest);
                     }
                 }
-                
+
                 const ringMesh = this.createEffectMesh("explosionRing", {
                     width: 0.3 * scale,
                     height: 0.1 * scale,
@@ -935,77 +973,91 @@ export class EffectsManager {
         }
 
         // Create the trail
-        // generator: the mesh to generate the trail from
-        // name: name of the trail mesh
-        // new TrailMesh(name, generator, scene, diameter, length, autoStart)
-        try {
-            // NEW STRATEGY: Do not even create the TrailMesh until we are SURE the bullet is not at (0,0,0).
-            // The FPS drop comes from the TrailMesh trying to draw a 1000-unit line in one frame.
+        const createTrailSafe = () => {
+            // Double check matrix
+            bullet.computeWorldMatrix(true);
 
-            const createTrailSafe = () => {
-                // Double check matrix
-                bullet.computeWorldMatrix(true);
+            // Create and start immediately now that we are safe
+            const trail = new TrailMesh("bulletTrail", bullet, this.scene, 0.15, 20, true);
 
-                // Create and start immediately now that we are safe
-                // Синхронизированные параметры: диаметр 0.15, длина 20 (эквивалент ~12 сегментов)
-                const trail = new TrailMesh("bulletTrail", bullet, this.scene, 0.15, 20, true);
+            // Material setup
+            const trailMat = new StandardMaterial("trailMat", this.scene);
+            trailMat.diffuseColor = trailColor;
+            trailMat.emissiveColor = trailColor.scale(0.8);
+            trailMat.specularColor = Color3.Black();
+            trailMat.disableLighting = true;
+            trailMat.alpha = 0.7;
+            trail.material = trailMat;
 
-                // Material setup
-                const trailMat = new StandardMaterial("trailMat", this.scene);
-                trailMat.diffuseColor = trailColor;
-                trailMat.emissiveColor = trailColor.scale(0.8);
-                trailMat.specularColor = Color3.Black();
-                trailMat.disableLighting = true;
-                trailMat.alpha = 0.7; // Синхронизированная прозрачность (было 1.0)
-                trail.material = trailMat;
-
-                // Auto-dispose logic
-                const checkDisposal = () => {
-                    if (bullet.isDisposed()) {
-                        let alpha = 1.0;
-                        const fadeOut = () => {
-                            alpha -= 0.1;
-                            if (trailMat) trailMat.alpha = alpha;
-                            if (alpha <= 0) {
-                                trail.dispose();
-                                this.scene.onBeforeRenderObservable.removeCallback(fadeOut);
-                            }
-                        };
-                        this.scene.onBeforeRenderObservable.add(fadeOut);
-                        this.scene.onBeforeRenderObservable.removeCallback(checkDisposal);
-                    }
-                };
-                this.scene.onBeforeRenderObservable.add(checkDisposal);
+            // Auto-dispose logic
+            let checkDisposalDescriptor: Observer<Scene> | null = null;
+            const checkDisposalCallback = () => {
+                if (bullet.isDisposed()) {
+                    let alpha = 1.0;
+                    let fadeOutDescriptor: Observer<Scene> | null = null;
+                    const fadeOutCallback = () => {
+                        alpha -= 0.1;
+                        if (trailMat) trailMat.alpha = alpha;
+                        if (alpha <= 0) {
+                            trail.dispose();
+                            if (fadeOutDescriptor) this.removeObserver(fadeOutDescriptor);
+                        }
+                    };
+                    fadeOutDescriptor = this.addObserver(this.scene.onBeforeRenderObservable, fadeOutCallback);
+                    if (checkDisposalDescriptor) this.removeObserver(checkDisposalDescriptor);
+                }
             };
+            checkDisposalDescriptor = this.addObserver(this.scene.onBeforeRenderObservable, checkDisposalCallback);
+        };
 
-            // Check if we are safe to create immediately
-            if (bullet.absolutePosition.lengthSquared() > 0.1) {
-                createTrailSafe();
-            } else {
-                // Wait for position to update
-                const safetyObserver = this.scene.onBeforeRenderObservable.add(() => {
-                    if (bullet.isDisposed()) {
-                        this.scene.onBeforeRenderObservable.remove(safetyObserver);
-                        return;
-                    }
-                    // Only create if moved from origin
-                    if (bullet.absolutePosition.lengthSquared() > 0.1) {
-                        createTrailSafe();
-                        this.scene.onBeforeRenderObservable.remove(safetyObserver);
-                    }
-                });
-            }
-
-
-        } catch (e) {
-            console.warn("Failed to create TrailMesh:", e);
+        // Check if we are safe to create immediately
+        if (bullet.absolutePosition.lengthSquared() > 0.1) {
+            createTrailSafe();
+        } else {
+            // Wait for position to update
+            let safetyObserver: Observer<Scene> | null = null;
+            const safetyCallback = () => {
+                if (bullet.isDisposed()) {
+                    if (safetyObserver) this.removeObserver(safetyObserver);
+                    return;
+                }
+                // Only create if moved from origin
+                if (bullet.absolutePosition.lengthSquared() > 0.1) {
+                    createTrailSafe();
+                    if (safetyObserver) this.removeObserver(safetyObserver);
+                }
+            };
+            safetyObserver = this.addObserver(this.scene.onBeforeRenderObservable, safetyCallback);
         }
     }
 
+
+
+
     // Movement dust - particles from tank tracks
     createMovementDust(position: Vector3, direction: Vector3, intensity: number = 1): void {
+        // ОПТИМИЗАЦИЯ: Проверка расстояния до камеры
+        const camera = this.scene.activeCamera;
+        if (camera) {
+            const distanceSq = Vector3.DistanceSquared(position, camera.position);
+            const farSq = this.EFFECT_DISTANCE_FAR * this.EFFECT_DISTANCE_FAR;
+            // Пропускаем дальние эффекты пыли
+            if (distanceSq > farSq) {
+                return;
+            }
+        }
+        
         // Create 2-4 dust particles based on intensity
-        const particleCount = Math.floor(2 + intensity * 2);
+        // ОПТИМИЗАЦИЯ: Уменьшаем количество частиц для дальних эффектов
+        let particleMultiplier = 1.0;
+        if (camera) {
+            const distanceSq = Vector3.DistanceSquared(position, camera.position);
+            const midSq = this.EFFECT_DISTANCE_MID * this.EFFECT_DISTANCE_MID;
+            if (distanceSq > midSq) {
+                particleMultiplier = 0.5; // Уменьшаем количество частиц для дальних эффектов
+            }
+        }
+        const particleCount = Math.floor((2 + intensity * 2) * particleMultiplier);
 
         for (let i = 0; i < particleCount; i++) {
             const dust = this.createEffectMesh("moveDust", { size: 0.4 + Math.random() * 0.3 });
@@ -1214,7 +1266,7 @@ export class EffectsManager {
             window.clearTimeout(timeoutId);
         }
         this.activeTimeouts.clear();
-        
+
         // Удаляем все активные эффекты (меши)
         for (const mesh of this.activeEffects) {
             if (mesh && !mesh.isDisposed()) {
@@ -1226,13 +1278,45 @@ export class EffectsManager {
             }
         }
         this.activeEffects.clear();
-        
+
+        // Очищаем всех наблюдателей
+        this._observers.forEach(o => {
+            try {
+                o.observable.remove(o.observer);
+            } catch (e) { }
+        });
+        this._observers = [];
+
         // Очищаем улучшенную систему частиц
         if (this.particleEffects && typeof this.particleEffects.clear === 'function') {
             this.particleEffects.clear();
         }
     }
-    
+
+    /**
+     * Add an observer and track it for cleanup
+     */
+    public addObserver<T>(observable: Observable<T>, callback: (eventData: T, eventState: EventState) => void, mask?: number, insertFirst?: boolean, scope?: any): Observer<T> | null {
+        const observer = observable.add(callback, mask, insertFirst, scope);
+        if (observer) {
+            this._observers.push({ observable, observer });
+        }
+        return observer;
+    }
+
+    /**
+     * Remove an observer and stop tracking it
+     */
+    public removeObserver(observer: Observer<any> | null): void {
+        if (!observer) return;
+        const index = this._observers.findIndex(o => o.observer === observer);
+        if (index !== -1) {
+            const entry = this._observers[index];
+            entry.observable.remove(entry.observer);
+            this._observers.splice(index, 1);
+        }
+    }
+
     // Вспомогательный метод для отслеживания таймеров
     private trackTimeout(callback: () => void, delay: number): number {
         const timeoutId = window.setTimeout(() => {

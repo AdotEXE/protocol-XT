@@ -3,10 +3,34 @@
  * Функции для создания различных деталей корпусов танков (50+ типов деталей)
  */
 
-import { Mesh, Scene, Vector3, MeshBuilder, StandardMaterial } from "@babylonjs/core";
+import { Mesh, Scene, Vector3, MeshBuilder, StandardMaterial, Color3 } from "@babylonjs/core";
 // Color3 не используется напрямую, но может использоваться через MaterialFactory
 import { addZFightingOffset } from "../tank/zFightingFix";
 import { MaterialFactory } from "./materials";
+
+// JSON модель МиГ-31 (встроена для производительности)
+const PLANE_MODEL_DATA = [
+    { name: "fuselage_main", position: { x: 0, y: 0, z: 0 }, size: { x: 2.0, y: 1.2, z: 10.0 }, color: "#8E9399" },
+    { name: "nose_base", position: { x: 0, y: -0.2, z: 6 }, size: { x: 1.2, y: 1.0, z: 2 }, color: "#8E9399" },
+    { name: "nose_tip", position: { x: 0, y: -0.2, z: 7.8 }, size: { x: 0.6, y: 0.6, z: 1.6 }, color: "#4A4A4A" },
+    { name: "cockpit_front", position: { x: 0, y: 0.6, z: 5.2 }, size: { x: 0.7, y: 0.4, z: 1.2 }, color: "#2A3B4C", alpha: 0.8 },
+    { name: "cockpit_rear", position: { x: 0, y: 0.6, z: 4 }, size: { x: 0.7, y: 0.4, z: 1.2 }, color: "#2A3B4C", alpha: 0.8 },
+    { name: "intake_left", position: { x: -1.3, y: -0.2, z: 1.5 }, size: { x: 0.8, y: 1.2, z: 4.5 }, color: "#8E9399" },
+    { name: "intake_right", position: { x: 1.3, y: -0.2, z: 1.5 }, size: { x: 0.8, y: 1.2, z: 4.5 }, color: "#8E9399" },
+    { name: "wing_left_inner", position: { x: -2, y: 0.25, z: 0.5 }, size: { x: 2, y: 0.1, z: 4 }, color: "#8E9399" },
+    { name: "wing_right_inner", position: { x: 2, y: 0.25, z: 0.5 }, size: { x: 2, y: 0.1, z: 4 }, color: "#8E9399" },
+    { name: "wing_left_outer", position: { x: -4, y: 0.25, z: -1 }, size: { x: 2, y: 0.1, z: 3 }, color: "#8E9399" },
+    { name: "wing_right_outer", position: { x: 4, y: 0.25, z: -1 }, size: { x: 2, y: 0.1, z: 3 }, color: "#8E9399" },
+    { name: "vertical_fin_left", position: { x: -0.85, y: 1.5, z: -4 }, size: { x: 0.1, y: 1.8, z: 3 }, color: "#8E9399", rotationZ: -5 },
+    { name: "vertical_fin_right", position: { x: 0.85, y: 1.5, z: -4 }, size: { x: 0.1, y: 1.8, z: 3 }, color: "#8E9399", rotationZ: 5 },
+    { name: "horizontal_tail_left", position: { x: -2.5, y: 0, z: -5.5 }, size: { x: 2, y: 0.1, z: 2.5 }, color: "#8E9399" },
+    { name: "horizontal_tail_right", position: { x: 2.5, y: 0, z: -5.5 }, size: { x: 2, y: 0.1, z: 2.5 }, color: "#8E9399" },
+    { name: "engine_nozzle_left", position: { x: -0.6, y: -0.2, z: -5.8 }, size: { x: 1.0, y: 1.0, z: 1.8 }, color: "#333333", emissive: "#1a0500" },
+    { name: "engine_nozzle_right", position: { x: 0.6, y: -0.2, z: -5.8 }, size: { x: 1.0, y: 1.0, z: 1.8 }, color: "#333333", emissive: "#1a0500" },
+    { name: "front_gear", position: { x: 0, y: -1.2, z: 5.5 }, size: { x: 0.3, y: 0.8, z: 0.3 }, color: "#1A1A1A" },
+    { name: "rear_gear_left", position: { x: -1.2, y: -1.2, z: -1 }, size: { x: 0.5, y: 0.8, z: 0.5 }, color: "#1A1A1A" },
+    { name: "rear_gear_right", position: { x: 1.2, y: -1.2, z: -1 }, size: { x: 0.5, y: 0.8, z: 0.5 }, color: "#1A1A1A" }
+];
 
 export class ChassisDetailsGenerator {
     /**
@@ -67,7 +91,7 @@ export class ChassisDetailsGenerator {
             depth: diameter
         }, scene);
         headlight.position = position;
-                headlight.parent = chassis;
+        headlight.parent = chassis;
         headlight.material = MaterialFactory.createHoverHeadlightMaterial(scene, index, prefix);
         return headlight;
     }
@@ -107,53 +131,135 @@ export class ChassisDetailsGenerator {
         prefix: string = "preview"
     ): Mesh {
         const tailLight = MeshBuilder.CreateBox(`${prefix}TailLight${index}`, { width, height, depth }, scene);
-        tailLight.position = position;
+        tailLight.position = addZFightingOffset(position, "forward");
         tailLight.parent = chassis;
         tailLight.material = MaterialFactory.createTailLightMaterial(scene, index, prefix);
         return tailLight;
     }
 
     /**
-     * Создает задний огонь (цилиндрический для hover)
+     * Создает выхлопную трубу (прямоугольную)
      */
-    static createTailLightCylindrical(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        diameter: number,
-        height: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const tailLight = MeshBuilder.CreateBox(`${prefix}TailLight${index}`, {
-            width: diameter,
-            height: height,
-            depth: diameter
-        }, scene);
-        tailLight.position = position;
-                tailLight.parent = chassis;
-        tailLight.material = MaterialFactory.createTailLightMaterial(scene, index, prefix);
-        return tailLight;
-    }
-
-    /**
-     * Создает боковую фару (сигнальную)
-     */
-    static createSideLight(
+    static createExhaust(
         scene: Scene,
         chassis: Mesh,
         position: Vector3,
         width: number,
         height: number,
         depth: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const exhaust = MeshBuilder.CreateBox(`${prefix}Exhaust`, { width, height, depth }, scene);
+        exhaust.position = addZFightingOffset(position, "forward");
+        exhaust.parent = chassis;
+        exhaust.material = material;
+        return exhaust;
+    }
+
+    /**
+     * Создает цилиндрическую выхлопную трубу
+     */
+    static createExhaustCylindrical(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        depth: number,
+        diameter: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const exhaust = MeshBuilder.CreateBox(`${prefix}ExhaustCyl`, {
+            width: diameter * 2,
+            height: diameter * 2,
+            depth: depth
+        }, scene);
+        exhaust.position = addZFightingOffset(position, "forward");
+        exhaust.parent = chassis;
+        exhaust.material = MaterialFactory.createExhaustMaterial(scene, prefix);
+        return exhaust;
+    }
+
+    /**
+     * Создает отверстие выхлопной трубы (чёрная дырка)
+     */
+    static createExhaustHole(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        innerDiameter: number,
+        outerDiameter: number,
         index: number,
         prefix: string = "preview"
     ): Mesh {
-        const sideLight = MeshBuilder.CreateBox(`${prefix}SideLight${index}`, { width, height, depth }, scene);
-        sideLight.position = position;
-        sideLight.parent = chassis;
-        sideLight.material = MaterialFactory.createSideLightMaterial(scene, index, prefix);
-        return sideLight;
+        const hole = MeshBuilder.CreateBox(`${prefix}ExhaustHole${index}`, {
+            width: innerDiameter * 2,
+            height: innerDiameter * 2,
+            depth: 0.02
+        }, scene);
+        hole.position = addZFightingOffset(position, "backward");
+        hole.parent = chassis;
+        hole.material = MaterialFactory.createExhaustHoleMaterial(scene, index, prefix);
+        return hole;
+    }
+
+    /**
+     * Создает лопату на корме
+     */
+    static createShovel(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const shovel = MeshBuilder.CreateBox(`${prefix}Shovel`, { width, height, depth }, scene);
+        shovel.position = addZFightingOffset(position, "forward");
+        shovel.parent = chassis;
+        shovel.material = material;
+        return shovel;
+    }
+
+    /**
+     * Создает топор на корме
+     */
+    static createAxe(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const axe = MeshBuilder.CreateBox(`${prefix}Axe`, { width, height, depth }, scene);
+        axe.position = addZFightingOffset(position, "forward");
+        axe.parent = chassis;
+        axe.material = material;
+        return axe;
+    }
+
+    /**
+     * Создает канистру
+     */
+    static createCanister(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const canister = MeshBuilder.CreateBox(`${prefix}Canister`, { width, height, depth }, scene);
+        canister.position = addZFightingOffset(position, "forward");
+        canister.parent = chassis;
+        canister.material = material;
+        return canister;
     }
 
     /**
@@ -170,88 +276,10 @@ export class ChassisDetailsGenerator {
         prefix: string = "preview"
     ): Mesh {
         const vent = MeshBuilder.CreateBox(`${prefix}Vent${index}`, { width, height, depth }, scene);
-        vent.position = position;
+        vent.position = addZFightingOffset(position, "up");
         vent.parent = chassis;
         vent.material = MaterialFactory.createVentMaterial(scene, index, prefix);
         return vent;
-    }
-
-    /**
-     * Создает вентиляционную решетку на крыше
-     */
-    static createRoofVent(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const vent = MeshBuilder.CreateBox(`${prefix}RoofVent${index}`, { width, height, depth }, scene);
-        vent.position = position;
-        vent.parent = chassis;
-        vent.material = MaterialFactory.createRoofVentMaterial(scene, index, prefix);
-        return vent;
-    }
-
-    /**
-     * Создает вентиляционную решетку на крыше (цилиндрическую)
-     */
-    static createRoofVentCylindrical(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        diameter: number,
-        height: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const vent = MeshBuilder.CreateBox(`${prefix}RoofVent${index}`, {
-            width: diameter,
-            height: height,
-            depth: diameter
-        }, scene);
-        vent.position = position;
-                vent.parent = chassis;
-        vent.material = MaterialFactory.createRoofVentMaterial(scene, index, prefix);
-        return vent;
-    }
-
-    /**
-     * Создает детали решетки (планки внутри решетки)
-     */
-    static createVentBars(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        count: number,
-        barWidth: number,
-        barHeight: number,
-        barDepth: number,
-        spacing: number,
-        index: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh[] {
-        const bars: Mesh[] = [];
-        for (let i = 0; i < count; i++) {
-            const bar = MeshBuilder.CreateBox(`${prefix}VentBar${index}_${i}`, {
-                width: barWidth,
-                height: barHeight,
-                depth: barDepth
-            }, scene);
-            bar.position = addZFightingOffset(new Vector3(
-                    position.x,
-                    position.y,
-                    position.z + (i - (count - 1) / 2) * spacing
-                ), "forward");
-            bar.parent = chassis;
-            bar.material = material;
-            bars.push(bar);
-        }
-        return bars;
     }
 
     /**
@@ -261,20 +289,59 @@ export class ChassisDetailsGenerator {
         scene: Scene,
         chassis: Mesh,
         position: Vector3,
+        width: number,
         height: number,
-        diameter: number,
         index: number,
         prefix: string = "preview"
     ): Mesh {
         const periscope = MeshBuilder.CreateBox(`${prefix}Periscope${index}`, {
-            width: diameter,
+            width: width,
             height: height,
-            depth: diameter
+            depth: width
         }, scene);
-        periscope.position = position;
+        periscope.position = addZFightingOffset(position, "up");
         periscope.parent = chassis;
         periscope.material = MaterialFactory.createPeriscopeMaterial(scene, index, prefix);
         return periscope;
+    }
+
+    /**
+     * Создает бинокуляр
+     */
+    static createBinocular(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const binocular = MeshBuilder.CreateBox(`${prefix}Binocular`, { width, height, depth }, scene);
+        binocular.position = addZFightingOffset(position, "forward");
+        binocular.parent = chassis;
+        binocular.material = MaterialFactory.createBinocularMaterial(scene, prefix);
+        return binocular;
+    }
+
+    /**
+     * Создает броневую пластину
+     */
+    static createArmorPlate(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const plate = MeshBuilder.CreateBox(`${prefix}ArmorPlate`, { width, height, depth }, scene);
+        plate.position = addZFightingOffset(position, "forward");
+        plate.parent = chassis;
+        plate.material = material;
+        return plate;
     }
 
     /**
@@ -285,15 +352,15 @@ export class ChassisDetailsGenerator {
         chassis: Mesh,
         position: Vector3,
         height: number,
-        diameter: number,
+        width: number,
         prefix: string = "preview"
     ): Mesh {
         const antenna = MeshBuilder.CreateBox(`${prefix}Antenna`, {
-            width: diameter,
+            width: width,
             height: height,
-            depth: diameter
+            depth: width
         }, scene);
-        antenna.position = position;
+        antenna.position = addZFightingOffset(position, "up");
         antenna.parent = chassis;
         antenna.material = MaterialFactory.createAntennaMaterial(scene, prefix);
         return antenna;
@@ -315,159 +382,58 @@ export class ChassisDetailsGenerator {
             height: size,
             depth: size
         }, scene);
-        base.position = position;
+        base.position = addZFightingOffset(position, "up");
         base.parent = chassis;
         base.material = material;
         return base;
     }
 
     /**
-     * Создает выхлопную трубу (бокс)
+     * Создает экран (боковую защиту)
      */
-    static createExhaust(
+    static createArmorScreen(
         scene: Scene,
         chassis: Mesh,
         position: Vector3,
         width: number,
         height: number,
         depth: number,
+        angle: number,
         material: StandardMaterial,
         prefix: string = "preview"
     ): Mesh {
-        const exhaust = MeshBuilder.CreateBox(`${prefix}Exhaust`, { width, height, depth }, scene);
-        exhaust.position = position;
-        exhaust.parent = chassis;
-        exhaust.material = material;
-        return exhaust;
+        const screen = MeshBuilder.CreateBox(`${prefix}ArmorScreen`, { width, height, depth }, scene);
+        screen.position = position;
+        screen.rotation.y = angle;
+        screen.parent = chassis;
+        screen.material = material;
+        return screen;
     }
 
     /**
-     * Создает выхлопную трубу (цилиндр)
+     * Создает наклонную броню
      */
-    static createExhaustCylindrical(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        height: number,
-        diameter: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const exhaust = MeshBuilder.CreateBox(`${prefix}Exhaust`, {
-            width: diameter,
-            height: height,
-            depth: diameter
-        }, scene);
-        exhaust.position = position;
-                exhaust.parent = chassis;
-        exhaust.material = MaterialFactory.createExhaustMaterial(scene, prefix);
-        return exhaust;
-    }
-
-    /**
-     * Создает выхлопное отверстие
-     */
-    static createExhaustHole(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        height: number,
-        diameter: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const hole = MeshBuilder.CreateBox(`${prefix}ExhaustHole${index}`, {
-            width: diameter,
-            height: height,
-            depth: diameter
-        }, scene);
-        hole.position = position;
-                hole.parent = chassis;
-        hole.material = MaterialFactory.createExhaustHoleMaterial(scene, index, prefix);
-        return hole;
-    }
-
-    /**
-     * Создает лопату (инструмент)
-     */
-    static createShovel(
+    static createSlopedArmor(
         scene: Scene,
         chassis: Mesh,
         position: Vector3,
         width: number,
         height: number,
         depth: number,
+        angle: number,
         material: StandardMaterial,
         prefix: string = "preview"
     ): Mesh {
-        const shovel = MeshBuilder.CreateBox(`${prefix}Shovel`, { width, height, depth }, scene);
-        shovel.position = position;
-        shovel.parent = chassis;
-        shovel.material = material;
-        return shovel;
+        const armor = MeshBuilder.CreateBox(`${prefix}SlopedArmor`, { width, height, depth }, scene);
+        armor.position = addZFightingOffset(position, "forward");
+        armor.rotation.x = angle;
+        armor.parent = chassis;
+        armor.material = material;
+        return armor;
     }
 
     /**
-     * Создает топор (инструмент)
-     */
-    static createAxe(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const axe = MeshBuilder.CreateBox(`${prefix}Axe`, { width, height, depth }, scene);
-        axe.position = position;
-        axe.parent = chassis;
-        axe.material = material;
-        return axe;
-    }
-
-    /**
-     * Создает канистру (инструмент)
-     */
-    static createCanister(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const canister = MeshBuilder.CreateBox(`${prefix}Canister`, { width, height, depth }, scene);
-        canister.position = position;
-        canister.parent = chassis;
-        canister.material = material;
-        return canister;
-    }
-
-    /**
-     * Создает броневую плиту
-     */
-    static createArmorPlate(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const plate = MeshBuilder.CreateBox(`${prefix}ArmorPlate`, { width, height, depth }, scene);
-        plate.position = position;
-        plate.parent = chassis;
-        plate.material = material;
-        return plate;
-    }
-
-    /**
-     * Создает оптический прицел
+     * Создает прицел
      */
     static createSight(
         scene: Scene,
@@ -477,137 +443,12 @@ export class ChassisDetailsGenerator {
         height: number,
         depth: number,
         prefix: string = "preview"
-    ): { sight: Mesh; lens: Mesh } {
+    ): Mesh {
         const sight = MeshBuilder.CreateBox(`${prefix}Sight`, { width, height, depth }, scene);
-        sight.position = position;
+        sight.position = addZFightingOffset(position, "forward");
         sight.parent = chassis;
         sight.material = MaterialFactory.createSightMaterial(scene, prefix);
-
-        const lens = MeshBuilder.CreateBox(`${prefix}SightLens`, { width: 0.07, height: 0.02, depth: 0.07 }, scene);
-        lens.position = addZFightingOffset(new Vector3(0, 0, depth / 2 + 0.01), "forward");
-        lens.parent = sight;
-        lens.material = MaterialFactory.createLensMaterial(scene, prefix);
-
-        return { sight, lens };
-    }
-
-    /**
-     * Создает бинокль
-     */
-    static createBinocular(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        prefix: string = "preview"
-    ): { binocular: Mesh; lenses: Mesh[] } {
-        const binocular = MeshBuilder.CreateBox(`${prefix}Binocular`, { width, height, depth }, scene);
-        binocular.position = position;
-        binocular.parent = chassis;
-        binocular.material = MaterialFactory.createBinocularMaterial(scene, prefix);
-
-        const lenses: Mesh[] = [];
-        for (let i = 0; i < 2; i++) {
-            const lens = MeshBuilder.CreateBox(`${prefix}Lens${i}`, { width: 0.06, height: 0.02, depth: 0.06 }, scene);
-            lens.position = addZFightingOffset(new Vector3(
-                    (i === 0 ? -1 : 1) * 0.06,
-                    0,
-                    depth / 2 + 0.01
-                ), "forward");
-            lens.parent = binocular;
-            lens.material = MaterialFactory.createLensMaterial(scene, prefix);
-            lenses.push(lens);
-        }
-
-        return { binocular, lenses };
-    }
-
-    /**
-     * Создает броневой экран
-     */
-    static createArmorScreen(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        rotationX: number = 0,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const screen = MeshBuilder.CreateBox(`${prefix}ArmorScreen`, { width, height, depth }, scene);
-        screen.position = position;
-        screen.rotation.x = rotationX;
-        screen.parent = chassis;
-        screen.material = material;
-        return screen;
-    }
-
-    /**
-     * Создает шип (агрессивный элемент)
-     */
-    static createSpike(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        rotationZ: number = 0,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const spike = MeshBuilder.CreateBox(`${prefix}Spike`, { width, height, depth }, scene);
-        spike.position = position;
-        spike.rotation.z = rotationZ;
-        spike.parent = chassis;
-        spike.material = material;
-        return spike;
-    }
-
-    /**
-     * Создает воздухозаборник
-     */
-    static createIntake(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const intake = MeshBuilder.CreateBox(`${prefix}Intake`, { width, height, depth }, scene);
-        intake.position = position;
-        intake.parent = chassis;
-        intake.material = material;
-        return intake;
-    }
-
-    /**
-     * Создает воздухозаборник (цилиндрический)
-     */
-    static createIntakeCylindrical(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        height: number,
-        diameter: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const intake = MeshBuilder.CreateBox(`${prefix}Intake`, {
-            width: diameter,
-            height: height,
-            depth: diameter
-        }, scene);
-        intake.position = position;
-                intake.parent = chassis;
-        intake.material = MaterialFactory.createIntakeMaterial(scene, prefix);
-        return intake;
+        return sight;
     }
 
     /**
@@ -651,9 +492,9 @@ export class ChassisDetailsGenerator {
     }
 
     /**
-     * Создает крыло (для scout/racer)
+     * Создает воздухозаборник
      */
-    static createWing(
+    static createIntake(
         scene: Scene,
         chassis: Mesh,
         position: Vector3,
@@ -663,492 +504,15 @@ export class ChassisDetailsGenerator {
         material: StandardMaterial,
         prefix: string = "preview"
     ): Mesh {
-        const wing = MeshBuilder.CreateBox(`${prefix}Wing`, { width, height, depth }, scene);
-        wing.position = position;
-        wing.parent = chassis;
-        wing.material = material;
-        return wing;
+        const intake = MeshBuilder.CreateBox(`${prefix}Intake`, { width, height, depth }, scene);
+        intake.position = addZFightingOffset(position, "forward");
+        intake.parent = chassis;
+        intake.material = material;
+        return intake;
     }
 
     /**
-     * Создает диффузор (для racer)
-     */
-    static createDiffuser(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const diffuser = MeshBuilder.CreateBox(`${prefix}Diffuser`, { width, height, depth }, scene);
-        diffuser.position = position;
-        diffuser.parent = chassis;
-        diffuser.material = material;
-        return diffuser;
-    }
-
-    /**
-     * Создает клиновидный нос
-     */
-    static createWedgeNose(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        rotationX: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const nose = MeshBuilder.CreateBox(`${prefix}Nose`, { width, height, depth }, scene);
-        nose.position = position;
-        nose.rotation.x = rotationX;
-        nose.parent = chassis;
-        nose.material = material;
-        return nose;
-    }
-
-    /**
-     * Создает наклонную броневую плиту
-     */
-    static createSlopedArmor(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        rotationX: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const armor = MeshBuilder.CreateBox(`${prefix}SlopedArmor`, { width, height, depth }, scene);
-        armor.position = position;
-        armor.rotation.x = rotationX;
-        armor.parent = chassis;
-        armor.material = material;
-        return armor;
-    }
-
-    /**
-     * Создает угловой броневой элемент
-     */
-    static createCornerArmor(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        size: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const corner = MeshBuilder.CreateBox(`${prefix}CornerArmor`, {
-            width: size,
-            height: size,
-            depth: size
-        }, scene);
-        corner.position = position;
-        corner.parent = chassis;
-        corner.material = material;
-        return corner;
-    }
-
-    /**
-     * Создает энергетический генератор (сфера для shield)
-     */
-    static createEnergyGenerator(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        diameter: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const generator = MeshBuilder.CreateBox(`${prefix}ShieldGen`, {
-            width: diameter,
-            height: diameter,
-            depth: diameter
-        }, scene);
-        generator.position = position;
-        generator.parent = chassis;
-        generator.material = MaterialFactory.createShieldGeneratorMaterial(scene, prefix);
-        return generator;
-    }
-
-    /**
-     * Создает энергетическую панель
-     */
-    static createEnergyPanel(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const panel = MeshBuilder.CreateBox(`${prefix}EnergyPanel${index}`, { width, height, depth }, scene);
-        panel.position = position;
-        panel.parent = chassis;
-        panel.material = MaterialFactory.createEnergyPanelMaterial(scene, index, prefix);
-        return panel;
-    }
-
-    /**
-     * Создает энергетическую катушку (тор)
-     */
-    static createEnergyCoil(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        diameter: number,
-        thickness: number,
-        _rotationX: number, // Не используется для Box, но оставлен для совместимости API
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const coil = MeshBuilder.CreateBox(`${prefix}Coil${index}`, {
-            width: diameter,
-            height: thickness,
-            depth: diameter
-        }, scene);
-        coil.position = position;
-        // Box doesn't need rotation for rectangular design (rotationX не используется)
-        coil.parent = chassis;
-        coil.material = MaterialFactory.createEnergyCoilMaterial(scene, index, prefix);
-        return coil;
-    }
-
-    /**
-     * Создает энергетический порт
-     */
-    static createEnergyPort(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        height: number,
-        diameter: number,
-        _rotationX: number, // Не используется для Box, но оставлен для совместимости API
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const port = MeshBuilder.CreateBox(`${prefix}Port${index}`, {
-            width: diameter,
-            height: height,
-            depth: diameter
-        }, scene);
-        port.position = position;
-        // Box doesn't need rotation for rectangular design
-        port.parent = chassis;
-        port.material = MaterialFactory.createEnergyPortMaterial(scene, index, prefix);
-        return port;
-    }
-
-    /**
-     * Создает энергетический бустер
-     */
-    static createEnergyBooster(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        size: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const booster = MeshBuilder.CreateBox(`${prefix}EnergyBooster${index}`, {
-            width: size,
-            height: size,
-            depth: size
-        }, scene);
-        booster.position = position;
-        booster.parent = chassis;
-        booster.material = MaterialFactory.createEnergyBoosterMaterial(scene, index, prefix);
-        return booster;
-    }
-
-    /**
-     * Создает платформу для дронов
-     */
-    static createDronePlatform(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const platform = MeshBuilder.CreateBox(`${prefix}DronePlatform${index}`, {
-            width,
-            height,
-            depth
-        }, scene);
-        platform.position = position;
-        platform.parent = chassis;
-        platform.material = MaterialFactory.createDronePlatformMaterial(scene, index, prefix);
-        return platform;
-    }
-
-    /**
-     * Создает сенсорную панель
-     */
-    static createSensor(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const sensor = MeshBuilder.CreateBox(`${prefix}Sensor${index}`, { width, height, depth }, scene);
-        sensor.position = position;
-        sensor.parent = chassis;
-        sensor.material = MaterialFactory.createSensorMaterial(scene, index, prefix);
-        return sensor;
-    }
-
-    /**
-     * Создает оптический сенсор (цилиндрический для hover)
-     */
-    static createOpticalSensor(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        height: number,
-        diameter: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const sensor = MeshBuilder.CreateBox(`${prefix}Sensor${index}`, {
-            width: diameter,
-            height: height,
-            depth: diameter
-        }, scene);
-        sensor.position = position;
-                sensor.parent = chassis;
-        sensor.material = MaterialFactory.createHoverSensorMaterial(scene, index, prefix);
-        return sensor;
-    }
-
-    /**
-     * Создает генератор невидимости (stealth)
-     */
-    static createStealthGenerator(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const generator = MeshBuilder.CreateBox(`${prefix}StealthGen`, { width, height, depth }, scene);
-        generator.position = position;
-        generator.parent = chassis;
-        generator.material = MaterialFactory.createStealthGeneratorMaterial(scene, prefix);
-        return generator;
-    }
-
-    /**
-     * Создает реактивный двигатель (hover thruster)
-     */
-    static createThruster(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        height: number,
-        diameter: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const thruster = MeshBuilder.CreateBox(`${prefix}Thruster${index}`, {
-            width: diameter,
-            height: height,
-            depth: diameter
-        }, scene);
-        thruster.position = position;
-        thruster.parent = chassis;
-        thruster.material = MaterialFactory.createThrusterMaterial(scene, index, prefix);
-        return thruster;
-    }
-
-    /**
-     * Создает стабилизатор (для racer/hover)
-     */
-    static createStabilizer(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const stabilizer = MeshBuilder.CreateBox(`${prefix}Stabilizer`, { width, height, depth }, scene);
-        stabilizer.position = position;
-        stabilizer.parent = chassis;
-        stabilizer.material = material;
-        return stabilizer;
-    }
-
-    /**
-     * Создает поплавок (для amphibious)
-     */
-    static createFloat(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        height: number,
-        diameter: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const float = MeshBuilder.CreateBox(`${prefix}Float`, { width: diameter, height: height, depth: diameter }, scene);
-        float.position = position;
-        float.parent = chassis;
-        float.material = material;
-        return float;
-    }
-
-    /**
-     * Создает водонепроницаемую панель
-     */
-    static createWaterSeal(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        material: StandardMaterial,
-        prefix: string = "preview"
-    ): Mesh {
-        const seal = MeshBuilder.CreateBox(`${prefix}WaterSeal`, { width, height, depth }, scene);
-        seal.position = position;
-        seal.parent = chassis;
-        seal.material = material;
-        return seal;
-    }
-
-    /**
-     * Создает command ауру (тор)
-     */
-    static createCommandAura(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        diameter: number,
-        thickness: number,
-        rotationX: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const aura = MeshBuilder.CreateBox(`${prefix}CommandAura`, {
-            width: diameter,
-            height: thickness,
-            depth: diameter
-        }, scene);
-        aura.position = position;
-        aura.rotation.x = rotationX;
-        aura.parent = chassis;
-        aura.material = MaterialFactory.createCommandAuraMaterial(scene, prefix);
-        return aura;
-    }
-
-    /**
-     * Создает командный модуль
-     */
-    static createCommandModule(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const module = MeshBuilder.CreateBox(`${prefix}CommandModule`, { width, height, depth }, scene);
-        module.position = position;
-        module.parent = chassis;
-        module.material = MaterialFactory.createCommandModuleMaterial(scene, prefix);
-        return module;
-    }
-
-    /**
-     * Создает command антенну
-     */
-    static createCommandAntenna(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        height: number,
-        diameter: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const antenna = MeshBuilder.CreateBox(`${prefix}CmdAntenna${index}`, {
-            width: diameter,
-            height: height,
-            depth: diameter
-        }, scene);
-        antenna.position = position;
-        antenna.parent = chassis;
-        antenna.material = MaterialFactory.createCommandAntennaMaterial(scene, index, prefix);
-        return antenna;
-    }
-
-    /**
-     * Создает радиостанцию
-     */
-    static createRadio(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const radio = MeshBuilder.CreateBox(`${prefix}Radio${index}`, { width, height, depth }, scene);
-        radio.position = position;
-        radio.parent = chassis;
-        radio.material = MaterialFactory.createRadioMaterial(scene, index, prefix);
-        return radio;
-    }
-
-    /**
-     * Создает сенсорную панель command
-     */
-    static createCommandSensor(
-        scene: Scene,
-        chassis: Mesh,
-        position: Vector3,
-        width: number,
-        height: number,
-        depth: number,
-        index: number,
-        prefix: string = "preview"
-    ): Mesh {
-        const sensor = MeshBuilder.CreateBox(`${prefix}CommandSensor${index}`, {
-            width,
-            height,
-            depth
-        }, scene);
-        sensor.position = position;
-        sensor.parent = chassis;
-        sensor.material = MaterialFactory.createCommandSensorMaterial(scene, index, prefix);
-        return sensor;
-    }
-
-    /**
-     * Создает зеркало
+     * Создает зеркало заднего вида
      */
     static createMirror(
         scene: Scene,
@@ -1168,9 +532,9 @@ export class ChassisDetailsGenerator {
     }
 
     /**
-     * Создает опорную лапу (для artillery)
+     * Создает крыло (для scout)
      */
-    static createSupportLeg(
+    static createWing(
         scene: Scene,
         chassis: Mesh,
         position: Vector3,
@@ -1180,22 +544,236 @@ export class ChassisDetailsGenerator {
         material: StandardMaterial,
         prefix: string = "preview"
     ): Mesh {
-        const leg = MeshBuilder.CreateBox(`${prefix}Leg`, { width, height, depth }, scene);
-        leg.position = position;
-        leg.parent = chassis;
-        leg.material = material;
-        return leg;
+        const wing = MeshBuilder.CreateBox(`${prefix}Wing`, { width, height, depth }, scene);
+        wing.position = position;
+        wing.parent = chassis;
+        wing.material = material;
+        return wing;
     }
 
     /**
-     * Создает стабилизатор (цилиндрический для artillery)
+     * Создает диффузор
      */
-    static createStabilizerCylindrical(
+    static createDiffuser(
         scene: Scene,
         chassis: Mesh,
         position: Vector3,
+        width: number,
         height: number,
+        depth: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const diffuser = MeshBuilder.CreateBox(`${prefix}Diffuser`, { width, height, depth }, scene);
+        diffuser.position = position;
+        diffuser.parent = chassis;
+        diffuser.material = material;
+        return diffuser;
+    }
+
+    /**
+     * Создает реактивный двигатель (цилиндр)
+     */
+    static createJetEngine(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
         diameter: number,
+        length: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const engine = MeshBuilder.CreateBox(`${prefix}JetEngine${index}`, {
+            width: diameter,
+            height: diameter,
+            depth: length
+        }, scene);
+        engine.position = position;
+        engine.parent = chassis;
+        engine.material = MaterialFactory.createJetEngineMaterial(scene, index, prefix);
+        return engine;
+    }
+
+    /**
+     * Создает сопло двигателя
+     */
+    static createEngineNozzle(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        length: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const nozzle = MeshBuilder.CreateBox(`${prefix}EngineNozzle${index}`, {
+            width: diameter,
+            height: diameter,
+            depth: length
+        }, scene);
+        nozzle.position = addZFightingOffset(position, "backward");
+        nozzle.parent = chassis;
+        nozzle.material = MaterialFactory.createEngineMaterial(scene, index, prefix);
+        return nozzle;
+    }
+
+    /**
+     * Создает антигравитационный двигатель (для hover)
+     */
+    static createAntiGravEngine(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const engine = MeshBuilder.CreateBox(`${prefix}AntiGravEngine${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        engine.position = addZFightingOffset(position, "down");
+        engine.parent = chassis;
+        engine.material = MaterialFactory.createAntiGravMaterial(scene, index, prefix);
+        return engine;
+    }
+
+    /**
+     * Создает генератор щита
+     */
+    static createShieldGenerator(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const generator = MeshBuilder.CreateBox(`${prefix}ShieldGenerator`, { width, height, depth }, scene);
+        generator.position = addZFightingOffset(position, "up");
+        generator.parent = chassis;
+        generator.material = MaterialFactory.createShieldGeneratorMaterial(scene, prefix);
+        return generator;
+    }
+
+    /**
+     * Создает эмиттер щита (светящийся элемент)
+     */
+    static createShieldEmitter(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const emitter = MeshBuilder.CreateBox(`${prefix}ShieldEmitter${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        emitter.position = addZFightingOffset(position, "up");
+        emitter.parent = chassis;
+        emitter.material = MaterialFactory.createShieldEmitterMaterial(scene, index, prefix);
+        return emitter;
+    }
+
+    /**
+     * Создает дрон-пусковую установку
+     */
+    static createDroneLauncher(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const launcher = MeshBuilder.CreateBox(`${prefix}DroneLauncher`, { width, height, depth }, scene);
+        launcher.position = addZFightingOffset(position, "up");
+        launcher.parent = chassis;
+        launcher.material = MaterialFactory.createDroneLauncherMaterial(scene, prefix);
+        return launcher;
+    }
+
+    /**
+     * Создает мини-дрон на корпусе
+     */
+    static createMiniDrone(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        size: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const drone = MeshBuilder.CreateBox(`${prefix}MiniDrone${index}`, {
+            width: size,
+            height: size * 0.5,
+            depth: size
+        }, scene);
+        drone.position = addZFightingOffset(position, "up");
+        drone.parent = chassis;
+        drone.material = MaterialFactory.createMiniDroneMaterial(scene, index, prefix);
+        return drone;
+    }
+
+    /**
+     * Создает командную вышку
+     */
+    static createCommandTower(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const tower = MeshBuilder.CreateBox(`${prefix}CommandTower`, { width, height, depth }, scene);
+        tower.position = addZFightingOffset(position, "up");
+        tower.parent = chassis;
+        tower.material = material;
+        return tower;
+    }
+
+    /**
+     * Создает радарную тарелку
+     */
+    static createRadarDish(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const dish = MeshBuilder.CreateBox(`${prefix}RadarDish`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        dish.position = addZFightingOffset(position, "up");
+        dish.parent = chassis;
+        dish.material = MaterialFactory.createRadarMaterial(scene, prefix);
+        return dish;
+    }
+
+    /**
+     * Создает стабилизатор
+     */
+    static createStabilizer(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
         material: StandardMaterial,
         prefix: string = "preview"
     ): Mesh {
@@ -1229,5 +807,73 @@ export class ChassisDetailsGenerator {
         toolBox.material = material;
         return toolBox;
     }
-}
 
+    /**
+     * Создает полную модель самолета "Warhawk" (МиГ-31)
+     * Использует встроенные данные модели
+     */
+    static addPlaneDetails(
+        scene: Scene,
+        chassis: Mesh,
+        width: number,
+        height: number,
+        depth: number,
+        baseColor: Color3,
+        prefix: string = "preview"
+    ): void {
+        // Рассчитываем масштаб относительно исходной модели
+        // Исходная модель: ~10 единиц в длину (z), ~10 в ширину (с крыльями), ~4 в высоту
+        const scaleX = width / 10;
+        const scaleY = height / 4;
+        const scaleZ = depth / 10;
+        const scale = Math.min(scaleX, scaleY, scaleZ) * 1.8; // 2x увеличение модели
+
+        // Материалы создаются один раз
+        const materials: Map<string, StandardMaterial> = new Map();
+
+        const getMaterial = (color: string, alpha?: number, emissive?: string): StandardMaterial => {
+            const key = `${color}_${alpha || 1}_${emissive || ''}`;
+            if (materials.has(key)) {
+                return materials.get(key)!;
+            }
+            const mat = new StandardMaterial(`${prefix}PlaneMat_${key}`, scene);
+            mat.diffuseColor = Color3.FromHexString(color);
+            mat.specularColor = new Color3(0.2, 0.2, 0.2);
+            if (alpha !== undefined && alpha < 1) {
+                mat.alpha = alpha;
+            }
+            if (emissive) {
+                mat.emissiveColor = Color3.FromHexString(emissive);
+            }
+            materials.set(key, mat);
+            return mat;
+        };
+
+        // Создаем каждую деталь из модели
+        for (const part of PLANE_MODEL_DATA) {
+            const mesh = MeshBuilder.CreateBox(`${prefix}Plane_${part.name}`, {
+                width: part.size.x * scale,
+                height: part.size.y * scale,
+                depth: part.size.z * scale
+            }, scene);
+            // Позиция (оригинальные координаты из JSON)
+            mesh.position = new Vector3(
+                part.position.x * scale,
+                part.position.y * scale,
+                part.position.z * scale
+            );
+
+            // Применяем rotation если есть
+            if ((part as any).rotationZ) {
+                mesh.rotation.z = ((part as any).rotationZ * Math.PI) / 180;
+            }
+
+            mesh.parent = chassis;
+            mesh.material = getMaterial(
+                part.color,
+                (part as any).alpha,
+                (part as any).emissive
+            );
+        }
+    }
+}

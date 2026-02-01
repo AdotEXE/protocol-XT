@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140866,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "explosive",
+    "name": "Explosive Cannon",
+    "barrelLength": 2.4,
+    "barrelWidth": 0.28,
+    "damage": 42,
+    "cooldown": 3200,
+    "projectileSpeed": 180,
+    "projectileSize": 0.26,
+    "color": "#ff6600",
+    "description": "Взрывная пушка со сплэш-уроном. Урон: 42 | Перезарядка: 3.2с | Радиус взрыва: 4м. Баланс между уроном и перезарядкой.",
+    "recoilMultiplier": 3.4,
+    "maxRange": 282
+  }
+}

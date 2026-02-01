@@ -145,7 +145,7 @@ export class ConsumablesBar {
             countText.text = "";
             countText.fontSize = 10;
             countText.color = "white";
-            countText.fontFamily = "'Consolas', monospace";
+            countText.fontFamily = "'Press Start 2P', monospace";
             countText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
             countText.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
             countText.left = "-2px";
@@ -163,7 +163,7 @@ export class ConsumablesBar {
             hotkeyText.text = `${index + 1}`;
             hotkeyText.fontSize = 10;
             hotkeyText.color = HUD_COLORS.PRIMARY;
-            hotkeyText.fontFamily = "'Consolas', monospace";
+            hotkeyText.fontFamily = "'Press Start 2P', monospace";
             hotkeyText.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
             hotkeyText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
             hotkeyText.top = `${slotSize + 4}px`; // Под слотом
@@ -248,7 +248,7 @@ export class ConsumablesBar {
             // Запускаем анимацию появления
             slot.appearAnimation.isVisible = true;
             slot.appearAnimation.alpha = 0.8;
-            
+
             // Плавно исчезаем анимацию через несколько кадров
             let fadeOut = 0.8;
             const fadeStep = () => {
@@ -323,7 +323,7 @@ export class ConsumablesBar {
         // Очищаем все таймеры анимаций
         this.animationTimers.forEach(timerId => clearTimeout(timerId));
         this.animationTimers.clear();
-        
+
         this.container.dispose();
     }
 }

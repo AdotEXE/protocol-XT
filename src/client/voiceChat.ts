@@ -55,6 +55,14 @@ export class VoiceChatManager {
         if (this.config.pushToTalk) {
             this.inputMap.set(this.config.pushToTalkKey, active);
             this.updateTalkingState();
+
+            // Показываем уведомление для самого игрока
+            if (active) {
+                const game = (window as any).gameInstance;
+                if (game && game.hud) {
+                    game.hud.showNotification("📻 Вы говорите по радио (удерживайте V)", "info");
+                }
+            }
         }
     }
 
@@ -358,7 +366,17 @@ export class VoiceChatManager {
             });
         }
 
+        // Отправляем событие о изменении состояния разговора
+        const wasTalking = this.isTalking;
         this.isTalking = shouldTalk;
+
+        if (shouldTalk !== wasTalking && this.sendMessage) {
+            // Отправляем событие на сервер для уведомления других игроков
+            this.sendMessage("voice_talking", {
+                talking: shouldTalk,
+                playerId: this.playerId
+            });
+        }
     }
 
     setConfig(config: Partial<VoiceChatConfig>): void {

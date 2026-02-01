@@ -71,15 +71,15 @@ export class ChatSystem {
         room: "#fff"     // White - room
     };
     private channelSelector: HTMLSelectElement | null = null;
-    
+
     // Voice Chat Controls
     private voiceMuteButton: HTMLButtonElement | null = null;
     private voiceIndicator: HTMLDivElement | null = null;
     private voiceChatUpdateInterval: NodeJS.Timeout | null = null;
-    
+
     // Cleanup timer
     private cleanupTimerInterval: NodeJS.Timeout | null = null;
-    
+
     // Event handlers for cleanup
     private mouseMoveHandler: ((e: MouseEvent) => void) | null = null;
     private mouseUpHandler: (() => void) | null = null;
@@ -233,7 +233,7 @@ export class ChatSystem {
             background: rgba(0, 10, 0, 0.95);
             border: ${2 * scaleFactor}px solid rgba(0, 255, 4, 0.6);
             border-radius: ${4 * scaleFactor}px;
-            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
             font-size: clamp(10px, 1.1vw, 12px);
             z-index: 10000;
             cursor: default;
@@ -309,7 +309,7 @@ export class ChatSystem {
             color: #0f0;
             display: ${isCollapsed ? 'none' : 'block'};
             background: rgba(0, 5, 0, 0.3);
-            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
             line-height: 1.5;
             scrollbar-width: thin;
             scrollbar-color: rgba(0, 255, 4, 0.4) rgba(0, 10, 0, 0.2);
@@ -358,7 +358,7 @@ export class ChatSystem {
             background: rgba(0, 10, 0, 0.9);
             border: 1px solid rgba(0, 255, 4, 0.4);
             color: ${this.channelColors[this.currentChannel]};
-            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
             font-size: 11px;
             outline: none;
             cursor: pointer;
@@ -392,7 +392,7 @@ export class ChatSystem {
             background: rgba(0, 5, 0, 0.8);
             border: ${1 * scaleFactor}px solid ${this.channelColors[this.currentChannel]};
             color: #0f0;
-            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-family: 'Press Start 2P', monospace;
             font-size: clamp(10px, 1.1vw, 12px);
             outline: none;
         `;
@@ -407,7 +407,7 @@ export class ChatSystem {
             align-items: center;
             padding: 0 ${4 * scaleFactor}px;
         `;
-        
+
         // Voice indicator (shows when talking)
         const voiceIndicator = document.createElement("div");
         voiceIndicator.id = "voice-indicator";
@@ -422,7 +422,7 @@ export class ChatSystem {
         voiceIndicator.title = "Голосовой чат неактивен";
         voiceControlsWrapper.appendChild(voiceIndicator);
         this.voiceIndicator = voiceIndicator;
-        
+
         // Mute button
         const muteButton = document.createElement("button");
         muteButton.id = "voice-mute-button";
@@ -456,9 +456,9 @@ export class ChatSystem {
         });
         voiceControlsWrapper.appendChild(muteButton);
         this.voiceMuteButton = muteButton;
-        
+
         chatInputWrapper.appendChild(voiceControlsWrapper);
-        
+
         // Start voice chat status updates
         this.startVoiceChatUpdates();
 
@@ -791,7 +791,7 @@ export class ChatSystem {
         // Сохраняем обработчики для последующего удаления
         this.mouseMoveHandler = handleMouseMove;
         this.mouseUpHandler = handleMouseUp;
-        
+
         document.addEventListener("mousemove", handleMouseMove);
         document.addEventListener("mouseup", handleMouseUp);
 
@@ -974,7 +974,7 @@ export class ChatSystem {
             buttonText.text = icons[index] ?? "";
             buttonText.color = this.getColorForType(type);
             buttonText.fontSize = 10;
-            buttonText.fontFamily = "Courier New, monospace";
+            buttonText.fontFamily = "'Press Start 2P', monospace";
             button.addControl(buttonText);
 
             // Обработчик клика
@@ -1554,7 +1554,7 @@ export class ChatSystem {
                 margin: ${3 * scaleFactor}px 0;
                 padding: ${2 * scaleFactor}px ${4 * scaleFactor}px;
                 word-wrap: break-word;
-                font-family: Consolas, Monaco, 'Courier New', monospace;
+                font-family: 'Press Start 2P', monospace;
                 line-height: 1.4;
                 text-shadow: 0 0 ${2 * scaleFactor}px ${message.color}40;
                 transition: opacity 0.2s ease;
@@ -1598,7 +1598,7 @@ export class ChatSystem {
         element.text = `${prefix}${iconSpacing}${message.icon} ${priorityMark}${message.text}`;
         element.color = message.color;
         element.fontSize = 11;
-        element.fontFamily = "Courier New, monospace";
+        element.fontFamily = "'Press Start 2P', monospace";
         element.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         element.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         element.left = "5px";
@@ -1675,7 +1675,7 @@ export class ChatSystem {
         if (this.cleanupTimerInterval) {
             clearInterval(this.cleanupTimerInterval);
         }
-        
+
         this.cleanupTimerInterval = setInterval(() => {
             const now = Date.now();
             const toRemove: number[] = [];
@@ -1710,7 +1710,7 @@ export class ChatSystem {
             }
         }, 5000); // Проверяем каждые 5 секунд
     }
-    
+
     /**
      * Stop cleanup timer
      */
@@ -1801,7 +1801,7 @@ export class ChatSystem {
         try {
             const { getVoiceChatManager } = require("./voiceChat");
             const voiceChat = getVoiceChatManager();
-            
+
             if (voiceChat && voiceChat.isEnabled()) {
                 const config = voiceChat.getConfig();
                 voiceChat.setConfig({ mute: !config.mute });
@@ -1819,7 +1819,7 @@ export class ChatSystem {
         if (this.voiceChatUpdateInterval) {
             clearInterval(this.voiceChatUpdateInterval);
         }
-        
+
         this.voiceChatUpdateInterval = setInterval(() => {
             this.updateVoiceChatUI();
         }, 100); // Update every 100ms for smooth indicator
@@ -1832,7 +1832,7 @@ export class ChatSystem {
         try {
             const { getVoiceChatManager } = require("./voiceChat");
             const voiceChat = getVoiceChatManager();
-            
+
             if (!voiceChat || !voiceChat.isEnabled()) {
                 // Voice chat disabled
                 if (this.voiceIndicator) {
@@ -1849,7 +1849,7 @@ export class ChatSystem {
 
             const config = voiceChat.getConfig();
             const isTalking = voiceChat.isTalkingNow();
-            
+
             // Update mute button
             if (this.voiceMuteButton) {
                 this.voiceMuteButton.style.opacity = "1";
@@ -1857,7 +1857,7 @@ export class ChatSystem {
                 this.voiceMuteButton.innerHTML = config.mute ? "🔇" : "🎤";
                 this.voiceMuteButton.title = config.mute ? "Включить микрофон" : "Заглушить микрофон";
             }
-            
+
             // Update indicator
             if (this.voiceIndicator) {
                 if (config.mute) {
@@ -1901,7 +1901,7 @@ export class ChatSystem {
     dispose(): void {
         this.stopCleanupTimer();
         this.cleanupVoiceChatUpdates();
-        
+
         // Remove document event listeners
         if (this.mouseMoveHandler) {
             document.removeEventListener("mousemove", this.mouseMoveHandler);
@@ -1911,13 +1911,13 @@ export class ChatSystem {
             document.removeEventListener("mouseup", this.mouseUpHandler);
             this.mouseUpHandler = null;
         }
-        
+
         // Clear messages
         this.messages = [];
         this.messageElements.forEach(element => element.dispose());
         this.messageElements.clear();
         this.messageGroups.clear();
-        
+
         // Remove HTML container and all its event listeners
         if (this.htmlContainer) {
             // Remove all child elements which will remove their event listeners
@@ -1925,29 +1925,29 @@ export class ChatSystem {
             this.htmlContainer.remove();
             this.htmlContainer = null;
         }
-        
+
         // Clear references
         this.commandInput = null;
         this.channelSelector = null;
         this.voiceMuteButton = null;
         this.voiceIndicator = null;
-        
+
         // Dispose GUI elements
         if (this.chatContainer) {
             this.chatContainer.dispose();
             this.chatContainer = null;
         }
-        
+
         if (this.scrollViewer) {
             this.scrollViewer.dispose();
             this.scrollViewer = null;
         }
-        
+
         if (this.messagesArea) {
             this.messagesArea.dispose();
             this.messagesArea = null;
         }
-        
+
         // Clear command system
         if (this.commandSystem) {
             // CommandSystem doesn't have dispose, but we can clear references

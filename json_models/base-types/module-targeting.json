@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140387,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "targeting",
+    "name": "Прицельный ЦПУ",
+    "description": "+10% урона",
+    "cost": 450,
+    "unlocked": false,
+    "type": "module",
+    "stats": {
+      "damage": 0.1
+    },
+    "icon": "🎯",
+    "rarity": "uncommon"
+  }
+}
