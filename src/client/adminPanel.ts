@@ -14,7 +14,7 @@ export class AdminPanel {
     private multiplayerManager?: MultiplayerManager;
 
     private container: HTMLElement;
-    private isVisible: boolean = false;
+    private _isVisible: boolean = false;
 
     constructor(game: Game) {
         this.game = game;
@@ -27,7 +27,7 @@ export class AdminPanel {
 
         // Update UI loop
         setInterval(() => {
-            if (this.isVisible) {
+            if (this._isVisible) {
                 this.updateContent();
             }
         }, 1000);
@@ -71,7 +71,7 @@ export class AdminPanel {
                             <label>Map Type:</label>
                             <select id="admin-map-select">
                                 <option value="normal">Normal</option>
-                                <option value="desert">Desert</option>
+                                <option value="desert">Песок</option>
                                 <option value="snow">Snow</option>
                                 <option value="city">City</option>
                                 <option value="forest">Forest</option>
@@ -130,7 +130,7 @@ export class AdminPanel {
         if (trajectoryCheckbox) {
             // Инициализация: синхронизируем с текущим состоянием танка
             trajectoryCheckbox.checked = this.game.tank?.showProjectileTrajectory ?? true;
-            
+
             trajectoryCheckbox.addEventListener('change', () => {
                 if (this.game.tank) {
                     this.game.tank.showProjectileTrajectory = trajectoryCheckbox.checked;
@@ -152,11 +152,21 @@ export class AdminPanel {
     }
 
     public toggle(): void {
-        this.isVisible = !this.isVisible;
-        this.container.style.display = this.isVisible ? 'flex' : 'none';
+        this._isVisible = !this._isVisible;
+        this.container.style.display = this._isVisible ? 'flex' : 'none';
 
-        if (this.isVisible) {
+        if (this._isVisible) {
             this.updateContent();
+        }
+    }
+
+    public isVisible(): boolean {
+        return this._isVisible;
+    }
+
+    public hide(): void {
+        if (this._isVisible) {
+            this.toggle();
         }
     }
 

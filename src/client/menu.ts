@@ -123,7 +123,7 @@ export class MainMenu {
     private playMenuPanel!: HTMLDivElement;
     private progressPanel!: HTMLDivElement;
     private progressCurrentTab: "level" | "achievements" | "quests" = "level";
-    private onStartGame: (mapType?: MapType, mapData?: any) => void = () => { };
+    private onStartGame: (mode: string, mapType: MapType, chassisId: string, cannonId: string) => void = () => { };
     private onRestartGame: () => void = () => { };
     private onExitBattle: () => void = () => { };
     private selectedGameMode: string = "";

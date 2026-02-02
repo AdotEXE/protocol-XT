@@ -41,7 +41,9 @@ import {
     DEFAULT_TOUCH_CONTROLS_CONFIG,
     DamageIndicator,
     DEFAULT_DAMAGE_CONFIG,
-    LowHealthVignette
+    LowHealthVignette,
+    AircraftHUD,
+    DEFAULT_AIRCRAFT_HUD_CONFIG
 } from "./hud/components";
 import type { TouchInputState } from "./hud/components";
 import { MobileControlsManager, type MobileInputState } from "./mobile";
@@ -134,6 +136,9 @@ export class HUD {
     private lowHpVignetteComponent: LowHealthVignette | null = null;
     private lowHpPulseTime = 0;
     private isLowHp = false;
+    
+    // Aircraft HUD (Mouse-Aim ретикли)
+    private aircraftHUD: AircraftHUD | null = null;
 
     // Minimap
     private minimapContainer!: Rectangle;
@@ -493,6 +498,9 @@ export class HUD {
 
         // Виньетка низкого здоровья (компонент)
         this.lowHpVignetteComponent = new LowHealthVignette(this.guiTexture);
+
+        // Aircraft HUD (Mouse-Aim ретикли для самолёта)
+        this.aircraftHUD = new AircraftHUD(this.guiTexture, DEFAULT_AIRCRAFT_HUD_CONFIG);
 
         // Экранное управление (джойстик для сенсорных устройств)
         // По умолчанию включено, но будет управляться через настройки
@@ -11020,6 +11028,34 @@ export class HUD {
             if (rtt < 100) this.pingText.color = "#0f0";
             else if (rtt < 200) this.pingText.color = "#ff0";
             else this.pingText.color = "#f00";
+        }
+    }
+
+    /**
+     * Обновить Aircraft HUD (Mouse-Aim ретикли)
+     * @param aimCircleScreenPos Позиция Aim Circle на экране (0-1)
+     * @param headingCrossScreenPos Позиция Heading Cross на экране (0-1)
+     * @param isStalling Флаг сваливания
+     * @param gForce Текущая перегрузка
+     * @param isVisible Показывать ли HUD (true если в самолёте)
+     */
+    public updateAircraftHUD(
+        aimCircleScreenPos: { x: number; y: number },
+        headingCrossScreenPos: { x: number; y: number },
+        isStalling: boolean,
+        gForce: number,
+        isVisible: boolean
+    ): void {
+        if (this.aircraftHUD) {
+            this.aircraftHUD.setVisible(isVisible);
+            if (isVisible) {
+                this.aircraftHUD.update(
+                    aimCircleScreenPos,
+                    headingCrossScreenPos,
+                    isStalling,
+                    gForce
+                );
+            }
         }
     }
 }

@@ -10,7 +10,7 @@ export class BotPerformanceSettingsUI {
     private monitor: BotPerformanceMonitor;
     private texture: AdvancedDynamicTexture;
     private container: Rectangle | null = null;
-    private isVisible: boolean = false;
+    private _isVisible: boolean = false;
     private observers: Array<{ control: Control; observer: any }> = [];
 
     constructor(monitor: BotPerformanceMonitor, texture: AdvancedDynamicTexture) {
@@ -22,24 +22,24 @@ export class BotPerformanceSettingsUI {
      * Показать UI настроек
      */
     show(): void {
-        if (this.isVisible) return;
+        if (this._isVisible) return;
 
         this.createUI();
-        this.isVisible = true;
+        this._isVisible = true;
     }
 
     /**
      * Проверить видимость UI
      */
     isVisible(): boolean {
-        return this.isVisible;
+        return this._isVisible;
     }
 
     /**
      * Скрыть UI
      */
     hide(): void {
-        if (!this.isVisible) return;
+        if (!this._isVisible) return;
 
         try {
             // Удаляем наблюдатели
@@ -67,13 +67,13 @@ export class BotPerformanceSettingsUI {
                 this.container = null;
             }
 
-            this.isVisible = false;
+            this._isVisible = false;
 
             logger.log("[BotPerformanceSettingsUI] Settings UI hidden");
         } catch (e) {
             logger.error("[BotPerformanceSettingsUI] Error hiding settings UI:", e);
             // Принудительно сбрасываем состояние
-            this.isVisible = false;
+            this._isVisible = false;
             this.container = null;
             this.observers = [];
         }

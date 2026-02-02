@@ -213,12 +213,12 @@ export class GameEnemies {
                 if (enemy) {
                     (enemy as any).networkId = enemyData.id;
                     // ОПТИМИЗАЦИЯ: Проверяем лимит перед добавлением
-                if (this.enemyTanks.length < this.MAX_ENEMIES) {
-                    this.enemyTanks.push(enemy);
-                } else {
-                    logger.warn(`[GameEnemies] Enemy limit reached (${this.MAX_ENEMIES}), skipping spawn`);
-                    enemy.dispose();
-                }
+                    if (this.enemyTanks.length < this.MAX_ENEMIES) {
+                        this.enemyTanks.push(enemy);
+                    } else {
+                        logger.warn(`[GameEnemies] Enemy limit reached (${this.MAX_ENEMIES}), skipping spawn`);
+                        enemy.dispose();
+                    }
                     logger.log(`[GameEnemies] Created new network enemy ${enemyData.id}`);
                 }
             }
@@ -386,7 +386,7 @@ export class GameEnemies {
             if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
             const name = mesh.name.toLowerCase();
             // Расширенный список паттернов для поиска террейна
-            return (name.startsWith("ground_") ||
+            return (name.startsWith("ground") || // ИСПРАВЛЕНО: убран подчерк
                 name.includes("terrain") ||
                 name.includes("chunk") ||
                 name.includes("road") ||
@@ -408,7 +408,8 @@ export class GameEnemies {
 
         // Fallback 1: используем terrain generator с несколькими биомами
         if (this.systems.chunkSystem?.terrainGenerator) {
-            const biomes = ["dirt", "city", "residential", "park", "industrial", "concrete"];
+            // ДОБАВЛЕНО: sand, desert, wasteland для поддержки всех карт
+            const biomes = ["dirt", "city", "residential", "park", "industrial", "concrete", "sand", "desert", "wasteland"];
             let maxHeight = -Infinity;
 
             for (const biome of biomes) {
@@ -446,7 +447,7 @@ export class GameEnemies {
                     const checkRay = new Ray(checkRayStart, Vector3.Down(), 400);
                     const checkHit = this.systems.scene.pickWithRay(checkRay, (mesh) => {
                         if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
-                        return mesh.name.startsWith("ground_") && mesh.isEnabled();
+                        return mesh.name.startsWith("ground") && mesh.isEnabled();
                     });
 
                     if (checkHit?.hit && checkHit.pickedPoint) {
@@ -461,7 +462,8 @@ export class GameEnemies {
         }
 
         // Последний fallback: минимальная безопасная высота
-        logger.warn(`[GameEnemies] getGroundInfo: All methods failed at (${x.toFixed(1)}, ${z.toFixed(1)}), using safe default`);
+        // ИСПРАВЛЕНИЕ: Используем debug вместо warn, чтобы не спамить в консоль и не сажать FPS
+        logger.debug(`[GameEnemies] getGroundInfo: All methods failed at (${x.toFixed(1)}, ${z.toFixed(1)}), using safe default`);
         return defaultResult;
     }
 
@@ -487,7 +489,7 @@ export class GameEnemies {
         }
         return true;
     }
-    
+
     private createEnemy(
         pos: Vector3,
         difficulty: "easy" | "medium" | "hard" | "nightmare",
@@ -1027,10 +1029,9 @@ export class GameEnemies {
         let attempts = 0;
         let pos: Vector3;
 
-        // Для карт "sand", "madness", "expo" и "brest" используем границы карты вместо радиального спавна
-        const mapBounds = (this.systems.currentMapType === "sand" || this.systems.currentMapType === "madness" || this.systems.currentMapType === "expo" || this.systems.currentMapType === "brest" || this.systems.currentMapType === "arena")
-            ? getMapBoundsFromConfig(this.systems.currentMapType)
-            : null;
+        // ИСПРАВЛЕНО: ВСЕГДА используем границы карты из MapConstants!
+        const currentMapType = this.systems.currentMapType || "normal";
+        const mapBounds = getMapBoundsFromConfig(currentMapType);
 
         const game = (window as any).gameInstance;
 
@@ -1038,11 +1039,16 @@ export class GameEnemies {
             let spawnX: number, spawnZ: number;
 
             if (mapBounds) {
-                // Для карты "sand" спавним внутри границ карты
-                spawnX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
-                spawnZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
+                // ИСПРАВЛЕНО: Используем границы карты с отступом 10м от краёв
+                const margin = 10;
+                const minX = mapBounds.minX + margin;
+                const maxX = mapBounds.maxX - margin;
+                const minZ = mapBounds.minZ + margin;
+                const maxZ = mapBounds.maxZ - margin;
+                spawnX = minX + Math.random() * (maxX - minX);
+                spawnZ = minZ + Math.random() * (maxZ - minZ);
             } else {
-                // Для других карт используем радиальный спавн
+                // Fallback: радиальный спавн только если нет границ карты
                 const angle = Math.random() * Math.PI * 2;
                 const distance = minDistance + Math.random() * (maxDistance - minDistance);
                 spawnX = Math.cos(angle) * distance;
@@ -1094,7 +1100,7 @@ export class GameEnemies {
             logger.warn("[GameEnemies] Cannot spawn enemy: limit reached");
             return;
         }
-        
+
         const groundNormal = (pos as any).groundNormal || Vector3.Up();
         // ИСПРАВЛЕНО: Боты СРАЗУ получают цель для агрессивного поведения
         // Для карты "Песок" используем специальный обработчик смерти с респавном
@@ -1166,10 +1172,9 @@ export class GameEnemies {
         const spawnPositions: Vector3[] = [];
         const difficultyScale = this.getAdaptiveDifficultyScale();
 
-        // Для карт "sand", "madness", "expo" и "brest" используем границы карты вместо радиального спавна
-        const mapBounds = (this.systems.currentMapType === "sand" || this.systems.currentMapType === "madness" || this.systems.currentMapType === "expo" || this.systems.currentMapType === "brest" || this.systems.currentMapType === "arena")
-            ? getMapBoundsFromConfig(this.systems.currentMapType)
-            : null;
+        // ИСПРАВЛЕНО: ВСЕГДА используем границы карты из MapConstants!
+        const currentMapType = this.systems.currentMapType || "normal";
+        const mapBounds = getMapBoundsFromConfig(currentMapType);
 
         const game = (window as any).gameInstance;
 
@@ -1181,11 +1186,16 @@ export class GameEnemies {
                 let spawnX: number, spawnZ: number;
 
                 if (mapBounds) {
-                    // Для карты "sand" спавним внутри границ карты
-                    spawnX = mapBounds.minX + Math.random() * (mapBounds.maxX - mapBounds.minX);
-                    spawnZ = mapBounds.minZ + Math.random() * (mapBounds.maxZ - mapBounds.minZ);
+                    // ИСПРАВЛЕНО: Используем границы карты с отступом 10м от краёв
+                    const margin = 10;
+                    const minX = mapBounds.minX + margin;
+                    const maxX = mapBounds.maxX - margin;
+                    const minZ = mapBounds.minZ + margin;
+                    const maxZ = mapBounds.maxZ - margin;
+                    spawnX = minX + Math.random() * (maxX - minX);
+                    spawnZ = minZ + Math.random() * (maxZ - minZ);
                 } else {
-                    // Для других карт используем радиальный спавн
+                    // Fallback: радиальный спавн только если нет границ карты
                     const angle = Math.random() * Math.PI * 2;
                     const distance = minDistance + Math.random() * (maxDistance - minDistance);
                     spawnX = Math.cos(angle) * distance;

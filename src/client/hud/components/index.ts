@@ -107,3 +107,7 @@ export type { TouchControlsConfig, TouchInputState } from './TouchControls';
 // Виньетка при низком здоровье
 export { LowHealthVignette, DEFAULT_LOW_HEALTH_CONFIG } from './LowHealthVignette';
 export type { LowHealthVignetteConfig } from './LowHealthVignette';
+
+// Aircraft HUD (Mouse-Aim ретикли)
+export { AircraftHUD, DEFAULT_AIRCRAFT_HUD_CONFIG } from './AircraftHUD';
+export type { AircraftHUDConfig } from './AircraftHUD';

@@ -4,6 +4,7 @@
 
 import { CHASSIS_TYPES, CANNON_TYPES } from "../tankTypes";
 import type { MapType } from "../menu";
+import { getCustomMapsList, loadCustomMap, getCustomMapData } from "../maps/custom";
 
 // CSS Styles for the unified play panel
 const UNIFIED_PLAY_STYLES = `
@@ -365,7 +366,7 @@ export class UnifiedPlayMenu {
 
         // Load saved selections
         this.selectedMode = localStorage.getItem("selectedGameMode") || "ffa";
-        this.selectedMap = localStorage.getItem("selectedMapType") || "normal";
+        this.selectedMap = localStorage.getItem("selectedMapType") || "desert";
         this.selectedChassis = localStorage.getItem("selectedChassis") || "medium";
         this.selectedCannon = localStorage.getItem("selectedCannon") || "standard";
 
@@ -529,10 +530,10 @@ export class UnifiedPlayMenu {
 
     private renderMapTab(): void {
         const content = this.panel.querySelector("#upm-content")!;
-        const maps = [
+        const defaults = [
             { id: "random", icon: "🎲", name: "Случайная" },
             { id: "normal", icon: "🏔️", name: "Обычная" },
-            { id: "desert", icon: "🏜️", name: "Пустыня" },
+            { id: "sand", icon: "🏜️", name: "Песок" },
             { id: "forest", icon: "🌲", name: "Лес" },
             { id: "snow", icon: "❄️", name: "Снег" },
             { id: "city", icon: "🏙️", name: "Город" },
@@ -544,28 +545,68 @@ export class UnifiedPlayMenu {
             { id: "islands", icon: "🏝️", name: "Острова" },
         ];
 
+        // Get custom maps
+        const customMaps = getCustomMapsList().map(name => ({
+            id: `custom:${name}`, // Prefix to distinguish
+            icon: "🗺️",
+            name: name,
+            isCustom: true
+        }));
+
+        const allMaps = [...defaults, ...customMaps];
+
         let html = '<div class="upm-map-grid">';
-        for (const m of maps) {
-            const selected = this.selectedMap === m.id ? "selected" : "";
+        for (const m of allMaps) {
+            const isSelected = this.selectedMap === m.id || ((m as any).isCustom && this.selectedMap === "custom");
+            // Note: simplistic selection logic, might need refinement for specific custom map selection visual
+            const selectedClass = isSelected ? "selected" : "";
+
             html += `
-                <div class="upm-map-item ${selected}" data-map="${m.id}">
+                <div class="upm-map-item ${selectedClass}" data-map="${m.id}" data-custom="${(m as any).isCustom ? 'true' : 'false'}">
                     <div class="icon">${m.icon}</div>
                     <div class="name">${m.name}</div>
+                    ${(m as any).isCustom ? '<div class="desc" style="font-size: 8px; color: #aaa;">Custom</div>' : ''}
                 </div>
             `;
         }
         html += '</div>';
+
+        // Add "Refresh" button for custom maps?
+        html += `<div style="text-align: center; margin-top: 10px; font-size: 10px; color: #666;">
+            Found ${customMaps.length} custom maps. 
+            <button id="refresh-custom-maps" style="background:none; border:none; color:#0f0; cursor:pointer;">↻ Refresh</button>
+        </div>`;
+
         content.innerHTML = html;
+
+        content.querySelector("#refresh-custom-maps")?.addEventListener("click", () => this.renderMapTab());
 
         content.querySelectorAll(".upm-map-item").forEach(item => {
             item.addEventListener("click", () => {
-                this.selectedMap = (item as HTMLElement).dataset.map || "normal";
-                localStorage.setItem("selectedMapType", this.selectedMap);
+                const mapId = (item as HTMLElement).dataset.map || "sand";
+                const isCustom = (item as HTMLElement).dataset.custom === "true";
+
+                if (isCustom) {
+                    const mapName = mapId.replace("custom:", "");
+                    if (loadCustomMap(mapName)) {
+                        this.selectedMap = "custom"; // Store 'custom' as type for Game
+                        // We need to store specific map name somewhere? 
+                        // loadCustomMap stores it in localStorage maybe?
+                        localStorage.setItem("selectedMapType", "custom");
+                        // Also Save current custom map name if needed by Game?
+                        // Game.ts probably reads it from wherever loadCustomMap puts it.
+                    }
+                } else {
+                    this.selectedMap = mapId;
+                    localStorage.setItem("selectedMapType", this.selectedMap);
+                }
+
                 content.querySelectorAll(".upm-map-item").forEach(i => i.classList.remove("selected"));
                 item.classList.add("selected");
             });
         });
     }
+
 
     private renderTankTab(): void {
         const content = this.panel.querySelector("#upm-content")!;

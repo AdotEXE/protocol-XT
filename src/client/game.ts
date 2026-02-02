@@ -50,6 +50,8 @@ import type { ReplayRecorder } from "./replaySystem";
 // MainMenu is lazy loaded - imported dynamically when needed
 import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
+import { AircraftCameraSystem } from "./tank/aircraftCameraSystem";
+import { DEFAULT_AIRCRAFT_PHYSICS_CONFIG } from "./config/aircraftPhysicsConfig";
 import { ConsumablesManager, CONSUMABLE_TYPES } from "./consumables";
 import { ChatSystem } from "./chatSystem";
 import { getHotkeyManager } from "./hotkeyManager";
@@ -118,7 +120,7 @@ interface MainMenuWithSettings {
         enemyDifficulty?: string;
         [key: string]: unknown;
     };
-    onStartGame?: (mapType?: MapType, mapData?: MapData) => Promise<void>;
+    onStartGame?: (mode: string, mapType: MapType, chassisId: string, cannonId: string) => void;
 }
 
 interface ChatSystemWithTerminal {
@@ -151,6 +153,7 @@ interface DebugDashboardWithProps {
 
 type SessionSettingsWithMethods = {
     isVisible?: () => boolean;
+    show?: () => void;
     hide?: () => void;
 };
 
@@ -197,6 +200,8 @@ export class Game {
     tank: TankController | undefined;
     camera: ArcRotateCamera | undefined;
     aimCamera: UniversalCamera | undefined; // Отдельная камера для режима прицеливания
+    aircraftCameraSystem: AircraftCameraSystem | undefined; // Камера для самолётов
+    private _aircraftCameraInitialized = false; // Флаг первой инициализации камеры самолёта
     isCameraAnimating: boolean = false; // Флаг блокировки updateCamera во время анимации камеры (респавн)
     isMenuOpen: boolean = false; // Центральный флаг состояния меню
 
@@ -552,7 +557,8 @@ export class Game {
     mainMenu: MainMenu | undefined; // Lazy loaded from "./menu"
     gameStarted = false;
     gamePaused = false;
-    currentMapType: MapType = "normal";
+    // ИЗМЕНЕНО: По требованию пользователя удален код карты normal. Теперь по умолчанию sand.
+    currentMapType: MapType = "sand";
 
     // Survival tracking for achievements
     private survivalStartTime = 0;
@@ -851,6 +857,14 @@ export class Game {
     // Lazy load Garage
     private async loadGarage(): Promise<void> {
         if (this.garage) return; // Already loaded
+
+        // KILL SWITCH: Do not load garage for sand/random maps
+        // This prevents the "grey box" from loading on top of the player
+        // УДАЛЕНО: normal из проверки
+        if (this.currentMapType === "sand" || this.currentMapType === "tartaria" || this.currentMapType === "madness" || this.currentMapType === "expo" || this.currentMapType === "brest" || this.currentMapType === "arena") {
+            logger.log(`[Game] 🛑 HARD KILL SWITCH: Skipping loadGarage() for map type "${this.currentMapType}"`);
+            return;
+        }
 
         if (!this.scene || !this.currencyManager) {
             logger.error("[Game] Cannot load Garage: scene or currencyManager not initialized");
@@ -1246,16 +1260,29 @@ export class Game {
             this.exitBattle();
         });
 
-        this.mainMenu.setOnStartGame(async (mapType?: MapType, mapData?: MapData) => {
-            logger.log(`[Game] ===== Start game callback called with mapType: ${mapType} =====`);
+        this.mainMenu.setOnStartGame(async (mode: string, mapType: MapType, chassisId: string, cannonId: string) => {
+            logger.log(`[Game] ===== Start game callback called with mode=${mode}, map=${mapType} =====`);
+
+            let mapData: MapData | undefined = undefined;
 
             try {
                 if (mapType) {
                     this.currentMapType = mapType;
                     logger.log(`[Game] Map type set to: ${this.currentMapType}`);
 
-                    // Сохраняем данные карты для игры (все карты используют единый формат MapData)
-                    // КРИТИЧНО: В мультиплеере НЕ сохраняем данные карты в localStorage - все игроки должны использовать карту с сервера
+                    // Проверяем наличие данных карты в localStorage для Custom режима
+                    if (mapType === 'custom') {
+                        try {
+                            const existingMapData = localStorage.getItem("selectedCustomMapData");
+                            if (existingMapData) {
+                                mapData = JSON.parse(existingMapData);
+                                logger.log(`[Game] Loaded custom map data from localStorage: ${mapData?.name}`);
+                            }
+                        } catch (e) {
+                            logger.error("[Game] Failed to parse custom map data", e);
+                        }
+                    }
+
                     if (mapData) {
                         // Проверяем, не в мультиплеере ли мы
                         const hasRoomId = this.multiplayerManager?.getRoomId();
@@ -1274,15 +1301,12 @@ export class Game {
                             logger.log(`[Game] 🗺️ Мультиплеер: сохранение данных карты в localStorage запрещено, используем карту с сервера (roomId=${hasRoomId || 'N/A'}, pendingMapType=${hasPendingMapType || 'N/A'})`);
                         }
                     } else {
-                        // Если mapData не передан явно, проверяем localStorage
-                        const existingMapData = localStorage.getItem("selectedCustomMapData");
-                        if (!existingMapData && mapType !== "custom") {
+                        // Если mapData не передан явно и не найден в localStorage (для не-custom карт это нормально)
+                        if (mapType !== "custom") {
                             // Очищаем данные кастомной карты только если нет данных в localStorage
                             localStorage.removeItem("selectedCustomMapData");
                             localStorage.removeItem("selectedCustomMapIndex");
-                            logger.log(`[Game] No map data found, cleared custom map data for mapType: ${mapType}`);
-                        } else if (existingMapData) {
-                            logger.log(`[Game] Using existing map data from localStorage for mapType: ${mapType}`);
+                            // logger.log(`[Game] No map data found, cleared custom map data for mapType: ${mapType}`);
                         }
                     }
                 }
@@ -1316,7 +1340,7 @@ export class Game {
                     if (this.supplyDropSystem) {
                         // Default map size 500 if not available
                         const mapSize = (this.chunkSystem as ChunkSystemExtended)?.mapSize || 500;
-                        this.supplyDropSystem.initialize(mapData, mapSize, this.currentMapType);
+                        this.supplyDropSystem.initialize(mapData);
 
                         // Настройка callback для подбора дропов
                         if (this.consumablesManager) {
@@ -1432,6 +1456,7 @@ export class Game {
         this.canvas.style.left = "0";
         this.canvas.style.zIndex = "0"; // Canvas должен быть ПОД GUI элементами
         this.canvas.id = "gameCanvas";
+        this.canvas.setAttribute("tabindex", "1"); // Фокус для клавиатуры (самолёт, танк)
         document.body.appendChild(this.canvas);
 
         // КРИТИЧНО: Перехватываем запрос на захват курсора
@@ -2591,6 +2616,7 @@ export class Game {
             // Небольшая задержка чтобы UI успел обновиться
             setTimeout(() => {
                 if (this.canvas && this.gameStarted && !this.gamePaused) {
+                    this.canvas.focus(); // Фокус для клавиатуры (самолёт: W/A/S/D, Shift/Ctrl)
                     this.canvas.requestPointerLock();
                     logger.log("[Game] Pointer lock requested automatically");
                 }
@@ -3143,6 +3169,80 @@ export class Game {
                                             }
                                         }
                                         this.hud.update(this.engine.getDeltaTime(), this.camera, playerPos, playerForward);
+
+                                        // Update Aircraft HUD if in plane
+                                        const chassisType = this.tank?.chassisType;
+                                        const isPlane = typeof chassisType === 'object' && (
+                                            chassisType?.id === "plane" ||
+                                            chassisType?.id?.includes?.("plane") ||
+                                            chassisType?.id?.includes?.("mig31")
+                                        );
+
+                                        if (isPlane && this.tank && (this.tank as any).movementModule) {
+                                            const movementModule = (this.tank as any).movementModule;
+                                            if (movementModule.aircraftPhysics) {
+                                                const aircraftPhysics = movementModule.aircraftPhysics;
+
+                                                // Получаем данные от AircraftPhysics
+                                                const targetPoint = aircraftPhysics.getTargetPoint();
+                                                const forwardDir = aircraftPhysics.getForwardDirection();
+                                                const isStalling = aircraftPhysics.isStalling();
+                                                const gForce = aircraftPhysics.calculateGForce();
+
+                                                // Проецируем 3D позиции на экран
+                                                const engine = this.scene.getEngine();
+                                                const width = engine.getRenderWidth();
+                                                const height = engine.getRenderHeight();
+
+                                                // Aim Circle позиция (цель мыши)
+                                                const aimCircleScreen = Vector3.Project(
+                                                    targetPoint,
+                                                    Matrix.Identity(),
+                                                    this.scene.getTransformMatrix(),
+                                                    this.camera.viewport.toGlobal(width, height)
+                                                );
+
+                                                // Heading Cross позиция (направление самолёта)
+                                                const aircraftPos = this.tank.chassis.getAbsolutePosition();
+                                                const headingPoint = aircraftPos.add(forwardDir.scale(50));
+                                                const headingCrossScreen = Vector3.Project(
+                                                    headingPoint,
+                                                    Matrix.Identity(),
+                                                    this.scene.getTransformMatrix(),
+                                                    this.camera.viewport.toGlobal(width, height)
+                                                );
+
+                                                // Нормализуем координаты (0-1)
+                                                const aimCirclePos = {
+                                                    x: aimCircleScreen.x / width,
+                                                    y: aimCircleScreen.y / height
+                                                };
+                                                const headingCrossPos = {
+                                                    x: headingCrossScreen.x / width,
+                                                    y: headingCrossScreen.y / height
+                                                };
+
+                                                // Обновляем Aircraft HUD
+                                                this.hud.updateAircraftHUD(
+                                                    aimCirclePos,
+                                                    headingCrossPos,
+                                                    isStalling,
+                                                    gForce,
+                                                    true
+                                                );
+                                            }
+                                        } else {
+                                            // Скрываем Aircraft HUD если не в самолёте
+                                            if (this.hud) {
+                                                this.hud.updateAircraftHUD(
+                                                    { x: 0.5, y: 0.5 },
+                                                    { x: 0.5, y: 0.5 },
+                                                    false,
+                                                    1.0,
+                                                    false
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                                 // КРИТИЧНО: Рендерим сцену ТОЛЬКО ОДИН РАЗ за кадр!
@@ -3461,6 +3561,7 @@ export class Game {
                 ? new Vector3(tankGaragePos[0], 1.2, tankGaragePos[1])
                 : new Vector3(0, 1.2, 0);
             this.tank = new TankController(this.scene, tankSpawnPos);
+            this._aircraftCameraInitialized = false; // Сброс при смене техники
 
             // Проверяем наличие кастомной конфигурации для теста
             this.checkForCustomTank();
@@ -3549,6 +3650,9 @@ export class Game {
             }
 
             logger.log(`[Game] Camera created and set as active: ${this.camera.name}, minZ=${this.camera.minZ}, maxZ=${this.camera.maxZ}`);
+
+            // Инициализация камеры для самолётов
+            this.aircraftCameraSystem = new AircraftCameraSystem(this.camera, DEFAULT_AIRCRAFT_PHYSICS_CONFIG.camera);
 
             // Инициализация постпроцессинга (bloom, motion blur и др.)
             this.postProcessingManager = new PostProcessingManager(this.scene);
@@ -3892,9 +3996,10 @@ export class Game {
             }
 
             // Connect additional systems to Garage (already created in init())
-            // КРИТИЧНО: Пропускаем гаражи для custom карт - они не нужны
-            if (this.currentMapType === 'custom') {
-                logger.log("[Game] Custom map - skipping garage systems");
+            // КРИТИЧНО: Пропускаем гаражи для custom карт и random карт (sand и т.д.) - они не нужны
+            // УДАЛЕНО: normal из проверки
+            if (this.currentMapType === 'custom' || this.currentMapType === 'sand' || this.currentMapType === 'tartaria') {
+                logger.log(`[Game] Map type "${this.currentMapType}" - skipping garage systems`);
             } else if (this.garage) {
                 if (this.chatSystem) {
                     this.garage.setChatSystem(this.chatSystem);
@@ -3913,6 +4018,8 @@ export class Game {
                 }
                 logger.log("[Game] Garage systems connected");
             } else {
+                console.error("[Game] !!! CRITICAL PATCH: ATTEMPTING TO LOAD GARAGE !!!");
+                // alert("DEBUG: Game code updated. If you see this, the patch is active.");
                 logger.warn("[Game] Garage not found! Loading it now...");
                 await this.loadGarage();
             }
@@ -4925,6 +5032,34 @@ export class Game {
             if (!this.chunkSystem) {
                 logger.error("[Game] ChunkSystem became undefined!");
                 this.spawnEnemyTanks();
+                return;
+            }
+
+            // ОПТИМИЗАЦИЯ: Для случайных карт спавним сразу, не ждём гаражи
+            if (this.currentMapType === "sand" || this.currentMapType === "tartaria" || this.currentMapType === "madness" || this.currentMapType === "expo" || this.currentMapType === "brest" || this.currentMapType === "arena") {
+                logger.log(`[Game] ${this.currentMapType} map detected (immediate spawn), skipping garage wait loop`);
+                this.spawnPlayerRandom();
+
+                // Инициализируем угол
+                if (this.tank && this.tank.chassis) {
+                    this.lastChassisRotation = this.tank.chassis.rotationQuaternion
+                        ? this.tank.chassis.rotationQuaternion.toEulerAngles().y
+                        : this.tank.chassis.rotation.y;
+                }
+
+                // Спавним врагов
+                setTimeout(() => {
+                    if (!this.gameStarted) this.gameStarted = true;
+                    this.spawnEnemyTanks();
+                    if (this.tank) this.tank.setEnemyTanks(this.enemyTanks);
+                }, 1000);
+                return;
+            }
+            attempts++;
+
+            if (!this.chunkSystem) {
+                logger.error("[Game] ChunkSystem became undefined!");
+                this.spawnEnemyTanks();
                 if (this.tank) {
                     this.tank.setEnemyTanks(this.enemyTanks);
                 }
@@ -4933,8 +5068,8 @@ export class Game {
 
             // Для карт Тартария, Песок, Безумие, Экспо и Брест спавним в случайном месте, для остальных - в гараже
             // ЗАЩИТНАЯ ПРОВЕРКА: только явно указанные карты, не undefined и не другие значения
-            if ((this.currentMapType !== undefined && (this.currentMapType === "tartaria" || this.currentMapType === "sand" || this.currentMapType === "madness" || this.currentMapType === "expo" || this.currentMapType === "brest" || this.currentMapType === "arena")) || this.chunkSystem.garagePositions.length >= 1) {
-                if (this.currentMapType !== undefined && (this.currentMapType === "tartaria" || this.currentMapType === "sand" || this.currentMapType === "madness" || this.currentMapType === "expo" || this.currentMapType === "brest" || this.currentMapType === "arena")) {
+            if ((this.currentMapType !== undefined && (this.currentMapType === "tartaria" || this.currentMapType === "sand" || this.currentMapType === "normal" || this.currentMapType === "madness" || this.currentMapType === "expo" || this.currentMapType === "brest" || this.currentMapType === "arena")) || this.chunkSystem.garagePositions.length >= 1) {
+                if (this.currentMapType !== undefined && (this.currentMapType === "tartaria" || this.currentMapType === "sand" || this.currentMapType === "normal" || this.currentMapType === "madness" || this.currentMapType === "expo" || this.currentMapType === "brest" || this.currentMapType === "arena")) {
                     logger.log(`[Game] ${this.currentMapType} map: spawning player at random location...`);
                     this.spawnPlayerRandom();
                 } else {
@@ -5157,7 +5292,7 @@ export class Game {
             if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
             const name = mesh.name.toLowerCase();
             // Расширенный список паттернов для поиска террейна
-            return (name.startsWith("ground_") ||
+            return (name.includes("ground") || // ИСПРАВЛЕНО: includes вместо startsWith для customObj_ground
                 name.includes("terrain") ||
                 name.includes("chunk") ||
                 name.includes("road") ||
@@ -5219,7 +5354,8 @@ export class Game {
                     const checkRay = new Ray(checkRayStart, Vector3.Down(), 500);
                     const checkHit = this.scene.pickWithRay(checkRay, (mesh) => {
                         if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
-                        return mesh.name.startsWith("ground_") && mesh.isEnabled();
+                        if (!mesh || !mesh.isEnabled() || !mesh.isPickable) return false;
+                        return (mesh.name.includes("ground") || mesh.name.includes("terrain")) && mesh.isEnabled();
                     });
 
                     if (checkHit?.hit && checkHit.pickedPoint) {
@@ -5294,20 +5430,21 @@ export class Game {
             for (const hit of hits) {
                 if (hit.hit && hit.pickedPoint) {
                     const h = hit.pickedPoint.y;
-                    // ИСПРАВЛЕНО: Расширен диапазон валидных высот до [-10, 500]
-                    if (h > maxHeight && h > -10 && h < 500) {
+                    // ИСПРАВЛЕНО: Расширен диапазон валидных высот до [-20, 500] чтобы включать safetyPlane (-10)
+                    if (h > maxHeight && h >= -20 && h < 500) {
                         maxHeight = h;
                     }
                 }
             }
 
             // ИСПРАВЛЕНО: Проверка валидности результата
-            if (maxHeight > -Infinity && maxHeight >= -10 && maxHeight <= 500) {
+            if (maxHeight > -Infinity && maxHeight >= -20 && maxHeight <= 500) {
                 logger.log(`[Game] Top surface at (${x.toFixed(1)}, ${z.toFixed(1)}): ${maxHeight.toFixed(2)}m (from ${hits.length} hits)`);
                 vector3Pool.release(rayStart);
                 return maxHeight;
             } else {
-                logger.warn(`[Game] getTopSurfaceHeight: Invalid height ${maxHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)}), using fallback`);
+                // ОПТИМИЗАЦИЯ: Убран warn чтобы не спамить лог
+                logger.debug(`[Game] getTopSurfaceHeight: Invalid height ${maxHeight.toFixed(2)} at (${x.toFixed(1)}, ${z.toFixed(1)}), using fallback`);
             }
         }
 
@@ -6605,6 +6742,10 @@ export class Game {
     aimYaw = 0; // Горизонтальный поворот прицела
     aimPitch = 0; // Вертикальный поворот прицела
 
+    // === ВИРТУАЛЬНАЯ ПОЗИЦИЯ МЫШИ ДЛЯ САМОЛЁТА (pointer lock) ===
+    private _aircraftMouseX = 0.5; // Накопленная X позиция (0-1)
+    private _aircraftMouseY = 0.5; // Накопленная Y позиция (0-1)
+
     // === ПЛАВНЫЙ ЗУМ В РЕЖИМЕ ПРИЦЕЛИВАНИЯ ===
     aimZoom = 0; // Текущий зум (плавно интерполируется)
     targetAimZoom = 0; // Целевой зум (устанавливается колёсиком мыши)
@@ -6779,12 +6920,51 @@ export class Game {
                     this.hud.setZoomLevel(-1);
                 }
             }
+            // Сбрасываем виртуальную позицию мыши для самолёта при выходе из pointer lock
+            if (!this.isPointerLocked) {
+                this._aircraftMouseX = 0.5;
+                this._aircraftMouseY = 0.5;
+            }
         });
 
         // === НОВАЯ СИСТЕМА УПРАВЛЕНИЯ МЫШЬЮ ===
         // Мышка ВСЕГДА управляет камерой
         // Башня догоняет камеру (если не Shift/freelook)
         this.scene.onPointerMove = (evt) => {
+            // КРИТИЧНО: Для самолёта обновляем Mouse-Aim ДО проверки pointer lock!
+            // Иначе без pointer lock самолёт не реагирует на мышь и клавиатуру
+            const chassisType = this.tank ? (this.tank as any).chassisType : null;
+            const isPlane = chassisType === "plane" || (typeof chassisType === 'object' && (chassisType?.id === "plane" || chassisType?.id?.includes?.("plane") || chassisType?.id?.includes?.("mig31")));
+            if (isPlane && this.tank) {
+                try {
+                    const movementModule = (this.tank as any).movementModule;
+                    if (movementModule?.aircraftPhysics) {
+                        const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
+                        if (canvas) {
+                            // При pointer lock используем movementX/Y для накопления виртуальной позиции
+                            if (this.isPointerLocked) {
+                                // Накапливаем движения мыши (movementX/movementY)
+                                const sensitivity = 0.001; // Чувствительность для pointer lock
+                                this._aircraftMouseX = Math.max(0, Math.min(1, (this._aircraftMouseX ?? 0.5) + (evt.movementX ?? 0) * sensitivity));
+                                this._aircraftMouseY = Math.max(0, Math.min(1, (this._aircraftMouseY ?? 0.5) + (evt.movementY ?? 0) * sensitivity));
+                                movementModule.aircraftPhysics.updateMouseScreenPosition(this._aircraftMouseX, this._aircraftMouseY);
+                            } else {
+                                // Без pointer lock используем clientX/clientY
+                                const rect = canvas.getBoundingClientRect();
+                                const screenX = (evt.clientX - rect.left) / rect.width;
+                                const screenY = (evt.clientY - rect.top) / rect.height;
+                                movementModule.aircraftPhysics.updateMouseScreenPosition(screenX, screenY);
+                                // Синхронизируем виртуальную позицию
+                                this._aircraftMouseX = screenX;
+                                this._aircraftMouseY = screenY;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Игнорируем ошибки
+                }
+            }
+
             // КРИТИЧНО: Игнорируем движения мыши если меню открыто или игра на паузе
             if (!this.isPointerLocked) return;
             if (this.gamePaused) return;
@@ -6816,7 +6996,7 @@ export class Game {
                 // === КАМЕРА ВСЕГДА СЛЕДУЕТ ЗА МЫШКОЙ ===
                 // Initializing isPlane variable to fix ReferenceError
                 const chassisType = this.tank ? (this.tank as any).chassisType : null;
-                const isPlane = chassisType === "plane" || (typeof chassisType === 'object' && chassisType?.id === "plane");
+                const isPlane = chassisType === "plane" || (typeof chassisType === 'object' && (chassisType?.id === "plane" || chassisType?.id?.includes?.("plane") || chassisType?.id?.includes?.("mig31")));
 
                 if (isPlane) {
                     // === PLANE MOUSE AIM ===
@@ -6826,8 +7006,27 @@ export class Game {
                         this.cameraYaw += yawDelta;
                         // NO aircraftMouseDelta dispatch
                     } else {
-                        // Virtual Joystick: Control Plane
-                        // Send RAW input to AircraftPhysics (Virtual Joystick)
+                        // Mouse-Aim: Update screen position for unprojection
+                        const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
+                        if (canvas && this.tank) {
+                            try {
+                                const movementModule = (this.tank as any).movementModule;
+                                if (movementModule && movementModule.aircraftPhysics) {
+                                    // Convert mouse position to screen coordinates (0-1)
+                                    const rect = canvas.getBoundingClientRect();
+                                    const screenX = (evt.clientX - rect.left) / rect.width;
+                                    const screenY = (evt.clientY - rect.top) / rect.height;
+
+                                    // Update Mouse-Aim system with screen coordinates
+                                    movementModule.aircraftPhysics.updateMouseScreenPosition(screenX, screenY);
+                                }
+                            } catch (e) {
+                                // Fallback: use legacy event if aircraftPhysics not available
+                                console.warn("[Game] Failed to update mouse screen position:", e);
+                            }
+                        }
+
+                        // Also dispatch legacy event for backward compatibility
                         window.dispatchEvent(new CustomEvent("aircraftMouseDelta", {
                             detail: {
                                 deltaX: movementX,
@@ -7335,7 +7534,7 @@ export class Game {
             // Вне режима прицеливания: Q/E управляют наклоном камеры (как раньше)
             // Check for Plane first
             const chassisType = this.tank?.chassisType;
-            const isPlane = chassisType === "plane" || (typeof chassisType === 'object' && ((chassisType as any)?.id === "plane" || (chassisType as any)?.id?.includes("plane") || (chassisType as any)?.id?.includes("mig31")));
+            const isPlane = typeof chassisType === 'object' && ((chassisType as any)?.id === "plane" || (chassisType as any)?.id?.includes?.("plane") || (chassisType as any)?.id?.includes?.("mig31"));
 
             if (!isPlane) {
                 // Timer-based camera tilt for Tanks only
@@ -7567,8 +7766,14 @@ export class Game {
             this.camera.fov += (targetFOV - currentFOV) * 0.2;
         }
 
-        // Применяем смещение от тряски к основной камере (когда НЕ в режиме прицеливания)
-        if (t < 0.99 && this.camera && this.cameraShakeIntensity > 0.01) {
+        // Применяем смещение от тряски к основной камере (НЕ для самолёта!)
+        const chassisTypeForCam = this.tank?.chassisType;
+        const isPlaneForCam = typeof chassisTypeForCam === 'object' && (
+            (chassisTypeForCam as any)?.id === "plane" ||
+            (chassisTypeForCam as any)?.id?.includes?.("plane") ||
+            (chassisTypeForCam as any)?.id?.includes?.("mig31")
+        );
+        if (t < 0.99 && this.camera && this.cameraShakeIntensity > 0.01 && !isPlaneForCam) {
             this._tmpCameraPos.copyFrom(this.tank.chassis.absolutePosition);
             this._tmpCameraPos.y += 2;
             this.camera.position = this._tmpCameraPos.add(this.cameraShakeOffset);
@@ -7578,43 +7783,39 @@ export class Game {
         if (t < 0.99 && this.camera) {
             // Determine if we are in a plane
             const chassisType = this.tank?.chassisType;
-            const isPlane = chassisType === "plane" ||
-                (typeof chassisType === 'object' && (
-                    (chassisType as any)?.id === "plane" ||
-                    (chassisType as any)?.id?.includes("plane") ||
-                    (chassisType as any)?.id?.includes("mig31")
-                ));
+            const isPlane = typeof chassisType === 'object' && (
+                (chassisType as any)?.id === "plane" ||
+                (chassisType as any)?.id?.includes?.("plane") ||
+                (chassisType as any)?.id?.includes?.("mig31")
+            );
 
             if (isPlane) {
-                // === CHASE CAMERA (War Thunder Style) ===
-                if (this.camera && this.tank.chassis) {
-                    // 1. Calculate Ideal Camera Position (Behind and Above)
-                    // Position: Chassis Pos - Forward * Distance + Up * Height
+                // === AIRCRAFT CAMERA SYSTEM ===
+                if (this.aircraftCameraSystem && this.camera && this.tank.chassis) {
                     const planePos = this.tank.chassis.getAbsolutePosition();
                     const planeForward = this.tank.chassis.forward;
                     const planeUp = this.tank.chassis.up;
 
-                    // Params
-                    const distance = 35.0;
-                    const height = 12.0;
-                    const lagSpeed = 0.04; // Smooth follow (Reduced from 0.1 for less twitching)
+                    // При первом кадре в режиме самолёта — мгновенно позиционируем камеру (reset),
+                    // иначе камера стартует с позиции ArcRotateCamera для танка и "ничего не видно"
+                    if (!this._aircraftCameraInitialized) {
+                        this.aircraftCameraSystem.reset(planePos, planeForward);
+                        this._aircraftCameraInitialized = true;
+                    }
 
-                    const idealPos = planePos.subtract(planeForward.scale(distance)).add(planeUp.scale(height));
+                    // Получаем скорость самолёта
+                    let aircraftSpeed = 0;
+                    if ((this.tank as any).movementModule?.aircraftPhysics) {
+                        aircraftSpeed = (this.tank as any).movementModule.aircraftPhysics.getSpeed();
+                    }
 
-                    // 2. Smoothly interpolate Camera Position
-                    this.camera.position.x += (idealPos.x - this.camera.position.x) * lagSpeed;
-                    this.camera.position.y += (idealPos.y - this.camera.position.y) * lagSpeed;
-                    this.camera.position.z += (idealPos.z - this.camera.position.z) * lagSpeed;
-
-                    // 3. Look At: Plane + Leading Offset (to see where we are going)
-                    // Look further ahead (100 vs 50) to stabilize the view
-                    const lookAhead = planePos.add(planeForward.scale(100.0));
-                    this.camera.setTarget(lookAhead);
-
-                    // Force alpha/beta to match purely for internal consistency if needed, 
-                    // but setTarget overrides them usually.
+                    // Обновляем камеру через AircraftCameraSystem
+                    const dt = this.engine.getDeltaTime() / 1000;
+                    this.aircraftCameraSystem.update(planePos, planeForward, planeUp, aircraftSpeed, dt);
                 }
             } else {
+                // Standard Orbit Camera (танк) — сбрасываем флаг для следующего переключения на самолёт
+                this._aircraftCameraInitialized = false;
                 // Standard Orbit Camera
                 const targetRadius = this.normalRadius;
                 const targetBeta = this.normalBeta;
@@ -7796,12 +7997,11 @@ export class Game {
                         // Башня управляется клавиатурой (Z/X) - камера следует за башней
                         // Check isPlane primarily to DISABLE SYNC
                         const chassisType = this.tank?.chassisType;
-                        const isPlane = chassisType === "plane" ||
-                            (typeof chassisType === 'object' && (
-                                (chassisType as any)?.id === "plane" ||
-                                (chassisType as any)?.id?.includes("plane") ||
-                                (chassisType as any)?.id?.includes("mig31")
-                            ));
+                        const isPlane = typeof chassisType === 'object' && (
+                            (chassisType as any)?.id === "plane" ||
+                            (chassisType as any)?.id?.includes?.("plane") ||
+                            (chassisType as any)?.id?.includes?.("mig31")
+                        );
 
                         // Башня управляется клавиатурой (Z/X) - камера следует за башней
                         // DISABLE SYNC FOR PLANE
@@ -7882,12 +8082,21 @@ export class Game {
 
             // ИСПРАВЛЕНИЕ JITTER: Используем интерполяцию для сглаживания движения камеры
             const tankPos = this.tank.chassis.absolutePosition;
+            const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
+
             // Fix camera for planes
             const isCurrentTankPlane = this.tank && this.tank.chassisType && this.tank.chassisType.id === "plane";
 
             if (isCurrentTankPlane) {
                 // Для самолёта интерполируем target чтобы сгладить рывки физики (60hz vs 144hz)
-                Vector3.LerpToRef(this.camera.target, lookAt, 0.2, this.camera.target);
+                // Используем look-ahead для самолёта (направление полёта)
+                if (this.tank.chassis) {
+                    const planeForward = this.tank.chassis.forward;
+                    const lookAheadPoint = tankPos.add(planeForward.scale(100.0));
+                    Vector3.LerpToRef(this.camera.target, lookAheadPoint, 0.2, this.camera.target);
+                } else {
+                    Vector3.LerpToRef(this.camera.target, lookAt, 0.2, this.camera.target);
+                }
             } else {
                 this.camera.target.copyFrom(lookAt);
             }

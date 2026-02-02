@@ -1064,7 +1064,7 @@ export class EnemyTank {
             depth: 2.0
         }, this.scene);
         turret.parent = this.chassis;
-        
+
         // Для самолёта перемещаем башню в нос
         const isPlane = this.chassisType?.id === "plane";
         if (isPlane && this.chassisType) {
@@ -1100,7 +1100,7 @@ export class EnemyTank {
         );
 
         barrel.parent = this.turret;
-        
+
         // Для самолёта ствол направлен вперёд (в нос)
         const isPlane = this.chassisType?.id === "plane";
         let barrelZ: number;
@@ -2392,8 +2392,12 @@ export class EnemyTank {
         const currentMapType = game?.mapType || "normal";
         const mapBounds = getMapBoundsFromConfig(currentMapType);
 
+        // ИСПРАВЛЕНО: Обрабатываем случай когда mapBounds = null (используем дефолт)
+        const bounds = mapBounds || { minX: -250, maxX: 250, minZ: -250, maxZ: 250 };
+        const margin = 10; // Отступ от краёв карты
+
         // Вычисляем размер карты и масштабируем патрульный радиус
-        const mapSize = Math.max(mapBounds.maxX - mapBounds.minX, mapBounds.maxZ - mapBounds.minZ);
+        const mapSize = Math.max(bounds.maxX - bounds.minX, bounds.maxZ - bounds.minZ);
         // Патрульный радиус = 30-60% от размера карты (вместо фиксированных 150-350)
         const patrolRadius = mapSize * (0.3 + Math.random() * 0.3);
         const numPoints = 8 + Math.floor(Math.random() * 5); // 8-12 точек маршрута
@@ -2401,19 +2405,31 @@ export class EnemyTank {
         // Очищаем старые точки
         this.patrolPoints = [];
 
+        // Хелпер для клампинга координат к границам карты
+        const clampToBounds = (x: number, z: number): { x: number; z: number } => {
+            return {
+                x: Math.max(bounds.minX + margin, Math.min(bounds.maxX - margin, x)),
+                z: Math.max(bounds.minZ + margin, Math.min(bounds.maxZ - margin, z))
+            };
+        };
+
         // КРИТИЧНО: Добавляем БЛИЖНЮЮ точку первой для плавного старта
         // Враги начинают с короткого броска вперёд, затем расходятся
         const exitAngle = Math.random() * Math.PI * 2;
         const nearExitX = center.x + Math.cos(exitAngle) * 15; // БЛИЖНЯЯ точка (15 единиц)
         const nearExitZ = center.z + Math.sin(exitAngle) * 15;
-        const nearExitPoint = new Vector3(nearExitX, center.y, nearExitZ);
+        // ИСПРАВЛЕНО: Клампим ближнюю точку к границам!
+        const clampedNear = clampToBounds(nearExitX, nearExitZ);
+        const nearExitPoint = new Vector3(clampedNear.x, center.y, clampedNear.z);
         this.patrolPoints.push(nearExitPoint);
 
         // Вторая точка - дальше для продолжения движения (но в пределах карты)
         const farDist = Math.min(60, mapSize * 0.3); // Не более 60 или 30% карты
         const farExitX = center.x + Math.cos(exitAngle) * farDist;
         const farExitZ = center.z + Math.sin(exitAngle) * farDist;
-        const farExitPoint = new Vector3(farExitX, center.y, farExitZ);
+        // ИСПРАВЛЕНО: Клампим дальнюю точку к границам!
+        const clampedFar = clampToBounds(farExitX, farExitZ);
+        const farExitPoint = new Vector3(clampedFar.x, center.y, clampedFar.z);
         this.patrolPoints.push(farExitPoint);
 
         // Генерируем случайные точки по карте
@@ -2430,19 +2446,17 @@ export class EnemyTank {
             const x = Math.cos(angle) * dist + offsetX;
             const z = Math.sin(angle) * dist + offsetZ;
 
-            // ИСПРАВЛЕНО: Используем реальные границы карты с отступом 5м от краёв
-            const margin = 5;
-            const clampedX = Math.max(mapBounds.minX + margin, Math.min(mapBounds.maxX - margin, x));
-            const clampedZ = Math.max(mapBounds.minZ + margin, Math.min(mapBounds.maxZ - margin, z));
+            // ИСПРАВЛЕНО: Используем хелпер для клампинга
+            const clamped = clampToBounds(x, z);
 
             // УЛУЧШЕНО: Пытаемся найти высоту для точки патруля (используем высоту террейна)
             let pointY = center.y;
             if (game && typeof game.getGroundHeight === 'function') {
-                const groundHeight = game.getGroundHeight(clampedX, clampedZ);
+                const groundHeight = game.getGroundHeight(clamped.x, clamped.z);
                 pointY = Math.max(groundHeight + 1.0, center.y); // Минимум 1м над террейном
             }
 
-            otherPoints.push(new Vector3(clampedX, pointY, clampedZ));
+            otherPoints.push(new Vector3(clamped.x, pointY, clamped.z));
         }
 
         // Перемешиваем ТОЛЬКО остальные точки (не точку выезда!)
@@ -2458,9 +2472,8 @@ export class EnemyTank {
 
         // Начинаем патруль сразу!
         this.state = "patrol";
-        logger.debug(`[EnemyTank ${this.id}] Generated ${this.patrolPoints.length} patrol points, radius: ${patrolRadius.toFixed(0)}, map bounds: [${mapBounds.minX}, ${mapBounds.maxX}]x[${mapBounds.minZ}, ${mapBounds.maxZ}]`);
+        logger.debug(`[EnemyTank ${this.id}] Generated ${this.patrolPoints.length} patrol points, radius: ${patrolRadius.toFixed(0)}, map bounds: [${bounds.minX}, ${bounds.maxX}]x[${bounds.minZ}, ${bounds.maxZ}]`);
     }
-
     setTarget(target: { chassis: Mesh, isAlive: boolean, currentHealth?: number }): void {
         this.target = target;
     }
@@ -2821,7 +2834,7 @@ export class EnemyTank {
 
             // ОПТИМИЗАЦИЯ: Для дальних врагов упрощаем логику AI
             const isFarEnemy = distance > this.MID_DISTANCE_SQ; // > 150м
-            
+
             // КРИТИЧНО: Обновляем скорость цели если видим её
             if (canSeeTarget && distance < this.detectRange) {
                 // ОПТИМИЗАЦИЯ: Для дальних врагов не обновляем детальную информацию

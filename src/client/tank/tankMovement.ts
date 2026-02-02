@@ -62,10 +62,14 @@ export class TankMovementModule {
         this.tank.turretTurnTarget = 0;
         (this.tank as any).isKeyboardTurretControl = false; // Сбрасываем флаг каждый кадр
 
-        // Check if current chassis is "plane"
+        // Check if current chassis is "plane" (включая mig31 и др.)
         const chassisType = (this.tank as any).chassisType;
-        // Fix: check for object with id property
-        const isPlane = chassisType === "plane" || (typeof chassisType === 'object' && chassisType?.id === "plane");
+        const isPlane = chassisType === "plane" ||
+            (typeof chassisType === 'object' && (
+                chassisType?.id === "plane" ||
+                chassisType?.id?.includes?.("plane") ||
+                chassisType?.id?.includes?.("mig31")
+            ));
 
         // Для самолёта скрываем башню и пушку - показываем только модель МиГ-31
         // КРИТИЧНО: Полностью отключаем танковую физику для самолёта!
@@ -212,7 +216,21 @@ export class TankMovementModule {
         if (isPlane && !this.aircraftPhysics && this.tank.physicsBody && this.tank.chassis) {
             console.log("[TankMovement] Initializing AircraftPhysics for Plane");
             try {
-                this.aircraftPhysics = new AircraftPhysics(this.tank.chassis, this.tank.physicsBody);
+                // Get camera from scene (required for Mouse-Aim system)
+                const camera = this.tank.scene.activeCamera;
+                if (!camera) {
+                    console.error("[TankMovement] Cannot initialize AircraftPhysics: no active camera");
+                } else {
+                    // ИСПРАВЛЕНИЕ: Передаём ссылку на сам танк (контроллер), 
+                    // чтобы AircraftPhysics мог читать _inputMap каждый кадр
+                    this.aircraftPhysics = new AircraftPhysics(
+                        this.tank.chassis,
+                        this.tank.physicsBody,
+                        this.tank.scene,
+                        camera,
+                        this.tank as any  // Передаём контроллер для доступа к _inputMap
+                    );
+                }
             } catch (e) {
                 console.error("[TankMovement] Failed to init AircraftPhysics:", e);
             }
@@ -221,8 +239,8 @@ export class TankMovementModule {
         // Removed cleanup logic for now to restore boot
 
         if (this.aircraftPhysics) {
-            // Pass deltaTime for smooth interpolation (default 16ms = 60fps)
-            this.aircraftPhysics.update(0.016);
+            const dt = this.tank.scene.getEngine().getDeltaTime() / 1000;
+            this.aircraftPhysics.update(Math.min(dt || 0.016, 0.05));
         } else if (flyMode && this.tank.physicsBody) {
             // Fallback for debug flyMode
             const currentVel = this.tank.physicsBody.getLinearVelocity();

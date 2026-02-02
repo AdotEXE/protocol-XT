@@ -1519,7 +1519,7 @@ export class WorldGenerationMenu {
                         font-family: 'Press Start 2P', monospace;
                     ">
                         <option value="plains">Равнины</option>
-                        <option value="desert">Пустыня</option>
+                        <option value="desert">Песок</option>
                         <option value="forest">Лес</option>
                         <option value="mountains">Горы</option>
                         <option value="mixed" selected>Смешанный</option>

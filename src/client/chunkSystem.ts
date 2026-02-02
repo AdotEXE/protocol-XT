@@ -418,7 +418,7 @@ export class ChunkSystem {
 
         // КРИТИЧНО: Для ФИКСИРОВАННЫХ КАРТ - полностью пропускаем ВСЕ генераторы!
         // Только загружаем JSON данные через CustomMapRunner
-        const fixedMaps = ["sand", "arena", "expo", "brest", "madness"];
+        const fixedMaps = ["arena", "expo", "brest", "madness"];
         const isFixedMap = fixedMaps.includes(this.config.mapType || "");
 
         if (isFixedMap) {
@@ -1376,10 +1376,9 @@ export class ChunkSystem {
     private createAllGarages(): void {
         this._guaranteedGarageCreated = true;
 
-        // Если карта обычная, создаем бесконечный ландшафт
-        if (this.config.mapType === "sand") {
-            this.createGarageAt(0, 0, 0);
-            // Sandbox mode: Created garage and capture points
+        // KILL SWITCH: Do not create garages for "sand" or random maps
+        if (this.config.mapType === "sand" || this.config.mapType === "tartaria" || this.config.mapType === "madness" || this.config.mapType === "expo" || this.config.mapType === "brest" || this.config.mapType === "arena") {
+            console.log(`[ChunkSystem] Skipping garage creation for map type: ${this.config.mapType}`);
             return;
         }
 
@@ -3065,7 +3064,7 @@ export class ChunkSystem {
 
         // ФИКСИРОВАННЫЕ КАРТЫ: НЕ создаём ground здесь!
         // Генератор (SandGenerator, ArenaGenerator и т.д.) создаёт СВОЙ ground как часть арены
-        const fixedMaps = ["sand", "arena", "expo", "brest", "madness"];
+        const fixedMaps = ["arena", "expo", "brest", "madness"];
         if (fixedMaps.includes(this.config.mapType || "")) {
             return; // Генератор создаст ground
         }
@@ -3095,7 +3094,7 @@ export class ChunkSystem {
 
         // Sand/tartaria карты - определяем биом
         let biome: BiomeType;
-        if (this.config.mapType === "sand") {
+        if (this.config.mapType === "sand" || this.config.mapType === "normal") {
             biome = this.getRandomBiome(worldX + size / 2, worldZ + size / 2, random);
         } else if (this.config.mapType === "tartaria") {
             biome = this.getBiome(worldX + size / 2, worldZ + size / 2, random);
@@ -3669,18 +3668,18 @@ export class ChunkSystem {
         // Для normal карты используем старую логику
 
         // For normal map, use completely random biomes (no distance dependency)
-        let biome: BiomeType;
-        if (this.config.mapType === "normal") {
-            biome = this.getRandomBiome(worldX + size / 2, worldZ + size / 2, random);
-        } else {
-            biome = this.getBiome(worldX + size / 2, worldZ + size / 2, random);
-        }
+        // УДАЛЕНО: Специфичная логика для normal карты
+        const biome = this.getBiome(worldX + size / 2, worldZ + size / 2, random);
 
         // Ground based on biome (heightmap)
         this.createGround(chunkX, chunkZ, worldX, worldZ, size, biome, random, chunkParent);
 
         // КРИТИЧЕСКИ ВАЖНО: Гаражи генерируем ПЕРВЫМИ, чтобы исключить их области из генерации других объектов
-        this.generateGarages(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
+        // ИСПРАВЛЕНИЕ: Не генерируем гаражи для "sand" карты - там полностью случайный спавн
+        // УДАЛЕНО: normal из проверки
+        if (this.config.mapType !== "sand") {
+            this.generateGarages(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
+        }
 
         // Roads - use RoadNetwork for better procedural roads
         this.createRoads(chunkX, chunkZ, size, random, biome, chunkParent);

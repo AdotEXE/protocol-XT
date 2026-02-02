@@ -2742,6 +2742,7 @@ export class TankController {
             if (evt.button === 0) { // Left click
                 // Pointer lock handled by browser
                 if (canvas) {
+                    canvas.focus(); // Фокус для клавиатуры (самолёт: W/A/S/D)
                     try {
                         canvas.requestPointerLock();
                     } catch (err) {
@@ -2772,16 +2773,23 @@ export class TankController {
             }
         };
 
-        // Ctrl key for aim mode too
+        // Ctrl key for aim mode too (НО НЕ ДЛЯ САМОЛЁТА - там Ctrl = уменьшение тяги)
         window.addEventListener("keydown", (e) => {
             if (e.code === "ControlLeft" || e.code === "ControlRight") {
-                // CTRL keydown - aim mode ON
+                // Для самолёта Ctrl используется для тяги, не для прицеливания
+                const chassisId = typeof this.chassisType === 'object' ? (this.chassisType as any)?.id : this.chassisType;
+                if (chassisId === "plane" || chassisId?.includes?.("plane") || chassisId?.includes?.("mig31")) {
+                    return; // Самолёт: Ctrl = throttle down, не aim mode
+                }
                 this.toggleAimMode(true);
             }
         });
         window.addEventListener("keyup", (e) => {
             if (e.code === "ControlLeft" || e.code === "ControlRight") {
-                // CTRL keyup - aim mode OFF
+                const chassisId = typeof this.chassisType === 'object' ? (this.chassisType as any)?.id : this.chassisType;
+                if (chassisId === "plane" || chassisId?.includes?.("plane") || chassisId?.includes?.("mig31")) {
+                    return;
+                }
                 this.toggleAimMode(false);
             }
         });
@@ -5047,6 +5055,9 @@ export class TankController {
         // Проверка на валидность chassis (disposed состояние)
         if (this.chassis.isDisposed()) return;
 
+        // Определяем тип шасси для проверки самолёта
+        const chassisId = typeof this.chassisType === 'object' ? (this.chassisType as any)?.id : this.chassisType;
+
         // КРИТИЧЕСКИ ВАЖНО: Физика НЕ работает когда танк мёртв!
         if (!this.isAlive) {
             // Когда мёртв - останавливаем всю физику (с проверкой на валидность)
@@ -5131,6 +5142,25 @@ export class TankController {
             // Check Map Triggers
             this.checkTriggers(dt);
 
+            // === САМОЛЁТ: обрабатываем ввод и выходим ДО tilt/танковой физики ===
+            const isPlane = this.chassisType === "plane" || (typeof this.chassisType === 'object' && (
+                (this.chassisType as any)?.id === "plane" ||
+                (this.chassisType as any)?.id?.includes?.("plane") ||
+                (this.chassisType as any)?.id?.includes?.("mig31")
+            ));
+            if (isPlane) {
+                const game = (window as any).gameInstance;
+                if (game && game.isMenuOpen) {
+                    this.movementModule.setInputs(0, 0);
+                    (this as any).throttleTarget = 0;
+                    (this as any).steerTarget = 0;
+                    (this as any).turretTurnTarget = 0;
+                } else {
+                    this.updateInputs();
+                }
+                return; // AircraftPhysics управляет всем — не применяем tilt/танковую физику
+            }
+
             // === CHASSIS ACCELERATION TILT ===
             // Detect start of movement
             const currentThrottle = this.throttleTarget; // -1 to 1
@@ -5183,18 +5213,6 @@ export class TankController {
                 (this as any).turretTurnTarget = 0;
             } else {
                 this.updateInputs();
-            }
-
-            const isPlane = this.chassisType === "plane" || (typeof this.chassisType === 'object' && (this.chassisType as any)?.id === "plane");
-
-            if (isPlane) {
-                // КРИТИЧНО: Для самолёта пропускаем стандартную физику танка (hover, upright и т.д.)
-                // Вся физика самолёта обрабатывается внутри movementModule.updateInputs -> AircraftPhysics
-
-                // DEBUG LOG (Throttled)
-                // if (Math.random() < 0.01) console.log("[TankController] Skipping tank physics for PLANE. UpdateInputs called?");
-
-                return;
             }
 
             const body = this.physicsBody;
