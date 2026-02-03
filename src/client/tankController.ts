@@ -2742,7 +2742,7 @@ export class TankController {
             if (evt.button === 0) { // Left click
                 // Pointer lock handled by browser
                 if (canvas) {
-                    canvas.focus(); // Фокус для клавиатуры (самолёт: W/A/S/D)
+                    canvas.focus(); // Фокус для клавиатуры (самолёт: W/S тяга, A/D крен, Q/E тангаж)
                     try {
                         canvas.requestPointerLock();
                     } catch (err) {
@@ -2773,13 +2773,13 @@ export class TankController {
             }
         };
 
-        // Ctrl key for aim mode too (НО НЕ ДЛЯ САМОЛЁТА - там Ctrl = уменьшение тяги)
+        // Ctrl key for aim mode too (НО НЕ ДЛЯ САМОЛЁТА - там управление в AircraftPhysics, W/S = тяга)
         window.addEventListener("keydown", (e) => {
             if (e.code === "ControlLeft" || e.code === "ControlRight") {
-                // Для самолёта Ctrl используется для тяги, не для прицеливания
+                // Для самолёта управление в AircraftPhysics (W/S тяга), не прицеливание
                 const chassisId = typeof this.chassisType === 'object' ? (this.chassisType as any)?.id : this.chassisType;
                 if (chassisId === "plane" || chassisId?.includes?.("plane") || chassisId?.includes?.("mig31")) {
-                    return; // Самолёт: Ctrl = throttle down, не aim mode
+                    return; // Самолёт: тяга W/S в AircraftPhysics, Ctrl не прицеливание
                 }
                 this.toggleAimMode(true);
             }

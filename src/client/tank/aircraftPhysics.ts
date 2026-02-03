@@ -128,21 +128,21 @@ export class AircraftPhysics {
             if (this._keyboardState[e.code]) return; // Ignorerepeat
             this._keyboardState[e.code] = true;
 
-            // Обработка Alt для свободного обзора
-            if (e.key === "Alt") {
+            // Обработка Shift для свободного обзора
+            if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
                 this._isFreeLookActive = true;
                 if (this.camera) {
                     const canvas = this.scene.getEngine().getRenderingCanvas();
                     this.camera.attachControl(canvas, true);
-                    console.log("[AircraftPhysics] Free look ENABLED (Alt pressed)");
+                    console.log("[AircraftPhysics] Free look ENABLED (Shift pressed)");
                 }
             }
         };
         this._keyUpHandler = (e: KeyboardEvent) => {
             this._keyboardState[e.code] = false;
 
-            // Обработка Alt для отключения свободного обзора
-            if (e.key === "Alt") {
+            // Обработка Shift для отключения свободного обзора
+            if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
                 this._isFreeLookActive = false;
                 if (this.camera) {
                     this.camera.detachControl();
@@ -152,13 +152,13 @@ export class AircraftPhysics {
                     if ("alpha" in this.camera) {
                         const arcCam = this.camera as any;
                         // Плавный возврат можно сделать через update, но пока мгновенно
-                        // arcCam.alpha = -Math.PI / 2; 
-                        // arcCam.beta = Math.PI / 3; 
+                        // arcCam.alpha = -Math.PI / 2;
+                        // arcCam.beta = Math.PI / 3;
                         // Пользователь может хотеть чтобы камера оставалась там где была?
                         // Обычно она возвращается.
                         // Оставим пока без возврата, если попросит - добавим.
                     }
-                    console.log("[AircraftPhysics] Free look DISABLED (Alt released)");
+                    console.log("[AircraftPhysics] Free look DISABLED (Shift released)");
                 }
             }
         };
@@ -166,7 +166,7 @@ export class AircraftPhysics {
         window.addEventListener("keydown", this._keyDownHandler);
         window.addEventListener("keyup", this._keyUpHandler);
 
-        // По умолчанию отключаем управление камерой (свободный обзор только через Alt)
+        // По умолчанию отключаем управление камерой (свободный обзор только через Shift)
         try {
             if (this.camera) {
                 this.camera.detachControl();
@@ -248,7 +248,7 @@ export class AircraftPhysics {
         const altitude = this.cachedPosition.y;
         this.aerodynamicsSystem.updateAirDensity(altitude);
 
-        // 2. Обработка тяги (Shift/Ctrl)
+        // 2. Обработка тяги (W/S)
         this.updateThrottle(clampedDt);
 
         // ========== MOUSE AIM + DIRECT CONTROL ==========
@@ -257,11 +257,24 @@ export class AircraftPhysics {
         this.mouseAimSystem.updateTarget(this.cachedPosition, this.cachedForward);
         const angularError = this.mouseAimSystem.getAngularError(this.cachedForward, this.cachedUp, this.cachedRight);
 
-        // Clamp input to -1..1 range
+        // ИСПРАВЛЕНО: Самолёт АКТИВНО следует за курсором!
+        // Маленькая deadzone, сильное усиление, линейный отклик
+        const MOUSE_AIM_GAIN = 4.0; // Сильное усиление — самолёт активно поворачивается
+        const MOUSE_AIM_DEADZONE = 0.02; // Маленькая deadzone — только для микро-шума
+
+        // Линейный отклик с мягким переходом у deadzone
+        const linearResponse = (value: number): number => {
+            const absVal = Math.abs(value);
+            if (absVal < MOUSE_AIM_DEADZONE) return 0;
+            // Линейный отклик (не квадратичный!) для активного следования
+            const response = (absVal - MOUSE_AIM_DEADZONE) * MOUSE_AIM_GAIN;
+            return Math.sign(value) * Math.min(1, response);
+        };
+
         const mouseInput = {
-            pitch: Math.max(-1, Math.min(1, angularError.pitch)),
-            yaw: Math.max(-1, Math.min(1, angularError.yaw)),
-            roll: Math.max(-1, Math.min(1, angularError.roll))
+            pitch: linearResponse(angularError.pitch),
+            yaw: linearResponse(angularError.yaw),
+            roll: linearResponse(angularError.roll)
         };
 
         // 2. Get Keyboard Input
@@ -276,29 +289,24 @@ export class AircraftPhysics {
         let rollInput = 0;
         let yawInput = 0;
 
-        // Используем собственное состояние клавиатуры
-        // W/S - Pitch (тангаж)
-        if (inputMap["KeyW"]) pitchInput = -1;  // Нос вниз
-        if (inputMap["KeyS"]) pitchInput = 1;   // Нос вверх
-
+        // Используем собственное состояние клавиатуры (W/S — тяга в updateThrottle)
         // A/D - Roll (крен)
         if (inputMap["KeyA"]) rollInput = 1;    // Крен влево
         if (inputMap["KeyD"]) rollInput = -1;   // Крен вправо
 
-        // Q/E - Yaw (рыскание)
-        if (inputMap["KeyQ"]) yawInput = -1;    // Нос влево
-        if (inputMap["KeyE"]) yawInput = 1;     // Нос вправо
+        // Q/E - Pitch (тангаж: нос вверх/вниз)
+        if (inputMap["KeyQ"]) pitchInput = 1;   // Нос вверх
+        if (inputMap["KeyE"]) pitchInput = -1;  // Нос вниз
+        // Yaw (рыскание) только от мыши (Mouse-Aim)
 
         // 3. COMBINE INPUTS (Mouse + Keyboard Override)
         // Если нажаты клавиши - они имеют приоритет (или суммируются)
         // Если клавиш нет - используем Mouse Aim
 
-        // Mouse Aim даёт значения от -1 до 1
-        // ВКЛЮЧЕНО: Mouse Aim активен
+        // ИСПРАВЛЕНО: Mouse Aim всегда активен и СИЛЬНЕЕ влияет
         if (pitchInput === 0) pitchInput = mouseInput.pitch;
         if (rollInput === 0) rollInput = mouseInput.roll;
         if (yawInput === 0) yawInput = mouseInput.yaw;
-
 
 
         // Создаём моменты в локальном пространстве
@@ -321,9 +329,10 @@ export class AircraftPhysics {
                 const currentAngVel = body.getAngularVelocity ? body.getAngularVelocity() : new Vector3(0, 0, 0);
 
                 // Настраиваем ускорение (рад/с за секунду)
-                const PITCH_ACCEL = 5.0;  // Быстро вверх/вниз
-                const ROLL_ACCEL = 10.0;  // Очень быстро крутимся
-                const YAW_ACCEL = 3.0;    // Медленнее поворот
+                // ИСПРАВЛЕНО: Увеличено для АКТИВНОГО следования за курсором
+                const PITCH_ACCEL = 4.0;  // Активный тангаж (было 2.0)
+                const ROLL_ACCEL = 5.0;   // Активный крен (было 3.0)
+                const YAW_ACCEL = 3.0;    // Активное рыскание (было 1.5)
 
                 // Добавляем дельту угловой скорости
                 const deltaAngVel = new Vector3(
@@ -346,8 +355,9 @@ export class AircraftPhysics {
                     currentAngVel.z + worldDeltaAngVel.z
                 );
 
-                // Ограничиваем макс скорость вращения (чтобы не раскручивало бесконечно)
-                const MAX_ROTATION_SPEED = 3.0; // рад/с (примерно 0.5 оборота в сек)
+                // Ограничиваем макс скорость вращения
+                // ИСПРАВЛЕНО: Увеличено для активного маневрирования (было 1.5)
+                const MAX_ROTATION_SPEED = 2.5; // рад/с
                 if (newAngVel.length() > MAX_ROTATION_SPEED) {
                     newAngVel = newAngVel.normalize().scale(MAX_ROTATION_SPEED);
                 }
@@ -371,53 +381,75 @@ export class AircraftPhysics {
             velocityDir
         );
 
-        // 9. Вычисляем аэродинамические силы
-        // Lift (направление "вверх" относительно самолёта)
-        const liftForceLocal = this.aerodynamicsSystem.calculateLift(speed, angleOfAttack, this.cachedForward);
-        const liftForce = this.transformToWorldSpace(liftForceLocal);
+        // 9. ОТКЛЮЧЕНО: Аэродинамические силы мешают прямому управлению!
+        // Lift и Drag вызывали "живую жизнь" самолёта
+        // Самолёт теперь управляется ТОЛЬКО мышью и thrust
 
-        // Drag (направление противоположно скорости)
-        const dragForce = this.aerodynamicsSystem.calculateDrag(speed, angleOfAttack, velocityDir);
-
-        if (dragForce && isFinite(dragForce.x)) {
-            try {
-                this.physicsBody.applyForce(dragForce, this.cachedPosition);
-            } catch (e) { }
-        }
-
-        if (liftForce && isFinite(liftForce.x)) {
-            try {
-                this.physicsBody.applyForce(liftForce, this.cachedPosition);
-            } catch (e) { }
-        }
+        // const liftForceLocal = this.aerodynamicsSystem.calculateLift(speed, angleOfAttack, this.cachedForward);
+        // const liftForce = this.transformToWorldSpace(liftForceLocal);
+        // const dragForce = this.aerodynamicsSystem.calculateDrag(speed, angleOfAttack, velocityDir);
+        // if (dragForce && isFinite(dragForce.x)) {
+        //     this.physicsBody.applyForce(dragForce, this.cachedPosition);
+        // }
+        // if (liftForce && isFinite(liftForce.x)) {
+        //     this.physicsBody.applyForce(liftForce, this.cachedPosition);
+        // }
 
         // Thrust (направление "вперёд" относительно самолёта)
-        // УВЕЛИЧЕНО В 8 РАЗ (было 2.0) ПО ЗАПРОСУ ПОЛЬЗОВАТЕЛЯ
-        // Also ensure we don't apply thrust if throttle is 0
-        const thrustForceLocal = this.aerodynamicsSystem.calculateThrust(Vector3.Forward()).scale(8.0);
-        const thrustForce = this.transformToWorldSpace(thrustForceLocal);
+        // Применяем тягу только при throttle > 0 — при нулевом газе самолёт не разгоняется сам
+        // ИСПРАВЛЕНО: множитель уменьшен с 8.0 до 1.0 (пользователь жаловался на слишком быстрый разгон)
+        if (this.aerodynamicsSystem.getThrottle() > 0) {
+            const thrustForceLocal = this.aerodynamicsSystem.calculateThrust(Vector3.Forward()).scale(1.0);
+            const thrustForce = this.transformToWorldSpace(thrustForceLocal);
 
-        if (thrustForce && isFinite(thrustForce.x) && isFinite(thrustForce.y) && isFinite(thrustForce.z)) {
-            try {
-                this.physicsBody.applyForce(thrustForce, this.cachedPosition);
-            } catch (e) {
-                console.warn("[AircraftPhysics] applyForce error:", e);
+            if (thrustForce && isFinite(thrustForce.x) && isFinite(thrustForce.y) && isFinite(thrustForce.z)) {
+                try {
+                    this.physicsBody.applyForce(thrustForce, this.cachedPosition);
+                } catch (e) {
+                    console.warn("[AircraftPhysics] applyForce error:", e);
+                }
             }
         }
 
-        // 11. Стабилизация (если нет ввода)
-        // ВКЛЮЧЕНО (по запросу пользователя)
+        // 11. Стабилизация (если нет ввода)\n        // ВКЛЮЧЕНО (по запросу пользователя)
 
         // 11. Стабилизация (если нет ввода от мыши ИЛИ клавиатуры)
         const isControlActive = Math.abs(pitchInput) > 0.001 || Math.abs(yawInput) > 0.001 || Math.abs(rollInput) > 0.001;
 
         if (!isControlActive) {
             const body = this.physicsBody as any;
-            // Включаем сильное затухание вращения (тормоз), чтобы не крутило по инерции
-            if (body.setAngularDamping) body.setAngularDamping(5.0);
 
-            // ВОССТАНОВЛЕНО: AutoLevel работает корректно с клавиатурой (самолет выравнивается сам)
-            this.applyAutoLevel(clampedDt);
+            // ВКЛЮЧЕНО: Принудительное выравнивание в уровень (Auto-Level)
+            // Самолёт стремится держать крылья горизонтально
+            if (body.getAngularVelocity && body.setAngularVelocity) {
+                const currentAngVel = body.getAngularVelocity();
+
+                // Получаем текущий крен (roll) и тангаж (pitch) относительно горизонта
+                const right = this.cachedRight;
+                const forward = this.cachedForward;
+                const up = this.cachedUp;
+
+                // Крен: угол между правым вектором и горизонтальной плоскостью
+                const rollAngle = Math.atan2(right.y, Math.sqrt(right.x * right.x + right.z * right.z));
+
+                // Корректирующие моменты для выравнивания
+                const AUTO_LEVEL_STRENGTH = 1.5; // Сила выравнивания
+                const rollCorrection = -rollAngle * AUTO_LEVEL_STRENGTH;
+
+                // Применяем мягкую коррекцию к угловой скорости
+                const correctionVel = this.transformToWorldSpace(new Vector3(0, 0, rollCorrection * 0.016));
+
+                const newAngVel = new Vector3(
+                    currentAngVel.x * 0.95 + correctionVel.x,
+                    currentAngVel.y * 0.95 + correctionVel.y,
+                    currentAngVel.z * 0.95 + correctionVel.z
+                );
+
+                body.setAngularVelocity(newAngVel);
+            }
+
+            // Мягкое затухание как страховка
+            if (body.setAngularDamping) body.setAngularDamping(1.0);
         }
 
     }
@@ -481,12 +513,30 @@ export class AircraftPhysics {
         // Используем собственное состояние клавиатуры для надежности
         const inputMap = this._keyboardState;
 
-        // Shift - увеличение тяги, Ctrl - уменьшение
-        if (inputMap["ShiftLeft"] || inputMap["ShiftRight"]) {
+        // W — увеличение тяги, S — уменьшение + активный тормоз (airbrake)
+        if (inputMap["KeyW"]) {
             this.aerodynamicsSystem.increaseThrottle(dt);
         }
-        if (inputMap["ControlLeft"] || inputMap["ControlRight"]) {
+        if (inputMap["KeyS"]) {
             this.aerodynamicsSystem.decreaseThrottle(dt);
+
+            // ИСПРАВЛЕНО: Активный airbrake при S — уменьшаем скорость напрямую
+            // Это создаёт ощущение "торможения" а не просто снижения тяги
+            try {
+                const body = this.physicsBody as any;
+                if (body && body.getLinearVelocity && body.setLinearVelocity) {
+                    const vel = body.getLinearVelocity();
+                    if (vel && isFinite(vel.x) && isFinite(vel.y) && isFinite(vel.z)) {
+                        const currentSpeed = vel.length();
+                        // ИСПРАВЛЕНО: Плавное замедление — 15% скорости в секунду (было 30%)
+                        const brakeFactor = Math.max(0, 1 - 0.15 * dt);
+                        const newVel = vel.scale(brakeFactor);
+                        body.setLinearVelocity(newVel);
+                    }
+                }
+            } catch (e) {
+                // Ignore errors
+            }
         }
 
         // Если тяга > 0, логируем иногда
@@ -509,12 +559,7 @@ export class AircraftPhysics {
         const inputMap = this.controller?._inputMap;
         if (!inputMap) return { pitch, yaw, roll };
 
-        // W/S - Pitch
-        if (inputMap["KeyW"]) {
-            pitch = -this.config.keyboard.pitchSensitivity * dt;
-        } else if (inputMap["KeyS"]) {
-            pitch = this.config.keyboard.pitchSensitivity * dt;
-        }
+        // W/S — тяга (не pitch); обрабатывается в updateThrottle
 
         // A/D - Roll
         if (inputMap["KeyA"]) {
@@ -523,11 +568,11 @@ export class AircraftPhysics {
             roll = -this.config.keyboard.rollSensitivity * dt;
         }
 
-        // Q/E - Yaw
+        // Q/E - Pitch (тангаж)
         if (inputMap["KeyQ"]) {
-            yaw = -this.config.keyboard.yawSensitivity * dt;
+            pitch = this.config.keyboard.pitchSensitivity * dt;   // Нос вверх
         } else if (inputMap["KeyE"]) {
-            yaw = this.config.keyboard.yawSensitivity * dt;
+            pitch = -this.config.keyboard.pitchSensitivity * dt;   // Нос вниз
         }
 
         return { pitch, yaw, roll };

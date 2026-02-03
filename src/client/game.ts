@@ -2616,7 +2616,7 @@ export class Game {
             // Небольшая задержка чтобы UI успел обновиться
             setTimeout(() => {
                 if (this.canvas && this.gameStarted && !this.gamePaused) {
-                    this.canvas.focus(); // Фокус для клавиатуры (самолёт: W/A/S/D, Shift/Ctrl)
+                    this.canvas.focus(); // Фокус для клавиатуры (самолёт: W/S тяга, A/D крен, Q/E тангаж, Shift свободный обзор)
                     this.canvas.requestPointerLock();
                     logger.log("[Game] Pointer lock requested automatically");
                 }
@@ -3184,7 +3184,6 @@ export class Game {
                                                 const aircraftPhysics = movementModule.aircraftPhysics;
 
                                                 // Получаем данные от AircraftPhysics
-                                                const targetPoint = aircraftPhysics.getTargetPoint();
                                                 const forwardDir = aircraftPhysics.getForwardDirection();
                                                 const isStalling = aircraftPhysics.isStalling();
                                                 const gForce = aircraftPhysics.calculateGForce();
@@ -3194,15 +3193,15 @@ export class Game {
                                                 const width = engine.getRenderWidth();
                                                 const height = engine.getRenderHeight();
 
-                                                // Aim Circle позиция (цель мыши)
-                                                const aimCircleScreen = Vector3.Project(
-                                                    targetPoint,
-                                                    Matrix.Identity(),
-                                                    this.scene.getTransformMatrix(),
-                                                    this.camera.viewport.toGlobal(width, height)
-                                                );
+                                                // ИСПРАВЛЕНИЕ: Aim Circle позиция — используем позицию мыши НАПРЯМУЮ!
+                                                // Не нужно проецировать 3D targetPoint обратно на экран — это создаёт дрейф.
+                                                // Aim Circle должен быть точно там, где курсор мыши.
+                                                const aimCirclePos = {
+                                                    x: this._aircraftMouseX ?? 0.5,
+                                                    y: this._aircraftMouseY ?? 0.5
+                                                };
 
-                                                // Heading Cross позиция (направление самолёта)
+                                                // Heading Cross позиция (направление самолёта) — проецируем из 3D
                                                 const aircraftPos = this.tank.chassis.getAbsolutePosition();
                                                 const headingPoint = aircraftPos.add(forwardDir.scale(50));
                                                 const headingCrossScreen = Vector3.Project(
@@ -3212,11 +3211,6 @@ export class Game {
                                                     this.camera.viewport.toGlobal(width, height)
                                                 );
 
-                                                // Нормализуем координаты (0-1)
-                                                const aimCirclePos = {
-                                                    x: aimCircleScreen.x / width,
-                                                    y: aimCircleScreen.y / height
-                                                };
                                                 const headingCrossPos = {
                                                     x: headingCrossScreen.x / width,
                                                     y: headingCrossScreen.y / height
@@ -6944,15 +6938,55 @@ export class Game {
                             // При pointer lock используем movementX/Y для накопления виртуальной позиции
                             if (this.isPointerLocked) {
                                 // Накапливаем движения мыши (movementX/movementY)
-                                const sensitivity = 0.001; // Чувствительность для pointer lock
-                                this._aircraftMouseX = Math.max(0, Math.min(1, (this._aircraftMouseX ?? 0.5) + (evt.movementX ?? 0) * sensitivity));
-                                this._aircraftMouseY = Math.max(0, Math.min(1, (this._aircraftMouseY ?? 0.5) + (evt.movementY ?? 0) * sensitivity));
+                                // Используем настраиваемую чувствительность мыши (с множителем для комфортного управления самолётом)
+                                const sensitivity = (this.mouseSensitivity ?? 0.003) * 0.3;
+                                let newX = (this._aircraftMouseX ?? 0.5) + (evt.movementX ?? 0) * sensitivity;
+                                let newY = (this._aircraftMouseY ?? 0.5) + (evt.movementY ?? 0) * sensitivity;
+
+                                // ОГРАНИЧЕНИЕ: Курсор не выходит за пределы круга радиусом 300px
+                                // Радиус 300px от центра экрана (в нормализованных координатах)
+                                const rect = canvas.getBoundingClientRect();
+                                const radiusPx = 300;
+                                const radiusNormX = radiusPx / rect.width;
+                                const radiusNormY = radiusPx / rect.height;
+
+                                // Расстояние от центра (0.5, 0.5) в нормализованных координатах
+                                const dx = newX - 0.5;
+                                const dy = newY - 0.5;
+                                // Нормализуем по эллипсу (для разных aspect ratio)
+                                const dist = Math.sqrt((dx / radiusNormX) ** 2 + (dy / radiusNormY) ** 2);
+
+                                if (dist > 1) {
+                                    // Ограничиваем на границе круга
+                                    newX = 0.5 + (dx / dist);
+                                    newY = 0.5 + (dy / dist);
+                                    // Корректируем для эллипса
+                                    newX = 0.5 + (newX - 0.5) * radiusNormX / Math.max(radiusNormX, radiusNormY);
+                                    newY = 0.5 + (newY - 0.5) * radiusNormY / Math.max(radiusNormX, radiusNormY);
+                                }
+
+                                this._aircraftMouseX = newX;
+                                this._aircraftMouseY = newY;
                                 movementModule.aircraftPhysics.updateMouseScreenPosition(this._aircraftMouseX, this._aircraftMouseY);
                             } else {
                                 // Без pointer lock используем clientX/clientY
                                 const rect = canvas.getBoundingClientRect();
-                                const screenX = (evt.clientX - rect.left) / rect.width;
-                                const screenY = (evt.clientY - rect.top) / rect.height;
+                                let screenX = (evt.clientX - rect.left) / rect.width;
+                                let screenY = (evt.clientY - rect.top) / rect.height;
+
+                                // ОГРАНИЧЕНИЕ: Курсор не выходит за пределы круга радиусом 300px
+                                const radiusPx = 300;
+                                const radiusNormX = radiusPx / rect.width;
+                                const radiusNormY = radiusPx / rect.height;
+                                const dx = screenX - 0.5;
+                                const dy = screenY - 0.5;
+                                const dist = Math.sqrt((dx / radiusNormX) ** 2 + (dy / radiusNormY) ** 2);
+
+                                if (dist > 1) {
+                                    screenX = 0.5 + (dx / dist) * radiusNormX;
+                                    screenY = 0.5 + (dy / dist) * radiusNormY;
+                                }
+
                                 movementModule.aircraftPhysics.updateMouseScreenPosition(screenX, screenY);
                                 // Синхронизируем виртуальную позицию
                                 this._aircraftMouseX = screenX;
@@ -7007,22 +7041,27 @@ export class Game {
                         // NO aircraftMouseDelta dispatch
                     } else {
                         // Mouse-Aim: Update screen position for unprojection
-                        const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
-                        if (canvas && this.tank) {
-                            try {
-                                const movementModule = (this.tank as any).movementModule;
-                                if (movementModule && movementModule.aircraftPhysics) {
-                                    // Convert mouse position to screen coordinates (0-1)
-                                    const rect = canvas.getBoundingClientRect();
-                                    const screenX = (evt.clientX - rect.left) / rect.width;
-                                    const screenY = (evt.clientY - rect.top) / rect.height;
+                        // ИСПРАВЛЕНИЕ: При pointer lock НЕ обновляем позицию здесь!
+                        // Первый блок (строки 6938-6966) уже правильно установил накопленную позицию.
+                        // При pointer lock clientX/clientY остаются в центре экрана, что ломает прицел.
+                        if (!this.isPointerLocked) {
+                            const canvas = this.scene.getEngine().getRenderingCanvas() as HTMLCanvasElement;
+                            if (canvas && this.tank) {
+                                try {
+                                    const movementModule = (this.tank as any).movementModule;
+                                    if (movementModule && movementModule.aircraftPhysics) {
+                                        // Convert mouse position to screen coordinates (0-1)
+                                        const rect = canvas.getBoundingClientRect();
+                                        const screenX = (evt.clientX - rect.left) / rect.width;
+                                        const screenY = (evt.clientY - rect.top) / rect.height;
 
-                                    // Update Mouse-Aim system with screen coordinates
-                                    movementModule.aircraftPhysics.updateMouseScreenPosition(screenX, screenY);
+                                        // Update Mouse-Aim system with screen coordinates
+                                        movementModule.aircraftPhysics.updateMouseScreenPosition(screenX, screenY);
+                                    }
+                                } catch (e) {
+                                    // Fallback: use legacy event if aircraftPhysics not available
+                                    console.warn("[Game] Failed to update mouse screen position:", e);
                                 }
-                            } catch (e) {
-                                // Fallback: use legacy event if aircraftPhysics not available
-                                console.warn("[Game] Failed to update mouse screen position:", e);
                             }
                         }
 

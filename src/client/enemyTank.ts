@@ -101,12 +101,12 @@ export class EnemyTank {
     private turretCurrentAngle = 0;
     private turretAcceleration = 0;
     private turretAccelStartTime = 0;
-    private turretSpeed = 0.12; // УВЕЛИЧЕНО: Быстрое наведение башни (было 0.04)
+    private turretSpeed = 0.25; // ULTRA: Молниеносное наведение башни (было 0.12)
 
     // Barrel pitch control (vertical aiming)
     private barrelTargetPitch = 0; // Целевой угол наклона ствола
     private barrelCurrentPitch = 0; // Текущий угол (для плавного наведения)
-    private turretLerpSpeed = 0.25; // УВЕЛИЧЕНО: Быстрая интерполяция башни (было 0.15)
+    private turretLerpSpeed = 0.5; // ULTRA: Мгновенная интерполяция башни (было 0.25)
 
     // Спавн: нормаль поверхности для выравнивания
     private spawnGroundNormal: Vector3 = Vector3.Up();
@@ -131,16 +131,19 @@ export class EnemyTank {
     private poiCaptureTime = 0; // Time spent at POI
 
     // AI properties - EXTREME: Максимально агрессивный ИИ
-    private attackRange = 200; // EXTREME: +43% (было 140) - атакуют с большей дистанции
+    private attackRange = 300; // ULTRA: Атакуют с огромной дистанции
 
     // AI Decisions
     private lastDecisionTime = 0;
-    private decisionInterval = 100; // ИСПРАВЛЕНО: 100мс для стабильности (было 0 - вызывало проблемы)
+    private decisionInterval = 16; // ULTRA: Мгновенные решения каждый кадр (~60fps)
     // NIGHTMARE: Для nightmare сложности decisionInterval будет переопределен на 0 в applyDifficultySettings
     private flankDirection = 1; // 1 = right, -1 = left
     private evadeDirection = new Vector3(0, 0, 0);
     private lastTargetPos = new Vector3(0, 0, 0);
     private targetVelocity = new Vector3(0, 0, 0);
+    // ULTRA: Отслеживание ускорения для улучшенного предсказания
+    private targetAcceleration = new Vector3(0, 0, 0);
+    private lastTargetVelocity = new Vector3(0, 0, 0);
 
     // Подавляющий огонь по последней известной позиции (уменьшено для точности)
     private lastTargetSeenTime = 0; // Время последнего наблюдения цели
@@ -155,8 +158,8 @@ export class EnemyTank {
     private positionHistoryTimer = 0;
     private isStuck = false;
     private stuckTimer = 0;
-    private readonly MAX_POSITION_HISTORY = 50; // EXTREME: +67% (было 30) - глубокий анализ траектории
-    private readonly POSITION_HISTORY_INTERVAL = 50; // EXTREME: -50% (было 100) - быстрее обновление
+    private readonly MAX_POSITION_HISTORY = 80; // ULTRA: Глубочайший анализ траектории
+    private readonly POSITION_HISTORY_INTERVAL = 16; // ULTRA: Обновление каждый кадр
     // NIGHTMARE: Для nightmare сложности эти параметры будут еще лучше
     private lastPositionHistoryUpdate = 0;
 
@@ -164,7 +167,7 @@ export class EnemyTank {
     private movementPattern: "linear" | "zigzag" | "circular" | "erratic" = "linear";
     private movementPatternConfidence = 0.0; // 0.0 - 1.0
     private lastPatternAnalysisTime = 0;
-    private readonly PATTERN_ANALYSIS_INTERVAL = 1000; // EXTREME: -50% (было 2000) - чаще анализ
+    private readonly PATTERN_ANALYSIS_INTERVAL = 250; // ULTRA: Постоянный анализ паттернов
 
     // EXTREME: Система уклонения от снарядов игрока
     private incomingProjectiles: Array<{ mesh: AbstractMesh, velocity: Vector3, lastUpdate: number }> = [];
@@ -2839,14 +2842,21 @@ export class EnemyTank {
             if (canSeeTarget && distance < this.detectRange) {
                 // ОПТИМИЗАЦИЯ: Для дальних врагов не обновляем детальную информацию
                 if (!isFarEnemy) {
-                    // УЛУЧШЕНО: Более точное отслеживание скорости цели для лучшего предсказания
+                    // ULTRA: Более точное отслеживание скорости и ускорения для лучшего предсказания
                     if (this.lastTargetPos.length() > 0) {
                         // Используем сглаживание для более стабильного предсказания
-                        const newVelocity = targetPos.subtract(this.lastTargetPos).scale(30); // ~30 fps
-                        // Сглаживаем скорость (70% новая, 30% старая) для уменьшения дрожания
-                        this.targetVelocity = this.targetVelocity.scale(0.3).add(newVelocity.scale(0.7));
+                        const newVelocity = targetPos.subtract(this.lastTargetPos).scale(60); // ~60 fps (ULTRA)
+                        // Сглаживаем скорость (80% новая, 20% старая) для быстрой реакции
+                        const smoothedVelocity = this.targetVelocity.scale(0.2).add(newVelocity.scale(0.8));
+
+                        // ULTRA: Вычисляем ускорение (a = Δv / Δt)
+                        const velocityChange = smoothedVelocity.subtract(this.lastTargetVelocity);
+                        this.targetAcceleration = this.targetAcceleration.scale(0.3).add(velocityChange.scale(0.7 * 60)); // Сглаживаем ускорение
+                        this.lastTargetVelocity.copyFrom(this.targetVelocity);
+                        this.targetVelocity = smoothedVelocity;
                     } else {
                         this.targetVelocity = Vector3.Zero();
+                        this.targetAcceleration = Vector3.Zero();
                     }
                     this.lastTargetPos.copyFrom(targetPos);
                     this.lastTargetSeenTime = now; // Запоминаем время последнего наблюдения

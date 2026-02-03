@@ -52,41 +52,65 @@ export const DEFAULT_AIRCRAFT_HUD_CONFIG: AircraftHUDConfig = {
 export class AircraftHUD {
     private guiTexture: AdvancedDynamicTexture;
     private config: AircraftHUDConfig;
-    
+
     // Aim Circle (цель мыши)
     private aimCircle: Ellipse | null = null;
     private aimCircleContainer: Rectangle | null = null;
-    
+
     // Heading Cross (направление самолёта)
     private headingCross: {
         horizontal: Rectangle;
         vertical: Rectangle;
         container: Rectangle;
     } | null = null;
-    
+
     // Stall warning
     private stallWarning: TextBlock | null = null;
-    
+
     // G-force indicator
     private gForceIndicator: TextBlock | null = null;
-    
+
     // Состояние
     private isVisible: boolean = false;
     private aimCircleScreenPos: Vector3 = new Vector3(0.5, 0.5, 0);
     private headingCrossScreenPos: Vector3 = new Vector3(0.5, 0.5, 0);
-    
+
     constructor(guiTexture: AdvancedDynamicTexture, config: Partial<AircraftHUDConfig> = {}) {
         this.guiTexture = guiTexture;
         this.config = { ...DEFAULT_AIRCRAFT_HUD_CONFIG, ...config };
-        
+
+        this.createDeadzoneCircle(); // Большой круг deadzone в центре
         this.createAimCircle();
         this.createHeadingCross();
         this.createStallWarning();
         this.createGForceIndicator();
-        
+
         this.setVisible(false);
     }
-    
+
+    // Deadzone boundary circle
+    private deadzoneCircle: Ellipse | null = null;
+
+    /**
+     * Создать большой круг в центре — граница deadzone
+     * Курсор может двигаться внутри без коррекций
+     */
+    private createDeadzoneCircle(): void {
+        this.deadzoneCircle = new Ellipse("aircraftDeadzoneCircle");
+        // Радиус 300px = диаметр 600px
+        const size = scalePixels(600);
+        this.deadzoneCircle.width = `${size}px`;
+        this.deadzoneCircle.height = `${size}px`;
+        this.deadzoneCircle.thickness = scalePixels(2);
+        this.deadzoneCircle.color = "rgba(100, 255, 100, 0.3)"; // Полупрозрачный зелёный
+        this.deadzoneCircle.background = "transparent";
+        this.deadzoneCircle.isHitTestVisible = false;
+        // По центру экрана
+        this.deadzoneCircle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.deadzoneCircle.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.guiTexture.addControl(this.deadzoneCircle);
+    }
+
     /**
      * Создать Aim Circle (цель мыши)
      */
@@ -97,8 +121,11 @@ export class AircraftHUD {
         this.aimCircleContainer.thickness = 0;
         this.aimCircleContainer.background = "transparent";
         this.aimCircleContainer.isHitTestVisible = false;
+        // ИСПРАВЛЕНО: Установка alignment для корректного позиционирования через left/top
+        this.aimCircleContainer.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.aimCircleContainer.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.guiTexture.addControl(this.aimCircleContainer);
-        
+
         // Внешний круг
         this.aimCircle = new Ellipse("aircraftAimCircle");
         const size = scalePixels(this.config.aimCircleSize);
@@ -108,7 +135,7 @@ export class AircraftHUD {
         this.aimCircle.color = this.config.aimCircleColor;
         this.aimCircle.background = "transparent";
         this.aimCircleContainer.addControl(this.aimCircle);
-        
+
         // Центральная точка
         const centerDot = new Ellipse("aircraftAimCircleDot");
         const dotSize = scalePixels(4);
@@ -118,7 +145,7 @@ export class AircraftHUD {
         centerDot.background = this.config.aimCircleColor;
         this.aimCircleContainer.addControl(centerDot);
     }
-    
+
     /**
      * Создать Heading Cross (направление самолёта)
      */
@@ -129,11 +156,14 @@ export class AircraftHUD {
         container.thickness = 0;
         container.background = "transparent";
         container.isHitTestVisible = false;
+        // ИСПРАВЛЕНО: Установка alignment для корректного позиционирования через left/top
+        container.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        container.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.guiTexture.addControl(container);
-        
+
         const crossSize = scalePixels(this.config.headingCrossSize);
         const thickness = scalePixels(this.config.lineThickness);
-        
+
         // Горизонтальная линия
         const horizontal = new Rectangle("aircraftHeadingCrossH");
         horizontal.width = `${crossSize}px`;
@@ -143,7 +173,7 @@ export class AircraftHUD {
         horizontal.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         horizontal.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         container.addControl(horizontal);
-        
+
         // Вертикальная линия
         const vertical = new Rectangle("aircraftHeadingCrossV");
         vertical.width = `${thickness}px`;
@@ -153,20 +183,20 @@ export class AircraftHUD {
         vertical.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         vertical.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         container.addControl(vertical);
-        
+
         this.headingCross = {
             horizontal,
             vertical,
             container
         };
     }
-    
+
     /**
      * Создать предупреждение о сваливании
      */
     private createStallWarning(): void {
         if (!this.config.showStallWarning) return;
-        
+
         this.stallWarning = new TextBlock("aircraftStallWarning");
         this.stallWarning.text = "STALL!";
         this.stallWarning.fontSize = scalePixels(24);
@@ -178,13 +208,13 @@ export class AircraftHUD {
         this.stallWarning.isVisible = false;
         this.guiTexture.addControl(this.stallWarning);
     }
-    
+
     /**
      * Создать индикатор G-force
      */
     private createGForceIndicator(): void {
         if (!this.config.showGForceIndicator) return;
-        
+
         this.gForceIndicator = new TextBlock("aircraftGForceIndicator");
         this.gForceIndicator.text = "G: 1.0";
         this.gForceIndicator.fontSize = scalePixels(18);
@@ -196,7 +226,7 @@ export class AircraftHUD {
         this.gForceIndicator.isVisible = false;
         this.guiTexture.addControl(this.gForceIndicator);
     }
-    
+
     /**
      * Обновить позицию Aim Circle на экране
      * @param screenX X координата (0-1)
@@ -205,24 +235,24 @@ export class AircraftHUD {
     updateAimCirclePosition(screenX: number, screenY: number): void {
         this.aimCircleScreenPos.x = Math.max(0, Math.min(1, screenX));
         this.aimCircleScreenPos.y = Math.max(0, Math.min(1, screenY));
-        
+
         if (this.aimCircleContainer) {
             // Преобразуем нормализованные координаты в пиксели
             const engine = this.guiTexture.getScene()?.getEngine();
             if (engine) {
                 const width = engine.getRenderWidth();
                 const height = engine.getRenderHeight();
-                
+
                 const pixelX = this.aimCircleScreenPos.x * width;
                 const pixelY = this.aimCircleScreenPos.y * height;
-                
+
                 // Устанавливаем позицию через left/top
                 this.aimCircleContainer.left = `${pixelX - 50}px`; // -50 для центрирования
                 this.aimCircleContainer.top = `${pixelY - 50}px`;
             }
         }
     }
-    
+
     /**
      * Обновить позицию Heading Cross на экране
      * @param screenX X координата (0-1)
@@ -231,22 +261,22 @@ export class AircraftHUD {
     updateHeadingCrossPosition(screenX: number, screenY: number): void {
         this.headingCrossScreenPos.x = Math.max(0, Math.min(1, screenX));
         this.headingCrossScreenPos.y = Math.max(0, Math.min(1, screenY));
-        
+
         if (this.headingCross) {
             const engine = this.guiTexture.getScene()?.getEngine();
             if (engine) {
                 const width = engine.getRenderWidth();
                 const height = engine.getRenderHeight();
-                
+
                 const pixelX = this.headingCrossScreenPos.x * width;
                 const pixelY = this.headingCrossScreenPos.y * height;
-                
+
                 this.headingCross.container.left = `${pixelX - 50}px`;
                 this.headingCross.container.top = `${pixelY - 50}px`;
             }
         }
     }
-    
+
     /**
      * Обновить предупреждение о сваливании
      * @param isStalling true если самолёт в сваливании
@@ -254,7 +284,7 @@ export class AircraftHUD {
     updateStallWarning(isStalling: boolean): void {
         if (this.stallWarning) {
             this.stallWarning.isVisible = isStalling && this.isVisible;
-            
+
             // Пульсация при сваливании
             if (isStalling) {
                 const pulse = Math.sin(Date.now() / 100) * 0.3 + 0.7;
@@ -264,7 +294,7 @@ export class AircraftHUD {
             }
         }
     }
-    
+
     /**
      * Обновить индикатор G-force
      * @param gForce Текущая перегрузка
@@ -272,7 +302,7 @@ export class AircraftHUD {
     updateGForceIndicator(gForce: number): void {
         if (this.gForceIndicator) {
             this.gForceIndicator.text = `G: ${gForce.toFixed(1)}`;
-            
+
             // Изменяем цвет в зависимости от перегрузки
             if (gForce > 7) {
                 this.gForceIndicator.color = "#ff0000"; // Красный при высокой перегрузке
@@ -283,13 +313,16 @@ export class AircraftHUD {
             }
         }
     }
-    
+
     /**
      * Показать/скрыть HUD
      */
     setVisible(visible: boolean): void {
         this.isVisible = visible;
-        
+
+        if (this.deadzoneCircle) {
+            this.deadzoneCircle.isVisible = visible;
+        }
         if (this.aimCircleContainer) {
             this.aimCircleContainer.isVisible = visible;
         }
@@ -303,7 +336,7 @@ export class AircraftHUD {
             this.gForceIndicator.isVisible = visible;
         }
     }
-    
+
     /**
      * Обновить HUD (вызывается каждый кадр)
      * @param aimCircleScreenPos Позиция Aim Circle на экране (0-1)
@@ -322,11 +355,14 @@ export class AircraftHUD {
         this.updateStallWarning(isStalling);
         this.updateGForceIndicator(gForce);
     }
-    
+
     /**
      * Dispose
      */
     dispose(): void {
+        if (this.deadzoneCircle) {
+            this.deadzoneCircle.dispose();
+        }
         if (this.aimCircleContainer) {
             this.aimCircleContainer.dispose();
         }

@@ -202,9 +202,10 @@ export const DEFAULT_AIRCRAFT_PHYSICS_CONFIG: AircraftPhysicsConfig = {
         zeroLiftDragCoefficient: 0.02,
         inducedDragFactor: 0.05,
 
-        maxThrust: 150000, // Н (150 кН)
-        minThrust: 20000, // Н (idle)
-        throttleRate: 0.5 // 50% в секунду
+        // ИСПРАВЛЕНО: Уменьшено для плавного разгона
+        maxThrust: 75000, // Н (75 кН) — было 150кН, слишком резкий разгон
+        minThrust: 10000, // Н (idle) — уменьшено
+        throttleRate: 0.3 // 30% в секунду — плавнее (было 0.5)
     },
 
     mouseAim: {
