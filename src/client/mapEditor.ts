@@ -13,6 +13,7 @@ import { createUniqueCannon, CannonAnimationElements } from "./tank/tankCannon";
 import { createVisualTracks } from "./tank/tankTracks";
 import { MODULE_PRESETS, ModuleType } from "./tank/modules/ModuleTypes";
 import { showLoading, hideLoading, setLoadingDescription } from "./loadingScreen";
+import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs";
 
 // ============================================
 // КОНСТАНТЫ
@@ -1388,9 +1389,9 @@ export class MapEditor {
         });
 
         this.container.querySelector("#new-map")?.addEventListener("click", () => {
-            if (confirm("Создать новую карту? Все несохраненные изменения будут потеряны.")) {
-                this.newMap();
-            }
+            inGameConfirm("Создать новую карту? Все несохраненные изменения будут потеряны.", "Редактор карт").then((ok) => {
+                if (ok) this.newMap();
+            });
         });
 
         // Кнопки отмены/повтора
@@ -4065,23 +4066,23 @@ export class MapEditor {
                 const index = parseInt(item.getAttribute("data-map-index") || "0");
                 const map = savedMaps[index];
                 if (map) {
-                    // Подтверждение если есть несохраненные изменения
+                    const performLoad = () => {
+                        this.mapData = JSON.parse(JSON.stringify(map)); // Глубокая копия
+                        dialog.remove();
+                        this.loadMapAsync(map.name).catch(error => {
+                            console.error("[MapEditor] Failed to load map async:", error);
+                            this.showNotification(`Ошибка загрузки карты`);
+                        });
+                    };
                     if (this.mapData.terrainEdits.length > 0 ||
                         this.mapData.placedObjects.length > 0 ||
                         this.mapData.triggers.length > 0) {
-                        if (!confirm("Загрузить карту? Все несохраненные изменения будут потеряны.")) {
-                            return;
-                        }
+                        inGameConfirm("Загрузить карту? Все несохраненные изменения будут потеряны.", "Редактор карт").then((ok) => {
+                            if (ok) performLoad();
+                        }).catch(() => {});
+                    } else {
+                        performLoad();
                     }
-
-                    this.mapData = JSON.parse(JSON.stringify(map)); // Глубокая копия
-                    dialog.remove();
-
-                    // Используем Promise-based загрузку
-                    this.loadMapAsync(map.name).catch(error => {
-                        console.error("[MapEditor] Failed to load map async:", error);
-                        this.showNotification(`Ошибка загрузки карты`);
-                    });
                 }
             });
         });
@@ -4206,7 +4207,7 @@ export class MapEditor {
         } catch (error) {
             console.error("[MapEditor] Failed to export map:", error);
             const errorMsg = error instanceof Error ? error.message : String(error);
-            alert(`Ошибка при экспорте карты: ${errorMsg}`);
+            inGameAlert(`Ошибка при экспорте карты: ${errorMsg}`, "Экспорт").catch(() => {});
         }
     }
 
@@ -4215,49 +4216,44 @@ export class MapEditor {
      */
     private importMapFromFile(): void {
         // Предупреждение о потере несохраненных изменений
-        if (this.mapData.terrainEdits.length > 0 ||
-            this.mapData.placedObjects.length > 0 ||
-            this.mapData.triggers.length > 0) {
-            if (!confirm("Импортировать карту? Все несохраненные изменения будут потеряны.")) {
-                return;
-            }
-        }
+        const doImport = () => {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = ".json";
+            input.onchange = (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (!file) return;
 
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = ".json";
-        input.onchange = (e) => {
-            const file = (e.target as HTMLInputElement).files?.[0];
-            if (!file) return;
+                const reader = new FileReader();
+                reader.onerror = () => {
+                    alert("Ошибка при чтении файла");
+                };
+                reader.onload = (event) => {
+                    try {
+                        const jsonData = event.target?.result as string;
+                        if (!jsonData || jsonData.trim() === "") {
+                            alert("Файл пуст или поврежден");
+                            return;
+                        }
 
-            const reader = new FileReader();
-            reader.onerror = () => {
-                alert("Ошибка при чтении файла");
-            };
-            reader.onload = (event) => {
-                try {
-                    const jsonData = event.target?.result as string;
-                    if (!jsonData || jsonData.trim() === "") {
-                        alert("Файл пуст или поврежден");
-                        return;
+                        if (this.importMap(jsonData)) {
+                            this.showNotification(`Карта "${this.mapData.name}" успешно импортирована!`);
+                            this.updateUI();
+                            this.updateUndoRedoButtons();
+                        } else {
+                            alert("Ошибка при импорте карты: неверный формат данных");
+                        }
+                    } catch (error) {
+                        console.error("[MapEditor] Import error:", error);
+                        const errorMsg = error instanceof Error ? error.message : String(error);
+                        alert(`Ошибка при импорте карты: ${errorMsg}`);
                     }
-
-                    if (this.importMap(jsonData)) {
-                        this.showNotification(`Карта "${this.mapData.name}" успешно импортирована!`);
-                        this.updateUI();
-                        this.updateUndoRedoButtons();
-                    } else {
-                        alert("Ошибка при импорте карты: неверный формат данных");
-                    }
-                } catch (error) {
-                    console.error("[MapEditor] Import error:", error);
-                    const errorMsg = error instanceof Error ? error.message : String(error);
-                    alert(`Ошибка при импорте карты: ${errorMsg}`);
-                }
+                };
+                reader.readAsText(file);
             };
-            reader.readAsText(file);
+            input.click();
         };
-        input.click();
+        doImport();
     }
 
     /**

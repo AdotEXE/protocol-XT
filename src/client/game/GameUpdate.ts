@@ -378,7 +378,8 @@ export class GameUpdate {
                 if (globalIntel.isEnabled()) {
                     // Проверяем, есть ли активный бой (хотя бы один живой враг)
                     const hasAliveEnemies = this.enemyTanks.some(e => e && e.isAlive && e.chassis && !e.chassis.isDisposed());
-                    const nowMs = Date.now();
+                    // ОПТИМИЗАЦИЯ: Используем timeProvider вместо Date.now()
+                    const nowMs = timeProvider.now;
                     globalIntel.tick(nowMs, hasAliveEnemies);
                 }
             }

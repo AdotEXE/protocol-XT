@@ -149,13 +149,13 @@ export class NetworkPlayerTank {
 
         // Validate scene
         if (!scene) {
-            console.error(`[NetworkPlayerTank] Cannot create tank: scene is null for player ${this.playerId}`);
+            logger.error(`[NetworkPlayerTank] Cannot create tank: scene is null for player ${this.playerId}`);
             throw new Error("Scene is required to create NetworkPlayerTank");
         }
 
         // Validate network player
         if (!networkPlayer || !networkPlayer.position) {
-            console.error(`[NetworkPlayerTank] Cannot create tank: invalid networkPlayer for ${this.playerId}`);
+            logger.error(`[NetworkPlayerTank] Cannot create tank: invalid networkPlayer for ${this.playerId}`);
             throw new Error("Valid networkPlayer with position is required");
         }
 
@@ -253,7 +253,7 @@ export class NetworkPlayerTank {
      * Used when receiving DRESS_UPDATE RPC or when player properties change.
      */
     updateParts(data: { chassisType?: string; cannonType?: string; trackType?: string; tankColor?: string; turretColor?: string }): void {
-        console.log(`[NetworkPlayerTank] 🛠️ Updating parts for ${this.playerId}:`, data);
+        logger.log(`[NetworkPlayerTank] 🛠️ Updating parts for ${this.playerId}:`, data);
 
         // Update local data
         if (data.chassisType) this.networkPlayer.chassisType = data.chassisType;
@@ -452,7 +452,7 @@ export class NetworkPlayerTank {
 
         // Логируем только если модули действительно изменились
         if (newModuleIds.length > 0 || currentModuleIds.length > 0) {
-            console.log(`[NetworkPlayerTank] Updating modules for ${this.playerId}:`, newModuleIds);
+            logger.log(`[NetworkPlayerTank] Updating modules for ${this.playerId}:`, newModuleIds);
         }
 
         // Clear existing
@@ -476,7 +476,7 @@ export class NetworkPlayerTank {
         // ДИНАМИЧЕСКИЙ расчёт offset на основе реальных размеров танка
         const offset = getAttachmentOffset(module.attachmentPoint, this.chassisType);
         if (offset.length() === 0 && module.attachmentPoint !== "barrel_mount") {
-            console.warn(`[NetworkPlayerTank] ⚠️ Unknown attachment point: ${module.attachmentPoint} for module ${module.id}`);
+            logger.warn(`[NetworkPlayerTank] ⚠️ Unknown attachment point: ${module.attachmentPoint} for module ${module.id}`);
             return;
         }
 
@@ -491,7 +491,7 @@ export class NetworkPlayerTank {
         }
 
         if (!parent) {
-            console.warn(`[NetworkPlayerTank] ⚠️ Parent mesh not ready for module ${module.id}`);
+            logger.warn(`[NetworkPlayerTank] ⚠️ Parent mesh not ready for module ${module.id}`);
             return;
         }
 
@@ -617,7 +617,7 @@ export class NetworkPlayerTank {
         try {
             color = Color3.FromHexString(turretColorHex || "#00ff00");
         } catch (e) {
-            console.warn(`[NetworkPlayerTank] ⚠️ Failed to parse turret color '${turretColorHex}', using green`);
+            logger.warn(`[NetworkPlayerTank] ⚠️ Failed to parse turret color '${turretColorHex}', using green`);
             color = new Color3(0, 1, 0);
         }
 
@@ -668,14 +668,14 @@ export class NetworkPlayerTank {
         const d = this.chassisType.depth;
         const turretDepth = d * 0.6; // Те же пропорции что в createDetailedTurret
         
-        // Для самолёта ствол направлен вперёд (в нос)
+        // Для самолёта ствол в носу: дуло точно в носу корпуса (как в TankController)
         const isPlane = this.chassisType.id === "plane";
         let baseBarrelZ: number;
         if (isPlane) {
-            // Для самолёта ствол в носу - позиция максимально вперёд от центра башни
-            baseBarrelZ = turretDepth / 2 + barrelLength / 2 + (d * 0.3); // Максимально вперёд в нос
+            const noseZInTurret = (d / 2) - (d * 0.6);
+            baseBarrelZ = noseZInTurret - barrelLength / 2;
         } else {
-            baseBarrelZ = turretDepth / 2 + barrelLength / 2; // Обычное положение
+            baseBarrelZ = turretDepth / 2 + barrelLength / 2;
         }
         barrel.position = new Vector3(0, 0, baseBarrelZ);
         barrel.parent = this.turret;
@@ -773,7 +773,7 @@ export class NetworkPlayerTank {
         this.rightTrack.isVisible = true;
         this.rightTrack.setEnabled(true);
 
-        console.log(`[NetworkPlayerTank] 🛤️ Tracks created for ${this.playerId}: trackType=${this.trackType.id}, size=${trackWidth}x${trackHeight}x${trackDepth}`);
+        logger.log(`[NetworkPlayerTank] 🛤️ Tracks created for ${this.playerId}: trackType=${this.trackType.id}, size=${trackWidth}x${trackHeight}x${trackDepth}`);
     }
 
     /**
@@ -801,7 +801,7 @@ export class NetworkPlayerTank {
                         if (this.networkPlayer.position instanceof Vector3) {
                             this.networkPlayer.position.y = targetY;
                         }
-                        console.log(`[NetworkPlayerTank] ${this.playerId} ✅ corrected spawn height from ${this.chassis.position.y.toFixed(2)} to ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
+                        logger.log(`[NetworkPlayerTank] ${this.playerId} ✅ corrected spawn height from ${this.chassis.position.y.toFixed(2)} to ${targetY.toFixed(2)} (ground: ${groundHeight.toFixed(2)})`);
                     }
                 } else {
                     // Fallback: минимум 2 метра если game недоступен
@@ -811,7 +811,7 @@ export class NetworkPlayerTank {
                         if (this.networkPlayer.position instanceof Vector3) {
                             this.networkPlayer.position.y = targetY;
                         }
-                        console.warn(`[NetworkPlayerTank] ${this.playerId} ⚠️ spawn height too low (${this.chassis.position.y.toFixed(2)}), forcing to 2.0`);
+                        logger.warn(`[NetworkPlayerTank] ${this.playerId} ⚠️ spawn height too low (${this.chassis.position.y.toFixed(2)}), forcing to 2.0`);
                     }
                 }
             });
@@ -835,27 +835,22 @@ export class NetworkPlayerTank {
     /**
      * Get the world position of the barrel muzzle (tip)
      * Used for spawning projectiles at the correct visual location
+     * Для самолёта учитывает, что pivot в носу
      */
     public getBarrelMuzzlePosition(): Vector3 {
         if (!this.barrel) {
-            // Fallback: center of tank + height
             return this.chassis ? this.chassis.getAbsolutePosition().add(new Vector3(0, 2, 0)) : Vector3.Zero();
         }
 
-        // Calculate barrel length (fallback to default if not set)
+        this.barrel.computeWorldMatrix(true);
         const barrelLength = this.cannonType.barrelLength || 3;
-
-        // Barrel pivot is at the center of the mesh (as created in createDetailedBarrel)
-        // So we take current barrel absolute position (center) and move forward by half length.
         const barrelPos = this.barrel.getAbsolutePosition();
-
-        // Get forward direction of the barrel
-        // Assuming the barrel mesh is aligned with Z axis being forward in local space
-        const forward = this.barrel.getDirection(Vector3.Forward());
-
-        // Add half length to reach the tip
-        // Added small offset (0.2) to ensure it spawns just outside the visual mesh
-        return barrelPos.add(forward.scale((barrelLength * 0.5) + 0.2));
+        const forward = this.barrel.getDirection(Vector3.Forward()).normalize();
+        const isPlane = this.chassisType.id === "plane";
+        
+        // Для самолёта pivot в носу, дуло точно в носу; для танка небольшой offset
+        const muzzleOffset = isPlane ? 0 : 0.2;
+        return barrelPos.add(forward.scale(barrelLength / 2 + muzzleOffset));
     }
 
     /**
@@ -891,7 +886,10 @@ export class NetworkPlayerTank {
                 // Восстанавливаем локальную позицию (как в createDetailedBarrel)
                 const barrelLength = this.cannonType.barrelLength || 3;
                 const turretDepth = d * 0.6;
-                const baseBarrelZ = turretDepth / 2 + barrelLength / 2;
+                const isPlane = this.chassisType.id === "plane";
+                const baseBarrelZ = isPlane
+                    ? (d / 2) - (d * 0.6) - barrelLength / 2
+                    : turretDepth / 2 + barrelLength / 2;
 
                 this.barrel.position.set(0, 0, baseBarrelZ);
                 this.barrel.rotation.y = 0;
@@ -930,7 +928,7 @@ export class NetworkPlayerTank {
             const dz = currentPos.z - targetZ;
             const distanceSq = dx * dx + dz * dz;
             if (distanceSq > 0.01 || this._updateCounter < 3) {
-                console.log(`[NetworkPlayerTank] ${this.playerId} update: target=(${targetX.toFixed(1)}, ${targetZ.toFixed(1)}), dist=${Math.sqrt(distanceSq).toFixed(2)}`);
+                logger.log(`[NetworkPlayerTank] ${this.playerId} update: target=(${targetX.toFixed(1)}, ${targetZ.toFixed(1)}), dist=${Math.sqrt(distanceSq).toFixed(2)}`);
             }
         }
 
@@ -1146,7 +1144,7 @@ export class NetworkPlayerTank {
         this._rotLogCounter++;
         /*
         if (this._rotLogCounter % 120 === 0) {
-            console.log(`[NPT] 🔄 Rotation: Pitch=${currentPitch.toFixed(2)}, Yaw=${currentYaw.toFixed(2)}, Roll=${currentRoll.toFixed(2)}`);
+            logger.log(`[NPT] 🔄 Rotation: Pitch=${currentPitch.toFixed(2)}, Yaw=${currentYaw.toFixed(2)}, Roll=${currentRoll.toFixed(2)}`);
         }
         */
 
@@ -1212,16 +1210,16 @@ export class NetworkPlayerTank {
         const currentStatus = this.networkPlayer.status || "alive";
         if (currentStatus !== this.prevStatus) {
             // DEBUG: Логируем изменение статуса для диагностики анимаций
-            console.log(`[NetworkPlayerTank] 🔄 Status change for ${this.playerId}: ${this.prevStatus} → ${currentStatus}`);
+            logger.log(`[NetworkPlayerTank] 🔄 Status change for ${this.playerId}: ${this.prevStatus} → ${currentStatus}`);
 
             // Respawn: dead -> alive
             if (this.prevStatus === "dead" && currentStatus === "alive") {
-                console.log(`[NetworkPlayerTank] ✨ Playing SPAWN effect for ${this.playerId}`);
+                logger.log(`[NetworkPlayerTank] ✨ Playing SPAWN effect for ${this.playerId}`);
                 this.playSpawnEffect();
             }
             // Death: alive -> dead (handled usually by onPlayerDied, but good as backup)
             if (this.prevStatus === "alive" && currentStatus === "dead") {
-                console.log(`[NetworkPlayerTank] 💀 Playing DEATH effect for ${this.playerId}`);
+                logger.log(`[NetworkPlayerTank] 💀 Playing DEATH effect for ${this.playerId}`);
                 this.playDeathEffect();
             }
             this.prevStatus = currentStatus;
@@ -2015,7 +2013,7 @@ export class NetworkPlayerTank {
      */
     attachModule(moduleId: string, moduleMesh: Mesh, attachTo: 'chassis' | 'turret', position: 'front' | 'back' | 'left' | 'right' | 'top'): boolean {
         if (!this.moduleAttachPoints) {
-            console.warn(`[NetworkPlayerTank] Module attach points not initialized for ${this.playerId}`);
+            logger.warn(`[NetworkPlayerTank] Module attach points not initialized for ${this.playerId}`);
             return false;
         }
 
@@ -2024,7 +2022,7 @@ export class NetworkPlayerTank {
         const attachPoint = this.moduleAttachPoints[attachTo][position];
 
         if (!parent || !attachPoint) {
-            console.warn(`[NetworkPlayerTank] Invalid attach point: ${attachTo}.${position}`);
+            logger.warn(`[NetworkPlayerTank] Invalid attach point: ${attachTo}.${position}`);
             return false;
         }
 
@@ -2037,7 +2035,7 @@ export class NetworkPlayerTank {
         // Сохраняем ссылку
         this.attachedModules.set(moduleId, moduleMesh);
 
-        console.log(`[NetworkPlayerTank] ✅ Module '${moduleId}' attached to ${attachTo}.${position} for ${this.playerId}`);
+        logger.log(`[NetworkPlayerTank] ✅ Module '${moduleId}' attached to ${attachTo}.${position} for ${this.playerId}`);
         return true;
     }
 
@@ -2055,7 +2053,7 @@ export class NetworkPlayerTank {
         moduleMesh.dispose();
         this.attachedModules.delete(moduleId);
 
-        console.log(`[NetworkPlayerTank] ✅ Module '${moduleId}' detached from ${this.playerId}`);
+        logger.log(`[NetworkPlayerTank] ✅ Module '${moduleId}' detached from ${this.playerId}`);
         return true;
     }
 
@@ -2128,7 +2126,7 @@ export class NetworkPlayerTank {
             }
         }
 
-        console.log(`[NetworkPlayerTank] 🔄 Modules synced for ${this.playerId}: ${modules.length} modules`);
+        logger.log(`[NetworkPlayerTank] 🔄 Modules synced for ${this.playerId}: ${modules.length} modules`);
     }
 
     /**
@@ -2213,3 +2211,4 @@ export class NetworkPlayerTank {
         this.moduleAttachPoints = null;
     }
 }
+

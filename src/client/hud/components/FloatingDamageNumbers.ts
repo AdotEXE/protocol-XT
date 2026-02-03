@@ -10,6 +10,7 @@ import {
     Control
 } from "@babylonjs/gui";
 import { Vector3, Scene, Camera, Viewport } from "@babylonjs/core";
+import { timeProvider } from "../../optimization/TimeProvider";
 
 export interface DamageNumberConfig {
     maxNumbers: number;        // Максимум одновременных чисел
@@ -172,10 +173,11 @@ export class FloatingDamageNumbers {
         const randomOffsetX = (Math.random() - 0.5) * 60;
 
         // Добавляем в активные
+        // ОПТИМИЗАЦИЯ: Используем timeProvider вместо Date.now()
         this.numbers.push({
             container: element.container,
             text: element.text,
-            startTime: Date.now(),
+            startTime: timeProvider.now,
             worldPosition: worldPosition.clone(),
             type,
             isCritical,
@@ -320,7 +322,8 @@ export class FloatingDamageNumbers {
      * Принудительная очистка старых чисел (на случай если update() не вызывается)
      */
     cleanupOldNumbers(maxAge: number = 5000): void {
-        const now = Date.now();
+        // ОПТИМИЗАЦИЯ: Используем timeProvider вместо Date.now()
+        const now = timeProvider.now;
         for (let i = this.numbers.length - 1; i >= 0; i--) {
             const num = this.numbers[i];
             if (!num) {

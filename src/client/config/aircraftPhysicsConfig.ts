@@ -90,18 +90,37 @@ export interface MouseAimConfig {
     alphaLimit: number;
     /** Включить автоматическое ограничение угла атаки */
     enableAlphaLimiter: boolean;
+
+    /** Усиление отклика на угловую ошибку (меньше = плавнее, без осцилляций) */
+    mouseAimGain: number;
+    /** Мёртвая зона по ошибке в радианах (больше = игнорировать микро-ошибки, плавнее) */
+    mouseAimDeadzone: number;
+    /** Множитель чувствительности мыши при pointer lock (накладывается на общую mouseSensitivity) */
+    pointerLockSensitivityMultiplier: number;
+    /** Сглаживание следования за курсором (0=макс. сглаживание, 1=без сглаживания). Меньше = плавнее */
+    mouseAimSmoothing: number;
+    /** Макс. изменение сглаженного pitch/roll/yaw за кадр — rate limit для строгого плавного следования */
+    maxSmoothedDeltaPerFrame: number;
+    /** Макс. угловая скорость вращения (рад/с) — плавнее при меньшем значении */
+    maxRotationSpeedRadPerSec: number;
+    /** Режим «следование за центром»: целевая угловая скорость = ошибка * gain (рад/с на рад), без накопления — замедление у центра */
+    mouseAimFollowGain: number;
+    /** Скорость приближения текущей угловой скорости к целевой за кадр (0–1). Больше = быстрее отклик */
+    mouseAimBlendToTarget: number;
 }
 
 /**
  * Конфигурация управления клавиатурой
  */
 export interface KeyboardOverrideConfig {
-    /** Чувствительность pitch при нажатии W/S */
+    /** Ускорение pitch (рад/с²) при нажатии Q/E — заметные изменения */
     pitchSensitivity: number;
-    /** Чувствительность roll при нажатии A/D */
+    /** Ускорение roll (рад/с²) при нажатии A/D */
     rollSensitivity: number;
-    /** Чувствительность yaw при нажатии Q/E */
+    /** Ускорение yaw (рад/с²) при нажатии Q/E (в коде не W/S) */
     yawSensitivity: number;
+    /** Макс. угловая скорость (рад/с) при управлении клавишами — выше чем у мыши, чтобы A/D/Q/E были заметны */
+    maxRotationSpeedRadPerSec: number;
 
     /** Приоритет клавиатуры над Mouse-Aim */
     keyboardOverridesMouseAim: boolean;
@@ -157,8 +176,17 @@ export interface AircraftPhysicsConfig {
 
     /** Включить автовыравнивание при отсутствии ввода */
     enableAutoLevel: boolean;
-    /** Сила автовыравнивания */
+    /** Сила автовыравнивания (крен + тангаж в уровень) */
     autoLevelStrength: number;
+    /** Сила разворота носом к центру камеры при отсутствии ввода */
+    cameraAlignGain: number;
+    /** Затухание угловой скорости при отпускании (0–1). Больше — быстрее плавный возврат к уровню и центру */
+    noInputAngularDamping: number;
+    /** Сила «подтяжки» в уровень при активном вводе (0=выкл., 0.2–0.25=слабая постоянная тяга к горизонту) */
+    levelAssistStrength: number;
+
+    /** Минимальная скорость (м/с) для показа предупреждения STALL — ниже не показываем */
+    stallWarningMinSpeed: number;
 
     /** Минимальная высота над землёй (м) */
     minAltitude: number;
@@ -215,26 +243,39 @@ export const DEFAULT_AIRCRAFT_PHYSICS_CONFIG: AircraftPhysicsConfig = {
         maxBankAngle: 0.785, // 45 градусов
         bankTransitionSpeed: 3.0,
         alphaLimit: 0.35, // ~20° — мягче, меньше ложных сваливаний
-        enableAlphaLimiter: true
+        enableAlphaLimiter: true,
+        mouseAimGain: 2.2,      // плавнее чем 4.0 — меньше осцилляций
+        mouseAimDeadzone: 0.05,  // больше чем 0.02 — игнорируем микро-дрожание
+        pointerLockSensitivityMultiplier: 0.4,
+        mouseAimSmoothing: 0.18,  // усиленное сглаживание — строго плавное следование за центром
+        maxSmoothedDeltaPerFrame: 0.018,  // rate limit: макс. изменение сглаженного ввода за кадр
+        maxRotationSpeedRadPerSec: 1.5,  // плавное вращение
+        mouseAimFollowGain: 1.2,          // целевая угл. скорость от ошибки — у центра естественное замедление
+        mouseAimBlendToTarget: 0.14       // плавный переход к целевой угловой скорости за кадр
     },
 
     keyboard: {
-        pitchSensitivity: 8.0,
-        rollSensitivity: 10.0,
-        yawSensitivity: 5.0,
+        pitchSensitivity: 14.0,   // рад/с² — заметный отклик на Q/E
+        rollSensitivity: 16.0,    // рад/с² — заметный отклик на A/D
+        yawSensitivity: 10.0,      // рад/с² — заметный отклик на Q/E
+        maxRotationSpeedRadPerSec: 2.8,  // при клавишах выше лимит, чем у мыши
         keyboardOverridesMouseAim: true
     },
 
     camera: {
-        chaseDistance: 150.0, // Очень далеко сзади — самолёт виден целиком
-        chaseHeight: 35.0,   // Высоко для обзора
+        chaseDistance: 25.0,  // Расстояние камеры сзади самолёта (м)
+        chaseHeight: 8.0,     // Высота камеры над самолётом (м)
         smoothness: 0.3,     // Быстрее реакция
         lagFactor: 0.05,    // Минимальная задержка — камера сразу на месте
         worldUpAlignment: true
     },
 
     enableAutoLevel: true,
-    autoLevelStrength: 2.0,
+    autoLevelStrength: 3.5,
+    cameraAlignGain: 2.0,
+    noInputAngularDamping: 0.82,  // при отпускании клавиш/мыши — плавный возврат к уровню и центру
+    levelAssistStrength: 0.22,  // слабая подтяжка в уровень при активном вводе (только мышь)
+    stallWarningMinSpeed: 8.0,  // ниже этой скорости (м/с) STALL! не показываем
     minAltitude: 15.0  // Самолёт должен стартовать выше земли (спавн ~1.2м)
 };
 

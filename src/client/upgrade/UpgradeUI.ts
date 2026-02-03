@@ -353,7 +353,8 @@ export class UpgradeUI {
     }
 
     /**
-     * Создать встроенную панель прокачки в существующем контейнере
+     * Создать встроенную панель прокачки в существующем контейнере (гараж, древо навыков).
+     * Удаляет прежнюю плавающую панель из DOM, если была.
      */
     createEmbedded(containerId: string): void {
         const parent = document.getElementById(containerId);
@@ -362,7 +363,12 @@ export class UpgradeUI {
             return;
         }
 
-        // Очищаем родителя
+        // Убираем старую панель из body, если была создана как плавающая
+        if (this.container && this.container.parentNode) {
+            this.container.parentNode.removeChild(this.container);
+            this.container = null;
+        }
+
         parent.innerHTML = '';
 
         this.container = document.createElement('div');

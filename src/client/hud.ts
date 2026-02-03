@@ -10192,11 +10192,9 @@ export class HUD {
     }
 
     public toggleMissionPanel(): void {
-        console.log("[HUD] toggleMissionPanel() called");
 
         // ИСПРАВЛЕНИЕ: Создаём панель миссий если она ещё не создана
         if (!this.missionPanel) {
-            console.log("[HUD] Creating mission panel on first toggle");
             this.createMissionPanel();
         }
 
@@ -10204,7 +10202,6 @@ export class HUD {
             this.missionPanelVisible = !this.missionPanelVisible;
             this.missionPanel.isVisible = this.missionPanelVisible;
             this.missionPanel.zIndex = 200; // Ensure high z-index
-            console.log(`[HUD] Mission panel visibility: ${this.missionPanelVisible}, zIndex: ${this.missionPanel.zIndex}`);
             // Если панель открывается, обновление списка миссий выполняется из game.ts (update)
         } else {
             console.error("[HUD] ERROR: missionPanel is null after creation attempt!");
@@ -11037,6 +11034,7 @@ export class HUD {
      * @param headingCrossScreenPos Позиция Heading Cross на экране (0-1)
      * @param isStalling Флаг сваливания
      * @param gForce Текущая перегрузка
+     * @param throttle Тяга 0–1
      * @param isVisible Показывать ли HUD (true если в самолёте)
      */
     public updateAircraftHUD(
@@ -11044,7 +11042,8 @@ export class HUD {
         headingCrossScreenPos: { x: number; y: number },
         isStalling: boolean,
         gForce: number,
-        isVisible: boolean
+        isVisible: boolean,
+        throttle: number = 0
     ): void {
         if (this.aircraftHUD) {
             this.aircraftHUD.setVisible(isVisible);
@@ -11053,7 +11052,8 @@ export class HUD {
                     aimCircleScreenPos,
                     headingCrossScreenPos,
                     isStalling,
-                    gForce
+                    gForce,
+                    throttle
                 );
             }
         }

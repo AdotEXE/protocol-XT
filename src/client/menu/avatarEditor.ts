@@ -29,19 +29,59 @@ export interface GeminiAvatarRequest {
     theme?: 'tank' | 'soldier' | 'vehicle' | 'character' | 'emblem';
 }
 
+type PixelVariant = PixelAvatarOptions['variant'];
+
+/** Вариант аватара и seed из текста описания (для fallback без API). */
+export function getVariantAndSeedFromDescription(description: string): { variant: PixelVariant; seed: number } {
+    const s = description.toLowerCase().trim();
+    const variants: PixelVariant[] = ['tank', 'soldier', 'commander', 'pilot', 'sniper', 'engineer', 'medic', 'spy', 'cyborg', 'ninja', 'viking', 'knight'];
+    const keywords: Record<PixelVariant, string[]> = {
+        tank: ['танк', 'tank', 'броня', 'пушка'],
+        soldier: ['солдат', 'soldier', 'пехота', 'пехотинец'],
+        commander: ['командир', 'commander'],
+        pilot: ['пилот', 'pilot', 'лётчик'],
+        sniper: ['снайпер', 'sniper'],
+        engineer: ['инженер', 'engineer'],
+        medic: ['медик', 'medic', 'санитар'],
+        spy: ['шпион', 'spy', 'разведчик'],
+        cyborg: ['киборг', 'cyborg'],
+        ninja: ['ниндзя', 'ninja'],
+        viking: ['викинг', 'viking'],
+        knight: ['рыцарь', 'knight']
+    };
+    for (const [variant, words] of Object.entries(keywords)) {
+        if (words.some(w => s.includes(w))) return { variant: variant as PixelVariant, seed: hashString(s) };
+    }
+    let hash = hashString(s);
+    return { variant: variants[Math.abs(hash) % variants.length], seed: hash };
+}
+
+function hashString(str: string): number {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) h = ((h << 5) - h) + str.charCodeAt(i) | 0;
+    return Math.abs(h) || 1;
+}
+
+/** Результат генерации: canvas и флаг, что использован fallback по описанию (без API). */
+export type GenerateAvatarResult = { canvas: HTMLCanvasElement; isFallback: boolean };
+
 /**
- * Генерирует аватар через Gemini API по описанию
+ * Генерирует аватар через Gemini API по описанию. При отсутствии ключа или ошибке API
+ * возвращает пиксельный аватар по описанию (вариант и seed из текста).
  */
 export async function generateAvatarWithGemini(request: GeminiAvatarRequest): Promise<HTMLCanvasElement | null> {
+    const fallback = (): HTMLCanvasElement => {
+        const { variant, seed } = getVariantAndSeedFromDescription(request.description || 'танк');
+        return generatePixelAvatar({ variant, seed });
+    };
+
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_GOOGLE_API_KEY || '';
-    
-    if (!apiKey) {
-        console.warn("[AvatarEditor] Gemini API key not found, using fallback generation");
-        return generatePixelAvatar({ variant: 'tank' });
+    if (!apiKey || apiKey.trim() === '') {
+        console.warn("[AvatarEditor] Gemini API key not set (VITE_GEMINI_API_KEY). Using description-based fallback.");
+        return fallback();
     }
 
     try {
-        // Динамический импорт GoogleGenAI
         const { GoogleGenAI, Type } = await import("@google/genai");
         const ai = new GoogleGenAI({ apiKey });
 
@@ -85,24 +125,40 @@ TECHNICAL CONSTRAINTS:
 
 Return ONLY valid JSON array, no markdown, no explanations, no code blocks.`;
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            x: { type: Type.INTEGER },
-                            y: { type: Type.INTEGER },
-                            color: { type: Type.STRING }
+        const modelsToTry = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b'];
+        let lastError: unknown = null;
+        let response: { text?: string } | null = null;
+
+        for (const model of modelsToTry) {
+            try {
+                response = await ai.models.generateContent({
+                    model,
+                    contents: prompt,
+                    config: {
+                        responseMimeType: "application/json",
+                        responseSchema: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    x: { type: Type.INTEGER },
+                                    y: { type: Type.INTEGER },
+                                    color: { type: Type.STRING }
+                                }
+                            }
                         }
                     }
-                }
+                });
+                break;
+            } catch (err) {
+                lastError = err;
+                continue;
             }
-        });
+        }
+
+        if (!response) {
+            throw lastError ?? new Error('Gemini API failed');
+        }
 
         let text = response.text || "[]";
         text = text.replace(/```json|```/g, '').trim();
@@ -113,31 +169,37 @@ Return ONLY valid JSON array, no markdown, no explanations, no code blocks.`;
             text = text.substring(firstBracket, lastBracket + 1);
         }
 
-        const pixels = JSON.parse(text) as Array<{ x: number; y: number; color: string }>;
-        
-        // Создаем canvas из пикселей
+        let pixels: Array<{ x: number; y: number; color: string }>;
+        try {
+            pixels = JSON.parse(text);
+        } catch {
+            throw new Error('Invalid JSON from API');
+        }
+        if (!Array.isArray(pixels) || pixels.length === 0) {
+            throw new Error('Empty or invalid pixel array');
+        }
+
         const canvas = document.createElement('canvas');
         canvas.width = 32;
         canvas.height = 32;
         const ctx = canvas.getContext('2d')!;
-        
-        // Очищаем canvas
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, 32, 32);
-        
-        // Рисуем пиксели
+
         pixels.forEach(pixel => {
-            if (pixel.x >= 0 && pixel.x < 32 && pixel.y >= 0 && pixel.y < 32) {
-                ctx.fillStyle = pixel.color;
-                ctx.fillRect(pixel.x, pixel.y, 1, 1);
+            const x = Number(pixel?.x);
+            const y = Number(pixel?.y);
+            const color = pixel?.color && /^#[0-9a-fA-F]{3,8}$/.test(String(pixel.color)) ? String(pixel.color) : '#0a0';
+            if (Number.isInteger(x) && Number.isInteger(y) && x >= 0 && x < 32 && y >= 0 && y < 32) {
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, 1, 1);
             }
         });
-        
+
         return canvas;
     } catch (error) {
         console.error("[AvatarEditor] Gemini generation failed:", error);
-        // Fallback на стандартную генерацию
-        return generatePixelAvatar({ variant: 'tank' });
+        return fallback();
     }
 }
 

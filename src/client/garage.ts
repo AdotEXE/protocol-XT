@@ -1,5 +1,6 @@
 // Garage System - HTML/CSS based UI for reliability
 import { CurrencyManager } from "./currencyManager";
+import { inGameAlert, inGameConfirm, inGamePrompt } from "./utils/inGameDialogs";
 import {
     Scene,
     Mesh,
@@ -86,7 +87,7 @@ export interface TankPart {
     };
 }
 
-type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop" | "skins" | "presets" | "workshop";
+type CategoryType = "chassis" | "cannons" | "tracks" | "modules" | "supplies" | "shop" | "skins" | "presets" | "workshop" | "upgrade";
 
 // ============ GARAGE CLASS ============
 export class Garage {
@@ -565,6 +566,17 @@ export class Garage {
                 padding: 8px;
                 min-width: 0;
             }
+            .garage-right-default {
+                display: flex;
+                flex-direction: column;
+                flex: 1;
+                min-height: 0;
+            }
+            .garage-upgrade-container {
+                flex: 1;
+                min-height: 0;
+                overflow-y: auto;
+            }
             .garage-preview {
                 height: 40%;
                 background: rgba(0,20,0,0.5);
@@ -962,7 +974,7 @@ export class Garage {
     isGarageOpen(): boolean { return this.isOpen; }
     getIsApplyingFromUI(): boolean { return this.isApplyingFromUI; }
 
-    open(): void {
+    open(initialCategory?: CategoryType): void {
         if (this.isOpen) return;
         console.log("[Garage] Opening HTML garage...");
 
@@ -1026,13 +1038,10 @@ export class Garage {
         // Запускаем fallback интервал для применения скина
         this.startSkinFallback();
 
-        // Показываем панель прокачки при открытии гаража
-        try {
-            upgradeUI.setVisible(true);
-        } catch (e) {
-            console.warn("[Garage] Failed to show upgrade UI:", e);
+        // Открыть на вкладке «ПРОКАЧКА», если запрошено (например из древа навыков)
+        if (initialCategory === 'upgrade') {
+            setTimeout(() => this.switchCategory('upgrade'), 50);
         }
-
         console.log("[Garage] Opened");
     }
 
@@ -1165,13 +1174,6 @@ export class Garage {
             }
         } catch (error) {
             console.error("[Garage] Error in close callback:", error);
-        }
-
-        // 9. Скрываем панель прокачки при закрытии гаража
-        try {
-            upgradeUI.setVisible(false);
-        } catch (e) {
-            console.warn("[Garage] Failed to hide upgrade UI:", e);
         }
 
         console.log("[Garage] Closed successfully");
@@ -3461,6 +3463,7 @@ export class Garage {
                     <div class="garage-tab ${this.currentCategory === 'shop' ? 'active' : ''}" data-cat="shop">[6] SHOP</div>
                     <div class="garage-tab ${this.currentCategory === 'presets' ? 'active' : ''}" data-cat="presets">[7] PRESETS</div>
                     <div class="garage-tab ${this.currentCategory === 'workshop' ? 'active' : ''}" data-cat="workshop">[8] WORKSHOP</div>
+                    <div class="garage-tab ${this.currentCategory === 'upgrade' ? 'active' : ''}" data-cat="upgrade">[9] ПРОКАЧКА</div>
                 </div>
                 <div class="garage-content">
                     <div class="garage-left">
@@ -3478,17 +3481,20 @@ export class Garage {
                         <div class="garage-items" id="garage-items-list"></div>
                     </div>
                     <div class="garage-right">
-                        <div class="garage-preview">
-                            <div class="garage-preview-title">[ CURRENT LOADOUT ]</div>
-                            <div class="garage-preview-info">
-                                CHASSIS: ${getChassisById(this.currentChassisId).name}<br>
-                                CANNON: ${getCannonById(this.currentCannonId).name}<br>
-                                TRACKS: ${getTrackById(this.currentTrackId).name}
+                        <div class="garage-right-default" id="garage-right-default">
+                            <div class="garage-preview">
+                                <div class="garage-preview-title">[ CURRENT LOADOUT ]</div>
+                                <div class="garage-preview-info">
+                                    CHASSIS: ${getChassisById(this.currentChassisId).name}<br>
+                                    CANNON: ${getCannonById(this.currentCannonId).name}<br>
+                                    TRACKS: ${getTrackById(this.currentTrackId).name}
+                                </div>
+                            </div>
+                            <div class="garage-details" id="garage-details">
+                                <div class="garage-details-title">[ SELECT AN ITEM ]</div>
                             </div>
                         </div>
-                        <div class="garage-details" id="garage-details">
-                            <div class="garage-details-title">[ SELECT AN ITEM ]</div>
-                        </div>
+                        <div class="garage-upgrade-container" id="garage-upgrade-container" style="display: none;"></div>
                     </div>
                 </div>
                 <div class="garage-footer">
@@ -3580,6 +3586,24 @@ export class Garage {
             tab.classList.toggle('active', tab.getAttribute('data-cat') === cat);
         });
 
+        // ПРОКАЧКА встроена в гараж: показываем панель прокачки справа, скрываем превью/детали
+        const rightDefault = this.overlay?.querySelector('#garage-right-default') as HTMLElement | null;
+        const upgradeContainer = this.overlay?.querySelector('#garage-upgrade-container') as HTMLElement | null;
+        if (rightDefault && upgradeContainer) {
+            if (cat === 'upgrade') {
+                rightDefault.style.display = 'none';
+                upgradeContainer.style.display = 'block';
+                try {
+                    upgradeUI.createEmbedded('garage-upgrade-container');
+                } catch (e) {
+                    console.warn('[Garage] Failed to embed upgrade UI:', e);
+                }
+            } else {
+                rightDefault.style.display = '';
+                upgradeContainer.style.display = 'none';
+            }
+        }
+
         this.refreshItemList();
     }
 
@@ -3644,7 +3668,8 @@ export class Garage {
                 }));
             case "presets": return this.getPresetParts(); // Пресеты танков
             case "workshop":
-                // Workshop не показывает список элементов, открывает отдельный UI
+                return [];
+            case "upgrade":
                 return [];
             default: return [];
         }
@@ -3712,24 +3737,21 @@ export class Garage {
     private saveCurrentConfigurationAsPreset(): void {
         if (!this.tankEditor) return;
 
-        const name = prompt("Имя пресета:", `Tank_${Date.now()}`);
-        if (!name) return;
-
-        const config: TankConfiguration = {
-            chassisId: this.currentChassisId,
-            cannonId: this.currentCannonId,
-            trackId: this.currentTrackId,
-            skinId: this.currentSkinId || "default",
-            name: name
-        };
-
-        this.tankEditor.setConfiguration(config);
-        this.tankEditor.saveConfiguration(name);
-        this.loadSavedTankConfigurations();
-        this.refreshItemList();
-
-        // Показываем уведомление
-        this.showNotification(`Пресет "${name}" сохранен!`, "success");
+        inGamePrompt("Имя пресета:", `Tank_${Date.now()}`, "Пресет").then((name) => {
+            if (!name) return;
+            const config: TankConfiguration = {
+                chassisId: this.currentChassisId,
+                cannonId: this.currentCannonId,
+                trackId: this.currentTrackId,
+                skinId: this.currentSkinId || "default",
+                name: name
+            };
+            this.tankEditor!.setConfiguration(config);
+            this.tankEditor!.saveConfiguration(name);
+            this.loadSavedTankConfigurations();
+            this.refreshItemList();
+            this.showNotification(`Пресет "${name}" сохранен!`, "success");
+        }).catch(() => {});
     }
 
     // Применить пресет танка (сохраняет как pending)
@@ -3855,8 +3877,8 @@ export class Garage {
 
         if (!preset) return;
 
-        const newName = prompt(`Введите новое имя для пресета "${presetId}":`, preset.name || presetId);
-        if (!newName || newName.trim() === '' || newName === preset.name) return;
+        inGamePrompt(`Введите новое имя для пресета "${presetId}":`, preset.name || presetId, "Переименовать").then((newName) => {
+            if (!newName || newName.trim() === '' || newName === preset.name) return;
 
         // Находим индекс пресета в сохраненных конфигурациях
         const presetIndex = this.savedTankConfigurations.findIndex(p =>
@@ -3894,11 +3916,13 @@ export class Garage {
             this.refreshItemList();
             this.showNotification(`Пресет переименован в "${newName}"!`, "success");
         }
+        }).catch(() => {});
     }
 
     // Удалить пресет
     private deletePreset(presetId: string): void {
-        if (!confirm(`Удалить пресет "${presetId}"?`)) return;
+        inGameConfirm(`Удалить пресет "${presetId}"?`, "Подтверждение").then((ok) => {
+            if (!ok) return;
 
         if (!this.tankEditor) return;
 
@@ -3908,11 +3932,12 @@ export class Garage {
         );
 
         if (presetIndex >= 0) {
-            this.tankEditor.deleteSavedConfiguration(presetIndex);
+            this.tankEditor!.deleteSavedConfiguration(presetIndex);
             this.loadSavedTankConfigurations();
             this.refreshItemList();
             this.showNotification(`Пресет "${presetId}" удален!`, "info");
         }
+        }).catch(() => {});
     }
 
     // === МЕТОДЫ ДЛЯ РАБОТЫ С ПРЕСЕТАМИ ПО СЛОТАМ ===
@@ -3929,38 +3954,32 @@ export class Garage {
             return;
         }
 
-        const name = prompt("Введите имя для пресета:", `Пресет ${slotIndex + 1}`);
-        if (!name || !name.trim()) return;
-
-        const config: TankConfiguration = {
-            chassisId: this.currentChassisId,
-            cannonId: this.currentCannonId,
-            trackId: this.currentTrackId,
-            skinId: this.currentSkinId || "default",
-            name: name.trim()
-        };
-
-        // Сохраняем в конкретный слот
-        try {
-            const saved = localStorage.getItem("savedTankConfigurations");
-            const configs: TankConfiguration[] = saved ? JSON.parse(saved) : [];
-
-            // Убеждаемся, что массив имеет нужную длину
-            while (configs.length < slotIndex) {
-                configs.push(null as any); // Заполняем пустыми слотами
+        inGamePrompt("Введите имя для пресета:", `Пресет ${slotIndex + 1}`, "Пресет").then((name) => {
+            if (!name || !name.trim()) return;
+            const config: TankConfiguration = {
+                chassisId: this.currentChassisId,
+                cannonId: this.currentCannonId,
+                trackId: this.currentTrackId,
+                skinId: this.currentSkinId || "default",
+                name: name.trim()
+            };
+            try {
+                const saved = localStorage.getItem("savedTankConfigurations");
+                const configs: TankConfiguration[] = saved ? JSON.parse(saved) : [];
+                while (configs.length < slotIndex) {
+                    configs.push(null as any);
+                }
+                configs[slotIndex] = config;
+                localStorage.setItem("savedTankConfigurations", JSON.stringify(configs.filter(c => c !== null)));
+            } catch (e) {
+                console.warn("Failed to save preset:", e);
+                this.showNotification("Ошибка сохранения пресета!", "error");
+                return;
             }
-
-            configs[slotIndex] = config;
-            localStorage.setItem("savedTankConfigurations", JSON.stringify(configs.filter(c => c !== null)));
-        } catch (e) {
-            console.warn("Failed to save preset:", e);
-            this.showNotification("Ошибка сохранения пресета!", "error");
-            return;
-        }
-
-        this.loadSavedTankConfigurations();
-        this.refreshItemList();
-        this.showNotification(`Пресет "${name}" создан!`, "success");
+            this.loadSavedTankConfigurations();
+            this.refreshItemList();
+            this.showNotification(`Пресет "${name}" создан!`, "success");
+        }).catch(() => {});
     }
 
     /**
@@ -4043,27 +4062,26 @@ export class Garage {
             return;
         }
 
-        const newName = prompt("Новое имя пресета:", preset.name || `Пресет ${slotIndex + 1}`);
-        if (!newName || !newName.trim()) return;
-
-        try {
-            const saved = localStorage.getItem("savedTankConfigurations");
-            if (saved) {
-                const configs: TankConfiguration[] = JSON.parse(saved);
-                if (configs[slotIndex]) {
-                    configs[slotIndex].name = newName.trim();
-                    localStorage.setItem("savedTankConfigurations", JSON.stringify(configs));
+        inGamePrompt("Новое имя пресета:", preset.name || `Пресет ${slotIndex + 1}`, "Переименовать").then((newName) => {
+            if (!newName || !newName.trim()) return;
+            try {
+                const saved = localStorage.getItem("savedTankConfigurations");
+                if (saved) {
+                    const configs: TankConfiguration[] = JSON.parse(saved);
+                    if (configs[slotIndex]) {
+                        configs[slotIndex].name = newName.trim();
+                        localStorage.setItem("savedTankConfigurations", JSON.stringify(configs));
+                    }
                 }
+            } catch (e) {
+                console.warn("Failed to rename preset:", e);
+                this.showNotification("Ошибка переименования!", "error");
+                return;
             }
-        } catch (e) {
-            console.warn("Failed to rename preset:", e);
-            this.showNotification("Ошибка переименования!", "error");
-            return;
-        }
-
-        this.loadSavedTankConfigurations();
-        this.refreshItemList();
-        this.showNotification(`Пресет переименован в "${newName}"!`, "success");
+            this.loadSavedTankConfigurations();
+            this.refreshItemList();
+            this.showNotification(`Пресет переименован в "${newName}"!`, "success");
+        }).catch(() => {});
     }
 
     /**
@@ -4078,24 +4096,24 @@ export class Garage {
             return;
         }
 
-        if (!confirm(`Удалить пресет "${preset.name || `Пресет ${slotIndex + 1}`}"?`)) return;
-
-        try {
-            const saved = localStorage.getItem("savedTankConfigurations");
-            if (saved) {
-                const configs: TankConfiguration[] = JSON.parse(saved);
-                configs.splice(slotIndex, 1);
-                localStorage.setItem("savedTankConfigurations", JSON.stringify(configs));
+        inGameConfirm(`Удалить пресет "${preset.name || `Пресет ${slotIndex + 1}`}"?`, "Подтверждение").then((ok) => {
+            if (!ok) return;
+            try {
+                const saved = localStorage.getItem("savedTankConfigurations");
+                if (saved) {
+                    const configs: TankConfiguration[] = JSON.parse(saved);
+                    configs.splice(slotIndex, 1);
+                    localStorage.setItem("savedTankConfigurations", JSON.stringify(configs));
+                }
+            } catch (e) {
+                console.warn("Failed to delete preset:", e);
+                this.showNotification("Ошибка удаления!", "error");
+                return;
             }
-        } catch (e) {
-            console.warn("Failed to delete preset:", e);
-            this.showNotification("Ошибка удаления!", "error");
-            return;
-        }
-
-        this.loadSavedTankConfigurations();
-        this.refreshItemList();
-        this.showNotification(`Пресет удалён!`, "info");
+            this.loadSavedTankConfigurations();
+            this.refreshItemList();
+            this.showNotification(`Пресет удалён!`, "info");
+        }).catch(() => {});
     }
 
     // Показать уведомление

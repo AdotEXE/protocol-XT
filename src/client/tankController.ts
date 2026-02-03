@@ -680,7 +680,8 @@ export class TankController {
             this.applyUpgrades();
             // HUD notification is handled by UpgradeUI listeners, but we can add effects here
             if (this.effectsManager) {
-                // TODO: Add level up particle effect
+                // NOTE: Можно добавить particle effect при повышении уровня
+                // Например: this.effectsManager.createLevelUpEffect(this.chassis.position);
             }
         });
 
@@ -1205,14 +1206,13 @@ export class TankController {
         const barrelWidth = this.cannonType.barrelWidth;
         const barrelLength = this.cannonType.barrelLength;
 
-        // Для самолёта ствол направлен вперёд (в нос)
+        // Для самолёта ствол в носу: дуло точно в носу корпуса (depth/2 в chassis space)
         const isPlane = this.chassisType.id === "plane";
         let baseBarrelZ: number;
         if (isPlane) {
-            // Для самолёта ствол в носу - позиция максимально вперёд от центра башни
-            // Башня уже смещена вперёд (depth * 0.6), так что ствол должен быть ещё дальше вперёд
-            // Ствол должен быть в самом носу самолёта
-            baseBarrelZ = turretDepth / 2 + barrelLength / 2 + (this.chassisType.depth * 0.3); // Максимально вперёд в нос
+            // Нос в локальном пространстве башни: depth/2 - turretPosZ = depth/2 - depth*0.6 = depth*(-0.1)
+            const noseZInTurret = (this.chassisType.depth / 2) - (this.chassisType.depth * 0.6);
+            baseBarrelZ = noseZInTurret - barrelLength / 2; // центр ствола так, чтобы дуло было в носу
         } else {
             baseBarrelZ = turretDepth / 2 + barrelLength / 2; // Обычное положение
         }
@@ -1228,7 +1228,10 @@ export class TankController {
         this.barrel.isOccluded = false;
         this.barrel.receiveShadows = false;
 
-        const pivotPoint = new Vector3(0, 0, -barrelLength / 2);
+        // Для самолёта pivot в носу (дуло), чтобы тангаж вращался вокруг носа
+        const pivotPoint = isPlane
+            ? new Vector3(0, 0, barrelLength / 2)
+            : new Vector3(0, 0, -barrelLength / 2);
         this.barrel.setPivotPoint(pivotPoint);
 
         this._baseBarrelZ = baseBarrelZ;
@@ -1401,7 +1404,7 @@ export class TankController {
             if (this.onRespawnRequest) {
                 this.onRespawnRequest();
             } else {
-                console.warn("[TankController] No onRespawnRequest callback sent!");
+                logger.warn("[TankController] No onRespawnRequest callback sent!");
             }
         });
     }
@@ -2855,10 +2858,12 @@ export class TankController {
             const barrelPosition = this.barrel.getAbsolutePosition();
             const barrelDirection = this.barrel.getDirection(Vector3.Forward()).normalize();
 
-            // Вычисляем позицию дула
-            const barrelLength = this.cannonType.barrelLength || 2;
-            const muzzlePosition = barrelPosition.add(barrelDirection.scale(barrelLength));
-            muzzlePosition.y += 0.3; // Немного выше для визуализации
+            // Используем универсальный метод для расчёта позиции дула
+            const muzzlePosition = this.getMuzzlePosition();
+            // Для визуализации траектории немного выше (только для танка)
+            if (this.chassisType.id !== "plane") {
+                muzzlePosition.y += 0.3;
+            }
 
             // Обновляем или создаем линию траектории
             this.aimTrajectoryLine = updateTrajectoryLine(
@@ -2874,7 +2879,7 @@ export class TankController {
                 this.aimTrajectoryLine.setEnabled(true);
             }
         } catch (error) {
-            console.warn("[TankController] Failed to update aim trajectory:", error);
+            logger.warn("[TankController] Failed to update aim trajectory:", error);
         }
     }
 
@@ -3094,11 +3099,8 @@ export class TankController {
                 }
             }
 
-            // ВАЖНО: После установки pivot, позиция дула должна рассчитываться на основе реального направления выстрела
-            // Используем shootDirection (forward) для расчета позиции дула, так как это правильное направление
-            // Позиция дула = центр ствола + направление выстрела * (половина длины + смещение вперед для избежания коллизии)
-            const muzzleOffset = 0.3; // Смещение вперед от конца ствола для избежания коллизии с самим стволом
-            const muzzlePos = barrelCenter.add(forward.scale(barrelLength / 2 + muzzleOffset));
+            // Используем универсальный метод для расчёта позиции дула (учитывает самолёт/танк)
+            const muzzlePos = this.getMuzzlePosition();
 
 
 
@@ -3145,7 +3147,7 @@ export class TankController {
             // FAILSAFE: Если через 2x cooldown reload всё еще active - принудительно сбрасываем
             setTimeout(() => {
                 if (this.isReloading) {
-                    console.warn('[TankController] FAILSAFE: Reload was stuck, forcing reset');
+                    logger.warn('[TankController] FAILSAFE: Reload was stuck, forcing reset');
                     this.isReloading = false;
                 }
             }, this.cooldown * 2 + 500);
@@ -3546,7 +3548,7 @@ export class TankController {
 
                         if (distSqToSegment < CAPSULE_RADIUS_SQ) {
                             hasHit = true;
-                            console.log(`[TankController] 🎯 CAPSULE HIT on network player ${playerId}!`);
+                            combatLogger.log(`[TankController] 🎯 CAPSULE HIT on network player ${playerId}!`);
 
                             // Get damage from projectile metadata
                             const bulletDamage = bulletMeta?.damage || 25;
@@ -3684,7 +3686,7 @@ export class TankController {
 
                         if (distSqToSegment < CAPSULE_RADIUS_SQ) {
                             hasHit = true;
-                            console.log(`[TankController] 🎯 CAPSULE HIT on network player ${playerId}!`);
+                            combatLogger.log(`[TankController] 🎯 CAPSULE HIT on network player ${playerId}!`);
 
                             // Get damage from projectile metadata
                             const bulletDamage = bulletMeta?.damage || 25;
@@ -4591,7 +4593,7 @@ export class TankController {
             // FAILSAFE: Если через 2x cooldown reload всё еще active - принудительно сбрасываем
             setTimeout(() => {
                 if (this.isReloading) {
-                    console.warn('[TankController] FAILSAFE: Tracer reload was stuck, forcing reset');
+                    logger.warn('[TankController] FAILSAFE: Tracer reload was stuck, forcing reset');
                     this.isReloading = false;
                 }
             }, this.cooldown * 2 + 500);
@@ -4612,10 +4614,8 @@ export class TankController {
             const barrelWorldMatrix = this.barrel.getWorldMatrix();
             const barrelForward = Vector3.TransformNormal(Vector3.Forward(), barrelWorldMatrix).normalize();
 
-            // Получаем позицию конца ствола (дульный срез)
-            const barrelLength = this.cannonType.barrelLength;
-            const barrelCenter = this.barrel.getAbsolutePosition();
-            const muzzlePos = barrelCenter.add(barrelForward.scale(barrelLength / 2));
+            // Используем универсальный метод для расчёта позиции дула
+            const muzzlePos = this.getMuzzlePosition();
 
             // Направление выстрела = реальное направление ствола (строго по траектории ствола)
             const shootDirection = barrelForward.clone();
@@ -4954,7 +4954,7 @@ export class TankController {
         if (!this.showProjectileTrajectory) {
             this.clearTrajectoryLines();
         }
-        console.log(`[TankController] 🎯 Projectile trajectory: ${this.showProjectileTrajectory ? 'ON (RED)' : 'OFF'}`);
+        logger.log(`[TankController] 🎯 Projectile trajectory: ${this.showProjectileTrajectory ? 'ON (RED)' : 'OFF'}`);
         return this.showProjectileTrajectory;
     }
 
@@ -6568,8 +6568,8 @@ export class TankController {
                 }
             }
 
-            // Применяем откат к позиции пушки (относительно башни)
-            if (this.barrel && !this.barrel.isDisposed() && this._baseBarrelZ > 0) {
+            // Применяем откат к позиции пушки (относительно башни); для самолёта _baseBarrelZ может быть < 0
+            if (this.barrel && !this.barrel.isDisposed() && isFinite(this._baseBarrelZ)) {
                 if (isFinite(this.barrelRecoilOffset) && isFinite(this._barrelRecoilY)) {
                     // Сначала применяем откат
                     const baseZ = this._baseBarrelZ + this.barrelRecoilOffset;
@@ -6753,6 +6753,29 @@ export class TankController {
      * Получить кэшированную позицию ствола
      * Возвращает position (локальная позиция относительно башни)
      */
+    /**
+     * Получить позицию дула ствола (muzzle position)
+     * Для самолёта учитывает, что pivot в носу, поэтому дуло = центр ствола + forward * (barrelLength/2)
+     * Для танка: дуло = центр ствола + forward * (barrelLength/2 + offset)
+     */
+    public getMuzzlePosition(): Vector3 {
+        if (!this.barrel || this.barrel.isDisposed()) {
+            const chassisPos = this.chassis?.getAbsolutePosition() || Vector3.Zero();
+            return chassisPos.add(new Vector3(0, 2, 0)); // Fallback
+        }
+
+        this.barrel.computeWorldMatrix(true);
+        const barrelCenter = this.barrel.getAbsolutePosition();
+        const barrelForward = this.barrel.getDirection(Vector3.Forward()).normalize();
+        const barrelLength = this.cannonType.barrelLength;
+        const isPlane = this.chassisType.id === "plane";
+        
+        // Для самолёта pivot в носу, дуло точно в носу = центр + forward * (barrelLength/2)
+        // Для танка добавляем небольшой offset для избежания коллизии
+        const muzzleOffset = isPlane ? 0 : 0.3;
+        return barrelCenter.add(barrelForward.scale(barrelLength / 2 + muzzleOffset));
+    }
+
     getCachedBarrelPosition(): Vector3 | null {
         return this._cachedBarrelPosition;
     }
@@ -6800,8 +6823,8 @@ export class TankController {
         const barrelPos = this.barrel.getAbsolutePosition();
         const barrelForward = this.barrel.getDirection(Vector3.Forward()).normalize();
 
-        // Получаем позицию дула ствола (как при выстреле)
-        const muzzlePos = barrelPos.add(barrelForward.scale(1.5));
+        // Используем универсальный метод для расчёта позиции дула
+        const muzzlePos = this.getMuzzlePosition();
 
         // Создаём стенку перед дулом ствола на расстоянии 2 метра
         const wallPos = muzzlePos.add(barrelForward.scale(2));
@@ -7723,7 +7746,7 @@ export class TankController {
      * Полностью удаляет платформу и сбрасывает состояние
      */
     private destroyModule9Platform(): void {
-        console.log("[TANK] Destroying platform module");
+        logger.log("[TANK] Destroying platform module");
 
         // Удаляем физику
         if (this.module9PlatformPhysics) {

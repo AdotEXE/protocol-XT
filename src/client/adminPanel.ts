@@ -1,6 +1,7 @@
 import { Game } from "./game";
 import { MultiplayerManager } from "./multiplayer";
 import { logger } from "./utils/logger";
+import { inGameConfirm } from "./utils/inGameDialogs";
 
 /**
  * AdminPanel
@@ -240,26 +241,28 @@ export class AdminPanel {
     }
 
     private kickPlayer(id: string): void {
-        if (confirm(`Kick player ${id}?`) && this.game.multiplayerManager) {
-            this.game.multiplayerManager.kickPlayer(id);
-        }
+        inGameConfirm(`Kick player ${id}?`, "Admin").then((ok) => {
+            if (ok && this.game.multiplayerManager) {
+                this.game.multiplayerManager.kickPlayer(id);
+            }
+        }).catch(() => {});
     }
 
     private changeMap(): void {
         const select = document.getElementById('admin-map-select') as HTMLSelectElement;
         const mapType = select.value;
-        if (confirm(`Change map to ${mapType}?`) && this.game.multiplayerManager) {
-            this.game.multiplayerManager.changeRoomSettings({ mapType });
-        }
+        inGameConfirm(`Change map to ${mapType}?`, "Admin").then((ok) => {
+            if (ok && this.game.multiplayerManager) {
+                this.game.multiplayerManager.changeRoomSettings({ mapType });
+            }
+        }).catch(() => {});
     }
 
     private restartGame(): void {
-        if (confirm("Restart match?")) {
-            // Implementation depends on server logic support for restart
-            // For now, we can just reload map as a "soft" restart
-            if (this.game.multiplayerManager) {
+        inGameConfirm("Restart match?", "Admin").then((ok) => {
+            if (ok && this.game.multiplayerManager) {
                 this.game.multiplayerManager.changeRoomSettings({ mapType: this.game.currentMapType });
             }
-        }
+        }).catch(() => {});
     }
 }

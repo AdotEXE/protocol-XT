@@ -1352,16 +1352,18 @@ export class TankHealthModule {
         }
 
         if (tank.barrel && tank.turret) {
-            // Убеждаемся что ствол является дочерним элементом башни
             if (tank.barrel.parent !== tank.turret) {
                 tank.barrel.parent = tank.turret;
             }
-            // Сбрасываем локальную позицию ствола
             const barrelLength = tank.cannonType.barrelLength;
-            // turretDepth вычисляется: chassisType.depth * 0.6
             const turretDepth = tank.chassisType.depth * 0.6;
-            tank.barrel.position.set(0, 0, turretDepth / 2 + barrelLength / 2);
-            // КРИТИЧНО: Сначала сбрасываем rotationQuaternion, иначе rotation.set игнорируется
+            const isPlane = (tank.chassisType as { id?: string })?.id === "plane";
+            if (isPlane) {
+                const noseZInTurret = (tank.chassisType.depth / 2) - (tank.chassisType.depth * 0.6);
+                tank.barrel.position.set(0, 0, noseZInTurret - barrelLength / 2);
+            } else {
+                tank.barrel.position.set(0, 0, turretDepth / 2 + barrelLength / 2);
+            }
             if (tank.barrel.rotationQuaternion) {
                 tank.barrel.rotationQuaternion = null;
             }

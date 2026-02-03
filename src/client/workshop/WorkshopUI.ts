@@ -12,6 +12,7 @@
 
 import { Scene } from '@babylonjs/core';
 import { CommonStyles } from '../commonStyles';
+import { inGameAlert, inGamePrompt } from '../utils/inGameDialogs';
 import { initPreviewScene, cleanupPreviewScene, updatePreviewTank, type PreviewScene, type PreviewTank } from '../garage/preview';
 import { getChassisById, getCannonById } from '../tankTypes';
 import { ConfigurationManager } from './ConfigurationManager';
@@ -285,7 +286,7 @@ export class WorkshopUI {
         const name = nameInput?.value || 'Custom Tank';
 
         if (!name.trim()) {
-            alert('Введите имя танка!');
+            inGameAlert('Введите имя танка!', 'Мастерская').catch(() => {});
             return;
         }
 
@@ -358,25 +359,22 @@ export class WorkshopUI {
     private loadTank(): void {
         const all = ConfigurationManager.loadAll();
         if (all.length === 0) {
-            alert('Нет сохранённых танков');
+            inGameAlert('Нет сохранённых танков', 'Мастерская').catch(() => {});
             return;
         }
-
-        // Простой список для выбора
         const list = all.map((t, i) => `${i + 1}. ${t.name} (${t.id})`).join('\n');
-        const selected = prompt(`Выберите танк (введите номер 1-${all.length}):\n${list}`);
-        if (!selected) return;
-
-        const index = parseInt(selected) - 1;
-        if (isNaN(index) || index < 0 || index >= all.length) {
-            alert('Неверный номер!');
-            return;
-        }
-
-        const config = all[index];
-        if (config) {
-            this.loadConfiguration(config);
-        }
+        inGamePrompt(`Выберите танк (введите номер 1-${all.length}):\n${list}`, "1", "Загрузить танк").then((selected) => {
+            if (!selected) return;
+            const index = parseInt(selected) - 1;
+            if (isNaN(index) || index < 0 || index >= all.length) {
+                inGameAlert('Неверный номер!', 'Мастерская').catch(() => {});
+                return;
+            }
+            const config = all[index];
+            if (config) {
+                this.loadConfiguration(config);
+            }
+        }).catch(() => {});
     }
 
     private loadConfiguration(config: CustomTankConfiguration): void {
@@ -474,7 +472,7 @@ export class WorkshopUI {
 
         // Сохраняем во временное хранилище для теста
         localStorage.setItem('testCustomTank', JSON.stringify(config));
-        alert('Танк сохранён для теста. Перезапустите игру (респавн) чтобы применить изменения.');
+        inGameAlert('Танк сохранён для теста. Перезапустите игру (респавн) чтобы применить изменения.', 'Мастерская').catch(() => {});
         console.log('[Workshop] Test tank saved:', config);
     }
 

@@ -31,6 +31,10 @@ export interface AircraftHUDConfig {
     showStallWarning: boolean;
     /** Показывать ли G-force indicator */
     showGForceIndicator: boolean;
+    /** Показывать подсказку по управлению (исчезает через N сек) */
+    showControlsHint: boolean;
+    /** Через сколько мс скрыть подсказку */
+    controlsHintDurationMs: number;
 }
 
 /**
@@ -43,7 +47,9 @@ export const DEFAULT_AIRCRAFT_HUD_CONFIG: AircraftHUDConfig = {
     headingCrossSize: 30,
     lineThickness: 2,
     showStallWarning: true,
-    showGForceIndicator: true
+    showGForceIndicator: true,
+    showControlsHint: true,
+    controlsHintDurationMs: 15000
 };
 
 /**
@@ -70,6 +76,13 @@ export class AircraftHUD {
     // G-force indicator
     private gForceIndicator: TextBlock | null = null;
 
+    // Throttle indicator (газ %)
+    private throttleIndicator: TextBlock | null = null;
+
+    // Подсказка по управлению (показывается при входе в самолёт, исчезает через N сек)
+    private controlsHint: TextBlock | null = null;
+    private firstVisibleTime: number = 0;
+
     // Состояние
     private isVisible: boolean = false;
     private aimCircleScreenPos: Vector3 = new Vector3(0.5, 0.5, 0);
@@ -84,8 +97,23 @@ export class AircraftHUD {
         this.createHeadingCross();
         this.createStallWarning();
         this.createGForceIndicator();
+        this.createThrottleIndicator();
+        this.createControlsHint();
 
         this.setVisible(false);
+    }
+
+    private createControlsHint(): void {
+        if (!this.config.showControlsHint) return;
+        this.controlsHint = new TextBlock("aircraftControlsHint");
+        this.controlsHint.text = "Мышь — направление | W/S — газ | A/D — крен | Q/E — тангаж | Shift — обзор";
+        this.controlsHint.fontSize = scalePixels(10);
+        this.controlsHint.color = "rgba(0, 255, 0, 0.85)";
+        this.controlsHint.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.controlsHint.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+        this.controlsHint.top = "-32px";
+        this.controlsHint.isVisible = false;
+        this.guiTexture.addControl(this.controlsHint);
     }
 
     // Deadzone boundary circle
@@ -227,6 +255,19 @@ export class AircraftHUD {
         this.guiTexture.addControl(this.gForceIndicator);
     }
 
+    private createThrottleIndicator(): void {
+        this.throttleIndicator = new TextBlock("aircraftThrottleIndicator");
+        this.throttleIndicator.text = "T: 0%";
+        this.throttleIndicator.fontSize = scalePixels(18);
+        this.throttleIndicator.color = "#88ff88";
+        this.throttleIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.throttleIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.throttleIndicator.left = "20px";
+        this.throttleIndicator.top = "44px";
+        this.throttleIndicator.isVisible = false;
+        this.guiTexture.addControl(this.throttleIndicator);
+    }
+
     /**
      * Обновить позицию Aim Circle на экране
      * @param screenX X координата (0-1)
@@ -315,10 +356,26 @@ export class AircraftHUD {
     }
 
     /**
+     * Обновить индикатор тяги (0–100%)
+     */
+    updateThrottleIndicator(throttle: number): void {
+        if (this.throttleIndicator) {
+            const pct = Math.round(Math.max(0, Math.min(1, throttle)) * 100);
+            this.throttleIndicator.text = `T: ${pct}%`;
+        }
+    }
+
+    /**
      * Показать/скрыть HUD
      */
     setVisible(visible: boolean): void {
         this.isVisible = visible;
+        if (visible && this.firstVisibleTime === 0) {
+            this.firstVisibleTime = Date.now();
+        }
+        if (!visible) {
+            this.firstVisibleTime = 0;
+        }
 
         if (this.deadzoneCircle) {
             this.deadzoneCircle.isVisible = visible;
@@ -335,6 +392,12 @@ export class AircraftHUD {
         if (this.gForceIndicator) {
             this.gForceIndicator.isVisible = visible;
         }
+        if (this.throttleIndicator) {
+            this.throttleIndicator.isVisible = visible;
+        }
+        if (this.controlsHint) {
+            this.controlsHint.isVisible = visible && this.config.showControlsHint;
+        }
     }
 
     /**
@@ -343,17 +406,28 @@ export class AircraftHUD {
      * @param headingCrossScreenPos Позиция Heading Cross на экране (0-1)
      * @param isStalling Флаг сваливания
      * @param gForce Текущая перегрузка
+     * @param throttle Тяга 0–1
      */
     update(
         aimCircleScreenPos: { x: number; y: number },
         headingCrossScreenPos: { x: number; y: number },
         isStalling: boolean,
-        gForce: number
+        gForce: number,
+        throttle: number = 0
     ): void {
         this.updateAimCirclePosition(aimCircleScreenPos.x, aimCircleScreenPos.y);
         this.updateHeadingCrossPosition(headingCrossScreenPos.x, headingCrossScreenPos.y);
         this.updateStallWarning(isStalling);
         this.updateGForceIndicator(gForce);
+        this.updateThrottleIndicator(throttle);
+        if (this.controlsHint && this.config.showControlsHint && this.firstVisibleTime > 0) {
+            const elapsed = Date.now() - this.firstVisibleTime;
+            if (elapsed > this.config.controlsHintDurationMs) {
+                this.controlsHint.isVisible = false;
+            } else if (elapsed > this.config.controlsHintDurationMs - 2000) {
+                this.controlsHint.alpha = (this.config.controlsHintDurationMs - elapsed) / 2000;
+            }
+        }
     }
 
     /**
@@ -374,6 +448,12 @@ export class AircraftHUD {
         }
         if (this.gForceIndicator) {
             this.gForceIndicator.dispose();
+        }
+        if (this.throttleIndicator) {
+            this.throttleIndicator.dispose();
+        }
+        if (this.controlsHint) {
+            this.controlsHint.dispose();
         }
     }
 }

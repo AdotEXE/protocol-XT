@@ -5,6 +5,7 @@
 
 import { Scene, Mesh, Vector3, AbstractMesh, TransformNode } from "@babylonjs/core";
 import { logger } from "../utils/logger";
+import { timeProvider } from "./TimeProvider";
 
 /**
  * Конфигурация оптимизатора
@@ -164,8 +165,8 @@ export class PerformanceOptimizer {
      * Обновление LOD для всех объектов (batch)
      */
     update(): void {
-        // ОПТИМИЗАЦИЯ: Кэшируем Date.now() результат на несколько кадров
-        const now = Date.now();
+        // ОПТИМИЗАЦИЯ: Используем timeProvider вместо Date.now() для производительности
+        const now = timeProvider.now;
         if (now - this.stats.lastUpdateTime < this.config.updateInterval) return;
         this.stats.lastUpdateTime = now;
         

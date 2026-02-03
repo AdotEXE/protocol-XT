@@ -104,6 +104,7 @@ export class GameStatsOverlay {
             z-index: 5000;
             font-family: 'Press Start 2P', monospace;
             visibility: hidden;
+            pointer-events: auto;
         `;
 
         const content = document.createElement("div");
@@ -132,16 +133,7 @@ export class GameStatsOverlay {
         const playerData = this.getPlayerData();
         const xpProgressHTML = this.getXPProgressHTML();
 
-        // DEBUG: Логируем состояние для диагностики пустого TAB меню
         const isMP = this.deps.getIsMultiplayer();
-        const lastPlayerStates = (this.deps.multiplayerManager as any)?.lastPlayerStates;
-        console.log(`[GameStatsOverlay] TAB Menu Update:`, {
-            isMultiplayer: isMP,
-            hasMultiplayerManager: !!this.deps.multiplayerManager,
-            lastPlayerStatesCount: lastPlayerStates?.length || 0,
-            hasRealtimeStatsTracker: !!this.deps.realtimeStatsTracker,
-            lastPlayerStates: lastPlayerStates?.map((p: any) => `${p.name || p.id}`) || []
-        });
 
         // ИСПРАВЛЕНО: Показываем мультиплеерный scoreboard если isMultiplayer=true,
         // даже если realtimeStatsTracker ещё не создан

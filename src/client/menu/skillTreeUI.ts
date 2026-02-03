@@ -51,6 +51,7 @@ export function createSkillsPanelHTML(): string {
                 <div class="skill-tree" id="skill-tree"></div>
             </div>
             <div class="panel-buttons">
+                <button class="panel-btn" id="skills-prokachka" title="Открыть гараж на вкладке Прокачка">⬆ ПРОКАЧКА</button>
                 <button class="panel-btn" id="skills-back">Закрыть</button>
             </div>
         </div>

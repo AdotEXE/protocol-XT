@@ -1,5 +1,6 @@
 import "@babylonjs/core/Debug/debugLayer";
 import { Logger, logger, LogLevel, loggingSettings } from "./utils/logger";
+import { inGameAlert } from "./utils/inGameDialogs";
 import { showLoading, setLoadingStage, setLoadingStatus, hideLoading, setLoadingProgress } from "./loadingScreen";
 // import { CommonStyles } from "./commonStyles"; // Не используется
 import {
@@ -51,7 +52,7 @@ import type { ReplayRecorder } from "./replaySystem";
 import type { GameSettings, MapType } from "./menu";
 import { CurrencyManager } from "./currencyManager";
 import { AircraftCameraSystem } from "./tank/aircraftCameraSystem";
-import { DEFAULT_AIRCRAFT_PHYSICS_CONFIG } from "./config/aircraftPhysicsConfig";
+import { getAircraftPhysicsConfig } from "./config/aircraftVehicleConfig";
 import { ConsumablesManager, CONSUMABLE_TYPES } from "./consumables";
 import { ChatSystem } from "./chatSystem";
 import { getHotkeyManager } from "./hotkeyManager";
@@ -208,7 +209,7 @@ export class Game {
     // Управление режимом меню (курсор, управление)
     setMenuMode(enabled: boolean): void {
         this.isMenuOpen = enabled;
-        console.log(`[Game] Menu mode set to: ${enabled}`);
+        logger.log(`[Game] Menu mode set to: ${enabled}`);
 
         if (enabled) {
             // Меню открыто: показываем курсор, отключаем управление танком
@@ -1438,7 +1439,7 @@ export class Game {
                 logger.log("[Game] startGame() called successfully");
             } catch (error) {
                 logger.error("[Game] Error in onStartGame callback:", error);
-                console.error("[Game] Error starting game:", error);
+                logger.error("[Game] Error starting game:", error);
             }
         });
 
@@ -1473,7 +1474,7 @@ export class Game {
                 try {
                     const isActive = (this.mapEditor as any).isActive;
                     if (isActive) {
-                        console.log("[Game] 🛑 Pointer lock BLOCKED because Map Editor is active");
+                        logger.log("[Game] 🛑 Pointer lock BLOCKED because Map Editor is active");
                         return;
                     }
                 } catch {
@@ -1558,14 +1559,6 @@ export class Game {
         }
         (this as { _gameKeyboardHandlerRegistered?: boolean })._gameKeyboardHandlerRegistered = true;
         window.addEventListener("keydown", (e) => {
-            // DEBUG: Логируем нажатия клавиш J/M в начале обработчика
-            if (e.code === "KeyJ" || e.code === "KeyM") {
-                console.log(`[Game] KEYDOWN EVENT: ${e.code}`, {
-                    gameStarted: this.gameStarted,
-                    hasHud: !!this.hud,
-                    menuVisible: this.mainMenu?.isVisible?.() ?? "unknown"
-                });
-            }
             // Open/Close garage MENU with B key - В ЛЮБОЙ МОМЕНТ (даже до старта игры)
             // G key используется для управления воротами гаража во время игры
             if (e.code === "KeyB" || e.key === "b" || e.key === "B") {
@@ -1717,12 +1710,7 @@ export class Game {
                 }
             }
 
-            // ПОКАЗАТЬ stats panel при ЗАЖАТИИ Tab (пункт 13: K/D, убийства, смерти, credits)
-            if (e.code === "Tab" && this.gameStarted) {
-                e.preventDefault(); // Предотвращаем переключение фокуса
-                this.gameStats.show(); // Показываем при нажатии
-                return;
-            }
+            // Tab — только gameStatsOverlay (см. обработчик TAB SCOREBOARD ~7539), здесь не дублируем
 
             // Ctrl+Shift+M: Map Editor (lazy loaded)
             if (e.ctrlKey && e.shiftKey && (e.code === "KeyM") && this.gameStarted) {
@@ -1738,7 +1726,6 @@ export class Game {
             if (e.code === "KeyJ" && this.hud) {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log("[Game] J pressed - toggling mission panel, gameStarted:", this.gameStarted);
                 this.hud.toggleMissionPanel();
                 return;
             }
@@ -1748,7 +1735,6 @@ export class Game {
             if (e.code === "KeyM" && this.hud) {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log("[Game] M pressed - toggling full map");
                 // Закрываем гараж при открытии карты
                 if (this.garage && this.garage.isGarageOpen()) {
                     this.garage.close();
@@ -1757,14 +1743,7 @@ export class Game {
                 return;
             }
 
-            // ОПТИМИЗАЦИЯ: Tab включает/выключает миникарту (радар)
-            // По умолчанию миникарта выключена для экономии ресурсов
-            if (e.code === "Tab" && this.hud && this.gameStarted) {
-                e.preventDefault();
-                e.stopPropagation();
-                this.hud.toggleMinimap();
-                return;
-            }
+            // Tab — только scoreboard (gameStatsOverlay), миникарта не переключается по Tab
 
             if (e.code === "Escape") {
 
@@ -2385,7 +2364,7 @@ export class Game {
             const serverMapType = this.multiplayerManager.getMapType();
             if (serverMapType && serverMapType !== this.currentMapType) {
                 logger.log(`[Game] 🗺️ СИНХРОНИЗАЦИЯ в startGame(): меняем mapType с ${this.currentMapType} на ${serverMapType} (из сервера)`);
-                console.log(`%c[Game] 🗺️ MAP SYNC: ${this.currentMapType} -> ${serverMapType}`, 'color: #22c55e; font-weight: bold; font-size: 14px;');
+                logger.log(`[Game] 🗺️ MAP SYNC: ${this.currentMapType} -> ${serverMapType}`);
                 this.currentMapType = serverMapType as MapType;
             }
         }
@@ -2434,6 +2413,13 @@ export class Game {
                 const visitedMaps = JSON.parse(localStorage.getItem('visitedMaps') || '[]') as string[];
                 if (!visitedMaps.includes(this.currentMapType)) {
                     visitedMaps.push(this.currentMapType);
+                    
+                    // Ограничиваем размер массива (храним последние 50 карт)
+                    const MAX_VISITED_MAPS = 50;
+                    if (visitedMaps.length > MAX_VISITED_MAPS) {
+                        visitedMaps.shift(); // Удаляем самый старый
+                    }
+                    
                     localStorage.setItem('visitedMaps', JSON.stringify(visitedMaps));
                 }
                 this.achievementsSystem.setProgress("explorer", visitedMaps.length);
@@ -3186,7 +3172,11 @@ export class Game {
                                                 // Получаем данные от AircraftPhysics
                                                 const forwardDir = aircraftPhysics.getForwardDirection();
                                                 const isStalling = aircraftPhysics.isStalling();
+                                                const speed = aircraftPhysics.getSpeed();
+                                                const minSpeedForStall = aircraftPhysics.getStallWarningMinSpeed();
+                                                const showStallWarning = isStalling && speed > minSpeedForStall;
                                                 const gForce = aircraftPhysics.calculateGForce();
+                                                const throttle = aircraftPhysics.getThrottle();
 
                                                 // Проецируем 3D позиции на экран
                                                 const engine = this.scene.getEngine();
@@ -3220,9 +3210,10 @@ export class Game {
                                                 this.hud.updateAircraftHUD(
                                                     aimCirclePos,
                                                     headingCrossPos,
-                                                    isStalling,
+                                                    showStallWarning,
                                                     gForce,
-                                                    true
+                                                    true,
+                                                    throttle
                                                 );
                                             }
                                         } else {
@@ -3233,7 +3224,8 @@ export class Game {
                                                     { x: 0.5, y: 0.5 },
                                                     false,
                                                     1.0,
-                                                    false
+                                                    false,
+                                                    0
                                                 );
                                             }
                                         }
@@ -3646,7 +3638,7 @@ export class Game {
             logger.log(`[Game] Camera created and set as active: ${this.camera.name}, minZ=${this.camera.minZ}, maxZ=${this.camera.maxZ}`);
 
             // Инициализация камеры для самолётов
-            this.aircraftCameraSystem = new AircraftCameraSystem(this.camera, DEFAULT_AIRCRAFT_PHYSICS_CONFIG.camera);
+            this.aircraftCameraSystem = new AircraftCameraSystem(this.camera, getAircraftPhysicsConfig().camera);
 
             // Инициализация постпроцессинга (bloom, motion blur и др.)
             this.postProcessingManager = new PostProcessingManager(this.scene);
@@ -4178,7 +4170,7 @@ export class Game {
                 const roomId = this.multiplayerManager.getRoomId() || 'N/A';
                 const mapType = this.multiplayerManager.getMapType() || 'N/A';
                 logger.log(`[Game] 🎲 Using multiplayer world seed from server: ${worldSeed}, roomId=${roomId}, mapType=${mapType}`);
-                console.log(`%c[Game] 🎲 World Seed Sync: ${worldSeed}`, 'color: #3b82f6; font-weight: bold;', {
+                logger.log(`[Game] 🎲 World Seed Sync: ${worldSeed}`, {
                     worldSeed: worldSeed,
                     roomId: roomId,
                     mapType: mapType,
@@ -4208,7 +4200,7 @@ export class Game {
             // ИСПРАВЛЕНИЕ: Используем custom данные только если карта явно не выбрана или выбрана как custom
             const hasCustomMapData = localStorage.getItem("selectedCustomMapData");
             if (hasCustomMapData && hasCustomMapData.length > 100 && (this.currentMapType === "custom" || !this.currentMapType)) {
-                console.log(`[Game] 🎯 Found custom map data in localStorage and mapType is custom/null - forcing mapType to 'custom'`);
+                logger.log(`[Game] 🎯 Found custom map data in localStorage and mapType is custom/null - forcing mapType to 'custom'`);
                 mapType = "custom";
                 this.currentMapType = "custom";
             }
@@ -4253,15 +4245,15 @@ export class Game {
                                     const lastSelected = localStorage.getItem("lastSelectedCustomMap");
                                     if (lastSelected && maps[lastSelected]) {
                                         customMapDataStr = JSON.stringify(maps[lastSelected]);
-                                        console.log(`[Game] 🔍 Found custom map in customMaps: ${lastSelected}`);
+                                        logger.log(`[Game] 🔍 Found custom map in customMaps: ${lastSelected}`);
                                     }
                                 } catch (e) {
-                                    console.warn(`[Game] Failed to parse customMaps:`, e);
+                                    logger.warn(`[Game] Failed to parse customMaps:`, e);
                                 }
                             }
                         }
 
-                        console.log(`[Game] 🔍 DEBUG: selectedCustomMapData exists: ${!!customMapDataStr}, length: ${customMapDataStr?.length || 0}`);
+                        logger.log(`[Game] 🔍 DEBUG: selectedCustomMapData exists: ${!!customMapDataStr}, length: ${customMapDataStr?.length || 0}`);
 
                         if (customMapDataStr) {
                             try {
@@ -4308,28 +4300,28 @@ export class Game {
             // КРИТИЧНО: ПОЛНЫЙ BYPASS ДЛЯ CUSTOM КАРТ
             // Custom карты НЕ используют ChunkSystem - только CustomMapRunner!
             // ========================================================================
-            console.log(`[Game] 🔥 BYPASS CHECK: mapType === "${mapType}", checking if equals "custom": ${mapType === "custom"}`);
+            logger.log(`[Game] 🔥 BYPASS CHECK: mapType === "${mapType}", checking if equals "custom": ${mapType === "custom"}`);
 
             if (mapType === "custom") {
-                console.log(`[Game] 🎨 CUSTOM MAP MODE - ENTERING BYPASS BLOCK!`);
+                logger.log(`[Game] 🎨 CUSTOM MAP MODE - ENTERING BYPASS BLOCK!`);
 
                 try {
-                    console.log(`[Game] 🎨 Running CustomMapRunner...`);
+                    logger.log(`[Game] 🎨 Running CustomMapRunner...`);
                     // CustomMapRunner уже импортирован статически
                     const runner = new CustomMapRunner(this.scene);
-                    console.log(`[Game] 🎨 Step 3: Running CustomMapRunner...`);
+                    logger.log(`[Game] 🎨 Step 3: Running CustomMapRunner...`);
 
                     const result = runner.run();
-                    console.log(`[Game] 🎨 Step 4: CustomMapRunner finished`, result);
+                    logger.log(`[Game] 🎨 Step 4: CustomMapRunner finished`, result);
 
                     if (result.success) {
-                        console.log(`[Game] ✅ Custom map "${result.mapName}" loaded: ${result.objectsCreated} objects`);
+                        logger.log(`[Game] ✅ Custom map "${result.mapName}" loaded: ${result.objectsCreated} objects`);
                     } else {
-                        console.error(`[Game] ❌ Custom map failed: ${result.error}`);
+                        logger.error(`[Game] ❌ Custom map failed: ${result.error}`);
                     }
 
                     // Создаём МИНИМАЛЬНЫЙ ChunkSystem без генерации (нужен для некоторых систем)
-                    console.log(`[Game] 🎨 Step 5: Creating minimal ChunkSystem...`);
+                    logger.log(`[Game] 🎨 Step 5: Creating minimal ChunkSystem...`);
                     this.chunkSystem = new ChunkSystem(this.scene, {
                         chunkSize: 80,
                         renderDistance: 0,  // НЕ рендерим чанки!
@@ -4338,11 +4330,11 @@ export class Game {
                         mapType: "custom"  // Это отключит ВСЮ генерацию
                     });
 
-                    console.log(`[Game] 🎨 CUSTOM MAP MODE COMPLETE - NO procedural content!`);
+                    logger.log(`[Game] 🎨 CUSTOM MAP MODE COMPLETE - NO procedural content!`);
                 } catch (customMapError) {
-                    console.error(`[Game] ❌❌❌ CUSTOM MAP ERROR:`, customMapError);
+                    logger.error(`[Game] ❌❌❌ CUSTOM MAP ERROR:`, customMapError);
                     // Fallback to sandbox if custom map fails
-                    console.log(`[Game] Falling back to sandbox...`);
+                    logger.log(`[Game] Falling back to sandbox...`);
                     this.chunkSystem = new ChunkSystem(this.scene, {
                         chunkSize: 80,
                         renderDistance: 3,
@@ -4676,7 +4668,7 @@ export class Game {
                             }
                         } catch (error) {
                             logger.error("[Game] Failed to parse custom map data:", error);
-                            console.error("[Game] Error details:", error);
+                            logger.error("[Game] Error details:", error);
                         }
                     } else {
                         logger.log("[Game] No custom map data found in localStorage, using default map generation");
@@ -4787,7 +4779,7 @@ export class Game {
                                 }
                             } catch (error) {
                                 logger.error("[Game] Error during initialization:", error);
-                                console.error("[Game] Initialization error:", error);
+                                logger.error("[Game] Initialization error:", error);
                                 throw error;
                             }
                         }
@@ -4819,12 +4811,12 @@ export class Game {
                             this.startGame();
                         } catch (error) {
                             logger.error("[Game] Error in startGame() call:", error);
-                            console.error("[Game] startGame() error:", error);
+                            logger.error("[Game] startGame() error:", error);
                             throw error;
                         }
                     } catch (error) {
                         logger.error("[Game] Critical error in startGame callback:", error);
-                        console.error("[Game] startGame callback error:", error);
+                        logger.error("[Game] startGame callback error:", error);
                         // Не пробрасываем ошибку дальше, чтобы не крашить приложение
                     }
                 },
@@ -5193,10 +5185,10 @@ export class Game {
                             const playersAfter = this.multiplayerManager?.getNetworkPlayers()?.size || 0;
                             logger.log(`[Game] ✅ After processPendingNetworkPlayers: tanks=${tanksAfter}, networkPlayers=${playersAfter}`);
                             if (playersAfter > 0 && tanksAfter === 0) {
-                                console.error(`[Game] ❌ КРИТИЧНО: Есть ${playersAfter} сетевых игроков, но танки не созданы!`);
-                                console.error(`[Game] Проверьте логи создания танков выше`);
+                                logger.error(`[Game] ❌ КРИТИЧНО: Есть ${playersAfter} сетевых игроков, но танки не созданы!`);
+                                logger.error(`[Game] Проверьте логи создания танков выше`);
                             } else if (tanksAfter > 0) {
-                                console.log(`%c[Game] ✅ Создано ${tanksAfter} сетевых танков`, 'color: #4ade80; font-weight: bold;');
+                                logger.log(`[Game] ✅ Создано ${tanksAfter} сетевых танков`);
                             }
                         }, 200);
                     } else {
@@ -5939,14 +5931,14 @@ export class Game {
         // В мультиплеере используем позицию спавна с сервера (X, Z), но Y рассчитываем по террейну
         if (this.isMultiplayer && this.multiplayerManager) {
             const serverSpawnPos = this.multiplayerManager.getSpawnPosition();
-            console.log(`%c[Game] 🎯 spawnPlayerRandom: serverSpawnPos = ${serverSpawnPos ? `(${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})` : 'NULL'}`, 'color: #3b82f6; font-weight: bold; font-size: 14px;');
+            logger.log(`[Game] 🎯 spawnPlayerRandom: serverSpawnPos = ${serverSpawnPos ? `(${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})` : 'NULL'}`);
             if (serverSpawnPos) {
                 // КРИТИЧНО: Проверяем что позиция не в центре карты (0, 0)
                 const distFromCenter = Math.sqrt(serverSpawnPos.x * serverSpawnPos.x + serverSpawnPos.z * serverSpawnPos.z);
                 const MIN_SPAWN_DISTANCE = 10; // Минимальное расстояние от центра
 
                 if (distFromCenter < MIN_SPAWN_DISTANCE) {
-                    console.warn(`[Game] ⚠️ Server spawn (random) too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
+                    logger.warn(`[Game] ⚠️ Server spawn (random) too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
                     // Продолжаем к fallback логике ниже
                 } else {
                     // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна
@@ -6055,7 +6047,7 @@ export class Game {
         // В мультиплеере используем позицию спавна с сервера (X, Z), но Y рассчитываем по террейну
         if (this.isMultiplayer && this.multiplayerManager) {
             const serverSpawnPos = this.multiplayerManager.getSpawnPosition();
-            console.log(`%c[Game] 🎯 spawnPlayerInGarage: serverSpawnPos = ${serverSpawnPos ? `(${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})` : 'NULL'}`, 'color: #3b82f6; font-weight: bold; font-size: 14px;');
+            logger.log(`[Game] 🎯 spawnPlayerInGarage: serverSpawnPos = ${serverSpawnPos ? `(${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.y.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)})` : 'NULL'}`);
             if (serverSpawnPos) {
                 // КРИТИЧНО: Проверяем что позиция не в центре карты (0, 0)
                 // Если позиция слишком близко к центру, это может быть ошибка - используем fallback
@@ -6063,7 +6055,7 @@ export class Game {
                 const MIN_SPAWN_DISTANCE = 10; // Минимальное расстояние от центра
 
                 if (distFromCenter < MIN_SPAWN_DISTANCE) {
-                    console.warn(`[Game] ⚠️ Server spawn position too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
+                    logger.warn(`[Game] ⚠️ Server spawn position too close to center: (${serverSpawnPos.x.toFixed(1)}, ${serverSpawnPos.z.toFixed(1)}), dist=${distFromCenter.toFixed(1)} - using fallback`);
                     // Не используем эту позицию, продолжаем к fallback логике ниже
                 } else {
                     // КРИТИЧНО: Используем X, Z от сервера, но Y рассчитываем по высоте террейна
@@ -6837,11 +6829,7 @@ export class Game {
                 this.isFreeLook = false;
             }
 
-            // === ОТПУСТИЛИ TAB - скрыть stats overlay ===
-            if (evt.code === "Tab" && this.gameStarted) {
-                evt.preventDefault();
-                this.gameStats.hide();
-            }
+            // Tab отпущен — скрытие в обработчике TAB SCOREBOARD (~7560, gameStatsOverlay.hide())
 
             // === ОТПУСТИЛИ ALT - выход из pointer lock ===
             if ((evt.code === "AltLeft" || evt.code === "AltRight") && this.altKeyPressed) {
@@ -6937,9 +6925,9 @@ export class Game {
                         if (canvas) {
                             // При pointer lock используем movementX/Y для накопления виртуальной позиции
                             if (this.isPointerLocked) {
-                                // Накапливаем движения мыши (movementX/movementY)
-                                // Используем настраиваемую чувствительность мыши (с множителем для комфортного управления самолётом)
-                                const sensitivity = (this.mouseSensitivity ?? 0.003) * 0.3;
+                                // Накапливаем движения мыши (movementX/movementY), множитель из конфига самолёта
+                                const mult = movementModule.aircraftPhysics.getPointerLockSensitivityMultiplier();
+                                const sensitivity = (this.mouseSensitivity ?? 0.003) * mult;
                                 let newX = (this._aircraftMouseX ?? 0.5) + (evt.movementX ?? 0) * sensitivity;
                                 let newY = (this._aircraftMouseY ?? 0.5) + (evt.movementY ?? 0) * sensitivity;
 
@@ -6957,12 +6945,10 @@ export class Game {
                                 const dist = Math.sqrt((dx / radiusNormX) ** 2 + (dy / radiusNormY) ** 2);
 
                                 if (dist > 1) {
-                                    // Ограничиваем на границе круга
-                                    newX = 0.5 + (dx / dist);
-                                    newY = 0.5 + (dy / dist);
-                                    // Корректируем для эллипса
-                                    newX = 0.5 + (newX - 0.5) * radiusNormX / Math.max(radiusNormX, radiusNormY);
-                                    newY = 0.5 + (newY - 0.5) * radiusNormY / Math.max(radiusNormX, radiusNormY);
+                                    // Ограничиваем на границе эллипса (круга 300px)
+                                    // Просто делим смещение на "коэффициент выхода", чтобы вернуть точку на границу
+                                    newX = 0.5 + dx / dist;
+                                    newY = 0.5 + dy / dist;
                                 }
 
                                 this._aircraftMouseX = newX;
@@ -6983,8 +6969,8 @@ export class Game {
                                 const dist = Math.sqrt((dx / radiusNormX) ** 2 + (dy / radiusNormY) ** 2);
 
                                 if (dist > 1) {
-                                    screenX = 0.5 + (dx / dist) * radiusNormX;
-                                    screenY = 0.5 + (dy / dist) * radiusNormY;
+                                    screenX = 0.5 + dx / dist;
+                                    screenY = 0.5 + dy / dist;
                                 }
 
                                 movementModule.aircraftPhysics.updateMouseScreenPosition(screenX, screenY);
@@ -7060,7 +7046,7 @@ export class Game {
                                     }
                                 } catch (e) {
                                     // Fallback: use legacy event if aircraftPhysics not available
-                                    console.warn("[Game] Failed to update mouse screen position:", e);
+                                    logger.warn("[Game] Failed to update mouse screen position:", e);
                                 }
                             }
                         }
@@ -7235,16 +7221,45 @@ export class Game {
                     if (this.tank && this.tank.isAutoCentering && Math.abs(evt.movementX) > 5) {
                         this.tank.isAutoCentering = false;
                         window.dispatchEvent(new CustomEvent("stopCenterCamera"));
-                        console.log("[Game] Центровка отменена движением мыши");
+                        logger.log("[Game] Центровка отменена движением мыши");
                     }
                 }
             }
         };
 
+        // АВТО-ЦЕНТРОВКА ДЛЯ САМОЛЕТА (Virtual Joystick return-to-center)
+        this.scene.registerBeforeRender(() => {
+            if (!this.tank || !this.isPointerLocked) return;
+
+            const chassisType = (this.tank as any).chassisType;
+            // Проверка на самолет
+            const isPlane = chassisType === "plane" || (typeof chassisType === 'object' && (chassisType?.id === "plane" || chassisType?.id?.includes?.("plane") || chassisType?.id?.includes?.("mig31")));
+
+            if (isPlane) {
+                // Плавный возврат в центр (0.5, 0.5)
+                // Используем фиксированный deltaTime для стабильности (16мс база)
+                const dt = this.scene.getEngine().getDeltaTime();
+                const centeringSpeed = 0.02 * (dt / 16.0);
+
+                // Lerp towards 0.5
+                // this._aircraftMouseX = lerp(current, 0.5, speed)
+                this._aircraftMouseX = this._aircraftMouseX + (0.5 - this._aircraftMouseX) * centeringSpeed;
+                this._aircraftMouseY = this._aircraftMouseY + (0.5 - this._aircraftMouseY) * centeringSpeed;
+
+                // Обновляем визуал и физику
+                try {
+                    const movementModule = (this.tank as any).movementModule;
+                    if (movementModule?.aircraftPhysics) {
+                        movementModule.aircraftPhysics.updateMouseScreenPosition(this._aircraftMouseX, this._aircraftMouseY);
+                    }
+                } catch (e) { }
+            }
+        });
+
         // Listen for aim mode changes from tank
         window.addEventListener("aimModeChanged", ((e: CustomEvent) => {
             this.isAiming = e.detail.aiming;
-            console.log(`[Game] Aim mode changed: ${this.isAiming}`);
+            logger.log(`[Game] Aim mode changed: ${this.isAiming}`);
             // Показ/скрытие прицела
             if (this.hud) {
                 this.hud.setAimMode(this.isAiming);
@@ -7835,22 +7850,25 @@ export class Game {
                     const planeForward = this.tank.chassis.forward;
                     const planeUp = this.tank.chassis.up;
 
-                    // При первом кадре в режиме самолёта — мгновенно позиционируем камеру (reset),
-                    // иначе камера стартует с позиции ArcRotateCamera для танка и "ничего не видно"
-                    if (!this._aircraftCameraInitialized) {
-                        this.aircraftCameraSystem.reset(planePos, planeForward);
-                        this._aircraftCameraInitialized = true;
-                    }
+                    // При свободном обзоре (Shift) камеру управляет пользователь — не перезаписываем
+                    if (!this.isFreeLook) {
+                        // При первом кадре в режиме самолёта — мгновенно позиционируем камеру (reset),
+                        // иначе камера стартует с позиции ArcRotateCamera для танка и "ничего не видно"
+                        if (!this._aircraftCameraInitialized) {
+                            this.aircraftCameraSystem.reset(planePos, planeForward);
+                            this._aircraftCameraInitialized = true;
+                        }
 
-                    // Получаем скорость самолёта
-                    let aircraftSpeed = 0;
-                    if ((this.tank as any).movementModule?.aircraftPhysics) {
-                        aircraftSpeed = (this.tank as any).movementModule.aircraftPhysics.getSpeed();
-                    }
+                        // Получаем скорость самолёта
+                        let aircraftSpeed = 0;
+                        if ((this.tank as any).movementModule?.aircraftPhysics) {
+                            aircraftSpeed = (this.tank as any).movementModule.aircraftPhysics.getSpeed();
+                        }
 
-                    // Обновляем камеру через AircraftCameraSystem
-                    const dt = this.engine.getDeltaTime() / 1000;
-                    this.aircraftCameraSystem.update(planePos, planeForward, planeUp, aircraftSpeed, dt);
+                        // Обновляем камеру через AircraftCameraSystem
+                        const dt = this.engine.getDeltaTime() / 1000;
+                        this.aircraftCameraSystem.update(planePos, planeForward, planeUp, aircraftSpeed, dt);
+                    }
                 }
             } else {
                 // Standard Orbit Camera (танк) — сбрасываем флаг для следующего переключения на самолёт
@@ -8879,13 +8897,13 @@ export class Game {
 
     private createNetworkPlayerTank(playerData: PlayerData): void {
         if (this.networkPlayerTanks.has(playerData.id)) {
-            console.log(`[Game] ⏭️ Танк для ${playerData.id} уже существует, пропускаем`);
+            logger.log(`[Game] ⏭️ Танк для ${playerData.id} уже существует, пропускаем`);
             return; // Already exists
         }
 
         const networkPlayer = this.multiplayerManager?.getNetworkPlayer(playerData.id);
         if (!networkPlayer) {
-            console.warn(`[Game] ⚠️ Cannot create network tank: NetworkPlayer ${playerData.id} not found. networkPlayers.size=${this.multiplayerManager?.getNetworkPlayers()?.size || 0}`);
+            logger.warn(`[Game] ⚠️ Cannot create network tank: NetworkPlayer ${playerData.id} not found. networkPlayers.size=${this.multiplayerManager?.getNetworkPlayers()?.size || 0}`);
             return;
         }
 
@@ -8903,7 +8921,7 @@ export class Game {
                 // Принудительно добавляем в сцену если еще не добавлен
                 if (this.scene && !this.scene.meshes.includes(tank.chassis)) {
                     this.scene.addMesh(tank.chassis);
-                    console.log(`[Game] ✅ Танк ${playerData.id} ДОБАВЛЕН в сцену`);
+                    logger.log(`[Game] ✅ Танк ${playerData.id} ДОБАВЛЕН в сцену`);
                 }
             }
             if (tank.turret) {
@@ -8923,13 +8941,13 @@ export class Game {
                 }
             }
 
-            console.log(`%c[Game] ✅ Сетевой танк создан: ${playerData.name || playerData.id}`, 'color: #4ade80; font-weight: bold;');
-            console.log(`%cПозиция: (${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)})`, 'color: #a78bfa;');
-            console.log(`%cВсего сетевых танков: ${this.networkPlayerTanks.size}`, 'color: #a78bfa;');
+            logger.log(`[Game] ✅ Сетевой танк создан: ${playerData.name || playerData.id}`);
+            logger.log(`[Game] Позиция: (${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)})`);
+            logger.log(`[Game] Всего сетевых танков: ${this.networkPlayerTanks.size}`);
         } catch (error) {
-            console.error(`[Game] ❌ Ошибка создания сетевого танка для ${playerData.id}:`, error);
+            logger.error(`[Game] ❌ Ошибка создания сетевого танка для ${playerData.id}:`, error);
             if (error instanceof Error) {
-                console.error(`[Game] Stack:`, error.stack);
+                logger.error(`[Game] Stack:`, error.stack);
             }
         }
     }
@@ -9088,11 +9106,11 @@ export class Game {
                             // ОПТИМИЗАЦИЯ: Логирование только в dev режиме
                             if (ENABLE_DIAGNOSTIC_LOGS && shouldLog && tank.chassis && tank.networkPlayer) {
                                 const pos = tank.chassis.position;
-                                console.log(`[Game] 🔄 Network tank ${playerId}: pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
+                                logger.log(`[Game] 🔄 Network tank ${playerId}: pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})`);
                             }
                         }
                     } catch (error) {
-                        console.error(`[Game] Error updating network player tank ${playerId}:`, error);
+                        logger.error(`[Game] Error updating network player tank ${playerId}:`, error);
                     }
                 }
                 tankIndex++;
@@ -9101,7 +9119,7 @@ export class Game {
             // ДИАГНОСТИКА: Логируем, если танков нет, но должны быть
             const networkPlayersCount = this.multiplayerManager?.getNetworkPlayers()?.size || 0;
             if (networkPlayersCount > 0 && this._updateTick % 600 === 0) {
-                console.warn(`[Game] ⚠️ НЕТ сетевых танков, но есть ${networkPlayersCount} сетевых игроков!`);
+                logger.warn(`[Game] ⚠️ НЕТ сетевых танков, но есть ${networkPlayersCount} сетевых игроков!`);
             }
         }
 
@@ -9120,7 +9138,7 @@ export class Game {
 
                 // ДИАГНОСТИКА: Логируем состояние
                 if (tanksCount < networkPlayersCount - 1) { // -1 для локального игрока
-                    console.warn(`[Game] ⚠️ [updateMultiplayer] Несоответствие: networkPlayers=${networkPlayersCount}, tanks=${tanksCount}, localPlayerId=${localPlayerId}`);
+                    logger.warn(`[Game] ⚠️ [updateMultiplayer] Несоответствие: networkPlayers=${networkPlayersCount}, tanks=${tanksCount}, localPlayerId=${localPlayerId}`);
                 }
 
                 // Проверяем каждого сетевого игрока - есть ли у него танк
@@ -9133,8 +9151,8 @@ export class Game {
                         missingTanks++;
 
                         // Принудительно создаём танк
-                        console.warn(`[Game] 🔨 [updateMultiplayer] ПРИНУДИТЕЛЬНОЕ создание танка для ${playerId} (${networkPlayer.name})`);
-                        console.warn(`[Game]    Позиция: (${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)})`);
+                        logger.warn(`[Game] 🔨 [updateMultiplayer] ПРИНУДИТЕЛЬНОЕ создание танка для ${playerId} (${networkPlayer.name})`);
+                        logger.warn(`[Game]    Позиция: (${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)})`);
                         this.createNetworkPlayerTank({
                             id: playerId,
                             name: networkPlayer.name,
@@ -9154,18 +9172,18 @@ export class Game {
                 }
 
                 if (missingTanks > 0) {
-                    console.warn(`[Game] ⚠️ [updateMultiplayer] Создано ${missingTanks} недостающих танков (из ${networkPlayersCount} сетевых игроков, было танков: ${tanksCount})`);
+                    logger.warn(`[Game] ⚠️ [updateMultiplayer] Создано ${missingTanks} недостающих танков (из ${networkPlayersCount} сетевых игроков, было танков: ${tanksCount})`);
 
                     // Также пробуем через callback для pending игроков
                     if (this.gameMultiplayerCallbacks) {
-                        console.log(`[Game] 🔄 [updateMultiplayer] Вызываем processPendingNetworkPlayers для обработки оставшихся pending игроков`);
+                        logger.log(`[Game] 🔄 [updateMultiplayer] Вызываем processPendingNetworkPlayers для обработки оставшихся pending игроков`);
                         this.gameMultiplayerCallbacks.processPendingNetworkPlayers(true);
                     }
                 }
             } else if (networkPlayersCount > 0 && !this.isMultiplayer) {
                 // ДИАГНОСТИКА: Есть сетевые игроки, но isMultiplayer=false
                 if (this._updateTick % 60 === 0) {
-                    console.warn(`[Game] ⚠️ [updateMultiplayer] Есть ${networkPlayersCount} сетевых игроков, но isMultiplayer=false!`);
+                    logger.warn(`[Game] ⚠️ [updateMultiplayer] Есть ${networkPlayersCount} сетевых игроков, но isMultiplayer=false!`);
                 }
             }
         }
@@ -9384,7 +9402,7 @@ export class Game {
         if (this.multiplayerManager) {
             return this.multiplayerManager.createRoom(mode as any, maxPlayers);
         }
-        console.warn("[Game] Cannot create room: multiplayerManager not initialized");
+        logger.warn("[Game] Cannot create room: multiplayerManager not initialized");
         return false;
     }
 
@@ -9507,7 +9525,8 @@ export class Game {
 
         // DISABLED: Auto spectator mode - only enable on explicit user request
         // Spectator mode was interfering with respawn countdown
-        // TODO: Re-enable as optional feature later
+        // NOTE: Можно включить как опциональную функцию позже через настройки
+        // Для этого нужно добавить настройку в меню и проверять её здесь
         /*
         // Enter spectator mode if player died AND NOT in respawn countdown
         // During respawn countdown, we show death screen and wait for respawn, not spectator mode
@@ -9586,7 +9605,7 @@ export class Game {
             if (this.hud) {
                 this.hud.showMessage(errorMsg, "#f00", 3000);
             } else {
-                alert(errorMsg);
+                inGameAlert(errorMsg, "Ошибка").catch(() => {});
             }
             return;
         }
@@ -9596,7 +9615,7 @@ export class Game {
             if (this.hud) {
                 this.hud.showMessage(errorMsg, "#f00", 3000);
             } else {
-                alert(errorMsg);
+                inGameAlert(errorMsg, "Ошибка").catch(() => {});
             }
             return;
         }
@@ -9619,7 +9638,7 @@ export class Game {
                 // Handle AI World Generation config
                 if (config && config.worldGen) {
                     try {
-                        console.log("[Game] 🌍 Generating world from RealWorldGeneratorV3:", config.worldGen);
+                        logger.log("[Game] 🌍 Generating world from RealWorldGeneratorV3:", config.worldGen);
 
                         // Use new RealWorldGeneratorV3 for better building generation
                         const { RealWorldGeneratorV3 } = await import("./services/RealWorldGeneratorV3");
@@ -9665,7 +9684,7 @@ export class Game {
                         }
 
                     } catch (e) {
-                        console.error("[Game] Failed to generate world:", e);
+                        logger.error("[Game] Failed to generate world:", e);
                         if (this.hud) this.hud.showMessage("Ошибка генерации мира", "#f00", 5000);
                     }
                 }
@@ -9814,9 +9833,9 @@ export class Game {
             logger.log(`[Game] ===== Custom map "${customMapData.name}" loaded and applied successfully =====`);
         } catch (error) {
             logger.error("[Game] Failed to load custom map data:", error);
-            console.error("[Game] Full error details:", error);
+            logger.error("[Game] Full error details:", error);
             if (error instanceof Error) {
-                console.error("[Game] Error stack:", error.stack);
+                logger.error("[Game] Error stack:", error.stack);
             }
         }
     }
@@ -9915,7 +9934,7 @@ export class Game {
 
     public async openMapEditorFromMenu(config?: any): Promise<void> {
         try {
-            console.log("[Game] ====== openMapEditorFromMenu() CALLED ======");
+            logger.log("[Game] ====== openMapEditorFromMenu() CALLED ======");
             logger.log("[Game] openMapEditorFromMenu() called");
 
             // КРИТИЧНО: Удаляем ВСЕ существующие экраны загрузки перед открытием редактора
@@ -9924,7 +9943,7 @@ export class Game {
                 '#loading-screen, .loading-screen, #simple-loading-screen, .simple-loading-screen, #tx-loading-screen, #loading-indicator'
             );
             existingLoadingScreens.forEach(screen => {
-                console.log('[Game] 🧹 Removing existing loading screen before editor');
+                logger.log('[Game] 🧹 Removing existing loading screen before editor');
                 screen.remove();
             });
 
@@ -9933,14 +9952,14 @@ export class Game {
 
             // Инициализируем игру и запускаем, если ещё не запущена
             if (!this.gameInitialized) {
-                console.log("[Game] Game not initialized, initializing...");
+                logger.log("[Game] Game not initialized, initializing...");
                 logger.log(`[Game] Initializing game for Map Editor with map type: ${this.currentMapType}`);
 
                 // КРИТИЧНО: init() создаст экран загрузки только если gameInitialized = false
                 // Но мы уже удалили все экраны выше, так что будет создан только один
                 await this.init();
                 this.gameInitialized = true;
-                console.log("[Game] ✅ Game initialized");
+                logger.log("[Game] ✅ Game initialized");
                 logger.log("[Game] Game initialized for Map Editor");
             } else {
                 // Если игра уже инициализирована, убеждаемся что экран загрузки скрыт
@@ -9948,13 +9967,13 @@ export class Game {
             }
 
             if (!this.gameStarted) {
-                console.log("[Game] Game not started, starting...");
+                logger.log("[Game] Game not started, starting...");
                 logger.log("[Game] Starting game for Map Editor");
                 this.startGame();
                 // Даем время на инициализацию chunkSystem
-                console.log("[Game] Waiting for chunkSystem initialization...");
+                logger.log("[Game] Waiting for chunkSystem initialization...");
                 await new Promise(resolve => setTimeout(resolve, 1500));
-                console.log("[Game] ✅ Game started");
+                logger.log("[Game] ✅ Game started");
 
                 // ИСПРАВЛЕНИЕ: Скрываем экран загрузки после запуска игры для редактора
                 this.hideLoadingScreen();
@@ -9962,36 +9981,36 @@ export class Game {
 
             // Проверяем что chunkSystem готов
             if (!this.chunkSystem) {
-                console.log("[Game] chunkSystem not ready, waiting...");
+                logger.log("[Game] chunkSystem not ready, waiting...");
                 logger.warn("[Game] chunkSystem not ready, waiting...");
                 let attempts = 0;
                 while (!this.chunkSystem && attempts < 15) {
                     await new Promise(resolve => setTimeout(resolve, 200));
                     attempts++;
-                    console.log(`[Game] Waiting for chunkSystem... attempt ${attempts}/15`);
+                    logger.log(`[Game] Waiting for chunkSystem... attempt ${attempts}/15`);
                 }
                 if (!this.chunkSystem) {
                     const errorMsg = "chunkSystem не инициализирован после ожидания";
-                    console.error(`[Game] ❌ ${errorMsg}`);
+                    logger.error(`[Game] ❌ ${errorMsg}`);
                     throw new Error(errorMsg);
                 }
-                console.log("[Game] ✅ chunkSystem ready");
+                logger.log("[Game] ✅ chunkSystem ready");
             }
 
-            console.log("[Game] Opening map editor internal...");
+            logger.log("[Game] Opening map editor internal...");
             await this.openMapEditorInternal(config);
-            console.log("[Game] ✅ Map Editor opened successfully from menu");
+            logger.log("[Game] ✅ Map Editor opened successfully from menu");
             logger.log("[Game] Map Editor opened successfully from menu");
         } catch (error) {
             logger.error("[Game] Failed to open Map Editor from menu:", error);
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error("[Game] ❌ Failed to open Map Editor from menu:", error);
-            console.error("[Game] Error message:", errorMessage);
+            logger.error("[Game] ❌ Failed to open Map Editor from menu:", error);
+            logger.error("[Game] Error message:", errorMessage);
 
             if (this.hud) {
                 this.hud.showMessage(`Ошибка открытия редактора: ${errorMessage}`, "#f00", 5000);
             } else {
-                alert(`Не удалось открыть редактор карт:\n${errorMessage}`);
+                inGameAlert(`Не удалось открыть редактор карт:\n${errorMessage}`, "Ошибка").catch(() => {});
             }
         }
     }

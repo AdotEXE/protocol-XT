@@ -55,14 +55,8 @@ export class InGameDialogs {
         }
         
         if (!this.guiTexture) {
-            console.warn("[InGameDialogs] GUI texture not available, using fallback alert");
-            // Fallback на браузерный alert
-            if (typeof window !== 'undefined' && (window as any).__originalAlert) {
-                (window as any).__originalAlert(message);
-            } else {
-                window.alert(message);
-            }
-            return;
+            const { gameAlert } = await import("./gameDialogs");
+            return gameAlert(message, title);
         }
         return new Promise<void>((resolve) => {
             this.showDialog(title, message, ["OK"], (result) => {
@@ -89,13 +83,8 @@ export class InGameDialogs {
         }
         
         if (!this.guiTexture) {
-            console.warn("[InGameDialogs] GUI texture not available, using fallback confirm");
-            // Fallback на браузерный confirm
-            if (typeof window !== 'undefined' && (window as any).__originalConfirm) {
-                return (window as any).__originalConfirm(message);
-            } else {
-                return window.confirm(message);
-            }
+            const { gameConfirm } = await import("./gameDialogs");
+            return gameConfirm(message, title);
         }
         return new Promise<boolean>((resolve) => {
             this.showDialog(title, message, ["Отмена", "OK"], (result) => {
@@ -122,13 +111,8 @@ export class InGameDialogs {
         }
         
         if (!this.guiTexture) {
-            console.warn("[InGameDialogs] GUI texture not available, using fallback prompt");
-            // Fallback на браузерный prompt
-            if (typeof window !== 'undefined' && (window as any).__originalPrompt) {
-                return (window as any).__originalPrompt(message, defaultValue);
-            } else {
-                return window.prompt(message, defaultValue);
-            }
+            const { gamePrompt } = await import("./gameDialogs");
+            return gamePrompt(message, defaultValue, title);
         }
         return new Promise<string | null>((resolve) => {
             this.showInputDialog(title, message, defaultValue, (result) => {

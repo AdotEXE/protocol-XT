@@ -3,6 +3,7 @@ import { Vector3, PhysicsMotionType, Quaternion } from "@babylonjs/core";
 import { tankLogger } from "../utils/logger";
 import type { ITankController } from "./types";
 import { AircraftPhysics } from "./aircraftPhysics";
+import { getAircraftPhysicsConfig } from "../config/aircraftVehicleConfig";
 
 export class TankMovementModule {
     private tank: ITankController;
@@ -228,7 +229,8 @@ export class TankMovementModule {
                         this.tank.physicsBody,
                         this.tank.scene,
                         camera,
-                        this.tank as any  // Передаём контроллер для доступа к _inputMap
+                        this.tank as any,  // Передаём контроллер для доступа к _inputMap
+                        getAircraftPhysicsConfig()
                     );
                 }
             } catch (e) {

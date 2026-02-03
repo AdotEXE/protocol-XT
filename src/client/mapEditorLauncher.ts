@@ -7,6 +7,7 @@ import { MapData } from "./mapEditor";
 import { MAP_TYPES } from "./maps/shared/MapTypes";
 import { ALL_MAPS } from "./maps";
 import { logger } from "./utils/logger";
+import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs";
 import { AiService } from "./services/AiService";
 import { WorldBuilder } from "./services/WorldBuilder";
 import { WorldEntity } from "./services/GeoDataService";
@@ -467,14 +468,13 @@ export class MapEditorLauncher {
 
                 if (mapIndex >= 0 && mapIndex < savedMaps.length) {
                     const mapName = savedMaps[mapIndex]!.name;
-                    if (confirm(`Удалить карту "${mapName}"?`)) {
+                    inGameConfirm(`Удалить карту "${mapName}"?`, "Подтверждение").then((ok) => {
+                        if (!ok) return;
                         savedMaps.splice(mapIndex, 1);
                         localStorage.setItem("savedMaps", JSON.stringify(savedMaps));
-
-                        // Пересоздаем модальное окно для обновления списка
                         this.modal?.remove();
                         this.createModal();
-                    }
+                    }).catch(() => {});
                 }
             });
         });
@@ -484,7 +484,7 @@ export class MapEditorLauncher {
         if (confirmBtn) {
             confirmBtn.addEventListener("click", async () => {
                 if (!selectedAction) {
-                    alert("Пожалуйста, выберите способ создания карты");
+                    inGameAlert("Пожалуйста, выберите способ создания карты", "Редактор карт").catch(() => {});
                     return;
                 }
 
@@ -506,7 +506,7 @@ export class MapEditorLauncher {
                     const prompt = promptInput ? promptInput.value : "";
 
                     if (!prompt) {
-                        alert("Введите название места");
+                        inGameAlert("Введите название места", "Генерация мира").catch(() => {});
                         return;
                     }
 
@@ -519,7 +519,7 @@ export class MapEditorLauncher {
                         const location = await ai.parseLocationPrompt(prompt);
 
                         if (!location) {
-                            alert("Место не найдено. Попробуйте уточнить запрос.");
+                            inGameAlert("Место не найдено. Попробуйте уточнить запрос.", "Генерация мира").catch(() => {});
                             confirmBtn.textContent = "Открыть редактор";
                             (confirmBtn as HTMLButtonElement).disabled = false;
                             return;
@@ -547,7 +547,7 @@ export class MapEditorLauncher {
 
                     } catch (e) {
                         console.error("World Gen Error", e);
-                        alert("Ошибка при получении данных мира");
+                        inGameAlert("Ошибка при получении данных мира", "Ошибка").catch(() => {});
                         confirmBtn.textContent = "Открыть редактор";
                         (confirmBtn as HTMLButtonElement).disabled = false;
                         return;
@@ -557,11 +557,11 @@ export class MapEditorLauncher {
                     if (savedMaps[selectedMapIndex]) {
                         config = { mapData: savedMaps[selectedMapIndex] };
                     } else {
-                        alert("Карта не найдена");
+                        inGameAlert("Карта не найдена", "Ошибка").catch(() => {});
                         return;
                     }
                 } else if (selectedAction === "edit-existing") {
-                    alert("Пожалуйста, выберите карту для редактирования");
+                    inGameAlert("Пожалуйста, выберите карту для редактирования", "Редактор карт").catch(() => {});
                     return;
                 }
 

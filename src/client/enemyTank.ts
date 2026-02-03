@@ -171,6 +171,7 @@ export class EnemyTank {
 
     // EXTREME: Система уклонения от снарядов игрока
     private incomingProjectiles: Array<{ mesh: AbstractMesh, velocity: Vector3, lastUpdate: number }> = [];
+    private readonly MAX_INCOMING_PROJECTILES = 50; // ОПТИМИЗАЦИЯ ПАМЯТИ: Лимит на количество отслеживаемых снарядов
     private lastProjectileScanTime = 0;
     private readonly PROJECTILE_SCAN_INTERVAL = 15; // EXTREME: -50% (было 30) - максимальная частота сканирования
     private readonly PROJECTILE_DETECTION_RANGE = 150; // EXTREME: +50% (было 100) - дальше видят снаряды
@@ -488,6 +489,9 @@ export class EnemyTank {
     private readonly WALL_COOLDOWN = 12000; // СУПЕР: Уменьшено с 18 до 12 секунд - чаще используем стенку!
     private readonly WALL_DURATION = 8000;  // 8 секунд
     private wallTimeout: number = 0;
+    
+    // ОПТИМИЗАЦИЯ ПАМЯТИ: Массив для хранения всех timeout ID для правильной очистки
+    private activeTimeouts: NodeJS.Timeout[] = [];
 
     // УЛУЧШЕНО: Использование способностей корпусов
     private lastAbilityUseTime: Map<string, number> = new Map(); // ability -> last use time
@@ -647,7 +651,7 @@ export class EnemyTank {
         });
 
         // УЛУЧШЕННАЯ стабилизация: короткая задержка + плавный старт
-        setTimeout(() => {
+        const stabilizeTimeout = setTimeout(() => {
             if (this.physicsBody && this.chassis && !this.chassis.isDisposed()) {
                 // Финальный сброс скоростей
                 this.physicsBody.setLinearVelocity(Vector3.Zero());
@@ -1104,17 +1108,18 @@ export class EnemyTank {
 
         barrel.parent = this.turret;
 
-        // Для самолёта ствол направлен вперёд (в нос)
+        // Для самолёта ствол в носу: дуло в носу корпуса (как у игрока)
         const isPlane = this.chassisType?.id === "plane";
         let barrelZ: number;
+        const barrelY = isPlane ? 0 : 0.2;
         if (isPlane && this.chassisType) {
             const d = this.chassisType.depth;
-            const turretDepth = d * 0.6;
-            barrelZ = turretDepth / 2 + barrelLength / 2 + (d * 0.3); // Максимально вперёд в нос
+            const noseZInTurret = (d / 2) - (d * 0.6);
+            barrelZ = noseZInTurret - barrelLength / 2;
         } else {
-            barrelZ = barrelLength * 0.5; // Обычное положение
+            barrelZ = barrelLength * 0.5;
         }
-        barrel.position = new Vector3(0, 0.2, barrelZ);
+        barrel.position = new Vector3(0, barrelY, barrelZ);
         barrel.renderingGroupId = 0;
         barrel.metadata = { type: "enemyTank", instance: this };
 
@@ -2570,6 +2575,11 @@ export class EnemyTank {
                 existing.velocity = velocity;
                 existing.lastUpdate = now;
             } else {
+                // ОПТИМИЗАЦИЯ ПАМЯТИ: Ограничиваем размер массива
+                if (this.incomingProjectiles.length >= this.MAX_INCOMING_PROJECTILES) {
+                    // Удаляем самый старый снаряд
+                    this.incomingProjectiles.shift();
+                }
                 this.incomingProjectiles.push({
                     mesh,
                     velocity,
@@ -4829,8 +4839,14 @@ export class EnemyTank {
         logger.debug(`[EnemyTank ${this.id}] FIRE!`);
 
         // === GET MUZZLE POSITION AND DIRECTION FROM BARREL ===
+        this.barrel.computeWorldMatrix(true);
         const barrelDir = this.barrel.getDirection(Vector3.Forward()).normalize();
-        const muzzlePos = this.barrel.getAbsolutePosition().add(barrelDir.scale(1.5));
+        const barrelCenter = this.barrel.getAbsolutePosition();
+        const barrelLength = this.cannonType.barrelLength || 2;
+        const isPlane = this.chassisType?.id === "plane";
+        // Для самолёта дуло в носу (pivot в носу), для танка небольшой offset
+        const muzzleOffset = isPlane ? 0 : 0.3;
+        const muzzlePos = barrelCenter.add(barrelDir.scale(barrelLength / 2 + muzzleOffset));
 
         // === ПРОВЕРКА ПРЕПЯТСТВИЙ ПЕРЕД СТВОЛОМ ===
         // Проверяем, не упирается ли ствол в препятствие (стена, здание и т.д.)
@@ -5082,9 +5098,10 @@ export class EnemyTank {
         checkHit();
 
         // Auto dispose
-        setTimeout(() => {
+        const ballDisposeTimeout = setTimeout(() => {
             if (!ball.isDisposed()) ball.dispose();
         }, 5000);
+        this.activeTimeouts.push(ballDisposeTimeout);
     }
 
     // === DAMAGE & DEATH ===
@@ -5249,7 +5266,10 @@ export class EnemyTank {
         const barrelForward = this.barrel.getDirection(Vector3.Forward()).normalize();
 
         // Получаем позицию дула ствола (как при выстреле)
-        const muzzlePos = barrelPos.add(barrelForward.scale(1.5));
+        const barrelLength = this.cannonType.barrelLength || 2;
+        const isPlane = this.chassisType?.id === "plane";
+        const muzzleOffset = isPlane ? 0 : 0.3;
+        const muzzlePos = barrelPos.add(barrelForward.scale(barrelLength / 2 + muzzleOffset));
 
         // Создаём стенку перед дулом ствола на расстоянии 2 метра
         const wallPos = muzzlePos.add(barrelForward.scale(2));
@@ -5407,11 +5427,17 @@ export class EnemyTank {
 
         // Таймер удаления
         this.wallTimeout = window.setTimeout(() => this.destroyWall(), this.WALL_DURATION);
+        this.activeTimeouts.push(this.wallTimeout as any);
     }
 
     private destroyWall(): void {
         if (this.wallTimeout) {
             clearTimeout(this.wallTimeout);
+            // Удаляем из массива активных timeout'ов
+            const index = this.activeTimeouts.indexOf(this.wallTimeout as any);
+            if (index > -1) {
+                this.activeTimeouts.splice(index, 1);
+            }
             this.wallTimeout = 0;
         }
 
@@ -5621,7 +5647,7 @@ export class EnemyTank {
                 }
 
                 // Автоматическое удаление через 5 секунд (уменьшено с 10)
-                setTimeout(() => {
+                const debrisDisposeTimeout = setTimeout(() => {
                     if (mesh && !mesh.isDisposed()) {
                         try {
                             if (partBody && !partBody.isDisposed) {
@@ -5636,7 +5662,8 @@ export class EnemyTank {
                             // Игнорируем ошибки при dispose меша
                         }
                     }
-                }, 5000); // Уменьшено с 10000 до 5000 для более быстрой очистки
+                }, 5000);
+                this.activeTimeouts.push(debrisDisposeTimeout); // Уменьшено с 10000 до 5000 для более быстрой очистки
 
             } catch (error) {
                 console.error(`[EnemyTank] Failed to create destruction physics for ${part.name}:`, error);
@@ -5666,9 +5693,10 @@ export class EnemyTank {
 
             // Включаем стабилизацию спавна заново
             this._spawnStabilizing = true;
-            setTimeout(() => {
+            const spawnStabilizeTimeout = setTimeout(() => {
                 this._spawnStabilizing = false;
             }, 300); // УМЕНЬШЕНО с 500 до 300 для более быстрого старта
+            this.activeTimeouts.push(spawnStabilizeTimeout);
         }
     }
 
@@ -5717,6 +5745,12 @@ export class EnemyTank {
     dispose(): void {
         this.isAlive = false;
 
+        // ОПТИМИЗАЦИЯ ПАМЯТИ: Очищаем все timeout'ы
+        for (const timeout of this.activeTimeouts) {
+            clearTimeout(timeout);
+        }
+        this.activeTimeouts = [];
+
         // УЛУЧШЕНО: Удаляем себя из статического списка
         const index = EnemyTank.allEnemies.indexOf(this);
         if (index > -1) {
@@ -5725,6 +5759,11 @@ export class EnemyTank {
 
         // Уничтожаем стенку если есть
         this.destroyWall();
+        
+        // ОПТИМИЗАЦИЯ ПАМЯТИ: Очищаем массивы истории для предотвращения утечек
+        this.targetPositionHistory = [];
+        this.incomingProjectiles = [];
+        this.playerStyleSamples = [];
 
         // Удаляем полоску здоровья
         if (this.healthBar) {
@@ -6036,10 +6075,11 @@ export class EnemyTank {
         // В полной версии можно добавить меш щита вокруг танка
 
         // Деактивируем через 8 секунд
-        setTimeout(() => {
+        const shieldTimeout = setTimeout(() => {
             this.shieldActive = false;
             logger.debug(`[EnemyTank ${this.id}] Shield deactivated`);
         }, 8000);
+        this.activeTimeouts.push(shieldTimeout);
     }
 
     /**
@@ -6055,10 +6095,11 @@ export class EnemyTank {
         // В полной версии можно добавить меши дронов
 
         // Деактивируем через 15 секунд
-        setTimeout(() => {
+        const droneTimeout = setTimeout(() => {
             this.droneActive = false;
             logger.debug(`[EnemyTank ${this.id}] Drones deactivated`);
         }, 15000);
+        this.activeTimeouts.push(droneTimeout);
     }
 
     /**
@@ -6081,10 +6122,11 @@ export class EnemyTank {
         // Визуальный эффект ауры (упрощённая версия)
 
         // Деактивируем через 10 секунд
-        setTimeout(() => {
+        const commandTimeout = setTimeout(() => {
             this.commandActive = false;
             logger.debug(`[EnemyTank ${this.id}] Command aura deactivated`);
         }, 10000);
+        this.activeTimeouts.push(commandTimeout);
     }
 
     private findCoverPosition(): Vector3 | null {
@@ -6416,11 +6458,12 @@ export class EnemyTank {
         }
 
         // Сбрасываем счётчик через 3 секунды
-        setTimeout(() => {
+        const damageResetTimeout = setTimeout(() => {
             if (Date.now() - this.lastDamageTime > 3000) {
                 this.consecutiveHits = 0;
             }
         }, 3000);
+        this.activeTimeouts.push(damageResetTimeout);
     }
 
     // УЛУЧШЕНО: Поиск возвышенности для лучшей позиции (улучшенная версия)

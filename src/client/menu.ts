@@ -8,6 +8,7 @@ import { Scene, Engine } from "@babylonjs/core";
 // Garage is lazy loaded - imported dynamically when needed
 import { CurrencyManager } from "./currencyManager";
 import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
+import { inGameAlert, inGameConfirm, inGamePrompt } from "./utils/inGameDialogs";
 import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
 import { authUI } from "./menu/authUI";
 import { firebaseService } from "./firebaseService";
@@ -111,7 +112,26 @@ const DEFAULT_TANK: TankConfig = {
     firepower: 2
 };
 
-export type MapType = "normal" | "sandbox" | "sand" | "madness" | "expo" | "brest" | "arena" | "polygon" | "frontline" | "ruins" | "canyon" | "industrial" | "urban_warfare" | "underground" | "coastal" | "tartaria" | "custom";
+// Обновленный список карт (синхронизирован с MenuTypes)
+export type MapType =
+    | "normal"
+    | "sandbox"
+    | "sand"
+    | "madness"
+    | "expo"
+    | "brest"
+    | "arena"
+    | "polygon"
+    | "frontline"
+    | "ruins"
+    | "canyon"
+    | "industrial"
+    | "urban_warfare"
+    | "underground"
+    | "coastal"
+    | "tartaria"
+    | "islands"
+    | "custom";
 
 export class MainMenu {
     private container!: HTMLDivElement;
@@ -814,6 +834,10 @@ export class MainMenu {
                         </button>
                     </div>
                     <div class="btn-row">
+                        <button class="menu-btn secondary" id="btn-avatars">
+                            <span class="btn-icon">🎭</span>
+                            <span class="btn-label">АВАТАРКИ</span>
+                        </button>
                         <button class="menu-btn secondary" id="btn-skills">
                             <span class="btn-icon">⚡</span>
                             <span class="btn-label">${L.skills}</span>
@@ -838,13 +862,10 @@ export class MainMenu {
                         <span class="btn-icon" id="fullscreen-icon">⛶</span>
                         <span class="btn-label" id="fullscreen-label">${L.fullscreen}</span>
                     </button>
-                </div>
-                
-                <!-- ВРЕМЕННАЯ ТЕСТОВАЯ КНОПКА ДЛЯ ДИАЛОГОВ -->
-                <button class="menu-btn secondary" id="btn-test-dialogs" style="background: #ff6b00; border-color: #ff6b00; position: fixed; right: 20px; top: 50%; transform: translateY(-50%); z-index: 10000; min-width: 200px;">
-                    <span class="btn-icon">🧪</span>
-                    <span class="btn-label">ТЕСТ ДИАЛОГОВ</span>
-                </button>
+                    <button class="menu-btn test-dialogs-btn" id="btn-test-dialogs">
+                        <span class="btn-icon">🧪</span>
+                        <span class="btn-label">ТЕСТ ДИАЛОГОВ</span>
+                    </button>
                 </div>
 
                 <div class="menu-footer">
@@ -1787,6 +1808,21 @@ export class MainMenu {
             .menu-btn.fullscreen-btn:hover {
                 background: #0a0;
                 border-color: #0f0;
+            }
+
+            .menu-btn.test-dialogs-btn {
+                width: 100%;
+                padding: 12px 20px;
+                margin-top: 5px;
+                background: rgba(180, 70, 0, 0.6);
+                border-color: #ff6b00;
+                font-size: 11px;
+            }
+
+            .menu-btn.test-dialogs-btn:hover {
+                background: #ff6b00;
+                border-color: #ff8c00;
+                color: #000;
             }
 
             .btn-icon {
@@ -5284,7 +5320,7 @@ export class MainMenu {
         if (editorUrl === "/editor-placeholder.html") {
             // Show alert if editor not configured
             setTimeout(() => {
-                alert("⚠️ Редактор не настроен!\n\nДля работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки");
+                inGameAlert("Для работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки", "⚠️ Редактор не настроен!").catch(() => {});
             }, 1000);
         }
 
@@ -5396,43 +5432,24 @@ export class MainMenu {
         }
 
         // Тест 1: Alert
-        try {
-            console.log("[Menu] Test 1: Alert");
-            alert("Это тестовое уведомление!\nВнутриигровой диалог должен отображаться поверх игры.");
-        } catch (e) {
-            console.error("[Menu] Alert error:", e);
-        }
+        inGameAlert("Это тестовое уведомление!\nВнутриигровой диалог должен отображаться поверх игры.", "Тест").catch(() => {});
 
         // Тест 2: Confirm (с задержкой)
         setTimeout(() => {
-            try {
-                console.log("[Menu] Test 2: Confirm");
-                const result = confirm("Это тестовое подтверждение!\nНажмите OK или Отмена.");
-                console.log("[Menu] Confirm result:", result);
-                setTimeout(() => {
-                    alert(`Вы выбрали: ${result ? "OK" : "Отмена"}`);
-                }, 200);
-            } catch (e) {
-                console.error("[Menu] Confirm error:", e);
-            }
+            inGameConfirm("Это тестовое подтверждение!\nНажмите OK или Отмена.", "Тест").then((result) => {
+                inGameAlert(`Вы выбрали: ${result ? "OK" : "Отмена"}`, "Результат").catch(() => {});
+            }).catch(() => {});
         }, 1000);
 
         // Тест 3: Prompt (с задержкой)
         setTimeout(() => {
-            try {
-                console.log("[Menu] Test 3: Prompt");
-                const value = prompt("Введите тестовый текст:", "Тест");
-                console.log("[Menu] Prompt result:", value);
-                setTimeout(() => {
-                    if (value !== null) {
-                        alert(`Вы ввели: "${value}"`);
-                    } else {
-                        alert("Вы отменили ввод.");
-                    }
-                }, 200);
-            } catch (e) {
-                console.error("[Menu] Prompt error:", e);
-            }
+            inGamePrompt("Введите тестовый текст:", "Тест", "Ввод").then((value) => {
+                if (value !== null && value !== undefined) {
+                    inGameAlert(`Вы ввели: "${value}"`, "Результат").catch(() => {});
+                } else {
+                    inGameAlert("Вы отменили ввод.", "Отмена").catch(() => {});
+                }
+            }).catch(() => {});
         }, 2000);
     }
 
@@ -5495,81 +5512,55 @@ export class MainMenu {
                 console.log("[Menu] ✅ Dialogs initialized");
             } catch (e) {
                 console.error("[Menu] ❌ Failed to initialize dialogs:", e);
-                this.showDOMDialog("⚠️ Ошибка инициализации!", `Не удалось инициализировать диалоги: ${e}`, () => { });
+                inGameAlert(`Не удалось инициализировать диалоги: ${e}`, "⚠️ Ошибка инициализации!").catch(() => {});
                 return;
             }
         } else {
             console.warn("[Menu] ⚠️ Cannot initialize dialogs - no guiTexture available");
             // Показываем сообщение через DOM диалог
-            this.showDOMDialog("⚠️ HUD не инициализирован!", "Запустите игру сначала, чтобы протестировать диалоги.", () => { });
+            inGameAlert("Запустите игру сначала, чтобы протестировать диалоги.", "⚠️ HUD не инициализирован!").catch(() => {});
             return;
         }
 
         console.log("[Menu] Step 3: Starting dialog tests...");
 
         // Тест 1: Alert
-        console.log("[Menu] Scheduling Test 1: Alert in 500ms...");
-        setTimeout(() => {
-            try {
-                console.log("[Menu] 🔔 Test 1: Calling alert()...");
-                alert("✅ Тест 1: Alert\nВнутриигровой диалог должен отображаться поверх игры.");
-                console.log("[Menu] ✅ Test 1: alert() called");
-            } catch (e) {
-                console.error("[Menu] ❌ Alert error:", e);
-            }
-        }, 500);
+        setTimeout(() => inGameAlert("✅ Тест 1: Alert\nВнутриигровой диалог должен отображаться поверх игры.", "Тест 1").catch(() => {}), 500);
 
         // Тест 2: Confirm
-        console.log("[Menu] Scheduling Test 2: Confirm in 3000ms...");
-        setTimeout(async () => {
-            try {
-                console.log("[Menu] 🔔 Test 2: Calling confirm()...");
-                const result = confirm("✅ Тест 2: Confirm\nНажмите OK или Отмена.");
-                console.log("[Menu] ✅ Test 2: confirm() returned:", result);
-                setTimeout(() => {
-                    console.log("[Menu] Showing confirm result...");
-                    alert(`Результат: ${result ? "OK" : "Отмена"}`);
-                }, 300);
-            } catch (e) {
-                console.error("[Menu] ❌ Confirm error:", e);
-            }
+        setTimeout(() => {
+            inGameConfirm("✅ Тест 2: Confirm\nНажмите OK или Отмена.", "Тест 2").then((result) => {
+                inGameAlert(`Результат: ${result ? "OK" : "Отмена"}`, "Результат").catch(() => {});
+            }).catch(() => {});
         }, 3000);
 
         // Тест 3: Prompt
-        console.log("[Menu] Scheduling Test 3: Prompt in 6000ms...");
-        setTimeout(async () => {
-            try {
-                console.log("[Menu] 🔔 Test 3: Calling prompt()...");
-                const value = prompt("✅ Тест 3: Prompt\nВведите текст:", "Тест");
-                console.log("[Menu] ✅ Test 3: prompt() returned:", value);
-                setTimeout(() => {
-                    console.log("[Menu] Showing prompt result...");
-                    if (value !== null && value !== undefined) {
-                        alert(`Вы ввели: "${value}"`);
-                    } else {
-                        alert("Ввод отменён.");
-                    }
-                }, 300);
-            } catch (e) {
-                console.error("[Menu] ❌ Prompt error:", e);
-            }
+        setTimeout(() => {
+            inGamePrompt("✅ Тест 3: Prompt\nВведите текст:", "Тест", "Тест 3").then((value) => {
+                if (value !== null && value !== undefined) {
+                    inGameAlert(`Вы ввели: "${value}"`, "Результат").catch(() => {});
+                } else {
+                    inGameAlert("Ввод отменён.", "Результат").catch(() => {});
+                }
+            }).catch(() => {});
         }, 6000);
 
         console.log("[Menu] ✅ All dialog tests scheduled!");
     }
 
     /**
-     * Простой DOM диалог для теста (fallback)
+     * Игровое всплывающее окно в стиле протокола (перехват браузерного alert)
      */
     private showDOMDialog(title: string, message: string, onClose: () => void): void {
         const overlay = document.createElement("div");
+        overlay.className = "game-dialog-overlay";
         overlay.style.cssText = `
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0, 0, 0, 0.85);
             z-index: 100000;
             display: flex;
             align-items: center;
@@ -5577,28 +5568,30 @@ export class MainMenu {
         `;
 
         const dialog = document.createElement("div");
+        dialog.className = "game-dialog-box";
         dialog.style.cssText = `
-            background: rgba(20, 20, 30, 0.98);
-            border: 2px solid #4ade80;
-            border-radius: 12px;
-            padding: 30px;
-            max-width: 500px;
-            color: #fff;
+            background: rgba(0, 20, 0, 0.95);
+            border: 2px solid #0f0;
+            border-radius: 4px;
+            padding: 24px;
+            max-width: 480px;
+            color: #0f0;
             font-family: 'Press Start 2P', monospace;
-            font-size: 14px;
+            font-size: 10px;
+            line-height: 1.6;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
         `;
 
         dialog.innerHTML = `
-            <div style="color: #4ade80; font-size: 20px; margin-bottom: 15px;">${title}</div>
-            <div style="margin-bottom: 20px; line-height: 1.6;">${message.replace(/\n/g, '<br>')}</div>
-            <button id="dom-dialog-ok" style="
-                background: #4ade80;
-                border: none;
-                color: #fff;
-                padding: 10px 20px;
-                border-radius: 6px;
+            <div style="color: #0f0; font-size: 12px; margin-bottom: 12px; text-shadow: 0 0 8px #0f0;">${this.escapeHtml(title)}</div>
+            <div style="margin-bottom: 20px; line-height: 1.7;">${this.escapeHtml(message).replace(/\n/g, '<br>')}</div>
+            <button id="dom-dialog-ok" class="game-dialog-ok" style="
+                background: #000;
+                border: 2px solid #0f0;
+                color: #0f0;
+                padding: 10px 24px;
                 font-family: 'Press Start 2P', monospace;
-                font-size: 12px;
+                font-size: 10px;
                 cursor: pointer;
             ">OK</button>
         `;
@@ -5655,36 +5648,10 @@ export class MainMenu {
                 { id: "btn-login", handler: () => this.showLogin() },
                 { id: "btn-register", handler: () => this.showRegister() },
                 { id: "btn-profile", handler: () => this.showProfile() },
+                { id: "btn-avatars", handler: () => this.showAvatarSelector() },
                 {
                     id: "btn-test-dialogs", handler: () => {
-                        console.log("[Menu] 🧪 Test dialogs button clicked!");
-                        console.log("[Menu] Button handler executed!");
-
-                        // Сразу показываем, что кнопка работает
-                        try {
-                            // Пробуем улучшенную версию
-                            this.testDialogsImproved().catch(e => {
-                                console.error("[Menu] ❌ Test dialogs error:", e);
-                                console.error("[Menu] Error stack:", e instanceof Error ? e.stack : String(e));
-                                // Fallback на старую версию
-                                this.testDialogs().catch(e2 => {
-                                    console.error("[Menu] ❌ Fallback test dialogs error:", e2);
-                                    // Последний fallback - обычный alert
-                                    if (typeof window !== 'undefined' && (window as any).__originalAlert) {
-                                        (window as any).__originalAlert("⚠️ Ошибка при тестировании диалогов. Проверьте консоль для деталей.");
-                                    } else {
-                                        window.alert("⚠️ Ошибка при тестировании диалогов. Проверьте консоль для деталей.");
-                                    }
-                                });
-                            });
-                        } catch (e) {
-                            console.error("[Menu] ❌ Fatal error in test dialogs handler:", e);
-                            if (typeof window !== 'undefined' && (window as any).__originalAlert) {
-                                (window as any).__originalAlert(`Критическая ошибка: ${e}`);
-                            } else {
-                                window.alert(`Критическая ошибка: ${e}`);
-                            }
-                        }
+                        inGameAlert("Пример системного уведомления.\n\nИспользуются внутриигровые диалоги в стиле протокола.", "ТЕСТ ДИАЛОГОВ").catch(() => {});
                     }
                 }
             ];
@@ -5723,8 +5690,8 @@ export class MainMenu {
                         canvas.style.setProperty("z-index", "0", "important");
                     }
 
-                    // Для кнопок авторизации, редактора карт и танков используем и mousedown, и click для максимальной надежности
-                    if (id === "btn-login" || id === "btn-register" || id === "btn-map-editor" || id === "btn-tank-editor") {
+                    // Для кнопок авторизации, аватарок, редактора карт и танков используем и mousedown, и click для максимальной надежности
+                    if (id === "btn-login" || id === "btn-register" || id === "btn-avatars" || id === "btn-map-editor" || id === "btn-tank-editor") {
                         // Обработчик mousedown - срабатывает первым
                         newBtn.addEventListener("mousedown", (e) => {
                             if (loggingSettings.getLevel() >= LogLevel.VERBOSE) {
@@ -6326,6 +6293,13 @@ export class MainMenu {
 
         this.setupCloseButton("skills-close", () => this.hideSkills());
         this.setupCloseButton("skills-back", () => this.hideSkills());
+        const prokachkaBtn = this.skillsPanel.querySelector("#skills-prokachka");
+        if (prokachkaBtn) {
+            prokachkaBtn.addEventListener("click", () => {
+                this.hideSkills();
+                this.showGarage(true);
+            });
+        }
         this.setupPanelCloseOnBackground(this.skillsPanel, () => this.hideSkills());
     }
 
@@ -6553,10 +6527,12 @@ export class MainMenu {
                 if (deleteBtn) {
                     deleteBtn.addEventListener("click", (e) => {
                         e.stopPropagation();
-                        if (confirm(`Удалить карту "${mapName}"?`)) {
-                            deleteCustomMap(mapName);
-                            this.updateCustomMapsUI();
-                        }
+                        inGameConfirm(`Удалить карту "${mapName}"?`, "Подтверждение").then((ok) => {
+                            if (ok) {
+                                deleteCustomMap(mapName);
+                                this.updateCustomMapsUI();
+                            }
+                        });
                     });
 
                     deleteBtn.addEventListener("mouseenter", () => {
@@ -6579,7 +6555,7 @@ export class MainMenu {
                             // We pass the card element to visualize selection
                             (window as any).selectMpCreateRoomMap('custom', card);
                         } else {
-                            alert("Ошибка загрузки карты!");
+                            inGameAlert("Ошибка загрузки карты!", "Ошибка").catch(() => {});
                         }
                         return;
                     }
@@ -6602,7 +6578,7 @@ export class MainMenu {
                             }
                         }
                     } else {
-                        alert("Ошибка загрузки карты!");
+                        inGameAlert("Ошибка загрузки карты!", "Ошибка").catch(() => {});
                     }
                 });
 
@@ -8905,8 +8881,9 @@ transition: all 0.2s;
                         const playerId = kickBtn.getAttribute("data-player-id");
                         const playerName = kickBtn.getAttribute("data-player-name");
                         if (playerId && playerName) {
-                            const reason = prompt(`Введите причину кика игрока ${playerName} (необязательно):`);
-                            this.kickPlayerFromRoom(roomId, playerId, reason || undefined);
+                            inGamePrompt(`Введите причину кика игрока ${playerName} (необязательно):`, "", "Кик игрока").then((reason) => {
+                                this.kickPlayerFromRoom(roomId, playerId, reason || undefined);
+                            }).catch(() => {});
                         }
                     });
                 }
@@ -8936,7 +8913,7 @@ transition: all 0.2s;
      */
     private showPlayerProfile(playerId: string, playerName: string): void {
         // TODO: Реализовать просмотр профиля игрока
-        alert(`Профиль игрока ${playerName}\nID: ${playerId} \n\nФункция просмотра профиля будет реализована позже.`);
+        inGameAlert(`Профиль игрока ${playerName}\nID: ${playerId} \n\nФункция просмотра профиля будет реализована позже.`, "Профиль").catch(() => {});
     }
 
     private startMultiplayerQuickPlay(mode: string): void {
@@ -9152,9 +9129,9 @@ transition: all 0.2s;
         const game = (window as any).gameInstance as any;
         if (game && game.joinMultiplayerRoom) {
             game.joinMultiplayerRoom(roomId);
-            alert(`Присоединение к комнате ${roomId}...`);
+            inGameAlert(`Присоединение к комнате ${roomId}...`, "Мультиплеер").catch(() => {});
         } else {
-            alert("Игра еще не инициализирована. Запустите игру сначала.");
+            inGameAlert("Игра еще не инициализирована. Запустите игру сначала.", "Ошибка").catch(() => {});
         }
     }
 
@@ -9823,7 +9800,7 @@ transition: all 0.2s;
                 const game = (window as any).gameInstance;
                 if (game?.multiplayerManager) {
                     // TODO: Реализовать переключение приватности через сервер
-                    alert("Функция изменения приватности комнаты будет реализована позже");
+                    inGameAlert("Функция изменения приватности комнаты будет реализована позже", "Уведомление").catch(() => {});
                 }
             };
         }
@@ -9852,20 +9829,21 @@ transition: all 0.2s;
                     }
 
                     if (playersList.length === 0) {
-                        alert("Нет игроков для кика");
+                        inGameAlert("Нет игроков для кика", "Уведомление").catch(() => {});
                         return;
                     }
 
                     // Показываем диалог выбора игрока
-                    const playerName = prompt(`Выберите игрока для кика:\n${playersList.map((p, i) => `${i + 1}. ${p.name}`).join('\n')}`);
-                    if (playerName) {
-                        const selectedPlayer = playersList.find(p => p.name === playerName);
-                        if (selectedPlayer) {
-                            multiplayerManager.kickPlayer(selectedPlayer.id);
-                        } else {
-                            alert("Игрок не найден");
+                    inGamePrompt(`Выберите игрока для кика:\n${playersList.map((p, i) => `${i + 1}. ${p.name}`).join('\n')}`, "", "Кик игрока").then((playerName) => {
+                        if (playerName) {
+                            const selectedPlayer = playersList.find(p => p.name === playerName);
+                            if (selectedPlayer) {
+                                multiplayerManager.kickPlayer(selectedPlayer.id);
+                            } else {
+                                inGameAlert("Игрок не найден", "Ошибка").catch(() => {});
+                            }
                         }
-                    }
+                    }).catch(() => {});
                 }
             };
         }
@@ -11325,12 +11303,12 @@ transition: all 0.2s;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager) {
-            alert("MultiplayerManager не найден");
+            inGameAlert("MultiplayerManager не найден", "Ошибка").catch(() => {});
             return;
         }
 
         if (!multiplayerManager.isConnected()) {
-            alert("Не подключено к серверу");
+            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
             return;
         }
 
@@ -11359,7 +11337,7 @@ transition: all 0.2s;
                 }
 
                 if (!currentRoomId) {
-                    alert("Не удалось создать комнату. Попробуйте еще раз.");
+                    inGameAlert("Не удалось создать комнату. Попробуйте еще раз.", "Ошибка").catch(() => {});
                     return;
                 }
 
@@ -11379,7 +11357,7 @@ transition: all 0.2s;
 
         } catch (error) {
             console.error("[Menu] Ошибка при отправке приглашения:", error);
-            alert("Ошибка при отправке приглашения");
+            inGameAlert("Ошибка при отправке приглашения", "Ошибка").catch(() => {});
         }
     }
 
@@ -11428,7 +11406,7 @@ transition: all 0.2s;
                 game.socialSystem = socialSystem;
             } catch (error) {
                 console.error("[Menu] Ошибка при создании SocialSystem:", error);
-                alert("Система друзей недоступна. Проверьте подключение к Firebase.");
+                inGameAlert("Система друзей недоступна. Проверьте подключение к Firebase.", "Ошибка").catch(() => {});
                 return;
             }
         }
@@ -11446,7 +11424,7 @@ transition: all 0.2s;
                 if (game?.chatSystem) {
                     game.chatSystem.addMessage(`⭐ Запрос на добавление в друзья отправлен ${playerName} `, "success", 1);
                 }
-                alert(`Запрос на добавление в друзья отправлен игроку ${playerName} !`);
+                inGameAlert(`Запрос на добавление в друзья отправлен игроку ${playerName} !`, "Уведомление").catch(() => {});
 
                 // Обновляем кнопку (можно добавить визуальную индикацию)
                 const friendBtn = document.querySelector(`.lobby - friend - btn[data - player - id="${playerId}"]`);
@@ -11459,11 +11437,11 @@ transition: all 0.2s;
                 // Обновляем фильтры, если они активны
                 this.applyLobbyPlayerFilters();
             } else {
-                alert("Не удалось отправить запрос на добавление в друзья. Возможно, запрос уже отправлен или игрок уже в друзьях.");
+                inGameAlert("Не удалось отправить запрос на добавление в друзья. Возможно, запрос уже отправлен или игрок уже в друзьях.", "Ошибка").catch(() => {});
             }
         } catch (error) {
             console.error("[Menu] Ошибка при добавлении в друзья:", error);
-            alert("Ошибка при отправке запроса на добавление в друзья");
+            inGameAlert("Ошибка при отправке запроса на добавление в друзья", "Ошибка").catch(() => {});
         }
     }
 
@@ -12158,13 +12136,13 @@ transition: all 0.2s;
 
             // Проверяем тип файла
             if (!file.type.startsWith("image/")) {
-                alert("Пожалуйста, выберите изображение!");
+                inGameAlert("Пожалуйста, выберите изображение!", "Баннер").catch(() => {});
                 return;
             }
 
             // Проверяем размер файла (макс 5MB)
             if (file.size > 5 * 1024 * 1024) {
-                alert("Размер файла не должен превышать 5MB!");
+                inGameAlert("Размер файла не должен превышать 5MB!", "Баннер").catch(() => {});
                 return;
             }
 
@@ -12273,29 +12251,29 @@ transition: all 0.2s;
                     } catch (storageError) {
                         // Если localStorage переполнен, пробуем очистить старые данные
                         if (storageError instanceof DOMException && storageError.code === 22) {
-                            alert("Недостаточно места в хранилище. Попробуйте удалить старый баннер или использовать изображение меньшего размера.");
+                            inGameAlert("Недостаточно места в хранилище. Попробуйте удалить старый баннер или использовать изображение меньшего размера.", "Баннер").catch(() => {});
                         } else {
-                            alert("Ошибка при сохранении баннера!");
+                            inGameAlert("Ошибка при сохранении баннера!", "Ошибка").catch(() => {});
                         }
                         debugWarn("[Menu] Ошибка сохранения баннера:", storageError);
                     }
                 };
 
                 img.onerror = () => {
-                    alert("Ошибка при загрузке изображения!");
+                    inGameAlert("Ошибка при загрузке изображения!", "Ошибка").catch(() => {});
                 };
 
                 img.src = base64;
             };
 
             reader.onerror = () => {
-                alert("Ошибка при чтении файла!");
+                inGameAlert("Ошибка при чтении файла!", "Ошибка").catch(() => {});
             };
 
             reader.readAsDataURL(file);
         } catch (error) {
             debugWarn("[Menu] Ошибка при оптимизации баннера:", error);
-            alert("Ошибка при обработке изображения!");
+            inGameAlert("Ошибка при обработке изображения!", "Ошибка").catch(() => {});
         }
     }
 
@@ -13160,8 +13138,9 @@ line - height: 1.4;
                         const playerId = kickBtn.getAttribute("data-player-id");
                         const playerName = kickBtn.getAttribute("data-player-name");
                         if (playerId && playerName) {
-                            const reason = prompt(`Введите причину кика игрока ${playerName} (необязательно):`);
-                            this.kickPlayerFromRoom(roomId, playerId, reason || undefined);
+                            inGamePrompt(`Введите причину кика игрока ${playerName} (необязательно):`, "", "Кик игрока").then((reason) => {
+                                this.kickPlayerFromRoom(roomId, playerId, reason || undefined);
+                            }).catch(() => {});
                         }
                     });
                 }
@@ -13225,29 +13204,29 @@ line - height: 1.4;
             "raid": "Raid"
         };
 
-        const selected = prompt(`Выберите режим комнаты:\n${modes.map((m, i) => `${i + 1}. ${modeNames[m]}`).join("\n")}\n\nВведите номер (1-${modes.length}):`);
-        if (!selected) return;
-
-        const index = parseInt(selected) - 1;
-        if (index >= 0 && index < modes.length) {
-            const newMode = modes[index] as any;
-            this.changeRoomSettings(room.id, { mode: newMode });
-        }
+        inGamePrompt(`Выберите режим комнаты:\n${modes.map((m, i) => `${i + 1}. ${modeNames[m]}`).join("\n")}\n\nВведите номер (1-${modes.length}):`, "1", "Режим комнаты").then((selected) => {
+            if (!selected) return;
+            const index = parseInt(selected) - 1;
+            if (index >= 0 && index < modes.length) {
+                const newMode = modes[index] as any;
+                this.changeRoomSettings(room.id, { mode: newMode });
+            }
+        }).catch(() => {});
     }
 
     /**
      * Диалог изменения максимального количества игроков
      */
     private showChangeRoomMaxPlayersDialog(room: any): void {
-        const max = prompt(`Введите максимальное количество игроков (текущее: ${room.maxPlayers}, минимум: 2, максимум: 32):`);
-        if (!max) return;
-
-        const maxPlayers = parseInt(max);
-        if (maxPlayers >= 2 && maxPlayers <= 32) {
-            this.changeRoomSettings(room.id, { maxPlayers });
-        } else {
-            alert("Количество игроков должно быть от 2 до 32");
-        }
+        inGamePrompt(`Введите максимальное количество игроков (текущее: ${room.maxPlayers}, минимум: 2, максимум: 32):`, String(room.maxPlayers), "Игроков").then((max) => {
+            if (!max) return;
+            const maxPlayers = parseInt(max);
+            if (maxPlayers >= 2 && maxPlayers <= 32) {
+                this.changeRoomSettings(room.id, { maxPlayers });
+            } else {
+                inGameAlert("Количество игроков должно быть от 2 до 32", "Ошибка").catch(() => {});
+            }
+        }).catch(() => {});
     }
 
     /**
@@ -13255,23 +13234,30 @@ line - height: 1.4;
      */
     private toggleRoomPrivacy(room: any): void {
         const newPrivacy = !room.isPrivate;
-        const password = newPrivacy ? prompt("Введите пароль для комнаты (оставьте пустым для отмены):") : null;
-        if (password === null && newPrivacy) return; // Отменено
-
-        this.changeRoomSettings(room.id, {
-            isPrivate: newPrivacy,
-            password: password || undefined
-        });
+        if (newPrivacy) {
+            inGamePrompt("Введите пароль для комнаты (оставьте пустым для отмены):", "", "Пароль").then((password) => {
+                if (password === null) return; // Отменено
+                this.changeRoomSettings(room.id, {
+                    isPrivate: true,
+                    password: password || undefined
+                });
+            }).catch(() => {});
+        } else {
+            this.changeRoomSettings(room.id, {
+                isPrivate: false,
+                password: undefined
+            });
+        }
     }
 
     /**
      * Диалог передачи прав владельца
      */
     private showTransferOwnershipDialog(room: any): void {
-        const playerId = prompt("Введите ID игрока, которому передать права владельца:");
-        if (!playerId || playerId.trim() === "") return;
-
-        this.transferRoomOwnership(room.id, playerId.trim());
+        inGamePrompt("Введите ID игрока, которому передать права владельца:", "", "Передача прав").then((playerId) => {
+            if (!playerId || playerId.trim() === "") return;
+            this.transferRoomOwnership(room.id, playerId.trim());
+        }).catch(() => {});
     }
 
     /**
@@ -13282,13 +13268,13 @@ line - height: 1.4;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager || !multiplayerManager.isConnected()) {
-            alert("Не подключено к серверу");
+            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
             return;
         }
 
         // TODO: Добавить метод в MultiplayerManager для изменения настроек комнаты
         debugLog(`[Menu] Изменение настроек комнаты ${roomId}:`, settings);
-        alert("Функция изменения настроек комнаты будет реализована на сервере");
+        inGameAlert("Функция изменения настроек комнаты будет реализована на сервере", "Уведомление").catch(() => {});
     }
 
     /**
@@ -13299,13 +13285,13 @@ line - height: 1.4;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager || !multiplayerManager.isConnected()) {
-            alert("Не подключено к серверу");
+            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
             return;
         }
 
         // TODO: Добавить метод в MultiplayerManager для передачи прав
         debugLog(`[Menu] Передача прав владельца комнаты ${roomId} игроку ${newOwnerId}`);
-        alert("Функция передачи прав будет реализована на сервере");
+        inGameAlert("Функция передачи прав будет реализована на сервере", "Уведомление").catch(() => {});
     }
 
     /**
@@ -13316,13 +13302,13 @@ line - height: 1.4;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager || !multiplayerManager.isConnected()) {
-            alert("Не подключено к серверу");
+            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
             return;
         }
 
         // TODO: Добавить метод в MultiplayerManager для кика игрока
         debugLog(`[Menu] Кик игрока ${playerId} из комнаты ${roomId}, причина: ${reason || "не указана"}`);
-        alert("Функция кика игрока будет реализована на сервере");
+        inGameAlert("Функция кика игрока будет реализована на сервере", "Уведомление").catch(() => {});
     }
 
     /**
@@ -13677,13 +13663,13 @@ line - height: 1.4;
                 const multiplayerManager = game?.multiplayerManager;
 
                 if (!multiplayerManager) {
-                    alert("MultiplayerManager не найден");
+                    inGameAlert("MultiplayerManager не найден", "Ошибка").catch(() => {});
                     modal.remove();
                     return;
                 }
 
                 if (!multiplayerManager.isConnected()) {
-                    alert("Не подключено к серверу");
+                    inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
                     modal.remove();
                     return;
                 }
@@ -14634,8 +14620,9 @@ line - height: 1.4;
         updateSkillTreeDisplay(stats, callbacks);
     }
 
-    public async showGarage(): Promise<void> {
-        debugLog("[Menu] showGarage() called");
+    /** Открыть гараж, опционально сразу на вкладке «ПРОКАЧКА» (например из древа навыков). */
+    public async showGarage(openOnUpgradeTab?: boolean): Promise<void> {
+        debugLog("[Menu] showGarage() called" + (openOnUpgradeTab ? " (upgrade tab)" : ""));
 
         const wantsPlayMenuBack = this.returnToPlayMenuAfterGarage;
         const wasPlayVisible = this.playMenuPanel?.classList.contains("visible");
@@ -14733,7 +14720,7 @@ line - height: 1.4;
                 }
             }
         });
-        this.garage.open();
+        this.garage.open(openOnUpgradeTab ? 'upgrade' : undefined);
     }
 
     // Lazy load Garage in menu
@@ -14875,7 +14862,7 @@ line - height: 1.4;
         if (editorUrl === "/editor-placeholder.html") {
             // Show alert if editor not configured
             setTimeout(() => {
-                alert("⚠️ Редактор не настроен!\n\nДля работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки");
+                inGameAlert("Для работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки", "⚠️ Редактор не настроен!").catch(() => {});
             }, 1000);
         }
 
@@ -15505,7 +15492,6 @@ line - height: 1.4;
             const selector = new AvatarSelector({
                 onAvatarSelected: (avatarId: string) => {
                     localStorage.setItem('selectedAvatar', avatarId);
-                    // Обновляем отображение аватара если метод существует
                     if (typeof (this as any).updatePlayerAvatarDisplay === 'function') {
                         (this as any).updatePlayerAvatarDisplay();
                     }
@@ -15518,17 +15504,37 @@ line - height: 1.4;
             this.enforceCanvasPointerEvents();
         }).catch((error) => {
             console.error("[Menu] Failed to load AvatarSelector:", error);
-            // Fallback на старый профиль
             authUI.showUserProfile({
-                onAuthSuccess: () => {
-                    this.updateAuthUI();
-                },
-                onClose: () => {
-                    this.enforceCanvasPointerEvents();
-                }
+                onAuthSuccess: () => this.updateAuthUI(),
+                onClose: () => this.enforceCanvasPointerEvents()
             });
             this.enforceCanvasPointerEvents();
         });
+    }
+
+    /** Открывает только меню выбора аватарок (кнопка «АВАТАРКИ»). Не подменяет профилем при ошибке. */
+    private showAvatarSelector(): void {
+        import("./menu/avatarSelector")
+            .then(({ AvatarSelector }) => {
+                const selector = new AvatarSelector({
+                    onAvatarSelected: (avatarId: string) => {
+                        localStorage.setItem("selectedAvatar", avatarId);
+                        if (typeof (this as any).updatePlayerAvatarDisplay === "function") {
+                            (this as any).updatePlayerAvatarDisplay();
+                        }
+                    },
+                    onClose: () => this.enforceCanvasPointerEvents()
+                });
+                selector.show();
+                this.enforceCanvasPointerEvents();
+            })
+            .catch((err) => {
+                console.error("[Menu] Failed to load AvatarSelector:", err);
+                try {
+                    inGameAlert("Не удалось открыть меню аватарок. Проверьте консоль (F12).", "Ошибка").catch(() => {});
+                } catch (_) {}
+                this.enforceCanvasPointerEvents();
+            });
     }
 
     private async updateAuthUI(): Promise<void> {
@@ -15856,7 +15862,7 @@ line - height: 1.4;
         return loadSettingsModule();
     }
 
-    setOnStartGame(callback: (mapType?: MapType, mapData?: any) => void): void {
+    setOnStartGame(callback: (mode: string, mapType: MapType, chassisId: string, cannonId: string) => void): void {
         this.onStartGame = callback;
     }
 
@@ -16231,7 +16237,8 @@ line - height: 1.4;
             this.updatePlayerInfo(true);
         }, 50);
 
-        // Показываем/скрываем кнопки в зависимости от того, на паузе ли игра
+        // Показываем главное меню (после ввода имени — не с паузы)
+        const isPaused = false;
         this.updatePauseButtons(isPaused);
 
         // КРИТИЧЕСКИ ВАЖНО: Блокируем canvas СРАЗУ
@@ -16247,12 +16254,13 @@ line - height: 1.4;
         // КРИТИЧЕСКИ ВАЖНО: Переустанавливаем защиту canvas при каждом показе меню
         this.setupCanvasPointerEventsProtection();
 
-        // Переустанавливаем прямые обработчики на кнопки
-        // Для кнопок авторизации важно привязать обработчики сразу, без задержки
+        // Переустанавливаем прямые обработчики на кнопки при каждом показе главного меню (не на паузе),
+        // чтобы кнопки вроде «АВАТАРКИ» гарантированно получили обработчики
+        if (!isPaused) {
+            this.buttonHandlersAttached = false;
+        }
         if (!this.buttonHandlersAttached) {
-            // Привязываем обработчики сразу, без задержки для кнопок авторизации
             this.attachDirectButtonHandlers();
-            // Если на паузе - дополнительно прикрепляем обработчики к кнопкам паузы
             if (isPaused) {
                 setTimeout(() => {
                     this.attachPauseButtonHandlers();
@@ -17270,13 +17278,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!multiplayerManager) {
             console.error("[Menu] MultiplayerManager not available");
-            alert("Подключение к серверу не установлено. Попробуйте обновить страницу.");
+            inGameAlert("Подключение к серверу не установлено. Попробуйте обновить страницу.", "Ошибка").catch(() => {});
             return;
         }
 
         // Проверяем подключение
         if (!multiplayerManager.isConnected()) {
-            alert("Нет подключения к серверу. Ожидание...");
+            inGameAlert("Нет подключения к серверу. Ожидание...", "Ожидание").catch(() => {});
             // Ждём подключения
             let attempts = 0;
             while (!multiplayerManager.isConnected() && attempts < 10) {
@@ -17284,7 +17292,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 attempts++;
             }
             if (!multiplayerManager.isConnected()) {
-                alert("Не удалось подключиться к серверу.");
+                inGameAlert("Не удалось подключиться к серверу.", "Ошибка").catch(() => {});
                 return;
             }
         }
@@ -17354,17 +17362,17 @@ document.addEventListener("DOMContentLoaded", () => {
             const success = multiplayerManager.createRoom(mode as any, 32, false, mapType, enableBots, botCount, customMapData);
             if (!success) {
                 console.error("[Menu] Failed to create room");
-                alert("Не удалось создать комнату. Проверьте подключение.");
+                inGameAlert("Не удалось создать комнату. Проверьте подключение.", "Ошибка").catch(() => {});
             } else {
                 debugLog("[Menu] Room creation request sent:", mode, mapType, "bots:", enableBots, botCount);
             }
         } catch (error) {
             console.error("[Menu] Error creating room:", error);
-            alert("Ошибка создания комнаты: " + error);
+            inGameAlert("Ошибка создания комнаты: " + error, "Ошибка").catch(() => {});
         }
     } else {
         console.error("[Menu] Game or mainMenu not found");
-        alert("Игра не инициализирована. Попробуйте обновить страницу.");
+        inGameAlert("Игра не инициализирована. Попробуйте обновить страницу.", "Ошибка").catch(() => {});
     }
 };
 

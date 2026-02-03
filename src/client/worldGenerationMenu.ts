@@ -6,6 +6,7 @@ import { Game } from "./game";
 import { ChunkSystem } from "./chunkSystem";
 import { MapType } from "./menu";
 import { CommonStyles } from "./commonStyles";
+import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs";
 
 export interface WorldGenSettings {
     // Chunk settings
@@ -719,7 +720,7 @@ export class WorldGenerationMenu {
                 break;
         }
         this.updateUI();
-        alert(`✅ Пресет "${preset}" применён!`);
+        inGameAlert(`✅ Пресет "${preset}" применён!`, "Пресет").catch(() => {});
     }
 
     private createSeedGenerator(): HTMLDivElement {
@@ -831,11 +832,13 @@ export class WorldGenerationMenu {
             `;
             deleteBtn.onclick = (e) => {
                 e.stopPropagation();
-                if (confirm(`Удалить профиль "${profile.name}"?`)) {
-                    this.profiles.splice(index, 1);
-                    this.saveProfiles();
-                    this.updateProfileList();
-                }
+                inGameConfirm(`Удалить профиль "${profile.name}"?`, "Подтверждение").then((ok) => {
+                    if (ok) {
+                        this.profiles.splice(index, 1);
+                        this.saveProfiles();
+                        this.updateProfileList();
+                    }
+                }).catch(() => {});
             };
 
             buttons.appendChild(loadBtn);
@@ -881,7 +884,7 @@ export class WorldGenerationMenu {
         const saveBtn = this.createButton("💾 Сохранить профиль", "#4a9eff", () => {
             const name = (document.getElementById("profile-name-input") as HTMLInputElement)?.value.trim();
             if (!name) {
-                alert("❌ Введите название профиля!");
+                inGameAlert("❌ Введите название профиля!", "Профиль").catch(() => {});
                 return;
             }
 
@@ -901,7 +904,7 @@ export class WorldGenerationMenu {
             (document.getElementById("profile-name-input") as HTMLInputElement).value = "";
             (document.getElementById("profile-desc-input") as HTMLTextAreaElement).value = "";
 
-            alert(`✅ Профиль "${name}" сохранён!`);
+            inGameAlert(`✅ Профиль "${name}" сохранён!`, "Профиль").catch(() => {});
         });
 
         wrapper.appendChild(nameInput);
@@ -969,9 +972,9 @@ export class WorldGenerationMenu {
                     const imported = JSON.parse(event.target?.result as string);
                     this.settings = { ...this.settings, ...imported };
                     this.updateUI();
-                    alert("✅ Настройки импортированы!");
+                    inGameAlert("✅ Настройки импортированы!", "Импорт").catch(() => {});
                 } catch (e) {
-                    alert("❌ Ошибка импорта: " + e);
+                    inGameAlert("❌ Ошибка импорта: " + e, "Ошибка").catch(() => {});
                 }
             };
             reader.readAsText(file);
@@ -1228,7 +1231,8 @@ export class WorldGenerationMenu {
     }
 
     private resetSettings(): void {
-        if (confirm("Сбросить все настройки к значениям по умолчанию?")) {
+        inGameConfirm("Сбросить все настройки к значениям по умолчанию?", "Сброс").then((ok) => {
+            if (!ok) return;
             this.settings = {
                 chunkSize: 80,
                 renderDistance: 1.5,
@@ -1251,7 +1255,7 @@ export class WorldGenerationMenu {
             };
             this.updateUI();
             this.showNotification("✅ Настройки сброшены!", "success");
-        }
+        }).catch(() => {});
     }
 
     private applySettings(): void {
@@ -1310,7 +1314,8 @@ export class WorldGenerationMenu {
             return;
         }
 
-        if (confirm("⚠️ Перезагрузить весь мир? Все текущие чанки будут удалены и перегенерированы. Это может занять некоторое время.")) {
+        inGameConfirm("⚠️ Перезагрузить весь мир? Все текущие чанки будут удалены и перегенерированы. Это может занять некоторое время.", "Перезагрузка мира").then((ok) => {
+            if (!ok) return;
             this.applySettings();
 
             if (this.chunkSystem) {
@@ -1338,7 +1343,7 @@ export class WorldGenerationMenu {
                     this.showNotification("❌ Ошибка перезагрузки мира: " + e, "error");
                 });
             }
-        }
+        }).catch(() => {});
     }
 
     private showNotification(message: string, type: "success" | "error" = "success"): void {

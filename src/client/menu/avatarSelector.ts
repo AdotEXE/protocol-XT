@@ -3,6 +3,7 @@
  */
 
 import { generatePixelAvatar, type PixelAvatarOptions } from "./pixelAvatarGenerator";
+import { inGameAlert, inGameConfirm } from "../utils/inGameDialogs";
 import {
     generateAvatarWithGemini,
     generateMultipleVariants,
@@ -44,8 +45,7 @@ export class AvatarSelector {
         this.overlay.className = 'avatar-selector-overlay';
         this.overlay.style.cssText = `
             position: fixed;
-            top: 0;
-            left: 0;
+            inset: 0;
             width: 100%;
             height: 100%;
             background: rgba(0, 0, 0, 0.95);
@@ -54,6 +54,9 @@ export class AvatarSelector {
             justify-content: center;
             align-items: center;
             font-family: 'Press Start 2P', monospace;
+            padding: 12px;
+            box-sizing: border-box;
+            pointer-events: auto;
         `;
 
         const container = document.createElement('div');
@@ -61,21 +64,26 @@ export class AvatarSelector {
             background: linear-gradient(180deg, #0a0a0a 0%, #050505 100%);
             border: 3px solid #0f0;
             border-radius: 10px;
-            padding: 30px;
-            max-width: 90vw;
-            max-height: 90vh;
-            overflow-y: auto;
+            padding: 16px 20px;
+            width: 100%;
+            max-width: min(920px, 92vw);
+            max-height: min(88vh, 900px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
             box-shadow: 0 0 50px rgba(0, 255, 0, 0.5);
+            box-sizing: border-box;
         `;
 
         const title = document.createElement('div');
         title.textContent = 'ВЫБОР АВАТАРКИ';
         title.style.cssText = `
             color: #0f0;
-            font-size: 16px;
+            font-size: 14px;
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 12px;
             text-shadow: 0 0 10px #0f0;
+            flex-shrink: 0;
         `;
         container.appendChild(title);
 
@@ -83,9 +91,10 @@ export class AvatarSelector {
         const tabs = document.createElement('div');
         tabs.style.cssText = `
             display: flex;
-            margin-bottom: 20px;
+            margin-bottom: 12px;
             border-bottom: 2px solid #0f0;
-            gap: 5px;
+            gap: 4px;
+            flex-shrink: 0;
         `;
 
         let activeTab: 'preset' | 'generator' | 'editor' | 'history' = 'preset';
@@ -95,14 +104,14 @@ export class AvatarSelector {
             tab.textContent = label;
             tab.style.cssText = `
                 flex: 1;
-                padding: 12px;
+                padding: 8px 6px;
                 background: rgba(0, 0, 0, 0.5);
                 border: 2px solid #080;
                 border-bottom: none;
                 color: #080;
                 cursor: pointer;
                 font-family: inherit;
-                font-size: 10px;
+                font-size: 8px;
                 transition: all 0.2s ease;
             `;
             return tab;
@@ -115,7 +124,12 @@ export class AvatarSelector {
 
         const tabContent = document.createElement('div');
         tabContent.id = 'avatar-tab-content';
-        tabContent.style.cssText = 'min-height: 400px;';
+        tabContent.style.cssText = `
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+        `;
 
         const switchTab = (tab: string) => {
             activeTab = tab as any;
@@ -160,15 +174,17 @@ export class AvatarSelector {
         closeBtn.textContent = 'ЗАКРЫТЬ [ESC]';
         closeBtn.style.cssText = `
             width: 100%;
-            padding: 15px;
-            margin-top: 20px;
+            padding: 10px 12px;
+            margin-top: 12px;
+            flex-shrink: 0;
             background: rgba(255, 0, 0, 0.2);
             border: 2px solid #f00;
             color: #f00;
             cursor: pointer;
             font-family: inherit;
-            font-size: 12px;
+            font-size: 10px;
             transition: all 0.2s ease;
+            box-sizing: border-box;
         `;
 
         closeBtn.addEventListener('mouseenter', () => {
@@ -251,9 +267,9 @@ export class AvatarSelector {
         const grid = document.createElement('div');
         grid.style.cssText = `
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-            gap: 15px;
-            padding: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+            gap: 10px;
+            padding: 12px;
         `;
 
         avatars.forEach((avatar, index) => {
@@ -268,7 +284,7 @@ export class AvatarSelector {
             });
 
             // Масштабируем canvas для отображения
-            const displaySize = 64;
+            const displaySize = 56;
             avatarCanvas.style.width = `${displaySize}px`;
             avatarCanvas.style.height = `${displaySize}px`;
             avatarCanvas.style.imageRendering = 'pixelated';
@@ -292,7 +308,7 @@ export class AvatarSelector {
             avatarBtn.appendChild(avatarContainer);
 
             avatarBtn.style.cssText = `
-                padding: 15px;
+                padding: 10px;
                 background: ${isSelected ? 'rgba(0, 255, 0, 0.2)' : 'rgba(0, 0, 0, 0.5)'};
                 border: 2px solid ${isSelected ? '#0f0' : '#080'};
                 color: #0f0;
@@ -329,42 +345,43 @@ export class AvatarSelector {
      */
     private createGeneratorTabContent(container: HTMLElement): void {
         const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'display: flex; flex-direction: column; gap: 15px; max-height: 70vh; overflow-y: auto;';
+        wrapper.style.cssText = 'display: flex; flex-direction: column; gap: 12px; min-height: 0; box-sizing: border-box;';
 
         // === ОСНОВНЫЕ НАСТРОЙКИ ===
         const mainSection = document.createElement('div');
-        mainSection.style.cssText = 'border-bottom: 1px solid #080; padding-bottom: 15px;';
+        mainSection.style.cssText = 'border-bottom: 1px solid #080; padding-bottom: 10px; flex-shrink: 0;';
 
         const descriptionLabel = document.createElement('label');
         descriptionLabel.textContent = 'ОПИСАНИЕ АВАТАРКИ:';
-        descriptionLabel.style.cssText = 'color: #0f0; font-size: 10px; display: block; margin-bottom: 5px;';
+        descriptionLabel.style.cssText = 'color: #0f0; font-size: 9px; display: block; margin-bottom: 4px;';
 
         const descriptionInput = document.createElement('textarea');
-        descriptionInput.placeholder = 'Например: Танк с красными полосами, зеленый корпус, желтая башня...';
+        descriptionInput.placeholder = 'Например: Танк с красными полосами, зеленый корпус...';
         descriptionInput.value = '';
         descriptionInput.style.cssText = `
             width: 100%;
-            min-height: 80px;
+            min-height: 56px;
+            max-height: 80px;
             background: rgba(0, 0, 0, 0.5);
             border: 2px solid #080;
             color: #0f0;
-            padding: 10px;
+            padding: 8px;
             font-family: 'Consolas', monospace;
-            font-size: 11px;
+            font-size: 10px;
             resize: vertical;
             box-sizing: border-box;
         `;
 
         // === ШАБЛОНЫ ===
         const templatesSection = document.createElement('div');
-        templatesSection.style.cssText = 'margin: 10px 0;';
+        templatesSection.style.cssText = 'margin: 6px 0; flex-shrink: 0;';
         
         const templatesLabel = document.createElement('label');
         templatesLabel.textContent = 'ШАБЛОНЫ:';
-        templatesLabel.style.cssText = 'color: #0f0; font-size: 9px; display: block; margin-bottom: 5px;';
+        templatesLabel.style.cssText = 'color: #0f0; font-size: 8px; display: block; margin-bottom: 4px;';
         
         const templatesContainer = document.createElement('div');
-        templatesContainer.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap;';
+        templatesContainer.style.cssText = 'display: flex; gap: 6px; flex-wrap: wrap;';
         
         const templates = [
             { name: 'Танк', desc: 'Зеленый танк с пушкой и гусеницами' },
@@ -409,7 +426,7 @@ export class AvatarSelector {
 
         // === РАСШИРЕННЫЕ НАСТРОЙКИ ===
         const advancedSection = document.createElement('div');
-        advancedSection.style.cssText = 'border-bottom: 1px solid #080; padding: 15px 0;';
+        advancedSection.style.cssText = 'border-bottom: 1px solid #080; padding: 10px 0;';
 
         const advancedToggle = document.createElement('button');
         advancedToggle.textContent = '▼ РАСШИРЕННЫЕ НАСТРОЙКИ';
@@ -554,24 +571,24 @@ export class AvatarSelector {
 
         // === ИСТОРИЯ ГЕНЕРАЦИЙ ===
         const historySection = document.createElement('div');
-        historySection.style.cssText = 'border-bottom: 1px solid #080; padding: 15px 0;';
+        historySection.style.cssText = 'border-bottom: 1px solid #080; padding: 10px 0; flex-shrink: 0;';
         
         const historyLabel = document.createElement('label');
         historyLabel.textContent = 'ИСТОРИЯ ГЕНЕРАЦИЙ:';
-        historyLabel.style.cssText = 'color: #0f0; font-size: 9px; display: block; margin-bottom: 5px;';
+        historyLabel.style.cssText = 'color: #0f0; font-size: 8px; display: block; margin-bottom: 4px;';
         
         const historyContainer = document.createElement('div');
         historyContainer.id = 'avatar-history';
         historyContainer.style.cssText = `
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
-            gap: 8px;
-            max-height: 120px;
+            grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
+            gap: 6px;
+            max-height: 100px;
             overflow-y: auto;
-            padding: 10px;
+            padding: 8px;
             background: rgba(0, 0, 0, 0.3);
             border: 1px solid #080;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         `;
         
         const updateHistoryDisplay = () => {
@@ -628,26 +645,28 @@ export class AvatarSelector {
         clearHistoryBtn.textContent = 'ОЧИСТИТЬ ИСТОРИЮ';
         clearHistoryBtn.style.cssText = `
             width: 100%;
-            padding: 6px;
+            padding: 5px;
             background: rgba(255, 0, 0, 0.1);
             border: 1px solid #800;
             color: #a00;
             cursor: pointer;
             font-family: inherit;
             font-size: 8px;
-            margin-bottom: 15px;
+            margin-bottom: 8px;
         `;
         
         clearHistoryBtn.addEventListener('click', () => {
-            if (confirm('Очистить всю историю генераций?')) {
-                clearGenerationHistory();
-                updateHistoryDisplay();
-            }
+            inGameConfirm('Очистить всю историю генераций?', 'Подтверждение').then((ok) => {
+                if (ok) {
+                    clearGenerationHistory();
+                    updateHistoryDisplay();
+                }
+            }).catch(() => {});
         });
 
         // === ПРЕВЬЮ И КНОПКИ ===
         const previewSection = document.createElement('div');
-        previewSection.style.cssText = 'padding-top: 15px;';
+        previewSection.style.cssText = 'padding-top: 10px; flex-shrink: 0;';
 
         const previewContainer = document.createElement('div');
         previewContainer.id = 'avatar-generator-preview';
@@ -655,31 +674,31 @@ export class AvatarSelector {
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 150px;
+            min-height: 100px;
             background: rgba(0, 0, 0, 0.3);
             border: 2px solid #080;
-            padding: 20px;
-            margin-bottom: 15px;
+            padding: 12px;
+            margin-bottom: 10px;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 8px;
         `;
-        previewContainer.innerHTML = '<div style="color: #0a0; font-size: 10px;">Предпросмотр появится после генерации</div>';
+        previewContainer.innerHTML = '<div style="color: #0a0; font-size: 9px;">Предпросмотр после генерации</div>';
 
         const buttonsRow = document.createElement('div');
-        buttonsRow.style.cssText = 'display: flex; gap: 10px; flex-wrap: wrap;';
+        buttonsRow.style.cssText = 'display: flex; gap: 6px; flex-wrap: wrap;';
 
         const generateBtn = document.createElement('button');
         generateBtn.textContent = 'СГЕНЕРИРОВАТЬ';
         generateBtn.style.cssText = `
             flex: 1;
-            min-width: 120px;
-            padding: 12px;
+            min-width: 90px;
+            padding: 8px 10px;
             background: rgba(0, 255, 0, 0.2);
             border: 2px solid #0f0;
             color: #0f0;
             cursor: pointer;
             font-family: inherit;
-            font-size: 11px;
+            font-size: 9px;
             transition: all 0.2s ease;
         `;
 
@@ -687,14 +706,14 @@ export class AvatarSelector {
         generateMultipleBtn.textContent = '3 ВАРИАНТА';
         generateMultipleBtn.style.cssText = `
             flex: 1;
-            min-width: 120px;
-            padding: 12px;
+            min-width: 90px;
+            padding: 8px 10px;
             background: rgba(0, 255, 255, 0.15);
             border: 2px solid #0aa;
             color: #0aa;
             cursor: pointer;
             font-family: inherit;
-            font-size: 11px;
+            font-size: 9px;
             transition: all 0.2s ease;
         `;
 
@@ -702,14 +721,14 @@ export class AvatarSelector {
         useBtn.textContent = 'ИСПОЛЬЗОВАТЬ';
         useBtn.style.cssText = `
             flex: 1;
-            min-width: 120px;
-            padding: 12px;
+            min-width: 90px;
+            padding: 8px 10px;
             background: rgba(0, 255, 255, 0.2);
             border: 2px solid #0ff;
             color: #0ff;
             cursor: pointer;
             font-family: inherit;
-            font-size: 11px;
+            font-size: 9px;
             transition: all 0.2s ease;
             opacity: 0.5;
             cursor: not-allowed;
@@ -719,14 +738,14 @@ export class AvatarSelector {
         exportBtn.textContent = 'ЭКСПОРТ';
         exportBtn.style.cssText = `
             flex: 1;
-            min-width: 120px;
-            padding: 12px;
+            min-width: 90px;
+            padding: 8px 10px;
             background: rgba(255, 165, 0, 0.2);
             border: 2px solid #fa0;
             color: #fa0;
             cursor: pointer;
             font-family: inherit;
-            font-size: 11px;
+            font-size: 9px;
             transition: all 0.2s ease;
             opacity: 0.5;
             cursor: not-allowed;
@@ -736,14 +755,14 @@ export class AvatarSelector {
         importBtn.textContent = 'ИМПОРТ';
         importBtn.style.cssText = `
             flex: 1;
-            min-width: 120px;
-            padding: 12px;
+            min-width: 90px;
+            padding: 8px 10px;
             background: rgba(128, 0, 255, 0.2);
             border: 2px solid #80f;
             color: #80f;
             cursor: pointer;
             font-family: inherit;
-            font-size: 11px;
+            font-size: 9px;
             transition: all 0.2s ease;
         `;
 
@@ -776,7 +795,7 @@ export class AvatarSelector {
         generateBtn.addEventListener('click', async () => {
             const description = descriptionInput.value.trim();
             if (!description) {
-                alert('Введите описание аватара!');
+                inGameAlert('Введите описание аватара!', 'Аватар').catch(() => {});
                 return;
             }
 
@@ -820,7 +839,7 @@ export class AvatarSelector {
         generateMultipleBtn.addEventListener('click', async () => {
             const description = descriptionInput.value.trim();
             if (!description) {
-                alert('Введите описание аватара!');
+                inGameAlert('Введите описание аватара!', 'Аватар').catch(() => {});
                 return;
             }
 
@@ -917,7 +936,7 @@ export class AvatarSelector {
 
         exportBtn.addEventListener('click', () => {
             if (!generatedCanvas) {
-                alert('Сначала сгенерируйте аватар!');
+                inGameAlert('Сначала сгенерируйте аватар!', 'Аватар').catch(() => {});
                 return;
             }
 
@@ -1069,11 +1088,11 @@ export class AvatarSelector {
                             
                             updateHistoryDisplay();
                         } else {
-                            alert('Ошибка импорта аватара');
+                            inGameAlert('Ошибка импорта аватара', 'Ошибка').catch(() => {});
                         }
                     } catch (error) {
                         console.error('[AvatarSelector] Import error:', error);
-                        alert('Ошибка импорта: ' + (error as Error).message);
+                        inGameAlert('Ошибка импорта: ' + (error as Error).message, 'Ошибка').catch(() => {});
                     }
                 };
                 

@@ -65,15 +65,15 @@ export class AircraftCameraSystem {
     ): void {
         if (!aircraftPosition || !aircraftForward) return;
 
-        // ПРОСТАЯ КАМЕРА - позади и выше самолёта
-        const CHASE_DISTANCE = 25;  // Расстояние позади
-        const CHASE_HEIGHT = 8;     // Высота над самолётом
+        // ПРОСТАЯ КАМЕРА - позади и выше самолёта (из конфига)
+        const dist = this.config.chaseDistance;
+        const height = this.config.chaseHeight;
 
         // Позиция камеры: позади самолёта + вверх
         const cameraPos = new Vector3(
-            aircraftPosition.x - aircraftForward.x * CHASE_DISTANCE,
-            aircraftPosition.y + CHASE_HEIGHT,
-            aircraftPosition.z - aircraftForward.z * CHASE_DISTANCE
+            aircraftPosition.x - aircraftForward.x * dist,
+            aircraftPosition.y + height,
+            aircraftPosition.z - aircraftForward.z * dist
         );
 
         // Устанавливаем камеру
@@ -84,18 +84,7 @@ export class AircraftCameraSystem {
 
         // World-up для стабильности
         this.camera.upVector = Vector3.Up();
-
-        // DEBUG: логируем раз в 60 кадров
-        this._debugCounter = (this._debugCounter || 0) + 1;
-        if (this._debugCounter % 60 === 0) {
-            console.log("[AircraftCamera] Position:", {
-                aircraft: { x: aircraftPosition.x.toFixed(1), y: aircraftPosition.y.toFixed(1), z: aircraftPosition.z.toFixed(1) },
-                camera: { x: cameraPos.x.toFixed(1), y: cameraPos.y.toFixed(1), z: cameraPos.z.toFixed(1) }
-            });
-        }
     }
-
-    private _debugCounter: number = 0;
 
     /**
      * Вычислить идеальную позицию камеры

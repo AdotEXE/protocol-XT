@@ -4,6 +4,7 @@
 
 import { BotPerformanceMonitor, BotPerformanceSettings, BotPerformanceProfile } from "./BotPerformanceMonitor";
 import { logger } from "../utils/logger";
+import { inGameAlert, inGamePrompt } from "../utils/inGameDialogs";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, Slider, Button } from "@babylonjs/gui";
 
 export class BotPerformanceSettingsUI {
@@ -502,18 +503,19 @@ export class BotPerformanceSettingsUI {
         saveBtn.left = "-240px";
         saveBtn.fontSize = 11;
         const saveObs = saveBtn.onPointerClickObservable.add(() => {
-            try {
-                const name = prompt("Введите имя профиля:");
-                if (name && name.trim()) {
-                    const description = prompt("Введите описание (необязательно):") || undefined;
-                    this.monitor.saveProfile(name.trim(), description);
-                    this.hide();
-                    this.show(); // Перезагружаем UI
-                    logger.log(`[BotPerformanceSettingsUI] Profile "${name}" saved`);
-                }
-            } catch (e) {
-                logger.error("[BotPerformanceSettingsUI] Error saving profile:", e);
-            }
+            inGamePrompt("Введите имя профиля:", "", "Профиль").then((name) => {
+                if (!name || !name.trim()) return;
+                inGamePrompt("Введите описание (необязательно):", "", "Описание").then((description) => {
+                    try {
+                        this.monitor.saveProfile(name.trim(), description || undefined);
+                        this.hide();
+                        this.show();
+                        logger.log(`[BotPerformanceSettingsUI] Profile "${name}" saved`);
+                    } catch (e) {
+                        logger.error("[BotPerformanceSettingsUI] Error saving profile:", e);
+                    }
+                }).catch(() => {});
+            }).catch(() => {});
         });
         this.observers.push({ control: saveBtn, observer: saveObs });
         container.addControl(saveBtn);
@@ -578,7 +580,7 @@ export class BotPerformanceSettingsUI {
                                 }
                             } catch (err) {
                                 logger.error("[BotPerformanceSettingsUI] Error importing profile:", err);
-                                alert("Ошибка импорта профиля. Проверьте формат файла.");
+                                inGameAlert("Ошибка импорта профиля. Проверьте формат файла.", "Ошибка").catch(() => {});
                             }
                         };
                         reader.readAsText(file);

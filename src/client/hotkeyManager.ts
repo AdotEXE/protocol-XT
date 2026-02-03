@@ -70,6 +70,9 @@ class HotkeyManager {
     private isInitialized: boolean = false;
     private boundKeyDownHandler: ((e: KeyboardEvent) => void) | null = null;
     private boundKeyUpHandler: ((e: KeyboardEvent) => void) | null = null;
+    private contextMenuHandler: ((e: Event) => void) | null = null;
+    private beforeUnloadHandler: ((e: BeforeUnloadEvent) => void) | null = null;
+    private focusTimeout: NodeJS.Timeout | null = null;
 
     constructor() {
         this.config = { ...DEFAULT_CONFIG };
@@ -108,20 +111,22 @@ class HotkeyManager {
         window.addEventListener("keyup", this.boundKeyUpHandler, true);
 
         // Блокировка контекстного меню правой кнопкой
-        window.addEventListener("contextmenu", (e) => {
+        this.contextMenuHandler = (e) => {
             if (this.isGameActive) {
                 e.preventDefault();
             }
-        });
+        };
+        window.addEventListener("contextmenu", this.contextMenuHandler);
 
         // Предотвращение закрытия страницы
-        window.addEventListener("beforeunload", (e) => {
+        this.beforeUnloadHandler = (e) => {
             if (this.isGameActive) {
                 e.preventDefault();
                 e.returnValue = "Вы уверены, что хотите покинуть игру?";
                 return e.returnValue;
             }
-        });
+        };
+        window.addEventListener("beforeunload", this.beforeUnloadHandler);
     }
 
     /**
@@ -209,11 +214,16 @@ class HotkeyManager {
     private openChat(initialText: string = ""): void {
         if (!this.chatSystem) return;
 
+        // Очищаем предыдущий таймер если есть
+        if (this.focusTimeout) {
+            clearTimeout(this.focusTimeout);
+        }
+
         // Показать терминал
         this.chatSystem.setVisible(true);
 
         // Фокус на поле ввода с начальным текстом
-        setTimeout(() => {
+        this.focusTimeout = setTimeout(() => {
             const input = document.getElementById("terminal-command-input") as HTMLInputElement;
             if (input) {
                 input.focus();
@@ -221,6 +231,7 @@ class HotkeyManager {
                     input.value = initialText;
                 }
             }
+            this.focusTimeout = null;
         }, 50);
     }
 
@@ -282,9 +293,23 @@ class HotkeyManager {
     cleanup(): void {
         if (this.boundKeyDownHandler) {
             window.removeEventListener("keydown", this.boundKeyDownHandler, true);
+            this.boundKeyDownHandler = null;
         }
         if (this.boundKeyUpHandler) {
             window.removeEventListener("keyup", this.boundKeyUpHandler, true);
+            this.boundKeyUpHandler = null;
+        }
+        if (this.contextMenuHandler) {
+            window.removeEventListener("contextmenu", this.contextMenuHandler);
+            this.contextMenuHandler = null;
+        }
+        if (this.beforeUnloadHandler) {
+            window.removeEventListener("beforeunload", this.beforeUnloadHandler);
+            this.beforeUnloadHandler = null;
+        }
+        if (this.focusTimeout) {
+            clearTimeout(this.focusTimeout);
+            this.focusTimeout = null;
         }
         this.isInitialized = false;
     }

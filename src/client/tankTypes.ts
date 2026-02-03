@@ -1,5 +1,7 @@
 // Система типов корпусов и пушек для танков
 
+import { applyChassisModifiers, applyCannonModifiers } from "./config/vehiclePhysicsConfig";
+
 export interface ChassisType {
     id: string;
     name: string;
@@ -726,38 +728,105 @@ export const CANNON_TYPES: CannonType[] = [
     }
 ];
 
-// Получить корпус по ID (из json_models или fallback на хардкод)
-export function getChassisById(id: string): ChassisType {
-    // Пытаемся использовать модели из json_models (из кэша)
-    try {
-        const { getChassisByIdSync } = require('./utils/modelLoader');
-        const result = getChassisByIdSync(id);
-        if (result) {
-            return result;
+// ОПТИМИЗАЦИЯ: Map для быстрого поиска по ID (O(1) вместо O(n))
+let chassisTypesMap: Map<string, ChassisType> | null = null;
+let cannonTypesMap: Map<string, CannonType> | null = null;
+
+/**
+ * Создаёт Map для быстрого поиска корпусов (ленивая инициализация)
+ */
+function getChassisTypesMap(): Map<string, ChassisType> {
+    if (!chassisTypesMap) {
+        chassisTypesMap = new Map();
+        for (const chassis of CHASSIS_TYPES) {
+            chassisTypesMap.set(chassis.id, chassis);
         }
-    } catch (e) {
-        // Если modelLoader не загружен, используем fallback
     }
-    // Fallback на хардкод если json_models не загружен
-    const result = CHASSIS_TYPES.find(c => c.id === id) ?? CHASSIS_TYPES[1]!;
-    return result;
+    return chassisTypesMap;
 }
 
-// Получить пушку по ID (из json_models или fallback на хардкод)
+/**
+ * Создаёт Map для быстрого поиска пушек (ленивая инициализация)
+ */
+function getCannonTypesMap(): Map<string, CannonType> {
+    if (!cannonTypesMap) {
+        cannonTypesMap = new Map();
+        for (const cannon of CANNON_TYPES) {
+            cannonTypesMap.set(cannon.id, cannon);
+        }
+    }
+    return cannonTypesMap;
+}
+
+// Кэш результатов после применения модификаторов (оптимизация производительности)
+const chassisCacheWithModifiers = new Map<string, ChassisType>();
+const cannonCacheWithModifiers = new Map<string, CannonType>();
+
+// Получить корпус по ID (из json_models или fallback на хардкод). Применяются модификаторы из vehiclePhysicsConfig.
+export function getChassisById(id: string): ChassisType {
+    // Проверяем кэш результатов после применения модификаторов
+    const cached = chassisCacheWithModifiers.get(id);
+    if (cached) {
+        return cached;
+    }
+
+    let result: ChassisType;
+    try {
+        const { getChassisByIdSync } = require('./utils/modelLoader');
+        const fromCache = getChassisByIdSync(id);
+        if (fromCache) {
+            result = fromCache;
+        } else {
+            // ОПТИМИЗАЦИЯ: Используем Map для O(1) поиска вместо O(n) .find()
+            result = getChassisTypesMap().get(id) ?? CHASSIS_TYPES[1]!;
+        }
+    } catch {
+        // ОПТИМИЗАЦИЯ: Используем Map для O(1) поиска вместо O(n) .find()
+        result = getChassisTypesMap().get(id) ?? CHASSIS_TYPES[1]!;
+    }
+    
+    // Применяем модификаторы и сохраняем в кэш
+    const finalResult = applyChassisModifiers(result, id);
+    chassisCacheWithModifiers.set(id, finalResult);
+    return finalResult;
+}
+
+// Получить пушку по ID (из json_models или fallback на хардкод). Применяются модификаторы из vehiclePhysicsConfig.
 export function getCannonById(id: string): CannonType {
-    // Пытаемся использовать модели из json_models (из кэша)
+    // Проверяем кэш результатов после применения модификаторов
+    const cached = cannonCacheWithModifiers.get(id);
+    if (cached) {
+        return cached;
+    }
+
+    let result: CannonType;
     try {
         const { getCannonByIdSync } = require('./utils/modelLoader');
-        const result = getCannonByIdSync(id);
-        if (result) {
-            return result;
+        const fromCache = getCannonByIdSync(id);
+        if (fromCache) {
+            result = fromCache;
+        } else {
+            // ОПТИМИЗАЦИЯ: Используем Map для O(1) поиска вместо O(n) .find()
+            result = getCannonTypesMap().get(id) ?? CANNON_TYPES[1]!;
         }
-    } catch (e) {
-        // Если modelLoader не загружен, используем fallback
+    } catch {
+        // ОПТИМИЗАЦИЯ: Используем Map для O(1) поиска вместо O(n) .find()
+        result = getCannonTypesMap().get(id) ?? CANNON_TYPES[1]!;
     }
-    // Fallback на хардкод если json_models не загружен
-    const result = CANNON_TYPES.find(c => c.id === id) ?? CANNON_TYPES[1]!;
-    return result;
+    
+    // Применяем модификаторы и сохраняем в кэш
+    const finalResult = applyCannonModifiers(result, id);
+    cannonCacheWithModifiers.set(id, finalResult);
+    return finalResult;
+}
+
+/**
+ * Очищает кэш результатов после применения модификаторов.
+ * Вызывать после изменения модификаторов в vehiclePhysicsConfig.
+ */
+export function clearVehiclePhysicsCache(): void {
+    chassisCacheWithModifiers.clear();
+    cannonCacheWithModifiers.clear();
 }
 
 export interface TrackType {

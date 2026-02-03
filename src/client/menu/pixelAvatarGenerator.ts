@@ -94,257 +94,109 @@ function drawRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
     ctx.fillRect(x, y, w, h);
 }
 
-/**
- * Танк - основной аватар
- */
+/** Базовое лицо (овал, глаза, рот) — только для портретов. */
+function drawFaceBase(ctx: CanvasRenderingContext2D): void {
+    drawRect(ctx, 10, 8, 12, 14, '#ffdbac');
+    drawRect(ctx, 9, 10, 14, 10, '#ffdbac');
+    drawRect(ctx, 12, 12, 2, 2, '#000');
+    drawRect(ctx, 18, 12, 2, 2, '#000');
+    drawRect(ctx, 14, 18, 4, 1, '#c66');
+}
+
+/** Танк — «лицо»: башня спереди (глаза-оптики, люк, пушка). */
 function drawTankAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    const tankColor = rng() > 0.5 ? '#0f0' : '#0a0';
-    const turretColor = '#080';
-    
-    // Корпус танка (нижняя часть)
-    drawRect(ctx, 8, 20, 16, 8, tankColor);
-    // Гусеницы
-    drawRect(ctx, 6, 22, 20, 4, '#333');
-    // Башня
-    drawRect(ctx, 12, 12, 8, 8, turretColor);
-    // Пушка
-    drawRect(ctx, 20, 14, 4, 2, '#222');
-    // Люк
-    drawRect(ctx, 14, 14, 4, 3, '#0f0');
-    // Оптический прицел
-    drawPixel(ctx, 15, 13, '#ff0');
+    const c = rng() > 0.5 ? '#0f0' : '#0a0';
+    drawRect(ctx, 8, 6, 16, 18, '#080');
+    drawRect(ctx, 10, 8, 12, 14, c);
+    drawRect(ctx, 12, 11, 2, 2, '#ff0');
+    drawRect(ctx, 18, 11, 2, 2, '#ff0');
+    drawRect(ctx, 14, 14, 4, 4, '#060');
+    drawRect(ctx, 22, 12, 4, 4, '#222');
 }
 
-/**
- * Солдат
- */
+/** Солдат — лицо + каска. */
 function drawSoldierAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    const uniformColor = rng() > 0.5 ? '#0a0' : '#060';
-    
-    // Голова
-    drawRect(ctx, 12, 4, 8, 8, '#ffdbac');
-    // Каска
-    drawRect(ctx, 11, 4, 10, 4, '#333');
-    // Тело
-    drawRect(ctx, 13, 12, 6, 10, uniformColor);
-    // Руки
-    drawRect(ctx, 10, 12, 3, 8, uniformColor);
-    drawRect(ctx, 19, 12, 3, 8, uniformColor);
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#222');
-    drawRect(ctx, 16, 22, 3, 6, '#222');
-    // Оружие
-    drawRect(ctx, 8, 14, 4, 2, '#444');
+    drawFaceBase(ctx);
+    drawRect(ctx, 9, 6, 14, 5, '#333');
+    drawRect(ctx, 10, 7, 12, 3, '#333');
 }
 
-/**
- * Командир
- */
-function drawCommanderAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова
-    drawRect(ctx, 12, 4, 8, 8, '#ffdbac');
-    // Фуражка с кокардой
-    drawRect(ctx, 11, 4, 10, 3, '#0a0');
-    drawPixel(ctx, 15, 5, '#ff0');
-    // Тело (форма с погонами)
-    drawRect(ctx, 13, 12, 6, 10, '#0f0');
-    drawRect(ctx, 12, 12, 1, 4, '#ff0');
-    drawRect(ctx, 19, 12, 1, 4, '#ff0');
-    // Руки
-    drawRect(ctx, 10, 12, 3, 8, '#0a0');
-    drawRect(ctx, 19, 12, 3, 8, '#0a0');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#222');
-    drawRect(ctx, 16, 22, 3, 6, '#222');
-    // Бинокль
-    drawRect(ctx, 20, 10, 3, 2, '#444');
+/** Командир — лицо + фуражка с кокардой. */
+function drawCommanderAvatar(ctx: CanvasRenderingContext2D, _rng: () => number): void {
+    drawFaceBase(ctx);
+    drawRect(ctx, 9, 5, 14, 4, '#0a0');
+    drawRect(ctx, 14, 6, 4, 2, '#ff0');
 }
 
-/**
- * Пилот
- */
+/** Пилот — лицо + шлем + очки. */
 function drawPilotAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова
-    drawRect(ctx, 12, 4, 8, 8, '#ffdbac');
-    // Шлем пилота
-    drawRect(ctx, 11, 4, 10, 6, '#0a0');
-    drawRect(ctx, 13, 6, 6, 2, '#000');
-    // Тело (комбинезон)
-    drawRect(ctx, 13, 12, 6, 10, '#0f0');
-    // Руки
-    drawRect(ctx, 10, 12, 3, 8, '#0a0');
-    drawRect(ctx, 19, 12, 3, 8, '#0a0');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#222');
-    drawRect(ctx, 16, 22, 3, 6, '#222');
-    // Очки
-    drawRect(ctx, 13, 8, 6, 2, '#0ff');
+    drawFaceBase(ctx);
+    drawRect(ctx, 8, 5, 16, 6, '#0a0');
+    drawRect(ctx, 11, 8, 10, 2, '#000');
+    drawRect(ctx, 12, 9, 8, 1, '#0ff');
 }
 
-/**
- * Снайпер
- */
-function drawSniperAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова
-    drawRect(ctx, 12, 4, 8, 8, '#ffdbac');
-    // Камуфляжная шапка
-    drawRect(ctx, 11, 4, 10, 4, '#0a0');
-    // Тело (камуфляж)
-    drawRect(ctx, 13, 12, 6, 10, '#0a0');
-    // Руки
-    drawRect(ctx, 10, 12, 3, 8, '#060');
-    drawRect(ctx, 19, 12, 3, 8, '#060');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#222');
-    drawRect(ctx, 16, 22, 3, 6, '#222');
-    // Снайперская винтовка
-    drawRect(ctx, 6, 14, 6, 2, '#444');
-    drawRect(ctx, 5, 15, 1, 1, '#ff0'); // Прицел
+/** Снайпер — лицо + камуфляжная шапка. */
+function drawSniperAvatar(ctx: CanvasRenderingContext2D, _rng: () => number): void {
+    drawFaceBase(ctx);
+    drawRect(ctx, 9, 6, 14, 5, '#0a0');
+    drawRect(ctx, 10, 7, 12, 3, '#060');
 }
 
-/**
- * Инженер
- */
-function drawEngineerAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова
-    drawRect(ctx, 12, 4, 8, 8, '#ffdbac');
-    // Каска
-    drawRect(ctx, 11, 4, 10, 4, '#ff0');
-    // Тело (комбинезон)
-    drawRect(ctx, 13, 12, 6, 10, '#0a0');
-    // Руки
-    drawRect(ctx, 10, 12, 3, 8, '#0f0');
-    drawRect(ctx, 19, 12, 3, 8, '#0f0');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#222');
-    drawRect(ctx, 16, 22, 3, 6, '#222');
-    // Гаечный ключ
-    drawRect(ctx, 20, 14, 2, 4, '#888');
+/** Инженер — лицо + жёлтая каска. */
+function drawEngineerAvatar(ctx: CanvasRenderingContext2D, _rng: () => number): void {
+    drawFaceBase(ctx);
+    drawRect(ctx, 9, 6, 14, 5, '#ff0');
+    drawRect(ctx, 10, 7, 12, 3, '#dd0');
 }
 
-/**
- * Медик
- */
-function drawMedicAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова
-    drawRect(ctx, 12, 4, 8, 8, '#ffdbac');
-    // Белая шапка с крестом
-    drawRect(ctx, 11, 4, 10, 4, '#fff');
-    drawRect(ctx, 15, 5, 2, 2, '#f00');
-    // Тело (белый халат)
-    drawRect(ctx, 13, 12, 6, 10, '#fff');
-    // Руки
-    drawRect(ctx, 10, 12, 3, 8, '#fff');
-    drawRect(ctx, 19, 12, 3, 8, '#fff');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#222');
-    drawRect(ctx, 16, 22, 3, 6, '#222');
-    // Аптечка
-    drawRect(ctx, 20, 14, 3, 4, '#f00');
-    drawPixel(ctx, 21, 15, '#fff');
+/** Медик — лицо + белая шапка с крестом. */
+function drawMedicAvatar(ctx: CanvasRenderingContext2D, _rng: () => number): void {
+    drawFaceBase(ctx);
+    drawRect(ctx, 9, 6, 14, 5, '#fff');
+    drawRect(ctx, 14, 7, 4, 3, '#f00');
 }
 
-/**
- * Шпион
- */
-function drawSpyAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова
-    drawRect(ctx, 12, 4, 8, 8, '#ffdbac');
-    // Шляпа
-    drawRect(ctx, 11, 4, 10, 3, '#222');
-    // Тело (темный плащ)
-    drawRect(ctx, 13, 12, 6, 10, '#111');
-    // Руки
-    drawRect(ctx, 10, 12, 3, 8, '#000');
-    drawRect(ctx, 19, 12, 3, 8, '#000');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#222');
-    drawRect(ctx, 16, 22, 3, 6, '#222');
-    // Бинокль
-    drawRect(ctx, 20, 10, 3, 2, '#444');
+/** Шпион — лицо + тёмная шляпа. */
+function drawSpyAvatar(ctx: CanvasRenderingContext2D, _rng: () => number): void {
+    drawFaceBase(ctx);
+    drawRect(ctx, 9, 5, 14, 4, '#222');
+    drawRect(ctx, 10, 6, 12, 2, '#111');
 }
 
-/**
- * Киборг
- */
-function drawCyborgAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова (металлическая)
-    drawRect(ctx, 12, 4, 8, 8, '#888');
-    drawRect(ctx, 13, 6, 6, 4, '#0ff');
-    // Тело (робот)
-    drawRect(ctx, 13, 12, 6, 10, '#666');
-    // Руки (механические)
-    drawRect(ctx, 10, 12, 3, 8, '#555');
-    drawRect(ctx, 19, 12, 3, 8, '#555');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#444');
-    drawRect(ctx, 16, 22, 3, 6, '#444');
-    // Антенна
-    drawPixel(ctx, 16, 3, '#0ff');
+/** Киборг — «лицо»: маска + визор + антенна. */
+function drawCyborgAvatar(ctx: CanvasRenderingContext2D, _rng: () => number): void {
+    drawRect(ctx, 10, 8, 12, 14, '#666');
+    drawRect(ctx, 9, 10, 14, 10, '#555');
+    drawRect(ctx, 11, 11, 10, 5, '#0ff');
+    drawRect(ctx, 13, 13, 3, 2, '#000');
+    drawRect(ctx, 18, 13, 3, 2, '#000');
+    drawPixel(ctx, 15, 6, '#0ff');
+    drawPixel(ctx, 16, 5, '#0ff');
 }
 
-/**
- * Ниндзя
- */
-function drawNinjaAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова (маска)
-    drawRect(ctx, 12, 4, 8, 8, '#000');
-    drawRect(ctx, 14, 6, 4, 2, '#fff');
-    // Тело (кимоно)
-    drawRect(ctx, 13, 12, 6, 10, '#111');
-    // Руки
-    drawRect(ctx, 10, 12, 3, 8, '#000');
-    drawRect(ctx, 19, 12, 3, 8, '#000');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#222');
-    drawRect(ctx, 16, 22, 3, 6, '#222');
-    // Катана
-    drawRect(ctx, 20, 10, 2, 8, '#ccc');
+/** Ниндзя — только маска + прорезь для глаз. */
+function drawNinjaAvatar(ctx: CanvasRenderingContext2D, _rng: () => number): void {
+    drawRect(ctx, 9, 8, 14, 14, '#111');
+    drawRect(ctx, 10, 9, 12, 12, '#000');
+    drawRect(ctx, 12, 12, 3, 2, '#fff');
+    drawRect(ctx, 17, 12, 3, 2, '#fff');
 }
 
-/**
- * Викинг
- */
-function drawVikingAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова
-    drawRect(ctx, 12, 4, 8, 8, '#ffdbac');
-    // Шлем с рогами
-    drawRect(ctx, 11, 4, 10, 4, '#888');
-    drawPixel(ctx, 10, 5, '#888');
-    drawPixel(ctx, 21, 5, '#888');
-    // Борода
-    drawRect(ctx, 13, 10, 6, 4, '#ff0');
-    // Тело (кольчуга)
-    drawRect(ctx, 13, 12, 6, 10, '#555');
-    // Руки
-    drawRect(ctx, 10, 12, 3, 8, '#666');
-    drawRect(ctx, 19, 12, 3, 8, '#666');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#222');
-    drawRect(ctx, 16, 22, 3, 6, '#222');
-    // Топор
-    drawRect(ctx, 20, 14, 3, 2, '#888');
+/** Викинг — лицо + борода + шлем с рогами. */
+function drawVikingAvatar(ctx: CanvasRenderingContext2D, _rng: () => number): void {
+    drawFaceBase(ctx);
+    drawRect(ctx, 12, 16, 8, 6, '#c96');
+    drawRect(ctx, 9, 6, 14, 5, '#888');
+    drawRect(ctx, 8, 7, 2, 3, '#777');
+    drawRect(ctx, 22, 7, 2, 3, '#777');
 }
 
-/**
- * Рыцарь
- */
-function drawKnightAvatar(ctx: CanvasRenderingContext2D, rng: () => number): void {
-    // Голова (шлем)
-    drawRect(ctx, 12, 4, 8, 8, '#ccc');
-    drawRect(ctx, 13, 6, 6, 2, '#000');
-    // Тело (доспехи)
-    drawRect(ctx, 13, 12, 6, 10, '#aaa');
-    // Руки (латы)
-    drawRect(ctx, 10, 12, 3, 8, '#bbb');
-    drawRect(ctx, 19, 12, 3, 8, '#bbb');
-    // Ноги
-    drawRect(ctx, 13, 22, 3, 6, '#888');
-    drawRect(ctx, 16, 22, 3, 6, '#888');
-    // Щит
-    drawRect(ctx, 6, 12, 4, 6, '#0f0');
-    drawPixel(ctx, 7, 14, '#ff0');
-    // Меч
-    drawRect(ctx, 20, 10, 2, 8, '#ddd');
+/** Рыцарь — только шлем (закрытое лицо) + прорезь. */
+function drawKnightAvatar(ctx: CanvasRenderingContext2D, _rng: () => number): void {
+    drawRect(ctx, 9, 6, 14, 16, '#aaa');
+    drawRect(ctx, 10, 7, 12, 14, '#bbb');
+    drawRect(ctx, 12, 12, 8, 3, '#000');
+    drawRect(ctx, 13, 13, 6, 1, '#333');
 }
 

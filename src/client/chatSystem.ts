@@ -3,6 +3,7 @@ import { Scene } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, ScrollViewer } from "@babylonjs/gui";
 import { CommandSystem } from "./commandSystem";
 import { LogLevel, loggingSettings } from "./utils/logger";
+import { inGamePrompt } from "./utils/inGameDialogs";
 
 export type MessageType = "system" | "info" | "warning" | "error" | "success" | "log" | "combat" | "economy" | "chat";
 export type ChatChannel = "global" | "local" | "team" | "room";
@@ -1465,11 +1466,12 @@ export class ChatSystem {
         if (isRecording) {
             const macro = (this.scriptEngine as any).stopRecording();
             if (macro) {
-                const name = prompt("Macro name:", `macro_${Date.now()}`);
-                if (name) {
-                    (this.scriptEngine as any).saveMacro(name, macro.split('\n'));
-                    this.addMessage(`Macro "${name}" saved`, "success");
-                }
+                inGamePrompt("Macro name:", `macro_${Date.now()}`, "Макрос").then((name) => {
+                    if (name) {
+                        (this.scriptEngine as any).saveMacro(name, macro.split('\n'));
+                        this.addMessage(`Macro "${name}" saved`, "success");
+                    }
+                }).catch(() => {});
             }
             this.addMessage("Macro recording stopped", "info");
         } else {
