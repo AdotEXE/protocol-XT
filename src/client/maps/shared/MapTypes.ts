@@ -88,8 +88,23 @@ export interface ObjectPosition {
  * Тип карты
  */
 export type MapType =
-    | "sand"
     | "normal"
+    | "sandbox"
+    | "sand"
+    | "madness"
+    | "expo"
+    | "brest"
+    | "arena"
+    | "polygon"
+    | "frontline"
+    | "ruins"
+    | "canyon"
+    | "industrial"
+    | "urban_warfare"
+    | "underground"
+    | "coastal"
+    | "tartaria"
+    | "islands"
     | "custom";
 
 /**

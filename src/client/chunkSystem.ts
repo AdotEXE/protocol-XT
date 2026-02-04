@@ -529,8 +529,8 @@ export class ChunkSystem {
                 mapType: "sand",
                 size: 150,
                 placedObjects: [
-                    // === GROUND ===
-                    { id: "ground", type: "box", position: { x: 0, y: -0.05, z: 0 }, scale: { x: 150, y: 0.1, z: 150 }, properties: { color: "#8B7355", name: "Ground", hasCollision: true } },
+                    // === GROUND (чёрный для grid эффекта) ===
+                    { id: "ground", type: "box", position: { x: 0, y: -0.05, z: 0 }, scale: { x: 150, y: 0.1, z: 150 }, properties: { color: "#0a0a0a", name: "Ground", hasCollision: true } },
 
                     // === CENTRAL PLATFORM (40x40, height 3.5) ===
                     { id: "platform", type: "box", position: { x: 0, y: 1.75, z: 0 }, scale: { x: 40, y: 3.5, z: 40 }, properties: { color: "#5A5A5A", name: "Platform", hasCollision: true } },
@@ -621,8 +621,48 @@ export class ChunkSystem {
         const runner = new CustomMapRunner(this.scene);
         const result = runner.run(mapData, { skipClear: true, skipEnvironment: true });
 
+        // Создаём wireframe grid поверх карты
+        this.createWireframeGrid(mapData.size || 150);
+
         const elapsed = performance.now() - startTime;
         logger.log(`[ChunkSystem] ✅ Fixed map "${mapType}" loaded in ${elapsed.toFixed(1)}ms, objects: ${result.objectsCreated}, meshes: ${this.scene.meshes.length}`);
+    }
+
+    /**
+     * Создать 3D wireframe сетку - яркая зелёная в стиле киберпанк
+     * @param size - размер сетки (по умолчанию 1000)
+     */
+    private createWireframeGrid(size: number = 1000): void {
+        const cellSize = Math.max(10, size / 20); // Адаптивный размер ячейки
+        const gridY = 0.1;
+        const halfSize = size / 2;
+        const linePoints: Vector3[][] = [];
+
+        // Горизонтальные линии
+        for (let z = -halfSize; z <= halfSize; z += cellSize) {
+            linePoints.push([
+                new Vector3(-halfSize, gridY, z),
+                new Vector3(halfSize, gridY, z)
+            ]);
+        }
+
+        // Вертикальные линии
+        for (let x = -halfSize; x <= halfSize; x += cellSize) {
+            linePoints.push([
+                new Vector3(x, gridY, -halfSize),
+                new Vector3(x, gridY, halfSize)
+            ]);
+        }
+
+        const gridLines = MeshBuilder.CreateLineSystem("chunkGridLines", {
+            lines: linePoints
+        }, this.scene);
+
+        // Яркий зелёный цвет
+        gridLines.color = new Color3(0, 1, 0); // #00ff00
+        gridLines.isPickable = false;
+
+        logger.log(`[ChunkSystem] ✨ Wireframe grid created (${size}m, ${linePoints.length} lines)`);
     }
     /**
      * Запустить custom карту через CustomMapRunner

@@ -136,7 +136,7 @@ export class HUD {
     private lowHpVignetteComponent: LowHealthVignette | null = null;
     private lowHpPulseTime = 0;
     private isLowHp = false;
-    
+
     // Aircraft HUD (Mouse-Aim ретикли)
     private aircraftHUD: AircraftHUD | null = null;
 
@@ -146,6 +146,11 @@ export class HUD {
     private radarArea: Rectangle | null = null; // Область радара для врагов
     private barrelPitchLabel: TextBlock | null = null; // Отображение угла наклона ствола
     private minimapEnemies: Rectangle[] = [];
+
+    // Spawn marker on radar
+    private spawnMarker: Rectangle | null = null;
+    private spawnPosition: { x: number, z: number } = { x: 0, z: 0 };
+    private compassSpawnMarker: Rectangle | null = null;
 
     // Network Status Indicator (Ping / Drift)
     private networkIndicatorContainer: Rectangle | null = null;
@@ -448,7 +453,7 @@ export class HUD {
     constructor(scene: Scene) {
         this.scene = scene;
         this.guiTexture = AdvancedDynamicTexture.CreateFullscreenUI("UI", true, scene);
-        
+
         // Инициализируем внутриигровые диалоги
         initializeInGameDialogs(this.guiTexture);
 
@@ -1803,7 +1808,7 @@ export class HUD {
         outerRing.height = `${outerSize}px`;
         outerRing.cornerRadius = outerSize / 2;
         outerRing.thickness = 1;
-        outerRing.color = "#ff440066";
+        outerRing.color = "transparent"; // ИСПРАВЛЕНО: Скрыт по просьбе
         outerRing.background = "transparent";
         outerRing.isVisible = false;
         this.guiTexture.addControl(outerRing);
@@ -1822,7 +1827,9 @@ export class HUD {
         this.guiTexture.addControl(middleRing);
         this.crosshairElements.push(middleRing);
 
-        // Center dot - точка прицела
+        // Center dot - точка прицела (ОПУЩЕНА на пол-радиуса круга = 15px)
+        const CROSSHAIR_OFFSET = scalePixels(15); // "Drop ONLY THE CROSS half a radius from the circle"
+
         this.crosshairDot = new Rectangle("crosshairDot");
         const dotSize = scalePixels(4);
         this.crosshairDot.width = `${dotSize}px`;
@@ -1831,9 +1838,10 @@ export class HUD {
         this.crosshairDot.thickness = 0;
         this.crosshairDot.background = "#ff3300";
         this.crosshairDot.isVisible = false;
+        this.crosshairDot.top = `${CROSSHAIR_OFFSET}px`; // OFFSET
         this.guiTexture.addControl(this.crosshairDot);
 
-        // Тактические линии
+        // Тактические линии (ОПУЩЕНЫ)
         const gap = scalePixels(8);
         const length = scalePixels(15);
         const thickness = scalePixels(2);
@@ -1844,7 +1852,9 @@ export class HUD {
             line.height = h;
             line.background = "#ff8800";
             line.thickness = 0;
-            line.top = t;
+            // Add OFFSET to top
+            const topVal = parseFloat(t);
+            line.top = `${topVal + CROSSHAIR_OFFSET}px`; // OFFSET
             line.left = l;
             line.isVisible = false;
             this.guiTexture.addControl(line);
@@ -1856,7 +1866,8 @@ export class HUD {
             shadow.height = h;
             shadow.background = "#000000";
             shadow.thickness = 0;
-            shadow.top = `${parseFloat(t) + 1}px`;
+            // Add OFFSET to top
+            shadow.top = `${topVal + CROSSHAIR_OFFSET + 1}px`; // OFFSET
             shadow.left = `${parseFloat(l) + 1}px`;
             shadow.alpha = 0.5;
             shadow.isVisible = false;
@@ -1874,7 +1885,18 @@ export class HUD {
         // Правая линия
         createLine("crossRight", `${length}px`, `${thickness}px`, "0", `${gap}px`);
 
-        // Угловые маркеры (диагональные акценты)
+        // Угловые маркеры (диагональные акценты) (ОСТАВЛЯЕМ НЕ ТРОНУТЫМИ или тоже опускаем? User said "Only the Cross". Corners might be part of the "sight" or outer frame. Let's keep them with the circle/frame to be safe, or move them? Usually corners frame the crosshair. I'll move them too to keep the set coherent.)
+        // User said "Drop only the cross". If corners are part of the crosshair complex, maybe they should move. 
+        // But "Circle sight cannot go out". If corners are near the circle...
+        // Let's Move ONLY the DOT and LINES (The Cross). Leave Rings and Corners (Frame)??
+        // "Drop only the cross ... half a radius of the circle".
+        // Code has: outerRing, middleRing.
+        // It has createLine (Cross).
+        // It has createCorner.
+        // I will move Cross Lines + Dot. I will NOT move Rings.
+        // corners? They are called "cornerTL", etc. "cornerDist = 20". Outer ring is 60 (rad 30). Corners are inside the ring.
+        // I'll move corners too so the whole inner reticle moves.
+
         const cornerSize = scalePixels(8);
         const cornerDist = scalePixels(20);
 
@@ -1884,7 +1906,7 @@ export class HUD {
             corner.height = "1px";
             corner.background = "#ff440088";
             corner.thickness = 0;
-            corner.top = `${top}px`;
+            corner.top = `${top + CROSSHAIR_OFFSET}px`; // OFFSET
             corner.left = `${left}px`;
             corner.isVisible = false;
             this.guiTexture.addControl(corner);
@@ -3025,6 +3047,19 @@ export class HUD {
         // === КРАСНЫЕ ТОЧКИ ДЛЯ ВРАГОВ В ПОЛЕ ЗРЕНИЯ ===
         this.compassEnemyDots = [];
 
+        // === SPAWN MARKER НА КОМПАСЕ (голубой маркер "H" для Home) ===
+        this.compassSpawnMarker = new Rectangle("compassSpawnMarker");
+        this.compassSpawnMarker.width = this.scalePx(16);
+        this.compassSpawnMarker.height = this.scalePx(16);
+        this.compassSpawnMarker.thickness = 2;
+        this.compassSpawnMarker.color = "#00ffff"; // Cyan
+        this.compassSpawnMarker.background = "transparent";
+        this.compassSpawnMarker.cornerRadius = 0;
+        this.compassSpawnMarker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.compassSpawnMarker.isVisible = true;
+        this.compassSpawnMarker.zIndex = 60;
+        this.compassContainer.addControl(this.compassSpawnMarker);
+
         // === TARGET INDICATOR (enemy tank popup) ===
         // Legacy targetIndicator - СКРЫТ, используется новый TargetHealthBar компонент
         this.targetIndicator = new Rectangle("targetIndicator");
@@ -3540,6 +3575,18 @@ export class HUD {
         this.minimapAimDot.top = this.scalePx(-72);
         this.minimapAimDot.isVisible = false;
         this.radarArea.addControl(this.minimapAimDot);
+
+        // === SPAWN MARKER (Метка спавна - голубой цвет) ===
+        this.spawnMarker = new Rectangle("spawnMarker");
+        this.spawnMarker.width = this.scalePx(12);
+        this.spawnMarker.height = this.scalePx(12);
+        this.spawnMarker.thickness = 2;
+        this.spawnMarker.color = "#00ffff"; // Cyan - голубой для спавна
+        this.spawnMarker.background = "transparent";
+        this.spawnMarker.cornerRadius = 0;
+        this.spawnMarker.isVisible = true;
+        this.spawnMarker.zIndex = 50; // Под врагами но над фоном
+        this.radarArea.addControl(this.spawnMarker);
 
         // === НИЖНЯЯ ИНФОРМАЦИОННАЯ ПАНЕЛЬ ===
         const infoY = centerY + RADAR_SIZE + GAP;
@@ -4157,6 +4204,13 @@ export class HUD {
         if (hint) {
             hint.isVisible = visible;
         }
+    }
+
+    /**
+     * Установить позицию спавна для отображения на радаре и компасе
+     */
+    public setSpawnPosition(x: number, z: number): void {
+        this.spawnPosition = { x, z };
     }
 
     /**
@@ -5575,6 +5629,37 @@ export class HUD {
 
         // Legacy: обновляем старый массив для совместимости (но не создаем новые элементы)
         this.compassEnemyDots = this.compassEnemyDotsActive;
+
+        // === UPDATE SPAWN MARKER ON COMPASS ===
+        if (this.compassSpawnMarker) {
+            const spawnDx = this.spawnPosition.x - playerPos.x;
+            const spawnDz = this.spawnPosition.z - playerPos.z;
+            const spawnAngle = Math.atan2(spawnDx, spawnDz);
+            let spawnRelativeAngle = spawnAngle - normalizedAngle;
+
+            // Нормализуем к [-PI, PI]
+            while (spawnRelativeAngle > Math.PI) spawnRelativeAngle -= Math.PI * 2;
+            while (spawnRelativeAngle < -Math.PI) spawnRelativeAngle += Math.PI * 2;
+
+            // Конвертируем в пиксели (compass width ~1000px, 180° visible, so ~5.55px per degree)
+            const compassWidth = 1000;
+            const degreesVisible = 180;
+            const pixelsPerDegree = compassWidth / degreesVisible;
+            const spawnDegrees = spawnRelativeAngle * 180 / Math.PI;
+            const spawnX = spawnDegrees * pixelsPerDegree;
+
+            // Показываем маркер только если в пределах видимой части компаса
+            if (Math.abs(spawnX) < 490) {
+                this.compassSpawnMarker.left = `${spawnX}px`;
+                this.compassSpawnMarker.isVisible = true;
+            } else {
+                // Показываем на краю компаса
+                const clampedX = Math.sign(spawnX) * 480;
+                this.compassSpawnMarker.left = `${clampedX}px`;
+                this.compassSpawnMarker.isVisible = true;
+                this.compassSpawnMarker.alpha = 0.5; // Полупрозрачный если за пределами
+            }
+        }
     }
 
     addKill() {
@@ -6337,6 +6422,39 @@ export class HUD {
                 const pulse = 6 + Math.sin(Date.now() * 0.01) * 2;
                 this.minimapAimDot.width = `${pulse}px`;
                 this.minimapAimDot.height = `${pulse}px`;
+            }
+        }
+
+        // === SPAWN MARKER UPDATE ===
+        if (this.spawnMarker) {
+            const spawnDx = this.spawnPosition.x - playerX;
+            const spawnDz = this.spawnPosition.z - playerZ;
+            const spawnDist = Math.sqrt(spawnDx * spawnDx + spawnDz * spawnDz);
+
+            // Показываем маркер только если спавн в пределах радара
+            if (spawnDist < RADAR_RANGE) {
+                // Поворот относительно игрока
+                const rotX = spawnDx * cos - spawnDz * sin;
+                const rotZ = spawnDx * sin + spawnDz * cos;
+
+                // Масштаб: RADAR_SIZE = 150, RADAR_RANGE = 250
+                const scale = 150 / RADAR_RANGE;
+                const screenX = rotX * scale;
+                const screenY = -rotZ * scale; // Y инвертирован
+
+                this.spawnMarker.left = `${screenX}px`;
+                this.spawnMarker.top = `${screenY}px`;
+                this.spawnMarker.isVisible = true;
+            } else {
+                // Показываем на краю радара в направлении спавна
+                const normX = spawnDx / spawnDist;
+                const normZ = spawnDz / spawnDist;
+                const rotX = normX * cos - normZ * sin;
+                const rotZ = normX * sin + normZ * cos;
+                const edgeRadius = 70; // На краю радара
+                this.spawnMarker.left = `${rotX * edgeRadius}px`;
+                this.spawnMarker.top = `${-rotZ * edgeRadius}px`;
+                this.spawnMarker.isVisible = true;
             }
         }
 
@@ -8871,51 +8989,56 @@ export class HUD {
 
         const notification = new Rectangle("notification_" + Date.now());
 
-        // Use auto-sizing for height
-        notification.width = "500px";
+        // CYBERSPACE TERMINAL STYLE
+        notification.width = "450px";
         notification.adaptHeightToChildren = true;
-        notification.cornerRadius = 8;
+        notification.cornerRadius = 0; // Острые углы в стиле терминала
         notification.thickness = 2;
-        notification.paddingTop = "10px";
-        notification.paddingBottom = "10px";
+        notification.paddingTop = "12px";
+        notification.paddingBottom = "12px";
         notification.paddingLeft = "15px";
         notification.paddingRight = "15px";
+        notification.shadowBlur = 15;
 
-        // Modern styling with better colors and font
+        // CYBERSPACE STYLING - чёрный фон с зелёными акцентами
         switch (type) {
             case "success":
-                notification.background = "rgba(10, 40, 10, 0.95)";
-                notification.color = "#4ade80"; // Bright green
+                notification.background = "#000000f0";
+                notification.color = "#00ff00"; // Яркий зелёный
+                notification.shadowColor = "#00ff0066";
                 break;
             case "warning":
-                notification.background = "rgba(40, 30, 0, 0.95)";
-                notification.color = "#fbbf24"; // Amber
+                notification.background = "#000000f0";
+                notification.color = "#ffff00"; // Жёлтый
+                notification.shadowColor = "#ffff0066";
                 break;
             case "error":
-                notification.background = "rgba(40, 10, 10, 0.95)";
-                notification.color = "#f87171"; // Red
+                notification.background = "#000000f0";
+                notification.color = "#ff3333"; // Красный
+                notification.shadowColor = "#ff333366";
                 break;
             default:
-                notification.background = "rgba(10, 20, 40, 0.95)";
-                notification.color = "#60a5fa"; // Blue
+                notification.background = "#000000f0";
+                notification.color = "#00ff00"; // Зелёный по умолчанию
+                notification.shadowColor = "#00ff0066";
         }
 
         const textBlock = new TextBlock();
         textBlock.text = text;
-        textBlock.color = "#fff";
-        textBlock.fontSize = "14px";
+        textBlock.color = notification.color; // Цвет текста = цвет рамки
+        textBlock.fontSize = "13px";
         textBlock.fontFamily = "'Press Start 2P', monospace";
         textBlock.textWrapping = true;
-        textBlock.resizeToFit = true; // Auto height based on text
-        textBlock.width = "460px"; // 500 - (15+15 padding) - 10 safety
+        textBlock.resizeToFit = true;
+        textBlock.width = "410px";
         textBlock.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         textBlock.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
 
-        // Add shadow for better readability
-        textBlock.shadowColor = "rgba(0,0,0,0.8)";
-        textBlock.shadowBlur = 2;
-        textBlock.shadowOffsetX = 1;
-        textBlock.shadowOffsetY = 1;
+        // Glow эффект для текста
+        textBlock.shadowColor = notification.color;
+        textBlock.shadowBlur = 8;
+        textBlock.shadowOffsetX = 0;
+        textBlock.shadowOffsetY = 0;
 
         notification.addControl(textBlock);
 
@@ -10993,27 +11116,10 @@ export class HUD {
     // NOTE: pingText уже объявлен выше в классе (строка 145)
 
     public createPingDisplay(): void {
+        // ИСПРАВЛЕНО: Используем существующий network indicator вместо создания дубликата
         if (this.pingText) return;
-
-        // Create separate text block for Ping, positioned next to FPS (assuming FPS is top-left)
-        this.pingText = new TextBlock("pingText");
-        this.pingText.text = "PING: --";
-        this.pingText.color = "#0f0";
-        this.pingText.fontSize = "12px";
-        this.pingText.fontFamily = "'Press Start 2P', monospace";
-        this.pingText.fontWeight = "bold";
-        this.pingText.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        this.pingText.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        this.pingText.left = "80px"; // Offset from left (FPS is probably at 10px)
-        this.pingText.top = "10px";
-        this.pingText.resizeToFit = true;
-        this.pingText.outlineWidth = 2;
-        this.pingText.outlineColor = "black";
-
-        // Z-index high to be visible
-        this.pingText.zIndex = 1000;
-
-        this.guiTexture.addControl(this.pingText);
+        // Network indicator уже создаётся в конструкторе через createNetworkIndicator()
+        // Этот метод теперь просто проверяет наличие
     }
 
     public updatePing(rtt: number): void {

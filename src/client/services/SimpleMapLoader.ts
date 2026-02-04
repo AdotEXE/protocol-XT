@@ -93,26 +93,68 @@ export class SimpleMapLoader {
     }
 
     /**
-     * Создать пол
+     * Создать пол с 3D сеткой (wireframe) как на скриншоте GitHub
      */
     private createFloor(): void {
+        // 1. Чёрный пол для физики
         this.floor = MeshBuilder.CreateGround("simpleMapFloor", {
-            width: 1000,
-            height: 1000,
+            width: 2000,
+            height: 2000,
             subdivisions: 1
         }, this.scene);
 
-        const mat = new StandardMaterial("floorMat", this.scene);
-        mat.diffuseColor = new Color3(0.15, 0.15, 0.15);
-        mat.specularColor = Color3.Black();
-        this.floor.material = mat;
+        const floorMat = new StandardMaterial("floorMat", this.scene);
+        floorMat.diffuseColor = new Color3(0.02, 0.02, 0.02); // Почти чёрный
+        floorMat.specularColor = Color3.Black();
+        floorMat.emissiveColor = new Color3(0, 0, 0);
+        this.floor.material = floorMat;
 
         new PhysicsAggregate(this.floor, PhysicsShapeType.BOX, {
             mass: 0,
             friction: 0.8
         }, this.scene);
 
-        console.log("[SimpleMapLoader] Floor created");
+        // 2. Создаём 3D wireframe сетку поверх пола
+        this.createWireframeGrid();
+
+        console.log("[SimpleMapLoader] 3D Grid floor created");
+    }
+
+    /**
+     * Создать 3D wireframe сетку - яркая зелёная в стиле киберпанк
+     */
+    private createWireframeGrid(): void {
+        const gridSize = 1000; // Размер сетки
+        const cellSize = 25;   // Размер ячейки (меньше = больше линий)
+        const gridY = 0.05;    // Немного выше пола чтобы не z-fighting
+        const halfSize = gridSize / 2;
+        const linePoints: Vector3[][] = [];
+
+        // Горизонтальные линии (по X)
+        for (let z = -halfSize; z <= halfSize; z += cellSize) {
+            linePoints.push([
+                new Vector3(-halfSize, gridY, z),
+                new Vector3(halfSize, gridY, z)
+            ]);
+        }
+
+        // Вертикальные линии (по Z)
+        for (let x = -halfSize; x <= halfSize; x += cellSize) {
+            linePoints.push([
+                new Vector3(x, gridY, -halfSize),
+                new Vector3(x, gridY, halfSize)
+            ]);
+        }
+
+        // Создаём LineSystem для всех линий сразу (оптимизация)
+        const gridLines = MeshBuilder.CreateLineSystem("gridLines", {
+            lines: linePoints
+        }, this.scene);
+
+        // Цвет линий - ЯРКИЙ ЗЕЛЁНЫЙ (киберпанк стиль)
+        gridLines.color = new Color3(0, 1, 0); // #00ff00
+        gridLines.isPickable = false;
+        gridLines.parent = this.root;
     }
 
     /**

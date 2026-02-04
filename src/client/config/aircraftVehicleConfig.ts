@@ -33,16 +33,16 @@ function getModifiersHash(modifiers: Partial<AircraftPhysicsConfig>): string {
  */
 export function getAircraftPhysicsConfig(): AircraftPhysicsConfig {
     const currentHash = getModifiersHash(AIRCRAFT_MODIFIERS);
-    
+
     // Если модификаторы не изменились и есть кэш - возвращаем кэш
     if (cachedAircraftConfig && cachedModifiersHash === currentHash) {
         return cachedAircraftConfig;
     }
-    
+
     // Вычисляем и кэшируем результат
     cachedAircraftConfig = deepMergeAircraftConfig(DEFAULT_AIRCRAFT_PHYSICS_CONFIG, AIRCRAFT_MODIFIERS);
     cachedModifiersHash = currentHash;
-    
+
     return cachedAircraftConfig;
 }
 
@@ -69,6 +69,14 @@ function deepMergeAircraftConfig(
         }
     }
     return result;
+}
+
+/**
+ * Очищает кэш конфигурации (вызывать при изменении AIRCRAFT_MODIFIERS)
+ */
+export function clearAircraftConfigCache(): void {
+    cachedAircraftConfig = null;
+    cachedModifiersHash = null;
 }
 
 declare global {

@@ -19,6 +19,9 @@ export class AircraftCameraSystem {
     private camera: ArcRotateCamera;
     private config: AircraftCameraConfig;
 
+    // Режимы камеры
+    private isAimMode: boolean = false;
+
     // Состояние spring arm
     private currentCameraPosition: Vector3 = Vector3.Zero();
     private targetCameraPosition: Vector3 = Vector3.Zero();
@@ -49,12 +52,20 @@ export class AircraftCameraSystem {
     }
 
     /**
+     * Включить/выключить режим прицеливания (вид из кабины)
+     */
+    public setAimMode(enabled: boolean): void {
+        this.isAimMode = enabled;
+        // Если переключились в режим прицеливания - сбрасываем FOV для зума
+        if (enabled) {
+            this.targetFOV = 0.4; // Zoom (узкий FOV)
+        } else {
+            this.targetFOV = this.config.camera?.fov ?? 0.8; // Normal FOV
+        }
+    }
+
+    /**
      * Обновить камеру
-     * @param aircraftPosition Позиция самолёта
-     * @param aircraftForward Направление "вперёд" самолёта
-     * @param aircraftUp Направление "вверх" самолёта
-     * @param aircraftSpeed Скорость самолёта (м/с)
-     * @param dt Время с последнего обновления
      */
     update(
         aircraftPosition: Vector3,
@@ -65,25 +76,51 @@ export class AircraftCameraSystem {
     ): void {
         if (!aircraftPosition || !aircraftForward) return;
 
-        // ПРОСТАЯ КАМЕРА - позади и выше самолёта (из конфига)
-        const dist = this.config.chaseDistance;
-        const height = this.config.chaseHeight;
+        // Определяем целевую позицию камеры
+        let targetPos: Vector3;
 
-        // Позиция камеры: позади самолёта + вверх
-        const cameraPos = new Vector3(
-            aircraftPosition.x - aircraftForward.x * dist,
-            aircraftPosition.y + height,
-            aircraftPosition.z - aircraftForward.z * dist
-        );
+        if (this.isAimMode) {
+            // === COCKPIT VIEW (AIM MODE) ===
+            // Позиция: немного впереди центра и выше (нос самолёта)
+            // ИСПРАВЛЕНО: Вид из носа для прицеливания!
+            const cockpitOffsetForward = 2.0; // Вперёд от центра
+            const cockpitOffsetUp = 0.8;      // Немного вверх
 
-        // Устанавливаем камеру
-        this.camera.position = cameraPos;
+            targetPos = aircraftPosition.add(aircraftForward.scale(cockpitOffsetForward))
+                .add(aircraftUp.scale(cockpitOffsetUp));
 
-        // Камера смотрит ПРЯМО на самолёт
-        this.camera.setTarget(aircraftPosition);
+            // В режиме прицеливания камера жестко привязана к позиции (без spring arm lag)
+            this.camera.position = targetPos;
 
-        // World-up для стабильности
-        this.camera.upVector = Vector3.Up();
+            // Камера смотрит туда же, куда и самолёт (target точку далеко впереди)
+            const targetLookAt = targetPos.add(aircraftForward.scale(1000));
+            this.camera.setTarget(targetLookAt);
+
+            // Up vector - строго по самолёту (чтобы камера кренилась вместе с ним!)
+            this.camera.upVector = aircraftUp;
+
+        } else {
+            // === CHASE VIEW (NORMAL MODE) ===
+            const dist = this.config.chaseDistance;
+            const height = this.config.chaseHeight;
+
+            // Позиция камеры: позади самолёта + вверх
+            const desiredPos = new Vector3(
+                aircraftPosition.x - aircraftForward.x * dist,
+                aircraftPosition.y + height,
+                aircraftPosition.z - aircraftForward.z * dist
+            );
+
+            // Используем Spring Arm для плавности в нормальном режиме
+            this.updateSpringArm(desiredPos, dt);
+            this.camera.position = this.currentCameraPosition;
+
+            // Камера смотрит ПРЯМО на самолёт
+            this.camera.setTarget(aircraftPosition);
+
+            // World-up для стабильности в аркадном режиме (или aircraftUp если config.worldUpAlignment=false)
+            this.camera.upVector = this.config.worldUpAlignment ? Vector3.Up() : aircraftUp;
+        }
     }
 
     /**

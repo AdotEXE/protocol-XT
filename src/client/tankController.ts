@@ -3367,37 +3367,46 @@ export class TankController {
 
 
             // === GUN FEEL: УСИЛЕННАЯ ОТДАЧА ===
-            // Множитель отдачи зависит от типа пушки
-            const recoilMultiplier = this.cannonType.recoilMultiplier ?? 1.0;
+            // САМОЛЁТ: Отключаем отдачу полностью!
+            const isPlane = this.chassisType?.id === "plane" ||
+                (typeof this.chassisType === 'string' && this.chassisType === "plane") ||
+                this.chassisType?.id?.includes?.("plane") ||
+                this.chassisType?.id?.includes?.("mig31");
 
-            // 1. Физическая отдача - применяется как импульс к дулу/башне для создания рычага
-            const recoilConfig = PHYSICS_CONFIG.shooting.recoil;
-            const effectiveRecoilForce = this.recoilForce * recoilMultiplier;
-            const recoilForceVec = forward.scale(-effectiveRecoilForce);
+            if (!isPlane) {
+                // Множитель отдачи зависит от типа пушки
+                const recoilMultiplier = this.cannonType.recoilMultiplier ?? 1.0;
 
-            // GUN FEEL: Применяем отдачу к дулу/башне вместо центра масс для создания крутящего момента
-            if (recoilConfig.applicationPoint === "muzzle") {
+                // 1. Физическая отдача - применяется как импульс к дулу/башне для создания рычага
+                const recoilConfig = PHYSICS_CONFIG.shooting.recoil;
+                const effectiveRecoilForce = this.recoilForce * recoilMultiplier;
+                const recoilForceVec = forward.scale(-effectiveRecoilForce);
+
+                // GUN FEEL: Применяем отдачу к дулу/башне вместо центра масс для создания крутящего момента
+                if (recoilConfig.applicationPoint === "muzzle") {
+                    const barrelWorldPos = this.barrel.getAbsolutePosition();
+                    this.physicsBody.applyImpulse(recoilForceVec, barrelWorldPos);
+                } else {
+                    // Fallback на центр масс (старое поведение)
+                    this.physicsBody.applyImpulse(recoilForceVec, this.chassis.absolutePosition);
+                }
+
+                // 2. Угловая отдача - танк наклоняется назад (усилена для аркадного геймплея)
+                const effectiveRecoilTorque = this.recoilTorque * recoilMultiplier;
                 const barrelWorldPos = this.barrel.getAbsolutePosition();
-                this.physicsBody.applyImpulse(recoilForceVec, barrelWorldPos);
-            } else {
-                // Fallback на центр масс (старое поведение)
-                this.physicsBody.applyImpulse(recoilForceVec, this.chassis.absolutePosition);
+                const chassisPos = this.chassis.absolutePosition;
+                const torqueDir = barrelWorldPos.subtract(chassisPos).normalize();
+                this.applyTorque(new Vector3(-torqueDir.z * effectiveRecoilTorque, 0, torqueDir.x * effectiveRecoilTorque));
+
+                // 3. Визуальный откат пушки - пушка откатывается назад и поднимается
+                // Устанавливаем текущие значения отката (мгновенно)
+                this.barrelRecoilOffset = this.barrelRecoilAmount; // Откат пушки назад
+                this._barrelRecoilY = 0.15; // Пушка поднимается при отдаче
+                // Целевые значения - возврат в исходное положение (0)
+                this.barrelRecoilTarget = 0;
+                this._barrelRecoilYTarget = 0;
             }
-
-            // 2. Угловая отдача - танк наклоняется назад (усилена для аркадного геймплея)
-            const effectiveRecoilTorque = this.recoilTorque * recoilMultiplier;
-            const barrelWorldPos = this.barrel.getAbsolutePosition();
-            const chassisPos = this.chassis.absolutePosition;
-            const torqueDir = barrelWorldPos.subtract(chassisPos).normalize();
-            this.applyTorque(new Vector3(-torqueDir.z * effectiveRecoilTorque, 0, torqueDir.x * effectiveRecoilTorque));
-
-            // 3. Визуальный откат пушки - пушка откатывается назад и поднимается
-            // Устанавливаем текущие значения отката (мгновенно)
-            this.barrelRecoilOffset = this.barrelRecoilAmount; // Откат пушки назад
-            this._barrelRecoilY = 0.15; // Пушка поднимается при отдаче
-            // Целевые значения - возврат в исходное положение (0)
-            this.barrelRecoilTarget = 0;
-            this._barrelRecoilYTarget = 0;
+            // Самолёт: пропускаем всю отдачу
 
             // 4. Выброс гильзы (используем forward - barrelForward)
             this.projectilesModule.createShellCasing(muzzlePos, forward);
@@ -6769,7 +6778,7 @@ export class TankController {
         const barrelForward = this.barrel.getDirection(Vector3.Forward()).normalize();
         const barrelLength = this.cannonType.barrelLength;
         const isPlane = this.chassisType.id === "plane";
-        
+
         // Для самолёта pivot в носу, дуло точно в носу = центр + forward * (barrelLength/2)
         // Для танка добавляем небольшой offset для избежания коллизии
         const muzzleOffset = isPlane ? 0 : 0.3;

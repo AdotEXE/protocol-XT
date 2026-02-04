@@ -63,6 +63,16 @@ export class AircraftPhysics {
     private _smoothedMouseRoll: number = 0;
     private _smoothedMouseYaw: number = 0;
 
+    // Задержка включения mouse aim после спавна (1 секунда)
+    private _spawnTime: number = 0;
+    private _mouseAimDelay: number = 1000; // мс
+
+    // Двойное нажатие для автоматического газа
+    private _lastQPressTime: number = 0;
+    private _lastEPressTime: number = 0;
+    private _autoThrottleTarget: number = -1; // -1 = выключено, 0 = к нулю, 1 = к максимуму
+    private _autoThrottleSpeed: number = 0.5; // Скорость изменения газа в секунду (0-1 за 2 сек)
+
     constructor(
         mesh: Mesh,
         physicsBody: PhysicsBody,
@@ -88,27 +98,47 @@ export class AircraftPhysics {
         this.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
 
         // Настраиваем массу и центр масс
-        // Примечание: Havok использует inertia вместо inertiaTensor
+        // КРИТИЧНО: Центр масс должен быть в (0,0,0) чтобы избежать самопроизвольного вращения!
         this.physicsBody.setMassProperties({
-            mass: this.config.mass,
-            centerOfMass: this.config.centerOfMass,
-            inertia: this.config.inertiaTensor
+            mass: 1500, // Уменьшенная масса для лучшей манёвренности
+            centerOfMass: new Vector3(0, 0, 0), // Точно в центре!
+            inertia: new Vector3(5000, 5000, 5000) // Равномерная инерция
         });
 
         // Устанавливаем демпфирование для плавного движения
-        this.physicsBody.setLinearDamping(0.1); // Уменьшено для более реалистичного полёта
-        this.physicsBody.setAngularDamping(0.8); // Уменьшено для более отзывчивого управления
+        this.physicsBody.setLinearDamping(0.1);
+        this.physicsBody.setAngularDamping(0.5); // Умеренное демпфирование вращения
 
         // КРИТИЧНО: Отключаем pre-step для правильной синхронизации
         this.physicsBody.disablePreStep = false;
+
+        // КРИТИЧНО: Обнуляем начальную угловую скорость!
+        try {
+            const body = this.physicsBody as any;
+            if (body.setAngularVelocity) {
+                body.setAngularVelocity(new Vector3(0, 0, 0));
+            }
+            if (body.setLinearVelocity) {
+                body.setLinearVelocity(new Vector3(0, 0, 0));
+            }
+            // Отключаем гравитацию для самолёта
+            if (body.setGravityFactor) {
+                body.setGravityFactor(0); // Полностью отключаем гравитацию
+            }
+        } catch (e) {
+            console.warn("[AircraftPhysics] Failed to reset velocities:", e);
+        }
 
         // Инициализация подсистем
         this.mouseAimSystem = new MouseAimSystem(scene, camera, this.config.mouseAim);
         this.pidController = new PIDController(this.config.pid);
         this.aerodynamicsSystem = new AerodynamicsSystem(this.config.aerodynamics);
 
-        // ОТКЛЮЧЕНО: Автоматическая тяга и начальная скорость
-        // this.aerodynamicsSystem.setThrottle(0.7);
+        // Запоминаем время спавна для задержки mouse aim
+        this._spawnTime = Date.now();
+
+        // Стартовая тяга 0% при спавне (как просил пользователь)
+        this.aerodynamicsSystem.setThrottle(0.0);
         // const initialSpeed = 55.0;
         // const forward = this.mesh.forward;
         // const initialVelocity = new Vector3(
@@ -128,8 +158,34 @@ export class AircraftPhysics {
         this._keyboardState = {};
 
         this._keyDownHandler = (e: KeyboardEvent) => {
-            if (this._keyboardState[e.code]) return; // Ignorerepeat
+            if (this._keyboardState[e.code]) return; // Ignore repeat
             this._keyboardState[e.code] = true;
+
+            // DEBUG: Log W/S press
+            if (e.code === "KeyW" || e.code === "KeyS") {
+                console.log(`[Aircraft] Key pressed: ${e.code}`);
+            }
+
+            const now = performance.now();
+            const DOUBLE_TAP_WINDOW = 300; // мс для двойного нажатия
+
+            // Двойное нажатие R = автоматический газ до максимума
+            if (e.code === "KeyR") {
+                if (now - this._lastQPressTime < DOUBLE_TAP_WINDOW) {
+                    this._autoThrottleTarget = 1; // К максимуму
+                    console.log("[Aircraft] Auto-throttle: MAX");
+                }
+                this._lastQPressTime = now;
+            }
+
+            // Двойное нажатие F = автоматический сброс газа до нуля
+            if (e.code === "KeyF") {
+                if (now - this._lastEPressTime < DOUBLE_TAP_WINDOW) {
+                    this._autoThrottleTarget = 0; // К нулю
+                    console.log("[Aircraft] Auto-throttle: IDLE");
+                }
+                this._lastEPressTime = now;
+            }
 
             // Обработка Shift для свободного обзора
             if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
@@ -176,18 +232,13 @@ export class AircraftPhysics {
             console.warn("[AircraftPhysics] Failed to detach camera:", e);
         }
 
-        // HEAVY MASS FIX: Set mass to 5000kg to prevent "bouncy ball" effect
+        // ZERO BOUNCE FIX: Set restitution to 0
         try {
-            if (this.physicsBody) {
-                this.physicsBody.setMassProperties({ mass: 1500 });
-
-                // ZERO BOUNCE FIX: Set restitution to 0
-                if ((this.physicsBody as any).shape) {
-                    (this.physicsBody as any).shape.material = { restitution: 0.0, friction: 0.5 };
-                }
+            if (this.physicsBody && (this.physicsBody as any).shape) {
+                (this.physicsBody as any).shape.material = { restitution: 0.0, friction: 0.5 };
             }
         } catch (e) {
-            console.warn("[AircraftPhysics] Failed to set mass/restitution:", e);
+            console.warn("[AircraftPhysics] Failed to set restitution:", e);
         }
     }
 
@@ -259,9 +310,15 @@ export class AircraftPhysics {
 
         // ========== MOUSE AIM + DIRECT CONTROL ==========
 
-        // 1. Update Mouse Aim System
-        this.mouseAimSystem.updateTarget(this.cachedPosition, this.cachedForward);
-        const angularError = this.mouseAimSystem.getAngularError(this.cachedForward, this.cachedUp, this.cachedRight);
+        // ВРЕМЕННО ОТКЛЮЧЕНО: Mouse Aim для тестирования только клавиатуры
+        const MOUSE_AIM_ENABLED = true; // Установить true для включения мыши
+
+        // 1. Update Mouse Aim System (только если включено)
+        let angularError = { pitch: 0, yaw: 0, roll: 0 };
+        if (MOUSE_AIM_ENABLED) {
+            this.mouseAimSystem.updateTarget(this.cachedPosition, this.cachedForward);
+            angularError = this.mouseAimSystem.getAngularError(this.cachedForward, this.cachedUp, this.cachedRight);
+        }
 
         // Плавный Mouse-Aim: gain и deadzone из конфига (меньше дрожание, плавнее следование)
         const MOUSE_AIM_GAIN = this.config.mouseAim.mouseAimGain ?? 2.2;
@@ -324,16 +381,38 @@ export class AircraftPhysics {
         let rollInput = 0;
         let yawInput = 0;
 
+        // DEBUG: Check keyboard state directly
+        const wPressed = this._keyboardState["KeyW"];
+        const sPressed = this._keyboardState["KeyS"];
+
         if (key("KeyA")) rollInput = 1.0;
         if (key("KeyD")) rollInput = -1.0;
-        if (key("KeyQ")) pitchInput = 1.0;
-        if (key("KeyE")) pitchInput = -1.0;
+
+        // Q/E управляют рысканием (YAW)
+        // Q/E управляют рысканием (YAW) - ПОМЕНЯЛИ МЕСТАМИ по просьбе
+        if (key("KeyQ")) yawInput = -1.0; // Рыскание ВПРАВО (было влево)
+        if (key("KeyE")) yawInput = 1.0;  // Рыскание ВЛЕВО (было вправо)
+
+        // ИЗМЕНЕНО: W/S управляют тангажом
+        if (wPressed || key("KeyW")) {
+            pitchInput = 1.0;  // Нос вверх
+        }
+        if (sPressed || key("KeyS")) {
+            pitchInput = -1.0; // Нос вниз
+        }
 
         // Клавиш нет — используем сглаженный Mouse Aim (следование за курсором без дёрганий)
-        const keyboardActive = key("KeyA") || key("KeyD") || key("KeyQ") || key("KeyE");
-        if (pitchInput === 0) pitchInput = mouseInput.pitch;
-        if (rollInput === 0) rollInput = mouseInput.roll;
-        if (yawInput === 0) yawInput = mouseInput.yaw;
+        const keyboardActive = wPressed || sPressed || key("KeyA") || key("KeyD") || key("KeyW") || key("KeyS") || key("KeyQ") || key("KeyE");
+
+        // ЗАДЕРЖКА 1 СЕК: Mouse aim включается через секунду после спавна
+        const mouseAimEnabled = (Date.now() - this._spawnTime) > this._mouseAimDelay;
+
+        if (mouseAimEnabled) {
+            if (pitchInput === 0) pitchInput = mouseInput.pitch;
+            if (rollInput === 0) rollInput = mouseInput.roll;
+            if (yawInput === 0) yawInput = mouseInput.yaw;
+        }
+        // До включения mouse aim - самолёт управляется только клавиатурой
 
         const hasInput = pitchInput !== 0 || rollInput !== 0 || yawInput !== 0;
         const MAX_ROTATION_SPEED = this.config.mouseAim.maxRotationSpeedRadPerSec ?? 1.5;
@@ -342,8 +421,17 @@ export class AircraftPhysics {
             try {
                 const body = this.physicsBody as any;
                 const currentAngVel = body.getAngularVelocity ? body.getAngularVelocity() : new Vector3(0, 0, 0);
-                if (body.setAngularDamping) body.setAngularDamping(0.35);
-                if (body.setLinearDamping) body.setLinearDamping(0.1);
+
+                // ИСПРАВЛЕНО: Низкий damping чтобы самолёт мог нормально вращаться
+                // Было 2.0-3.5 что полностью гасило вращение!
+                const speedFactor = Math.min(1, speed / this.config.maxSpeed);
+                const basAngDamp = 0.5;  // Снижено с 2.0
+                const baseLinDamp = 0.2;
+                const dynamicAngularDamping = basAngDamp + speedFactor * 1.0; // 0.5 - 1.5 (было 2.0-3.5)
+                const dynamicLinearDamping = baseLinDamp + speedFactor * 0.3;
+
+                if (body.setAngularDamping) body.setAngularDamping(dynamicAngularDamping);
+                if (body.setLinearDamping) body.setLinearDamping(dynamicLinearDamping);
 
                 let newAngVel: Vector3;
 
@@ -351,7 +439,7 @@ export class AircraftPhysics {
                     // Клавиатура: заметные изменения при нажатии A/D/Q/E — ускорения и лимит из config.keyboard
                     const PITCH_ACCEL = this.config.keyboard.pitchSensitivity ?? 14;
                     const ROLL_ACCEL = this.config.keyboard.rollSensitivity ?? 16;
-                    const YAW_ACCEL = this.config.keyboard.yawSensitivity ?? 10;
+                    const YAW_ACCEL = (this.config.keyboard.yawSensitivity ?? 10) * 3; // Усилен в 3 раза
                     const keyboardMaxSpeed = this.config.keyboard.maxRotationSpeedRadPerSec ?? 2.8;
                     const deltaAngVel = new Vector3(
                         pitchInput * PITCH_ACCEL * clampedDt,
@@ -370,13 +458,19 @@ export class AircraftPhysics {
                 } else {
                     // Только мышь: следование за центром — целевая угловая скорость = ошибка * gain, без накопления.
                     // У центра ошибка мала → целевая скорость мала → самолёт замедляется и останавливается (не ускоряется).
+                    // Основное управление мышью:
                     const followGain = this.config.mouseAim.mouseAimFollowGain ?? 1.2;
                     const blend = Math.max(0.05, Math.min(1, this.config.mouseAim.mouseAimBlendToTarget ?? 0.14));
                     const errDeadzone = this.config.mouseAim.mouseAimDeadzone ?? 0.05;
                     const clampErr = (e: number) => Math.abs(e) < errDeadzone ? 0 : e;
-                    const targetLocalPitch = Math.max(-MAX_ROTATION_SPEED, Math.min(MAX_ROTATION_SPEED, clampErr(angularError.pitch) * followGain));
-                    const targetLocalYaw = Math.max(-MAX_ROTATION_SPEED, Math.min(MAX_ROTATION_SPEED, clampErr(angularError.yaw) * followGain));
-                    const targetLocalRoll = Math.max(-MAX_ROTATION_SPEED, Math.min(MAX_ROTATION_SPEED, clampErr(angularError.roll) * followGain));
+
+                    // ИСПРАВЛЕНО: Сняты жесткие ограничения ("Отключить ограничения для круглого прицела")
+                    // Теперь можно крутить головой/самолётом намного свободнее
+                    const UNLIMITED_ROTATION = 10.0; // Практически безлимит
+
+                    const targetLocalPitch = Math.max(-UNLIMITED_ROTATION, Math.min(UNLIMITED_ROTATION, clampErr(angularError.pitch) * followGain));
+                    const targetLocalYaw = Math.max(-UNLIMITED_ROTATION, Math.min(UNLIMITED_ROTATION, clampErr(angularError.yaw) * followGain));
+                    const targetLocalRoll = Math.max(-UNLIMITED_ROTATION, Math.min(UNLIMITED_ROTATION, clampErr(angularError.roll) * followGain));
                     const targetLocalAngVel = new Vector3(targetLocalPitch, targetLocalYaw, targetLocalRoll);
                     const targetWorldAngVel = this.transformToWorldSpace(targetLocalAngVel);
                     newAngVel = new Vector3(
@@ -389,8 +483,8 @@ export class AircraftPhysics {
                     }
                 }
 
-                // Level assist при активном вводе (только для мыши — при клавишах не ослаблять отклик)
-                const levelAssist = keyboardActive ? 0 : (this.config.levelAssistStrength ?? 0);
+                // Level assist при активном вводе
+                const levelAssist = keyboardActive ? 0 : (this.config.levelAssistStrength ?? 0.05);
                 if (levelAssist > 0) {
                     const right = this.cachedRight;
                     const forward = this.cachedForward.clone().normalize();
@@ -398,9 +492,10 @@ export class AircraftPhysics {
                     const targetUp = Vector3.Up();
                     const levelErrorAxis = Vector3.Cross(up, targetUp);
                     let rollErr = Vector3.Dot(levelErrorAxis, forward);
-                    let pitchErr = Vector3.Dot(levelErrorAxis, right);
+                    // let pitchErr = Vector3.Dot(levelErrorAxis, right); // ОТКЛЮЧЕНО: Pitch не трогаем
                     const STAB_GAIN = this.config.autoLevelStrength;
-                    const levelCorrectionLocal = new Vector3(pitchErr * STAB_GAIN, 0, rollErr * STAB_GAIN);
+                    // ИСПРАВЛЕНО: Корректируем ТОЛЬКО Roll (0 по pitch)
+                    const levelCorrectionLocal = new Vector3(0, 0, rollErr * STAB_GAIN);
                     const levelCorrectionVel = this.transformToWorldSpace(levelCorrectionLocal);
                     newAngVel = newAngVel.add(levelCorrectionVel.scale(levelAssist));
                     if (newAngVel.length() > MAX_ROTATION_SPEED) {
@@ -415,46 +510,101 @@ export class AircraftPhysics {
             }
         }
 
-        // Вычисляем угол атаки (speed и velocityDir уже определены выше)
+        if (hasInput) {
+            try {
+                // ... (existing code) ...
+                if (body.setAngularVelocity) body.setAngularVelocity(newAngVel);
+            } catch (e) { }
+        } else {
+            // Apply Trim when no input (passive stability)
+            // ИСПРАВЛЕНО: Триммирование для компенсации "клевка носом"
+            const trim = this.config.aerodynamics.pitchTrim ?? 0;
+            if (trim !== 0 && !keyboardActive) {
+                try {
+                    const body = this.physicsBody as any;
+                    const currentAngVel = body.getAngularVelocity ? body.getAngularVelocity() : Vector3.Zero();
+                    const right = this.cachedRight;
+                    // Триммирование - это постоянный крутящий момент вверх (вокруг оси право)
+                    // Но мы работаем со скоростью, так что добавляем "дрейф" скорости
+                    // Нужно аккуратно, чтобы не раскрутило
+
+                    // Просто добавляем небольшой компонент к pitch если он слишком мал?
+                    // Или прикладываем силу? Лучше всего просто "приподнимать" нос
+                    // Используем applyImpulse/Force если бы могли, но тут velocity control
+
+                    // Вариант 2: Просто "смещаем" желаемый авто-левел
+                } catch (e) { }
+            }
+        }
+
+        // ВМЕСТО ОТДЕЛЬНОГО БЛОКА ВЫШЕ, ДОБАВИМ TRIM К STABILIZATION LOGIC (Line 609)
+        // См. следующий шаг редактирования
+
         const angleOfAttack = this.aerodynamicsSystem.calculateAngleOfAttack(
             this.cachedForward,
             velocityDir
         );
 
-        // 9. ОТКЛЮЧЕНО: Аэродинамические силы мешают прямому управлению!
-        // Lift и Drag вызывали "живую жизнь" самолёта
-        // Самолёт теперь управляется ТОЛЬКО мышью и thrust
-
-        // const liftForceLocal = this.aerodynamicsSystem.calculateLift(speed, angleOfAttack, this.cachedForward);
-        // const liftForce = this.transformToWorldSpace(liftForceLocal);
-        // const dragForce = this.aerodynamicsSystem.calculateDrag(speed, angleOfAttack, velocityDir);
-        // if (dragForce && isFinite(dragForce.x)) {
-        //     this.physicsBody.applyForce(dragForce, this.cachedPosition);
-        // }
-        // if (liftForce && isFinite(liftForce.x)) {
-        //     this.physicsBody.applyForce(liftForce, this.cachedPosition);
-        // }
+        // 9. ОТКЛЮЧЕНО: Анти-гравитация вызывала нежелательное вращение!
+        // Сила применялась не в центре масс, создавая крутящий момент
 
         // Thrust (направление "вперёд" относительно самолёта)
-        // Применяем тягу только при throttle > 0 — при нулевом газе самолёт не разгоняется сам
-        // ИСПРАВЛЕНО: множитель уменьшен с 8.0 до 1.0 (пользователь жаловался на слишком быстрый разгон)
+        // Применяем тягу только при throttle > 0
         if (this.aerodynamicsSystem.getThrottle() > 0) {
             const thrustForceLocal = this.aerodynamicsSystem.calculateThrust(Vector3.Forward()).scale(1.0);
             const thrustForce = this.transformToWorldSpace(thrustForceLocal);
 
             if (thrustForce && isFinite(thrustForce.x) && isFinite(thrustForce.y) && isFinite(thrustForce.z)) {
                 try {
-                    this.physicsBody.applyForce(thrustForce, this.cachedPosition);
+                    // Применяем тягу в центре масс чтобы избежать вращения
+                    const body = this.physicsBody as any;
+                    if (body.getLinearVelocity && body.setLinearVelocity) {
+                        // Вместо applyForce используем прямое изменение скорости
+                        const currentVel = body.getLinearVelocity();
+                        const thrustAccel = thrustForce.scale(0.001); // Очень маленький множитель
+                        const newVel = currentVel.add(thrustAccel);
+                        body.setLinearVelocity(newVel);
+                    }
                 } catch (e) {
-                    console.warn("[AircraftPhysics] applyForce error:", e);
+                    console.warn("[AircraftPhysics] thrust error:", e);
                 }
             }
         }
 
-        // 11. Стабилизация (если нет ввода от мыши ИЛИ клавиатуры)
-        const isControlActive = Math.abs(pitchInput) > 0.001 || Math.abs(yawInput) > 0.001 || Math.abs(rollInput) > 0.001;
+        // ИСПРАВЛЕНО: Ограничитель максимальной скорости
+        // Если превышена maxSpeed, плавно уменьшаем скорость
+        // ИСПРАВЛЕНО: Ограничитель максимальной скорости ОТКЛЮЧЕН
+        // Пусть физика (Drag) сама ограничивает скорость
+        /*
+        if (speed > this.config.maxSpeed) {
+            try {
+                const body = this.physicsBody as any;
+                if (body.getLinearVelocity && body.setLinearVelocity) {
+                    const currentVel = body.getLinearVelocity();
+                    // Плавное торможение: 20% превышения в секунду
+                    const excessRatio = speed / this.config.maxSpeed;
+                    const brakeFactor = Math.max(0.9, 1 - (excessRatio - 1) * 0.2 * clampedDt * 60);
+                    const newVel = currentVel.scale(brakeFactor);
+                    body.setLinearVelocity(newVel);
+                }
+            } catch (e) {
+            }
+        }
+        */
 
-        if (!isControlActive && this.config.enableAutoLevel) {
+        // 11. Стабилизация
+        // Стабилизация ПОЛНОСТЬЮ ВЫКЛЮЧЕНА пока зажаты клавиши управления!
+        const AUTO_STABILIZATION_ENABLED = true;
+
+        // Проверяем нажаты ли клавиши управления (W/S/A/D)
+        const isKeyboardActive = this._keyboardState["KeyW"] || this._keyboardState["KeyS"] ||
+            this._keyboardState["KeyA"] || this._keyboardState["KeyD"];
+
+        // Стабилизация работает ТОЛЬКО если клавиши НЕ нажаты
+        // БЕЗ ИСКЛЮЧЕНИЙ - никакой "экстренной коррекции"
+        const shouldStabilize = AUTO_STABILIZATION_ENABLED && this.config.enableAutoLevel && !isKeyboardActive;
+
+        if (shouldStabilize) {
             const body = this.physicsBody as any;
 
             // 1) Самовыравнивание в уровень (крен + тангаж)  2) Разворот носом к центру камеры
@@ -469,14 +619,49 @@ export class AircraftPhysics {
                 let rollError = Vector3.Dot(levelErrorAxis, forward);
                 let pitchError = Vector3.Dot(levelErrorAxis, right);
 
-                if (up.y < -0.95 && Math.abs(rollError) < 0.1) {
-                    rollError = 1.0;
+                // === КРИТИЧНО: КОРРЕКЦИЯ PITCH К ГОРИЗОНТАЛИ ===
+                // ОТКЛЮЧЕНО ПО ПРОСЬБЕ ("roll не должен влиять на pitch")
+                // Было: pitchError += pitchToHorizontal * 3.0;
+                // Теперь: убираем принудительную коррекцию тангажа при крене
+                // const pitchToHorizontal = forward.y; 
+                // pitchError += pitchToHorizontal * 3.0; // ВЫКЛЮЧЕНО
+
+                // ANTI-INVERT: Если самолёт перевёрнут (up.y < 0), АГРЕССИВНО крутим в правильную сторону
+                // up.y < 0 означает что "верх" самолёта направлен вниз (инвертирован)
+                const isInverted = up.y < 0;
+
+                if (isInverted) {
+                    // АГРЕССИВНАЯ коррекция при инверсии
+                    // Сильный roll чтобы выйти из перевёрнутого положения
+                    rollError = right.y > 0 ? 4.0 : -4.0; // Очень сильный roll
+                    // Также добавляем pitch чтобы нос поднялся вверх
+                    pitchError = -Math.abs(forward.y) * 2.0; // Тянем нос вниз (относительно перевёрнутого) = вверх в мире
+                } else if (up.y < 0.3) {
+                    // Сильный крен - усиленная коррекция
+                    rollError = rollError * 2.0;
+                    pitchError = pitchError * 1.5;
                 }
 
-                // Сильное выравнивание в уровень — приоритет над разворотом к камере
+                // Разворот к камере — только когда уже почти в уровне (up.y > 0.85), иначе не конфликтовать с выравниванием
+
+                // ИСПРАВЛЕНИЕ "КЛЕВКА НОСОМ" (Bobber effect)
+                // Добавляем постоянный TRIM (0.05..0.1) чтобы нос тянуло вверх
+                const trim = this.config.aerodynamics.pitchTrim ?? 0.05;
+
+                // ВОССТАНОВЛЕНО: Определение STAB_GAIN
                 const STAB_GAIN = this.config.autoLevelStrength;
+
+                // Добавляем к pitchError (pitchError - это "насколько надо повернуть")
+                // Нам надо повернуть "наверх" -> значит уменьшаем pitchError (или добавляем отрицательное)
+                // pitchError расчитывается как Dot(levelErrorAxis, right).
+                // Если мы хотим "поднять нос", мы хотим чтобы самолёт думал что он "клюнул" и исправлял это.
+
+                // Просто добавим константу к коррекции
+                // correctionLocal.x = Pitch velocity
+                // Хотим вращаться ВВЕРХ -> -X angular velocity
+
                 const correctionLocal = new Vector3(
-                    pitchError * STAB_GAIN,
+                    -trim, // ВЕРТИКАЛЬНОЕ АВТОВЫРАВНИВАНИЕ ОТКЛЮЧЕНО (pitchError убран), только TRIM
                     0,
                     rollError * STAB_GAIN
                 );
@@ -497,7 +682,7 @@ export class AircraftPhysics {
                                 cameraCorrectionVel = cameraErrorAxis.normalize().scale(len * cameraAlignGain);
                             }
                         }
-                    } catch (_) {}
+                    } catch (_) { }
                 }
 
                 // При отпускании клавиш/мыши — плавный возврат к уровню и к центру прицела (скорость, крен, нос)
@@ -574,22 +759,47 @@ export class AircraftPhysics {
     private updateThrottle(dt: number): void {
         const key = (code: string) => !!(this._keyboardState[code] ?? this.controller?._inputMap?.[code]);
 
-        // W — увеличение тяги, S — уменьшение + активный тормоз (airbrake)
-        if (key("KeyW")) {
+        // Автоматическое изменение газа (двойное нажатие Q/E)
+        if (this._autoThrottleTarget >= 0) {
+            const currentThrottle = this.aerodynamicsSystem.getThrottle();
+            const targetThrottle = this._autoThrottleTarget;
+            const diff = targetThrottle - currentThrottle;
+
+            if (Math.abs(diff) < 0.01) {
+                // Достигли цели
+                this._autoThrottleTarget = -1;
+                if (targetThrottle === 1) {
+                    this.aerodynamicsSystem.setThrottle(1.0);
+                } else {
+                    this.aerodynamicsSystem.setThrottle(0.0);
+                }
+            } else {
+                // Плавное изменение
+                const step = this._autoThrottleSpeed * dt;
+                if (diff > 0) {
+                    this.aerodynamicsSystem.setThrottle(Math.min(1.0, currentThrottle + step));
+                } else {
+                    this.aerodynamicsSystem.setThrottle(Math.max(0.0, currentThrottle - step));
+                }
+            }
+        }
+
+        // Ручное управление газом (отменяет авто-газ)
+        // ИЗМЕНЕНО: R — увеличение тяги, F — уменьшение + активный тормоз
+        if (key("KeyR")) {
+            this._autoThrottleTarget = -1; // Отменяем авто-газ
             this.aerodynamicsSystem.increaseThrottle(dt);
         }
-        if (key("KeyS")) {
+        if (key("KeyF")) {
+            this._autoThrottleTarget = -1; // Отменяем авто-газ
             this.aerodynamicsSystem.decreaseThrottle(dt);
 
-            // ИСПРАВЛЕНО: Активный airbrake при S — уменьшаем скорость напрямую
-            // Это создаёт ощущение "торможения" а не просто снижения тяги
+            // Активный airbrake при E — уменьшаем скорость напрямую
             try {
                 const body = this.physicsBody as any;
                 if (body && body.getLinearVelocity && body.setLinearVelocity) {
                     const vel = body.getLinearVelocity();
                     if (vel && isFinite(vel.x) && isFinite(vel.y) && isFinite(vel.z)) {
-                        const currentSpeed = vel.length();
-                        // ИСПРАВЛЕНО: Плавное замедление — 15% скорости в секунду (было 30%)
                         const brakeFactor = Math.max(0, 1 - 0.15 * dt);
                         const newVel = vel.scale(brakeFactor);
                         body.setLinearVelocity(newVel);
@@ -624,10 +834,10 @@ export class AircraftPhysics {
             roll = -this.config.keyboard.rollSensitivity * dt;
         }
 
-        // Q/E - Pitch (тангаж)
-        if (inputMap["KeyQ"]) {
+        // W/S - Pitch (не Q/E - Q/E теперь управляют тягой!)
+        if (inputMap["KeyW"]) {
             pitch = this.config.keyboard.pitchSensitivity * dt;   // Нос вверх
-        } else if (inputMap["KeyE"]) {
+        } else if (inputMap["KeyS"]) {
             pitch = -this.config.keyboard.pitchSensitivity * dt;   // Нос вниз
         }
 
@@ -679,11 +889,11 @@ export class AircraftPhysics {
     /**
      * Проверить, нет ли ввода
      */
-    /** Нет ввода по крену/тангажу/рысканию (W/S — тяга, не учитываем) */
+    /** Нет ввода по крену/тангажу/рысканию (Q/E — тяга, не учитываем) */
     private isNoInput(): boolean {
         const inputMap = this._keyboardState;
         return !inputMap["KeyA"] && !inputMap["KeyD"] &&
-            !inputMap["KeyQ"] && !inputMap["KeyE"];
+            !inputMap["KeyW"] && !inputMap["KeyS"];
     }
 
     /**

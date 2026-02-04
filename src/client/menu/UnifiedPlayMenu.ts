@@ -500,13 +500,16 @@ export class UnifiedPlayMenu {
             { id: "survival", icon: "💀", name: "Survival", desc: "Выживание против волн" },
             { id: "coop", icon: "🤝", name: "Co-op PvE", desc: "Командная игра против AI" },
             { id: "raid", icon: "👹", name: "Raid", desc: "Рейды с боссами" },
+            { id: "multiplayer", icon: "🌐", name: "МУЛЬТИПЛЕЕР", desc: "Онлайн игра с другими!", isMultiplayer: true },
         ];
 
         let html = '<div class="upm-mode-grid">';
         for (const m of modes) {
             const selected = this.selectedMode === m.id ? "selected" : "";
+            const isMP = (m as any).isMultiplayer;
+            const mpStyle = isMP ? 'style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-color: #9b59b6;"' : '';
             html += `
-                <div class="upm-mode-item ${selected}" data-mode="${m.id}">
+                <div class="upm-mode-item ${selected}" data-mode="${m.id}" ${mpStyle}>
                     <div class="icon">${m.icon}</div>
                     <div class="info">
                         <div class="name">${m.name}</div>

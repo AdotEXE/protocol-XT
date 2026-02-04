@@ -729,7 +729,58 @@ export class MainMenu {
 
         const L = getLang(this.settings);
         this.container.innerHTML = `
-            <div class="menu-bg"></div>
+            <div class="menu-bg"><div class="center-line"></div></div>
+            <!-- WORMHOLE TUNNEL GRID SVG -->
+            <svg class="wormhole-grid" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid slice">
+                <defs>
+                    <radialGradient id="wormhole-fade" cx="50%" cy="50%" r="60%" fx="50%" fy="50%">
+                        <stop offset="0%" stop-color="#000" stop-opacity="1"/>
+                        <stop offset="30%" stop-color="#000" stop-opacity="0.8"/>
+                        <stop offset="60%" stop-color="#000" stop-opacity="0"/>
+                    </radialGradient>
+                </defs>
+                <g class="grid-lines" stroke="#00ff00" stroke-width="1.5" fill="none" opacity="0.6">
+                    <!-- Ellipses (horizontal lines in perspective) -->
+                    <ellipse cx="960" cy="540" rx="50" ry="20"/>
+                    <ellipse cx="960" cy="540" rx="100" ry="40"/>
+                    <ellipse cx="960" cy="540" rx="180" ry="70"/>
+                    <ellipse cx="960" cy="540" rx="280" ry="110"/>
+                    <ellipse cx="960" cy="540" rx="400" ry="160"/>
+                    <ellipse cx="960" cy="540" rx="550" ry="220"/>
+                    <ellipse cx="960" cy="540" rx="720" ry="290"/>
+                    <ellipse cx="960" cy="540" rx="920" ry="370"/>
+                    <ellipse cx="960" cy="540" rx="1150" ry="460"/>
+                    <ellipse cx="960" cy="540" rx="1400" ry="560"/>
+                    <ellipse cx="960" cy="540" rx="1700" ry="680"/>
+                    <!-- Radial lines (vertical lines in perspective) -->
+                    <line x1="960" y1="540" x2="960" y2="0"/>
+                    <line x1="960" y1="540" x2="960" y2="1080"/>
+                    <line x1="960" y1="540" x2="0" y2="540"/>
+                    <line x1="960" y1="540" x2="1920" y2="540"/>
+                    <line x1="960" y1="540" x2="0" y2="0"/>
+                    <line x1="960" y1="540" x2="1920" y2="0"/>
+                    <line x1="960" y1="540" x2="0" y2="1080"/>
+                    <line x1="960" y1="540" x2="1920" y2="1080"/>
+                    <line x1="960" y1="540" x2="400" y2="0"/>
+                    <line x1="960" y1="540" x2="1520" y2="0"/>
+                    <line x1="960" y1="540" x2="400" y2="1080"/>
+                    <line x1="960" y1="540" x2="1520" y2="1080"/>
+                    <line x1="960" y1="540" x2="0" y2="200"/>
+                    <line x1="960" y1="540" x2="1920" y2="200"/>
+                    <line x1="960" y1="540" x2="0" y2="880"/>
+                    <line x1="960" y1="540" x2="1920" y2="880"/>
+                    <line x1="960" y1="540" x2="200" y2="0"/>
+                    <line x1="960" y1="540" x2="1720" y2="0"/>
+                    <line x1="960" y1="540" x2="200" y2="1080"/>
+                    <line x1="960" y1="540" x2="1720" y2="1080"/>
+                    <line x1="960" y1="540" x2="600" y2="0"/>
+                    <line x1="960" y1="540" x2="1320" y2="0"/>
+                    <line x1="960" y1="540" x2="600" y2="1080"/>
+                    <line x1="960" y1="540" x2="1320" y2="1080"/>
+                </g>
+                <!-- Dark center overlay -->
+                <ellipse cx="960" cy="540" rx="400" ry="160" fill="url(#wormhole-fade)"/>
+            </svg>
             <div class="menu-content">
                 <div class="menu-header">
                     <div class="logo-text logo-hoverable">
@@ -1250,6 +1301,24 @@ export class MainMenu {
                 pointer-events: auto !important;
                 touch-action: auto !important;
             }
+            
+            /* SVG WORMHOLE GRID */
+            .wormhole-grid {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                pointer-events: none;
+                z-index: 1;
+            }
+            
+            /* Контент меню над фоном */
+            #main-menu > .menu-content,
+            #main-menu > .menu-bg {
+                position: relative;
+                z-index: 2;
+            }
 
             /* Прозрачность фона меню когда игра запущена (в битве) */
             #main-menu.in-battle {
@@ -1315,11 +1384,84 @@ export class MainMenu {
                 left: 0;
                 width: 100%;
                 height: 100%;
-                background:
-                    repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,40,0,0.05) 2px, rgba(0,40,0,0.05) 4px),
-                    radial-gradient(ellipse at 50% 50%, rgba(0,60,0,0.3) 0%, transparent 70%),
-                    #000;
+                background: #000;
+                overflow: hidden;
                 pointer-events: none;
+            }
+
+            /* Горизонтальная линия по центру экрана */
+            .menu-bg .center-line {
+                position: absolute;
+                top: 50%;
+                left: 0;
+                width: 100%;
+                height: 1px;
+                background: #00ff00;
+                opacity: 0.5;
+                z-index: 1;
+            }
+
+            /* 3D Perspective Grid - ПОЛ (нижняя часть) */
+            /* ~20 квадратов по горизонтали */
+            .menu-bg::before {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: -50%;
+                width: 200%;
+                height: 55%;
+                background:
+                    /* Горизонтальные линии */
+                    repeating-linear-gradient(
+                        to bottom,
+                        transparent 0,
+                        transparent 49px,
+                        #00ff00 49px,
+                        #00ff00 50px
+                    ),
+                    /* Вертикальные линии */
+                    repeating-linear-gradient(
+                        to right,
+                        transparent 0,
+                        transparent 49px,
+                        #00ff00 49px,
+                        #00ff00 50px
+                    );
+                background-size: 50px 50px;
+                transform: perspective(600px) rotateX(70deg);
+                transform-origin: center bottom;
+                opacity: 0.6;
+            }
+
+            /* 3D Perspective Grid - ПОТОЛОК (верхняя часть) */
+            .menu-bg::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -50%;
+                width: 200%;
+                height: 45%;
+                background:
+                    /* Горизонтальные линии */
+                    repeating-linear-gradient(
+                        to bottom,
+                        transparent 0,
+                        transparent 49px,
+                        #00ff00 49px,
+                        #00ff00 50px
+                    ),
+                    /* Вертикальные линии */
+                    repeating-linear-gradient(
+                        to right,
+                        transparent 0,
+                        transparent 49px,
+                        #00ff00 49px,
+                        #00ff00 50px
+                    );
+                background-size: 50px 50px;
+                transform: perspective(600px) rotateX(-70deg);
+                transform-origin: center top;
+                opacity: 0.35;
             }
 
             .menu-content {
@@ -5320,7 +5462,7 @@ export class MainMenu {
         if (editorUrl === "/editor-placeholder.html") {
             // Show alert if editor not configured
             setTimeout(() => {
-                inGameAlert("Для работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки", "⚠️ Редактор не настроен!").catch(() => {});
+                inGameAlert("Для работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки", "⚠️ Редактор не настроен!").catch(() => { });
             }, 1000);
         }
 
@@ -5432,24 +5574,24 @@ export class MainMenu {
         }
 
         // Тест 1: Alert
-        inGameAlert("Это тестовое уведомление!\nВнутриигровой диалог должен отображаться поверх игры.", "Тест").catch(() => {});
+        inGameAlert("Это тестовое уведомление!\nВнутриигровой диалог должен отображаться поверх игры.", "Тест").catch(() => { });
 
         // Тест 2: Confirm (с задержкой)
         setTimeout(() => {
             inGameConfirm("Это тестовое подтверждение!\nНажмите OK или Отмена.", "Тест").then((result) => {
-                inGameAlert(`Вы выбрали: ${result ? "OK" : "Отмена"}`, "Результат").catch(() => {});
-            }).catch(() => {});
+                inGameAlert(`Вы выбрали: ${result ? "OK" : "Отмена"}`, "Результат").catch(() => { });
+            }).catch(() => { });
         }, 1000);
 
         // Тест 3: Prompt (с задержкой)
         setTimeout(() => {
             inGamePrompt("Введите тестовый текст:", "Тест", "Ввод").then((value) => {
                 if (value !== null && value !== undefined) {
-                    inGameAlert(`Вы ввели: "${value}"`, "Результат").catch(() => {});
+                    inGameAlert(`Вы ввели: "${value}"`, "Результат").catch(() => { });
                 } else {
-                    inGameAlert("Вы отменили ввод.", "Отмена").catch(() => {});
+                    inGameAlert("Вы отменили ввод.", "Отмена").catch(() => { });
                 }
-            }).catch(() => {});
+            }).catch(() => { });
         }, 2000);
     }
 
@@ -5512,37 +5654,37 @@ export class MainMenu {
                 console.log("[Menu] ✅ Dialogs initialized");
             } catch (e) {
                 console.error("[Menu] ❌ Failed to initialize dialogs:", e);
-                inGameAlert(`Не удалось инициализировать диалоги: ${e}`, "⚠️ Ошибка инициализации!").catch(() => {});
+                inGameAlert(`Не удалось инициализировать диалоги: ${e}`, "⚠️ Ошибка инициализации!").catch(() => { });
                 return;
             }
         } else {
             console.warn("[Menu] ⚠️ Cannot initialize dialogs - no guiTexture available");
             // Показываем сообщение через DOM диалог
-            inGameAlert("Запустите игру сначала, чтобы протестировать диалоги.", "⚠️ HUD не инициализирован!").catch(() => {});
+            inGameAlert("Запустите игру сначала, чтобы протестировать диалоги.", "⚠️ HUD не инициализирован!").catch(() => { });
             return;
         }
 
         console.log("[Menu] Step 3: Starting dialog tests...");
 
         // Тест 1: Alert
-        setTimeout(() => inGameAlert("✅ Тест 1: Alert\nВнутриигровой диалог должен отображаться поверх игры.", "Тест 1").catch(() => {}), 500);
+        setTimeout(() => inGameAlert("✅ Тест 1: Alert\nВнутриигровой диалог должен отображаться поверх игры.", "Тест 1").catch(() => { }), 500);
 
         // Тест 2: Confirm
         setTimeout(() => {
             inGameConfirm("✅ Тест 2: Confirm\nНажмите OK или Отмена.", "Тест 2").then((result) => {
-                inGameAlert(`Результат: ${result ? "OK" : "Отмена"}`, "Результат").catch(() => {});
-            }).catch(() => {});
+                inGameAlert(`Результат: ${result ? "OK" : "Отмена"}`, "Результат").catch(() => { });
+            }).catch(() => { });
         }, 3000);
 
         // Тест 3: Prompt
         setTimeout(() => {
             inGamePrompt("✅ Тест 3: Prompt\nВведите текст:", "Тест", "Тест 3").then((value) => {
                 if (value !== null && value !== undefined) {
-                    inGameAlert(`Вы ввели: "${value}"`, "Результат").catch(() => {});
+                    inGameAlert(`Вы ввели: "${value}"`, "Результат").catch(() => { });
                 } else {
-                    inGameAlert("Ввод отменён.", "Результат").catch(() => {});
+                    inGameAlert("Ввод отменён.", "Результат").catch(() => { });
                 }
-            }).catch(() => {});
+            }).catch(() => { });
         }, 6000);
 
         console.log("[Menu] ✅ All dialog tests scheduled!");
@@ -5651,7 +5793,7 @@ export class MainMenu {
                 { id: "btn-avatars", handler: () => this.showAvatarSelector() },
                 {
                     id: "btn-test-dialogs", handler: () => {
-                        inGameAlert("Пример системного уведомления.\n\nИспользуются внутриигровые диалоги в стиле протокола.", "ТЕСТ ДИАЛОГОВ").catch(() => {});
+                        inGameAlert("Пример системного уведомления.\n\nИспользуются внутриигровые диалоги в стиле протокола.", "ТЕСТ ДИАЛОГОВ").catch(() => { });
                     }
                 }
             ];
@@ -6555,7 +6697,7 @@ export class MainMenu {
                             // We pass the card element to visualize selection
                             (window as any).selectMpCreateRoomMap('custom', card);
                         } else {
-                            inGameAlert("Ошибка загрузки карты!", "Ошибка").catch(() => {});
+                            inGameAlert("Ошибка загрузки карты!", "Ошибка").catch(() => { });
                         }
                         return;
                     }
@@ -6578,7 +6720,7 @@ export class MainMenu {
                             }
                         }
                     } else {
-                        inGameAlert("Ошибка загрузки карты!", "Ошибка").catch(() => {});
+                        inGameAlert("Ошибка загрузки карты!", "Ошибка").catch(() => { });
                     }
                 });
 
@@ -8883,7 +9025,7 @@ transition: all 0.2s;
                         if (playerId && playerName) {
                             inGamePrompt(`Введите причину кика игрока ${playerName} (необязательно):`, "", "Кик игрока").then((reason) => {
                                 this.kickPlayerFromRoom(roomId, playerId, reason || undefined);
-                            }).catch(() => {});
+                            }).catch(() => { });
                         }
                     });
                 }
@@ -8913,7 +9055,7 @@ transition: all 0.2s;
      */
     private showPlayerProfile(playerId: string, playerName: string): void {
         // TODO: Реализовать просмотр профиля игрока
-        inGameAlert(`Профиль игрока ${playerName}\nID: ${playerId} \n\nФункция просмотра профиля будет реализована позже.`, "Профиль").catch(() => {});
+        inGameAlert(`Профиль игрока ${playerName}\nID: ${playerId} \n\nФункция просмотра профиля будет реализована позже.`, "Профиль").catch(() => { });
     }
 
     private startMultiplayerQuickPlay(mode: string): void {
@@ -9129,9 +9271,9 @@ transition: all 0.2s;
         const game = (window as any).gameInstance as any;
         if (game && game.joinMultiplayerRoom) {
             game.joinMultiplayerRoom(roomId);
-            inGameAlert(`Присоединение к комнате ${roomId}...`, "Мультиплеер").catch(() => {});
+            inGameAlert(`Присоединение к комнате ${roomId}...`, "Мультиплеер").catch(() => { });
         } else {
-            inGameAlert("Игра еще не инициализирована. Запустите игру сначала.", "Ошибка").catch(() => {});
+            inGameAlert("Игра еще не инициализирована. Запустите игру сначала.", "Ошибка").catch(() => { });
         }
     }
 
@@ -9800,7 +9942,7 @@ transition: all 0.2s;
                 const game = (window as any).gameInstance;
                 if (game?.multiplayerManager) {
                     // TODO: Реализовать переключение приватности через сервер
-                    inGameAlert("Функция изменения приватности комнаты будет реализована позже", "Уведомление").catch(() => {});
+                    inGameAlert("Функция изменения приватности комнаты будет реализована позже", "Уведомление").catch(() => { });
                 }
             };
         }
@@ -9829,7 +9971,7 @@ transition: all 0.2s;
                     }
 
                     if (playersList.length === 0) {
-                        inGameAlert("Нет игроков для кика", "Уведомление").catch(() => {});
+                        inGameAlert("Нет игроков для кика", "Уведомление").catch(() => { });
                         return;
                     }
 
@@ -9840,10 +9982,10 @@ transition: all 0.2s;
                             if (selectedPlayer) {
                                 multiplayerManager.kickPlayer(selectedPlayer.id);
                             } else {
-                                inGameAlert("Игрок не найден", "Ошибка").catch(() => {});
+                                inGameAlert("Игрок не найден", "Ошибка").catch(() => { });
                             }
                         }
-                    }).catch(() => {});
+                    }).catch(() => { });
                 }
             };
         }
@@ -11303,12 +11445,12 @@ transition: all 0.2s;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager) {
-            inGameAlert("MultiplayerManager не найден", "Ошибка").catch(() => {});
+            inGameAlert("MultiplayerManager не найден", "Ошибка").catch(() => { });
             return;
         }
 
         if (!multiplayerManager.isConnected()) {
-            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
+            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => { });
             return;
         }
 
@@ -11337,7 +11479,7 @@ transition: all 0.2s;
                 }
 
                 if (!currentRoomId) {
-                    inGameAlert("Не удалось создать комнату. Попробуйте еще раз.", "Ошибка").catch(() => {});
+                    inGameAlert("Не удалось создать комнату. Попробуйте еще раз.", "Ошибка").catch(() => { });
                     return;
                 }
 
@@ -11357,7 +11499,7 @@ transition: all 0.2s;
 
         } catch (error) {
             console.error("[Menu] Ошибка при отправке приглашения:", error);
-            inGameAlert("Ошибка при отправке приглашения", "Ошибка").catch(() => {});
+            inGameAlert("Ошибка при отправке приглашения", "Ошибка").catch(() => { });
         }
     }
 
@@ -11406,7 +11548,7 @@ transition: all 0.2s;
                 game.socialSystem = socialSystem;
             } catch (error) {
                 console.error("[Menu] Ошибка при создании SocialSystem:", error);
-                inGameAlert("Система друзей недоступна. Проверьте подключение к Firebase.", "Ошибка").catch(() => {});
+                inGameAlert("Система друзей недоступна. Проверьте подключение к Firebase.", "Ошибка").catch(() => { });
                 return;
             }
         }
@@ -11424,7 +11566,7 @@ transition: all 0.2s;
                 if (game?.chatSystem) {
                     game.chatSystem.addMessage(`⭐ Запрос на добавление в друзья отправлен ${playerName} `, "success", 1);
                 }
-                inGameAlert(`Запрос на добавление в друзья отправлен игроку ${playerName} !`, "Уведомление").catch(() => {});
+                inGameAlert(`Запрос на добавление в друзья отправлен игроку ${playerName} !`, "Уведомление").catch(() => { });
 
                 // Обновляем кнопку (можно добавить визуальную индикацию)
                 const friendBtn = document.querySelector(`.lobby - friend - btn[data - player - id="${playerId}"]`);
@@ -11437,11 +11579,11 @@ transition: all 0.2s;
                 // Обновляем фильтры, если они активны
                 this.applyLobbyPlayerFilters();
             } else {
-                inGameAlert("Не удалось отправить запрос на добавление в друзья. Возможно, запрос уже отправлен или игрок уже в друзьях.", "Ошибка").catch(() => {});
+                inGameAlert("Не удалось отправить запрос на добавление в друзья. Возможно, запрос уже отправлен или игрок уже в друзьях.", "Ошибка").catch(() => { });
             }
         } catch (error) {
             console.error("[Menu] Ошибка при добавлении в друзья:", error);
-            inGameAlert("Ошибка при отправке запроса на добавление в друзья", "Ошибка").catch(() => {});
+            inGameAlert("Ошибка при отправке запроса на добавление в друзья", "Ошибка").catch(() => { });
         }
     }
 
@@ -12136,13 +12278,13 @@ transition: all 0.2s;
 
             // Проверяем тип файла
             if (!file.type.startsWith("image/")) {
-                inGameAlert("Пожалуйста, выберите изображение!", "Баннер").catch(() => {});
+                inGameAlert("Пожалуйста, выберите изображение!", "Баннер").catch(() => { });
                 return;
             }
 
             // Проверяем размер файла (макс 5MB)
             if (file.size > 5 * 1024 * 1024) {
-                inGameAlert("Размер файла не должен превышать 5MB!", "Баннер").catch(() => {});
+                inGameAlert("Размер файла не должен превышать 5MB!", "Баннер").catch(() => { });
                 return;
             }
 
@@ -12251,29 +12393,29 @@ transition: all 0.2s;
                     } catch (storageError) {
                         // Если localStorage переполнен, пробуем очистить старые данные
                         if (storageError instanceof DOMException && storageError.code === 22) {
-                            inGameAlert("Недостаточно места в хранилище. Попробуйте удалить старый баннер или использовать изображение меньшего размера.", "Баннер").catch(() => {});
+                            inGameAlert("Недостаточно места в хранилище. Попробуйте удалить старый баннер или использовать изображение меньшего размера.", "Баннер").catch(() => { });
                         } else {
-                            inGameAlert("Ошибка при сохранении баннера!", "Ошибка").catch(() => {});
+                            inGameAlert("Ошибка при сохранении баннера!", "Ошибка").catch(() => { });
                         }
                         debugWarn("[Menu] Ошибка сохранения баннера:", storageError);
                     }
                 };
 
                 img.onerror = () => {
-                    inGameAlert("Ошибка при загрузке изображения!", "Ошибка").catch(() => {});
+                    inGameAlert("Ошибка при загрузке изображения!", "Ошибка").catch(() => { });
                 };
 
                 img.src = base64;
             };
 
             reader.onerror = () => {
-                inGameAlert("Ошибка при чтении файла!", "Ошибка").catch(() => {});
+                inGameAlert("Ошибка при чтении файла!", "Ошибка").catch(() => { });
             };
 
             reader.readAsDataURL(file);
         } catch (error) {
             debugWarn("[Menu] Ошибка при оптимизации баннера:", error);
-            inGameAlert("Ошибка при обработке изображения!", "Ошибка").catch(() => {});
+            inGameAlert("Ошибка при обработке изображения!", "Ошибка").catch(() => { });
         }
     }
 
@@ -13140,7 +13282,7 @@ line - height: 1.4;
                         if (playerId && playerName) {
                             inGamePrompt(`Введите причину кика игрока ${playerName} (необязательно):`, "", "Кик игрока").then((reason) => {
                                 this.kickPlayerFromRoom(roomId, playerId, reason || undefined);
-                            }).catch(() => {});
+                            }).catch(() => { });
                         }
                     });
                 }
@@ -13211,7 +13353,7 @@ line - height: 1.4;
                 const newMode = modes[index] as any;
                 this.changeRoomSettings(room.id, { mode: newMode });
             }
-        }).catch(() => {});
+        }).catch(() => { });
     }
 
     /**
@@ -13224,9 +13366,9 @@ line - height: 1.4;
             if (maxPlayers >= 2 && maxPlayers <= 32) {
                 this.changeRoomSettings(room.id, { maxPlayers });
             } else {
-                inGameAlert("Количество игроков должно быть от 2 до 32", "Ошибка").catch(() => {});
+                inGameAlert("Количество игроков должно быть от 2 до 32", "Ошибка").catch(() => { });
             }
-        }).catch(() => {});
+        }).catch(() => { });
     }
 
     /**
@@ -13241,7 +13383,7 @@ line - height: 1.4;
                     isPrivate: true,
                     password: password || undefined
                 });
-            }).catch(() => {});
+            }).catch(() => { });
         } else {
             this.changeRoomSettings(room.id, {
                 isPrivate: false,
@@ -13257,7 +13399,7 @@ line - height: 1.4;
         inGamePrompt("Введите ID игрока, которому передать права владельца:", "", "Передача прав").then((playerId) => {
             if (!playerId || playerId.trim() === "") return;
             this.transferRoomOwnership(room.id, playerId.trim());
-        }).catch(() => {});
+        }).catch(() => { });
     }
 
     /**
@@ -13268,13 +13410,13 @@ line - height: 1.4;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager || !multiplayerManager.isConnected()) {
-            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
+            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => { });
             return;
         }
 
         // TODO: Добавить метод в MultiplayerManager для изменения настроек комнаты
         debugLog(`[Menu] Изменение настроек комнаты ${roomId}:`, settings);
-        inGameAlert("Функция изменения настроек комнаты будет реализована на сервере", "Уведомление").catch(() => {});
+        inGameAlert("Функция изменения настроек комнаты будет реализована на сервере", "Уведомление").catch(() => { });
     }
 
     /**
@@ -13285,13 +13427,13 @@ line - height: 1.4;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager || !multiplayerManager.isConnected()) {
-            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
+            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => { });
             return;
         }
 
         // TODO: Добавить метод в MultiplayerManager для передачи прав
         debugLog(`[Menu] Передача прав владельца комнаты ${roomId} игроку ${newOwnerId}`);
-        inGameAlert("Функция передачи прав будет реализована на сервере", "Уведомление").catch(() => {});
+        inGameAlert("Функция передачи прав будет реализована на сервере", "Уведомление").catch(() => { });
     }
 
     /**
@@ -13302,13 +13444,13 @@ line - height: 1.4;
         const multiplayerManager = game?.multiplayerManager;
 
         if (!multiplayerManager || !multiplayerManager.isConnected()) {
-            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
+            inGameAlert("Не подключено к серверу", "Ошибка").catch(() => { });
             return;
         }
 
         // TODO: Добавить метод в MultiplayerManager для кика игрока
         debugLog(`[Menu] Кик игрока ${playerId} из комнаты ${roomId}, причина: ${reason || "не указана"}`);
-        inGameAlert("Функция кика игрока будет реализована на сервере", "Уведомление").catch(() => {});
+        inGameAlert("Функция кика игрока будет реализована на сервере", "Уведомление").catch(() => { });
     }
 
     /**
@@ -13663,13 +13805,13 @@ line - height: 1.4;
                 const multiplayerManager = game?.multiplayerManager;
 
                 if (!multiplayerManager) {
-                    inGameAlert("MultiplayerManager не найден", "Ошибка").catch(() => {});
+                    inGameAlert("MultiplayerManager не найден", "Ошибка").catch(() => { });
                     modal.remove();
                     return;
                 }
 
                 if (!multiplayerManager.isConnected()) {
-                    inGameAlert("Не подключено к серверу", "Ошибка").catch(() => {});
+                    inGameAlert("Не подключено к серверу", "Ошибка").catch(() => { });
                     modal.remove();
                     return;
                 }
@@ -14862,7 +15004,7 @@ line - height: 1.4;
         if (editorUrl === "/editor-placeholder.html") {
             // Show alert if editor not configured
             setTimeout(() => {
-                inGameAlert("Для работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки", "⚠️ Редактор не настроен!").catch(() => {});
+                inGameAlert("Для работы редактора в онлайне нужно:\n1. Задеплоить PolyGenStudio на Vercel\n2. Добавить VITE_EDITOR_URL в настройки", "⚠️ Редактор не настроен!").catch(() => { });
             }, 1000);
         }
 
@@ -15531,8 +15673,8 @@ line - height: 1.4;
             .catch((err) => {
                 console.error("[Menu] Failed to load AvatarSelector:", err);
                 try {
-                    inGameAlert("Не удалось открыть меню аватарок. Проверьте консоль (F12).", "Ошибка").catch(() => {});
-                } catch (_) {}
+                    inGameAlert("Не удалось открыть меню аватарок. Проверьте консоль (F12).", "Ошибка").catch(() => { });
+                } catch (_) { }
                 this.enforceCanvasPointerEvents();
             });
     }
@@ -17278,13 +17420,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!multiplayerManager) {
             console.error("[Menu] MultiplayerManager not available");
-            inGameAlert("Подключение к серверу не установлено. Попробуйте обновить страницу.", "Ошибка").catch(() => {});
+            inGameAlert("Подключение к серверу не установлено. Попробуйте обновить страницу.", "Ошибка").catch(() => { });
             return;
         }
 
         // Проверяем подключение
         if (!multiplayerManager.isConnected()) {
-            inGameAlert("Нет подключения к серверу. Ожидание...", "Ожидание").catch(() => {});
+            inGameAlert("Нет подключения к серверу. Ожидание...", "Ожидание").catch(() => { });
             // Ждём подключения
             let attempts = 0;
             while (!multiplayerManager.isConnected() && attempts < 10) {
@@ -17292,7 +17434,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 attempts++;
             }
             if (!multiplayerManager.isConnected()) {
-                inGameAlert("Не удалось подключиться к серверу.", "Ошибка").catch(() => {});
+                inGameAlert("Не удалось подключиться к серверу.", "Ошибка").catch(() => { });
                 return;
             }
         }
@@ -17362,17 +17504,17 @@ document.addEventListener("DOMContentLoaded", () => {
             const success = multiplayerManager.createRoom(mode as any, 32, false, mapType, enableBots, botCount, customMapData);
             if (!success) {
                 console.error("[Menu] Failed to create room");
-                inGameAlert("Не удалось создать комнату. Проверьте подключение.", "Ошибка").catch(() => {});
+                inGameAlert("Не удалось создать комнату. Проверьте подключение.", "Ошибка").catch(() => { });
             } else {
                 debugLog("[Menu] Room creation request sent:", mode, mapType, "bots:", enableBots, botCount);
             }
         } catch (error) {
             console.error("[Menu] Error creating room:", error);
-            inGameAlert("Ошибка создания комнаты: " + error, "Ошибка").catch(() => {});
+            inGameAlert("Ошибка создания комнаты: " + error, "Ошибка").catch(() => { });
         }
     } else {
         console.error("[Menu] Game or mainMenu not found");
-        inGameAlert("Игра не инициализирована. Попробуйте обновить страницу.", "Ошибка").catch(() => {});
+        inGameAlert("Игра не инициализирована. Попробуйте обновить страницу.", "Ошибка").catch(() => { });
     }
 };
 

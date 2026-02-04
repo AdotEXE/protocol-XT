@@ -199,25 +199,26 @@ export class CustomMapRunner {
 
     /**
      * ШАГ 2: Создать базовую среду
-     * - Тёмный пол 500x500
+     * - Чёрный пол с зелёной wireframe сеткой
      * - Ambient освещение
      */
     private createEnvironment(): void {
         // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
         if (process.env.NODE_ENV === 'development') {
-            logger.log("[CustomMapRunner] Step 2: Creating environment...");
+            logger.log("[CustomMapRunner] Step 2: Creating environment with wireframe grid...");
         }
 
-        // Создаём большой тёмный пол
+        // Создаём чёрный пол
         this.floor = MeshBuilder.CreateGround("customMapFloor", {
-            width: 500,
-            height: 500,
+            width: 1000,
+            height: 1000,
             subdivisions: 1
         }, this.scene);
 
         const floorMat = new StandardMaterial("customFloorMat", this.scene);
-        floorMat.diffuseColor = new Color3(0.1, 0.1, 0.12); // Тёмно-серый
+        floorMat.diffuseColor = new Color3(0.02, 0.02, 0.02); // Почти чёрный
         floorMat.specularColor = new Color3(0, 0, 0);
+        floorMat.emissiveColor = new Color3(0, 0, 0);
         this.floor.material = floorMat;
 
         // Физика для пола
@@ -229,10 +230,49 @@ export class CustomMapRunner {
         this.floor.metadata = { customMapFloor: true, isGround: true };
         this.floor.parent = this.parentNode;
 
+        // Создаём 3D wireframe сетку - яркая зелёная
+        this.createWireframeGrid();
+
         // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
         if (process.env.NODE_ENV === 'development') {
-            logger.log("[CustomMapRunner] Floor created (500x500)");
+            logger.log("[CustomMapRunner] Floor created with green wireframe grid");
         }
+    }
+
+    /**
+     * Создать 3D wireframe сетку - яркая зелёная в стиле киберпанк
+     */
+    private createWireframeGrid(): void {
+        const gridSize = 1000;
+        const cellSize = 25; // Меньше = больше линий
+        const gridY = 0.05;
+        const halfSize = gridSize / 2;
+        const linePoints: Vector3[][] = [];
+
+        // Горизонтальные линии
+        for (let z = -halfSize; z <= halfSize; z += cellSize) {
+            linePoints.push([
+                new Vector3(-halfSize, gridY, z),
+                new Vector3(halfSize, gridY, z)
+            ]);
+        }
+
+        // Вертикальные линии
+        for (let x = -halfSize; x <= halfSize; x += cellSize) {
+            linePoints.push([
+                new Vector3(x, gridY, -halfSize),
+                new Vector3(x, gridY, halfSize)
+            ]);
+        }
+
+        const gridLines = MeshBuilder.CreateLineSystem("customGridLines", {
+            lines: linePoints
+        }, this.scene);
+
+        // Яркий зелёный цвет
+        gridLines.color = new Color3(0, 1, 0); // #00ff00
+        gridLines.isPickable = false;
+        gridLines.parent = this.parentNode;
     }
 
     /**

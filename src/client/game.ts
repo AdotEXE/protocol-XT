@@ -2200,13 +2200,14 @@ export class Game {
 
         // Все карты теперь 500x500 - единые настройки тумана
         // Туман начинается на 60% дистанции, заканчивается на границе карты
-        const fogStart = 180;  // Начало тумана
-        const fogEnd = 280;    // Полный туман (немного за границей 250)
+        // УВЕЛИЧЕНО В 2 РАЗА ПО ПРОСЬБЕ ИГРОКА
+        const fogStart = 360;  // Было 180 -> 360
+        const fogEnd = 560;    // Было 280 -> 560
 
         this.scene.fogStart = fogStart;
         this.scene.fogEnd = fogEnd;
 
-        logger.log(`[Game] Fog setup: start=${fogStart}, end=${fogEnd} (all maps 500x500)`);
+        logger.log(`[Game] Fog setup: start=${fogStart}, end=${fogEnd} (increased visibility)`);
     }
 
     public applyAudioSettings(): void {
@@ -2413,13 +2414,13 @@ export class Game {
                 const visitedMaps = JSON.parse(localStorage.getItem('visitedMaps') || '[]') as string[];
                 if (!visitedMaps.includes(this.currentMapType)) {
                     visitedMaps.push(this.currentMapType);
-                    
+
                     // Ограничиваем размер массива (храним последние 50 карт)
                     const MAX_VISITED_MAPS = 50;
                     if (visitedMaps.length > MAX_VISITED_MAPS) {
                         visitedMaps.shift(); // Удаляем самый старый
                     }
-                    
+
                     localStorage.setItem('visitedMaps', JSON.stringify(visitedMaps));
                 }
                 this.achievementsSystem.setProgress("explorer", visitedMaps.length);
@@ -3090,7 +3091,7 @@ export class Game {
             // Это предотвращает создание default camera и чёрный экран
             const tempCamera = new ArcRotateCamera("tempCamera", -Math.PI / 2, Math.PI / 2 - 0.35, 12, Vector3.Zero(), this.scene);
             tempCamera.minZ = 0.1;
-            tempCamera.maxZ = 10000;
+            tempCamera.maxZ = 20000;
             this.scene.activeCamera = tempCamera;
             logger.log("[Game] Temporary camera created and set as active before render loop");
 
@@ -3585,7 +3586,7 @@ export class Game {
             this.camera.lowerBetaLimit = 0.1;
             this.camera.upperBetaLimit = Math.PI / 2.1;
             this.camera.minZ = 0.1; // Минимальное расстояние до камеры (предотвращает заход за текстуры)
-            this.camera.maxZ = 10000; // Максимальное расстояние отсечения
+            this.camera.maxZ = 20000; // Максимальное расстояние отсечения
             this.camera.inputs.clear();
 
             // КРИТИЧЕСКИ ВАЖНО: Включаем встроенные коллизии BabylonJS
@@ -3617,7 +3618,7 @@ export class Game {
             const initialAimTarget = initialAimCameraPos.add(new Vector3(0, 1, 10));
             this.aimCamera.setTarget(initialAimTarget);
             this.aimCamera.minZ = 0.1; // Минимальное расстояние отсечения
-            this.aimCamera.maxZ = 10000; // Максимальное расстояние отсечения (далёкие объекты видны)
+            this.aimCamera.maxZ = 20000; // Максимальное расстояние отсечения (далёкие объекты видны)
             // console.log("[Game] AimCamera created with minZ=0.1, maxZ=10000");
 
             // КРИТИЧНО: Устанавливаем камеру как активную СРАЗУ и проверяем
@@ -5845,52 +5846,48 @@ export class Game {
         // Пользователь хочет Z=-10, значит смещаем плоскость по оси Z на -10
         safetyPlaneMesh.position = new Vector3(0, -10, -10); // Y=-10 для высоты под картой, Z=-10 как указано
 
-        // Создаём материал с серым цветом
+        // Создаём материал с ЧЁРНОЙ СЕТКОЙ ЗЕЛЁНЫМИ ЛИНИЯМИ
         const safetyMaterial = new StandardMaterial("safetyPlaneMat", this.scene);
-        safetyMaterial.diffuseColor = new Color3(0.5, 0.5, 0.5); // Серый цвет
-        safetyMaterial.specularColor = Color3.Black(); // Без бликов
+        safetyMaterial.disableLighting = true;
 
-        // Создаём текстуру с зелёными метрическими линиями (1 метр = 1 единица)
-        // Размер текстуры: 2048x2048 пикселей для эффективности
-        // Масштабируем так, чтобы 1 метр = 1 пиксель в текстуре
-        const textureSize = 2048;
-        const metersPerTexture = 2000; // Плоскость 2000x2000 метров
-        const pixelsPerMeter = textureSize / metersPerTexture; // Пикселей на метр
-
-        const safetyTexture = new DynamicTexture("safetyPlaneTexture", textureSize, this.scene);
+        // Создаём текстуру с ЧЁРНЫМ ФОНОМ и ЗЕЛЁНОЙ СЕТКОЙ
+        // Используем маленькую текстуру которая будет тайлиться
+        const textureSize = 64;
+        const safetyTexture = new DynamicTexture("safetyPlaneTexture", textureSize, this.scene, false);
         const ctx = safetyTexture.getContext();
 
-        // Рисуем серый фон
-        ctx.fillStyle = "#808080"; // Серый
+        // ЧЁРНЫЙ ФОН
+        ctx.fillStyle = "#000000";
         ctx.fillRect(0, 0, textureSize, textureSize);
 
-        // Рисуем ЗЕЛЁНЫЕ МЕТРИЧЕСКИЕ ЛИНИИ ПО МЕТРАМ
-        ctx.strokeStyle = "#00ff00"; // Яркий зелёный
-        ctx.lineWidth = 1; // Тонкие линии для метрической сетки
-
-        // Вертикальные линии (каждый метр)
-        for (let meter = 0; meter <= metersPerTexture; meter++) {
-            const x = meter * pixelsPerMeter;
-            ctx.beginPath();
-            ctx.moveTo(x, 0);
-            ctx.lineTo(x, textureSize);
-            ctx.stroke();
-        }
-
-        // Горизонтальные линии (каждый метр)
-        for (let meter = 0; meter <= metersPerTexture; meter++) {
-            const y = meter * pixelsPerMeter;
-            ctx.beginPath();
-            ctx.moveTo(0, y);
-            ctx.lineTo(textureSize, y);
-            ctx.stroke();
-        }
+        // ЗЕЛЁНЫЕ ЛИНИИ по краям (одна ячейка сетки)
+        ctx.strokeStyle = "#00ff00";
+        ctx.lineWidth = 2;
+        // Левая линия
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, textureSize);
+        ctx.stroke();
+        // Верхняя линия
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(textureSize, 0);
+        ctx.stroke();
 
         safetyTexture.update();
-        safetyMaterial.diffuseTexture = safetyTexture;
-        // Масштабируем текстуру так, чтобы 1 метр = 1 единица в игре
-        safetyTexture.uScale = metersPerTexture; // 2000 метров по ширине
-        safetyTexture.vScale = metersPerTexture; // 2000 метров по высоте
+
+        // Настройка тайлинга текстуры
+        safetyTexture.wrapU = 1; // WRAP
+        safetyTexture.wrapV = 1; // WRAP
+
+        // Масштаб: плоскость 5500м, хотим ячейки ~50м, значит нужно ~110 тайлов
+        safetyTexture.uScale = 110;
+        safetyTexture.vScale = 110;
+
+        // Применяем текстуру как emissive (светится сама)
+        safetyMaterial.emissiveTexture = safetyTexture;
+        safetyMaterial.diffuseColor = Color3.Black();
+        safetyMaterial.emissiveColor = new Color3(0, 0.1, 0); // Лёгкое зелёное свечение базы
 
         // Устанавливаем материал
         safetyPlaneMesh.material = safetyMaterial;
@@ -6006,6 +6003,9 @@ export class Game {
         this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
         logger.log(`[Game] Player spawned at safe location (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
 
+        // Устанавливаем метку спавна на радаре и компасе
+        this.hud.setSpawnPosition(spawnPos.x, spawnPos.z);
+
         // Устанавливаем позицию и состояние танка
         if (this.tank.chassis && this.tank.physicsBody) {
             this.tank.chassis.position.copyFrom(spawnPos);
@@ -6092,6 +6092,8 @@ export class Game {
                         if (this.gameGarage) {
                             this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
                         }
+                        // Устанавливаем метку спавна на радаре и компасе
+                        this.hud.setSpawnPosition(spawnPos.x, spawnPos.z);
                         // КРИТИЧНО: Включаем режим мультиплеера для танка
                         this.tank.isMultiplayerMode = true;
                         logger.log(`[Game] ✅ Player spawned at server position (adjusted Y), isMultiplayerMode=true`);
@@ -7715,20 +7717,40 @@ export class Game {
             });
         }
 
+        // ИСПРАВЛЕНИЕ: Не применяем для самолётов (у них своя камера)
+        const chassisTypeForAim = this.tank?.chassisType;
+        const isPlaneForAim = typeof chassisTypeForAim === 'object' && (
+            (chassisTypeForAim as any)?.id === "plane" ||
+            (chassisTypeForAim as any)?.id?.includes?.("plane") ||
+            (chassisTypeForAim as any)?.id?.includes?.("mig31")
+        );
+
         // Переключение камер
-        if (t > 0.01) {
-            // Включаем aim камеру
-            if (this.camera) this.camera.setEnabled(false);
-            if (this.aimCamera) {
-                this.aimCamera.setEnabled(true);
-                this.scene.activeCamera = this.aimCamera;
+        // ИСПРАВЛЕНО: Для самолётов НЕ переключаем камеру, используем AircraftCameraSystem
+        if (!isPlaneForAim) {
+            if (t > 0.01) {
+                // Включаем aim камеру
+                if (this.camera) this.camera.setEnabled(false);
+                if (this.aimCamera) {
+                    this.aimCamera.setEnabled(true);
+                    this.scene.activeCamera = this.aimCamera;
+                }
+            } else {
+                // Включаем основную камеру
+                if (this.aimCamera) this.aimCamera.setEnabled(false);
+                if (this.camera) {
+                    this.camera.setEnabled(true);
+                    this.scene.activeCamera = this.camera;
+                }
             }
         } else {
-            // Включаем основную камеру
+            // Для самолётов ВСЕГДА используем основную камеру
             if (this.aimCamera) this.aimCamera.setEnabled(false);
             if (this.camera) {
                 this.camera.setEnabled(true);
-                this.scene.activeCamera = this.camera;
+                if (this.scene.activeCamera !== this.camera) {
+                    this.scene.activeCamera = this.camera;
+                }
             }
         }
 
@@ -7753,7 +7775,9 @@ export class Game {
         }
 
         // === AIMING CAMERA: ПРЯМО ИЗ БАШНИ С ПЛАВНЫМ ПЕРЕХОДОМ ===
-        if (t > 0.01 && this.aimCamera && this.tank.turret && this.tank.barrel) {
+        // ИСПРАВЛЕНИЕ: Не применяем для самолётов (у них своя камера)
+
+        if (t > 0.01 && this.aimCamera && this.tank.turret && this.tank.barrel && !isPlaneForAim) {
             // Целевая позиция: башня + немного вверх
             // ОПТИМИЗАЦИЯ: Используем кэшированную позицию башни
             const turretPos = this.tank.getCachedTurretPosition ? this.tank.getCachedTurretPosition() : this.tank.turret.getAbsolutePosition();
@@ -7864,6 +7888,10 @@ export class Game {
                         if ((this.tank as any).movementModule?.aircraftPhysics) {
                             aircraftSpeed = (this.tank as any).movementModule.aircraftPhysics.getSpeed();
                         }
+
+                        // Обновляем состояние aiming mode
+                        // ИСПРАВЛЕНО: Синхронизируем режим прицеливания с системой камеры
+                        this.aircraftCameraSystem.setAimMode(this.isAiming);
 
                         // Обновляем камеру через AircraftCameraSystem
                         const dt = this.engine.getDeltaTime() / 1000;
@@ -9605,7 +9633,7 @@ export class Game {
             if (this.hud) {
                 this.hud.showMessage(errorMsg, "#f00", 3000);
             } else {
-                inGameAlert(errorMsg, "Ошибка").catch(() => {});
+                inGameAlert(errorMsg, "Ошибка").catch(() => { });
             }
             return;
         }
@@ -9615,7 +9643,7 @@ export class Game {
             if (this.hud) {
                 this.hud.showMessage(errorMsg, "#f00", 3000);
             } else {
-                inGameAlert(errorMsg, "Ошибка").catch(() => {});
+                inGameAlert(errorMsg, "Ошибка").catch(() => { });
             }
             return;
         }
@@ -10010,7 +10038,7 @@ export class Game {
             if (this.hud) {
                 this.hud.showMessage(`Ошибка открытия редактора: ${errorMessage}`, "#f00", 5000);
             } else {
-                inGameAlert(`Не удалось открыть редактор карт:\n${errorMessage}`, "Ошибка").catch(() => {});
+                inGameAlert(`Не удалось открыть редактор карт:\n${errorMessage}`, "Ошибка").catch(() => { });
             }
         }
     }

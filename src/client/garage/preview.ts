@@ -170,6 +170,17 @@ export function initPreviewScene(
         }
     };
 
+    // Функция для принудительного рендера одного кадра
+    const triggerRender = () => {
+        if (engine && !engine.isDisposed && scene && !scene.isDisposed) {
+            try {
+                scene.render();
+            } catch (e) {
+                console.warn("[Garage Preview] triggerRender error:", e);
+            }
+        }
+    };
+
     // Initialize Effects Manager
     const effectsManager = new EffectsManager(scene);
 

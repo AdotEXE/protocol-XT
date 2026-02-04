@@ -68,6 +68,8 @@ export interface AerodynamicsConfig {
     minThrust: number;
     /** Скорость изменения тяги (%/сек) */
     throttleRate: number;
+    /** Триммирование тангажа (Pitch Trim) для компенсации веса носа. > 0 поднимает нос. */
+    pitchTrim?: number;
 }
 
 /**
@@ -199,12 +201,12 @@ export const DEFAULT_AIRCRAFT_PHYSICS_CONFIG: AircraftPhysicsConfig = {
     controlMode: "mouseAim",
 
     minSpeed: 20.0,
-    maxSpeed: 80.0,
+    maxSpeed: 300.0, // Увеличено до 1080 км/ч (физический лимит, а не программный)
     baseSpeed: 50.0,
 
     mass: 15000, // 15 тонн (истребитель)
-    centerOfMass: new Vector3(0, -0.2, -0.5), // Смещён назад и вниз
-    inertiaTensor: new Vector3(5000, 8000, 3000), // Больше инерция по pitch/yaw
+    centerOfMass: new Vector3(0, 0, 0), // ИСПРАВЛЕНО: Центр масс в центре меша для стабильности
+    inertiaTensor: new Vector3(10000, 10000, 10000), // ИСПРАВЛЕНО: Равномерная высокая инерция для стабильности
 
     pid: {
         pitchKp: 8.0,
@@ -223,42 +225,47 @@ export const DEFAULT_AIRCRAFT_PHYSICS_CONFIG: AircraftPhysicsConfig = {
         airDensitySeaLevel: 1.225, // кг/м³ на уровне моря
         airDensityDecay: 0.0001, // Уменьшение на 0.01% на метр высоты
 
-        wingArea: 50.0, // м²
-        baseLiftCoefficient: 0.1,
-        maxLiftCoefficient: 1.8,
-        criticalAngleOfAttack: 0.26, // ~15 градусов
-        zeroLiftDragCoefficient: 0.02,
-        inducedDragFactor: 0.05,
+        wingArea: 25.0, // м²
 
-        // ИСПРАВЛЕНО: Уменьшено для плавного разгона
-        maxThrust: 75000, // Н (75 кН) — было 150кН, слишком резкий разгон
-        minThrust: 10000, // Н (idle) — уменьшено
-        throttleRate: 0.3 // 30% в секунду — плавнее (было 0.5)
+        // УВЕЛИЧЕНО для большего сопротивления (чтобы самолет не летел быстро на малом газу)
+        baseLiftCoefficient: 0.5, // Было 0.3
+        maxLiftCoefficient: 1.5, // Было 1.2
+        criticalAngleOfAttack: 0.35,
+
+        // ЗНАЧИТЕЛЬНО УВЕЛИЧЕНО сопротивление
+        zeroLiftDragCoefficient: 0.08, // Было 0.02 (в 4 раза больше)
+        inducedDragFactor: 0.1, // Было 0.05 (в 2 раза больше)
+
+        // СБАЛАНСИРОВАНА ТЯГА
+        maxThrust: 180000, // Увеличена тяга (было 120000), чтобы компенсировать возросший Drag на макс скорости
+        minThrust: 0,
+        throttleRate: 0.8,
+        pitchTrim: 0.05,
     },
 
     mouseAim: {
         lookAheadDistance: 1000.0,
         minLookAheadDistance: 200.0,
         maxLookAheadDistance: 2000.0,
-        maxBankAngle: 0.785, // 45 градусов
+        maxBankAngle: 1.0, // Увеличено до ~60 градусов для маневренности
         bankTransitionSpeed: 3.0,
-        alphaLimit: 0.35, // ~20° — мягче, меньше ложных сваливаний
+        alphaLimit: 0.35,
         enableAlphaLimiter: true,
-        mouseAimGain: 2.2,      // плавнее чем 4.0 — меньше осцилляций
-        mouseAimDeadzone: 0.05,  // больше чем 0.02 — игнорируем микро-дрожание
+        mouseAimGain: 2.0,       // Вернул к 2.0 для отзывчивости
+        mouseAimDeadzone: 0.05,
         pointerLockSensitivityMultiplier: 0.4,
-        mouseAimSmoothing: 0.18,  // усиленное сглаживание — строго плавное следование за центром
-        maxSmoothedDeltaPerFrame: 0.018,  // rate limit: макс. изменение сглаженного ввода за кадр
-        maxRotationSpeedRadPerSec: 1.5,  // плавное вращение
-        mouseAimFollowGain: 1.2,          // целевая угл. скорость от ошибки — у центра естественное замедление
-        mouseAimBlendToTarget: 0.14       // плавный переход к целевой угловой скорости за кадр
+        mouseAimSmoothing: 0.05,  // ОЧЕНЬ плавное (было 0.18)
+        maxSmoothedDeltaPerFrame: 0.008,  // Медленнее изменения (было 0.018)
+        maxRotationSpeedRadPerSec: 1.2,  // Немного медленнее
+        mouseAimFollowGain: 0.5,          // Уменьшено для плавности (было 1.2)
+        mouseAimBlendToTarget: 0.05       // ОЧЕНЬ плавный переход (было 0.14)
     },
 
     keyboard: {
-        pitchSensitivity: 14.0,   // рад/с² — заметный отклик на Q/E
-        rollSensitivity: 16.0,    // рад/с² — заметный отклик на A/D
-        yawSensitivity: 10.0,      // рад/с² — заметный отклик на Q/E
-        maxRotationSpeedRadPerSec: 2.8,  // при клавишах выше лимит, чем у мыши
+        pitchSensitivity: 12.0,   // Увеличено для отзывчивости (было 6)
+        rollSensitivity: 14.0,    // Увеличено для отзывчивости (было 8)
+        yawSensitivity: 25.0,      // УСИЛЕНО x3 по просьбе игрока (было 8)
+        maxRotationSpeedRadPerSec: 3.5,  // Увеличено для манёвренности (было 2.5)
         keyboardOverridesMouseAim: true
     },
 
@@ -270,11 +277,11 @@ export const DEFAULT_AIRCRAFT_PHYSICS_CONFIG: AircraftPhysicsConfig = {
         worldUpAlignment: true
     },
 
-    enableAutoLevel: true,
-    autoLevelStrength: 3.5,
-    cameraAlignGain: 2.0,
-    noInputAngularDamping: 0.82,  // при отпускании клавиш/мыши — плавный возврат к уровню и центру
-    levelAssistStrength: 0.22,  // слабая подтяжка в уровень при активном вводе (только мышь)
+    enableAutoLevel: true,   // ВКЛЮЧЕНО обратно
+    autoLevelStrength: 1.0,   // Увеличено до 1.0 - сильное выравнивание в горизонт
+    cameraAlignGain: 0.1,     // Очень мягкое следование за камерой
+    noInputAngularDamping: 0.3,  // Мягкое затухание
+    levelAssistStrength: 0.05,  // Минимальная подтяжка
     stallWarningMinSpeed: 8.0,  // ниже этой скорости (м/с) STALL! не показываем
     minAltitude: 15.0  // Самолёт должен стартовать выше земли (спавн ~1.2м)
 };

@@ -660,7 +660,14 @@ export class GameCamera {
         }
 
         // Режим прицеливания
-        if (this.isAiming) {
+        const chassisTypeForAim = this.tank?.chassisType;
+        const isPlaneForAim = typeof chassisTypeForAim === 'object' && (
+            (chassisTypeForAim as any)?.id === "plane" ||
+            (chassisTypeForAim as any)?.id?.includes?.("plane") ||
+            (chassisTypeForAim as any)?.id?.includes?.("mig31")
+        );
+
+        if (this.isAiming && !isPlaneForAim) {
             this.updateAimingMode();
         } else {
             this.updateNormalMode();
@@ -816,7 +823,10 @@ export class GameCamera {
         }
 
         // Apply to camera (используем сглаженное значение)
-        this.camera.radius = this.currentCollisionRadius;
+        // Apply to camera (используем сглаженное значение)
+        if (!isPlaneForAim) {
+            this.camera.radius = this.currentCollisionRadius;
+        }
     }
 
     /**
