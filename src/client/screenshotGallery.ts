@@ -253,13 +253,14 @@ export class ScreenshotGallery {
     deleteScreenshot(timestamp: number): void {
         inGameConfirm('Удалить этот скриншот?', 'Галерея').then((ok) => {
             if (!ok) return;
-        localStorage.removeItem(`ptx_screenshot_${timestamp}`);
-        this.screenshots = this.screenshots.filter(m => m.timestamp !== timestamp);
+            localStorage.removeItem(`ptx_screenshot_${timestamp}`);
+            this.screenshots = this.screenshots.filter(m => m.timestamp !== timestamp);
 
-        const metaKey = "ptx_screenshots_meta";
-        localStorage.setItem(metaKey, JSON.stringify(this.screenshots));
+            const metaKey = "ptx_screenshots_meta";
+            localStorage.setItem(metaKey, JSON.stringify(this.screenshots));
 
-        this.renderGallery();
+            this.renderGallery();
+        }).catch(() => { });
     }
 
     /**
@@ -277,11 +278,11 @@ export class ScreenshotGallery {
                 JSZip = jszipModule.default || jszipModule;
             } catch (error) {
                 logger.warn('[ScreenshotGallery] JSZip not available, skipping ZIP export');
-                inGameAlert('Экспорт в ZIP недоступен. Установите пакет jszip для этой функции.', 'Экспорт').catch(() => {});
+                inGameAlert('Экспорт в ZIP недоступен. Установите пакет jszip для этой функции.', 'Экспорт').catch(() => { });
                 return;
             }
             if (!JSZip) {
-                inGameAlert('JSZip не загружен', 'Экспорт').catch(() => {});
+                inGameAlert('JSZip не загружен', 'Экспорт').catch(() => { });
                 return;
             }
             const zip = new JSZip();
@@ -302,7 +303,7 @@ export class ScreenshotGallery {
             }
 
             if (count === 0) {
-                inGameAlert('Нет скриншотов для экспорта', 'Экспорт').catch(() => {});
+                inGameAlert('Нет скриншотов для экспорта', 'Экспорт').catch(() => { });
                 return;
             }
 
@@ -317,7 +318,7 @@ export class ScreenshotGallery {
             logger.log(`[ScreenshotGallery] Exported ${count} screenshots`);
         } catch (error) {
             logger.error("[ScreenshotGallery] Export failed:", error);
-            inGameAlert('Ошибка экспорта. Убедитесь, что библиотека JSZip установлена.', 'Экспорт').catch(() => {});
+            inGameAlert('Ошибка экспорта. Убедитесь, что библиотека JSZip установлена.', 'Экспорт').catch(() => { });
         }
     }
 
@@ -327,14 +328,14 @@ export class ScreenshotGallery {
     clearAll(): void {
         inGameConfirm('Удалить ВСЕ скриншоты? Это действие нельзя отменить.', 'Галерея').then((ok) => {
             if (!ok) return;
-        this.screenshots.forEach(meta => {
-            localStorage.removeItem(`ptx_screenshot_${meta.timestamp}`);
-        });
+            this.screenshots.forEach(meta => {
+                localStorage.removeItem(`ptx_screenshot_${meta.timestamp}`);
+            });
 
-        localStorage.removeItem('ptx_screenshots_meta');
-        this.screenshots = [];
-        this.renderGallery();
-        }).catch(() => {});
+            localStorage.removeItem('ptx_screenshots_meta');
+            this.screenshots = [];
+            this.renderGallery();
+        }).catch(() => { });
     }
 
     /**
