@@ -7,6 +7,7 @@ import { logger } from "./utils/logger";
 import { WorldManager } from "./worldManager";
 import { WaveEditor } from "./waveEditor";
 import { CommonStyles } from "./commonStyles";
+import { inGameAlert } from "./utils/inGameDialogs";
 
 export interface SpawnZone {
     id: string;
@@ -849,9 +850,9 @@ export class SessionSettings {
                             const data = event.target?.result as string;
                             this.waveEditor!.importWaves(data);
                             this.waveEditor!.renderEmbeddedEditor();
-                            alert(`Импортировано ${this.waveEditor!.getWaves().length} волн`);
+                            inGameAlert(`Импортировано ${this.waveEditor!.getWaves().length} волн`, "Импорт").catch(() => {});
                         } catch (error) {
-                            alert('Ошибка импорта: ' + error);
+                            inGameAlert('Ошибка импорта: ' + error, "Ошибка").catch(() => {});
                         }
                     };
                     reader.readAsText(file);

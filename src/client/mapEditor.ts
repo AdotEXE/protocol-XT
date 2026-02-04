@@ -4226,13 +4226,13 @@ export class MapEditor {
 
                 const reader = new FileReader();
                 reader.onerror = () => {
-                    alert("Ошибка при чтении файла");
+                    inGameAlert("Ошибка при чтении файла", "Импорт").catch(() => {});
                 };
                 reader.onload = (event) => {
                     try {
                         const jsonData = event.target?.result as string;
                         if (!jsonData || jsonData.trim() === "") {
-                            alert("Файл пуст или поврежден");
+                            inGameAlert("Файл пуст или поврежден", "Импорт").catch(() => {});
                             return;
                         }
 
@@ -4241,12 +4241,12 @@ export class MapEditor {
                             this.updateUI();
                             this.updateUndoRedoButtons();
                         } else {
-                            alert("Ошибка при импорте карты: неверный формат данных");
+                            inGameAlert("Ошибка при импорте карты: неверный формат данных", "Импорт").catch(() => {});
                         }
                     } catch (error) {
                         console.error("[MapEditor] Import error:", error);
                         const errorMsg = error instanceof Error ? error.message : String(error);
-                        alert(`Ошибка при импорте карты: ${errorMsg}`);
+                        inGameAlert(`Ошибка при импорте карты: ${errorMsg}`, "Импорт").catch(() => {});
                     }
                 };
                 reader.readAsText(file);

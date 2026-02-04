@@ -530,10 +530,10 @@ export class BotPerformanceSettingsUI {
         exportBtn.left = "-80px";
         exportBtn.fontSize = 11;
         const exportObs = exportBtn.onPointerClickObservable.add(() => {
-            try {
-                const name = prompt("Введите имя профиля для экспорта:");
-                if (name) {
-                    const json = this.monitor.exportProfile(name);
+            inGamePrompt("Введите имя профиля для экспорта:", "", "Экспорт").then((name) => {
+                if (!name) return;
+                try {
+                    const json = this.monitor.exportProfile(name.trim());
                     if (json) {
                         const blob = new Blob([json], { type: "application/json" });
                         const url = URL.createObjectURL(blob);
@@ -544,10 +544,10 @@ export class BotPerformanceSettingsUI {
                         setTimeout(() => URL.revokeObjectURL(url), 100);
                         logger.log(`[BotPerformanceSettingsUI] Profile "${name}" exported`);
                     }
+                } catch (e) {
+                    logger.error("[BotPerformanceSettingsUI] Error exporting profile:", e);
                 }
-            } catch (e) {
-                logger.error("[BotPerformanceSettingsUI] Error exporting profile:", e);
-            }
+            }).catch(() => {});
         });
         this.observers.push({ control: exportBtn, observer: exportObs });
         container.addControl(exportBtn);

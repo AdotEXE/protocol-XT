@@ -348,11 +348,11 @@ export class WorkshopUI {
 
         try {
             ConfigurationManager.save(config);
-            alert(`Танк "${name}" сохранён!`);
+            inGameAlert(`Танк "${name}" сохранён!`, 'Мастерская').catch(() => {});
             console.log('[Workshop] Saved configuration:', config);
         } catch (e) {
             console.error('[Workshop] Failed to save:', e);
-            alert('Ошибка при сохранении!');
+            inGameAlert('Ошибка при сохранении!', 'Ошибка').catch(() => {});
         }
     }
 

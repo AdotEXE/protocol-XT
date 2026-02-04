@@ -8,6 +8,7 @@ import { Vector3, Scene } from "@babylonjs/core";
 import { Game } from "./game";
 import { logger } from "./utils/logger";
 import { CommonStyles } from "./commonStyles";
+import { inGameConfirm } from "./utils/inGameDialogs";
 import {
     PHYSICS_CONFIG,
     DEFAULT_PHYSICS_CONFIG,
@@ -818,11 +819,13 @@ export class PhysicsEditor {
 
         if (resetBtn) {
             resetBtn.addEventListener("click", () => {
-                if (confirm("Сбросить все параметры к значениям по умолчанию?")) {
-                    resetPhysicsConfig();
-                    this.updateFromConfig();
-                    this.applyToTank();
-                }
+                inGameConfirm("Сбросить все параметры к значениям по умолчанию?", "Физика").then((ok) => {
+                    if (ok) {
+                        resetPhysicsConfig();
+                        this.updateFromConfig();
+                        this.applyToTank();
+                    }
+                }).catch(() => {});
             });
         }
 

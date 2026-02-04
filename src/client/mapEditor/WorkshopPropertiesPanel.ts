@@ -5,6 +5,8 @@
  * Табы: Визуальные, Движение, Бой, Физика, Башня, Особое
  */
 
+import { inGameAlert } from "../utils/inGameDialogs";
+
 export interface WorkshopConfig {
     movement?: {
         maxForwardSpeed?: number;
@@ -107,7 +109,7 @@ export class WorkshopPropertiesPanel {
         localStorage.setItem('workshopTestMap', 'polygon');
         localStorage.setItem('workshopTestRequested', 'true');
         
-        alert('Конфигурация сохранена для теста на полигоне!\n\nЗакройте редактор карт и запустите игру на карте "Полигон" для тестирования.');
+        inGameAlert('Конфигурация сохранена для теста на полигоне!\n\nЗакройте редактор карт и запустите игру на карте "Полигон" для тестирования.', 'Полигон').catch(() => {});
         console.log('[Workshop] Test config saved:', testConfig);
     }
     

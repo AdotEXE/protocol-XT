@@ -3,6 +3,7 @@
  */
 
 import { logger } from "./utils/logger";
+import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs";
 
 export interface Wave {
     id: string;
@@ -356,14 +357,15 @@ export class WaveEditor {
             `;
             deleteBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
-                if (confirm(`Удалить волну "${wave.name}"?`)) {
+                inGameConfirm(`Удалить волну "${wave.name}"?`, "Волны").then((ok) => {
+                    if (!ok) return;
                     this.waves.splice(index, 1);
                     if (this.currentWave === wave) {
                         this.currentWave = null;
                     }
                     this.saveWaves();
                     this.renderEmbeddedEditor();
-                }
+                }).catch(() => {});
             });
             item.appendChild(deleteBtn);
 
@@ -405,14 +407,15 @@ export class WaveEditor {
             deleteBtn.style.cssText = "padding: 2px 6px; margin: 0; float: right;";
             deleteBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
-                if (confirm(`Удалить волну "${wave.name}"?`)) {
+                inGameConfirm(`Удалить волну "${wave.name}"?`, "Волны").then((ok) => {
+                    if (!ok) return;
                     this.waves.splice(index, 1);
                     if (this.currentWave === wave) {
                         this.currentWave = null;
                     }
                     this.saveWaves();
                     this.updateUI();
-                }
+                }).catch(() => {});
             });
             item.appendChild(deleteBtn);
 
@@ -677,9 +680,9 @@ export class WaveEditor {
                 try {
                     const data = event.target?.result as string;
                     this.importWaves(data);
-                    alert(`Импортировано ${this.waves.length} волн`);
+                    inGameAlert(`Импортировано ${this.waves.length} волн`, "Импорт").catch(() => {});
                 } catch (error) {
-                    alert('Ошибка импорта: ' + error);
+                    inGameAlert('Ошибка импорта: ' + error, "Ошибка").catch(() => {});
                 }
             };
             reader.readAsText(file);

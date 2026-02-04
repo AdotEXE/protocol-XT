@@ -6,6 +6,7 @@
 import { socialSystem, Friend, FriendRequest, Clan } from "./socialSystem";
 import { CommonStyles } from "./commonStyles";
 import { escapeHTML } from "./utils/stringUtils";
+import { inGameAlert, inGameConfirm, inGamePrompt } from "./utils/inGameDialogs";
 
 export class SocialMenu {
     private container: HTMLDivElement | null = null;
@@ -548,7 +549,8 @@ export class SocialMenu {
      * Удалить друга
      */
     private async removeFriend(friendId: string): Promise<void> {
-        if (!confirm("Вы уверены, что хотите удалить этого друга?")) return;
+        const ok = await inGameConfirm("Вы уверены, что хотите удалить этого друга?", "Друзья");
+        if (!ok) return;
 
         const success = await socialSystem.removeFriend(friendId);
         if (success) {
@@ -560,7 +562,8 @@ export class SocialMenu {
      * Покинуть клан
      */
     private async leaveClan(): Promise<void> {
-        if (!confirm("Вы уверены, что хотите покинуть клан?")) return;
+        const ok = await inGameConfirm("Вы уверены, что хотите покинуть клан?", "Клан");
+        if (!ok) return;
 
         const success = await socialSystem.leaveClan();
         if (success) {
@@ -572,22 +575,22 @@ export class SocialMenu {
      * Показать диалог создания клана
      */
     private showCreateClanDialog(): void {
-        const name = prompt("Название клана:");
-        if (!name) return;
-
-        const tag = prompt("Тег клана (3-4 символа):");
-        if (!tag) return;
-
-        const description = prompt("Описание клана:") || "";
-
-        socialSystem.createClan(name, tag, description).then(clanId => {
-            if (clanId) {
-                alert(`Клан "${name}" успешно создан!`);
-                this.refreshData();
-            } else {
-                alert("Ошибка при создании клана");
-            }
-        });
+        inGamePrompt("Название клана:", "", "Создать клан").then((name) => {
+            if (!name) return;
+            inGamePrompt("Тег клана (3-4 символа):", "", "Клан").then((tag) => {
+                if (!tag) return;
+                inGamePrompt("Описание клана:", "", "Клан").then((description) => {
+                    socialSystem.createClan(name, tag, description || "").then(clanId => {
+                        if (clanId) {
+                            inGameAlert(`Клан "${name}" успешно создан!`, "Клан").catch(() => {});
+                            this.refreshData();
+                        } else {
+                            inGameAlert("Ошибка при создании клана", "Ошибка").catch(() => {});
+                        }
+                    });
+                }).catch(() => {});
+            }).catch(() => {});
+        }).catch(() => {});
     }
 
     /**
@@ -779,16 +782,14 @@ export class SocialMenu {
      * Показать диалог добавления друга
      */
     private async showAddFriendDialog(): Promise<void> {
-        const playerNameOrId = prompt("Введите имя или ID игрока:");
+        const playerNameOrId = await inGamePrompt("Введите имя или ID игрока:", "", "Друзья");
         if (!playerNameOrId) return;
 
-        // В реальной системе здесь нужно найти игрока по имени/ID
-        // Пока что используем введенное значение как ID
         const success = await socialSystem.sendFriendRequest(playerNameOrId, playerNameOrId);
         if (success) {
-            alert("Заявка в друзья отправлена!");
+            inGameAlert("Заявка в друзья отправлена!", "Друзья").catch(() => {});
         } else {
-            alert("Ошибка при отправке заявки. Проверьте имя/ID игрока.");
+            inGameAlert("Ошибка при отправке заявки. Проверьте имя/ID игрока.", "Ошибка").catch(() => {});
         }
     }
 
@@ -796,7 +797,7 @@ export class SocialMenu {
      * Показать поиск кланов
      */
     private async showClanSearch(): Promise<void> {
-        const searchQuery = prompt("Введите название или тег клана для поиска:") || "";
+        const searchQuery = (await inGamePrompt("Введите название или тег клана для поиска:", "", "Поиск кланов")) || "";
         if (!searchQuery) return;
 
         const results = await socialSystem.searchClans(searchQuery, 10);
@@ -836,10 +837,10 @@ export class SocialMenu {
                 const clanId = (e.target as HTMLElement).getAttribute("data-id") || "";
                 const success = await socialSystem.joinClan(clanId);
                 if (success) {
-                    alert("Вы успешно вступили в клан!");
+                    inGameAlert("Вы успешно вступили в клан!", "Клан").catch(() => {});
                     await this.refreshData();
                 } else {
-                    alert("Ошибка при вступлении в клан");
+                    inGameAlert("Ошибка при вступлении в клан", "Ошибка").catch(() => {});
                 }
             });
         });

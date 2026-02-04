@@ -12,6 +12,7 @@ import {
     Vector3
 } from "@babylonjs/core";
 import { PlacedObject } from "../mapEditor";
+import { inGameAlert, inGameConfirm } from "../utils/inGameDialogs";
 import GizmoSystem, { GizmoMode, GizmoTransform } from "./GizmoSystem";
 import DirectManipulation, { DirectManipulationOptions } from "./DirectManipulation";
 import WorkshopPropertiesPanel, { WorkshopConfig } from "./WorkshopPropertiesPanel";
@@ -462,7 +463,7 @@ export class TankObjectEditor {
      */
     private testOnPolygon(): void {
         if (!this.targetObject) {
-            alert('Выберите танк для тестирования!');
+            inGameAlert('Выберите танк для тестирования!', 'Редактор').catch(() => {});
             return;
         }
         
@@ -470,7 +471,7 @@ export class TankObjectEditor {
         const config = (this.targetObject.properties as any)?.workshopConfig as WorkshopConfig | undefined;
         
         if (!config) {
-            alert('Нет конфигурации для тестирования! Настройте параметры танка.');
+            inGameAlert('Нет конфигурации для тестирования! Настройте параметры танка.', 'Редактор').catch(() => {});
             return;
         }
         
@@ -490,28 +491,19 @@ export class TankObjectEditor {
         localStorage.setItem('workshopTestObjectId', this.targetObject.id);
         
         // Показываем инструкцию
-        const confirmed = confirm(
-            'Конфигурация сохранена для теста на полигоне!\n\n' +
-            'Закройте редактор карт и запустите игру на карте "Полигон" для тестирования.\n\n' +
-            'Хотите открыть меню игры сейчас?'
-        );
-        
-        if (confirmed) {
-            // Пытаемся найти и вызвать меню игры
+        inGameConfirm(
+            'Конфигурация сохранена для теста на полигоне!\n\nЗакройте редактор карт и запустите игру на карте "Полигон" для тестирования.\n\nХотите открыть меню игры сейчас?',
+            'Тест на полигоне'
+        ).then((confirmed) => {
+            if (!confirmed) return;
             const gameWindow = window as any;
             if (gameWindow.game && gameWindow.game.mainMenu) {
-                // Закрываем редактор карт
-                if (this.onClose) {
-                    this.onClose();
-                }
-                // Показываем меню
-                if (gameWindow.game.mainMenu.show) {
-                    gameWindow.game.mainMenu.show();
-                }
+                if (this.onClose) this.onClose();
+                if (gameWindow.game.mainMenu.show) gameWindow.game.mainMenu.show();
             } else {
-                alert('Меню игры не найдено. Закройте редактор карт вручную и запустите игру.');
+                inGameAlert('Меню игры не найдено. Закройте редактор карт вручную и запустите игру.', 'Редактор').catch(() => {});
             }
-        }
+        }).catch(() => {});
         
         console.log('[Workshop] Test config saved:', testConfig);
     }

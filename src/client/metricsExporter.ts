@@ -4,6 +4,7 @@
 
 import { ExtendedMetrics } from "./metricsCollector";
 import { logger } from "./utils/logger";
+import { inGameAlert } from "./utils/inGameDialogs";
 
 export interface MetricsData {
     timestamp: number;
@@ -106,7 +107,7 @@ export class MetricsExporter {
     exportCSVFile(customFilename?: string): void {
         const csv = this.exportToCSV();
         if (!csv) {
-            alert('Нет данных для экспорта');
+            inGameAlert('Нет данных для экспорта', 'Экспорт').catch(() => {});
             return;
         }
         
@@ -120,7 +121,7 @@ export class MetricsExporter {
     exportJSONFile(customFilename?: string): void {
         const json = this.exportToJSON();
         if (!json) {
-            alert('Нет данных для экспорта');
+            inGameAlert('Нет данных для экспорта', 'Экспорт').catch(() => {});
             return;
         }
         

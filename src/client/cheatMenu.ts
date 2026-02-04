@@ -7,6 +7,7 @@ import { Game } from "./game";
 import { Vector3, Ray } from "@babylonjs/core";
 import { EnemyTank } from "./enemyTank";
 import { CommonStyles } from "./commonStyles";
+import { inGameAlert, inGamePrompt } from "./utils/inGameDialogs";
 
 export interface Cheat {
     id: string;
@@ -737,18 +738,18 @@ export class CheatMenu {
             category: "debug",
             toggle: () => {
                 if (!this.tank || !this.game) {
-                    alert("Танк или игра не инициализированы!");
+                    inGameAlert("Танк или игра не инициализированы!", "Читы").catch(() => {});
                     return;
                 }
 
-                const x = prompt("X координата:", "0");
-                const z = prompt("Z координата:", "0");
+                inGamePrompt("X координата:", "0", "Телепорт").then((x) => {
+                    if (x === null) return;
+                    inGamePrompt("Z координата:", "0", "Телепорт").then((z) => {
+                        if (z === null) return;
+                        const posX = parseFloat(x);
+                        const posZ = parseFloat(z);
 
-                if (x !== null && z !== null) {
-                    const posX = parseFloat(x);
-                    const posZ = parseFloat(z);
-
-                    if (!isNaN(posX) && !isNaN(posZ)) {
+                        if (!isNaN(posX) && !isNaN(posZ)) {
                         // КРИТИЧНО: Вычисляем высоту террейна автоматически
                         const groundHeight = this.getGroundHeight(posX, posZ);
                         // Безопасная высота: +5м над террейном, минимум 7м
@@ -771,9 +772,10 @@ export class CheatMenu {
                             this.game.hud.showMessage(`Телепорт: (${posX.toFixed(1)}, ${safeHeight.toFixed(1)}, ${posZ.toFixed(1)}) - террейн: ${groundHeight.toFixed(1)}м`, "#0f0", 2000);
                         }
                     } else {
-                        alert("Неверные координаты!");
+                        inGameAlert("Неверные координаты!", "Читы").catch(() => {});
                     }
-                }
+                    }).catch(() => {});
+                }).catch(() => {});
             }
         });
 
@@ -786,7 +788,7 @@ export class CheatMenu {
             category: "debug",
             toggle: async () => {
                 if (!this.game || !this.tank) {
-                    alert("Игра или танк не инициализированы!");
+                    inGameAlert("Игра или танк не инициализированы!", "Читы").catch(() => {});
                     return;
                 }
 
@@ -924,8 +926,8 @@ export class CheatMenu {
             type: "action",
             buttonText: "📍 XZ",
             toggle: () => {
-                const coords = prompt("Введите X, Z через запятую (Y вычисляется автоматически):", "0, 0");
-                if (coords && this.tank && this.tank.chassis) {
+                inGamePrompt("Введите X, Z через запятую (Y вычисляется автоматически):", "0, 0", "Телепорт").then((coords) => {
+                if (!coords || !this.tank || !this.tank.chassis) return;
                     const parts = coords.split(",").map(s => parseFloat(s.trim()));
                     const posX = parts[0];
                     const posZ = parts[1];
@@ -950,9 +952,9 @@ export class CheatMenu {
                         this.tank.chassis.computeWorldMatrix(true);
                         this.showCheatNotification(`ТП: ${posX.toFixed(1)}, ${safeHeight.toFixed(1)}, ${posZ.toFixed(1)} 📍 (террейн: ${groundHeight.toFixed(1)}м)`);
                     } else {
-                        alert("Неверные координаты! Используйте формат: X, Z");
+                        inGameAlert("Неверные координаты! Используйте формат: X, Z", "Читы").catch(() => {});
                     }
-                }
+                }).catch(() => {});
             }
         });
 

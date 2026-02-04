@@ -5,6 +5,7 @@ import { PhysicsVisualizer } from "./physicsVisualizer";
 import { PhysicsSimulator } from "./physicsSimulator";
 import { logger } from "./utils/logger";
 import { CommonStyles } from "./commonStyles";
+import { inGameAlert, inGameConfirm, inGamePrompt } from "./utils/inGameDialogs";
 
 interface Preset {
     name: string;
@@ -712,14 +713,14 @@ export class PhysicsPanel {
 
     private showSavePresetDialog(): void {
         if (this.presets.length >= this.maxPresets) {
-            alert(`Максимум ${this.maxPresets} пресетов!`);
+            inGameAlert(`Максимум ${this.maxPresets} пресетов!`, "Физика").catch(() => {});
             return;
         }
 
-        const name = prompt("Имя пресета:", `Пресет ${this.presets.length + 1}`);
-        if (!name || name.trim() === "") return;
-
-        this.savePreset(name.trim());
+        inGamePrompt("Имя пресета:", `Пресет ${this.presets.length + 1}`, "Пресет").then((name) => {
+            if (!name || name.trim() === "") return;
+            this.savePreset(name.trim());
+        }).catch(() => {});
     }
 
     private savePreset(name: string): void {
@@ -811,9 +812,9 @@ export class PhysicsPanel {
             el.addEventListener("click", () => {
                 const name = el.getAttribute("data-delete");
                 if (name) {
-                    if (confirm(`Удалить пресет "${name}"?`)) {
-                        this.deletePreset(name);
-                    }
+                    inGameConfirm(`Удалить пресет "${name}"?`, "Подтверждение").then((ok) => {
+                        if (ok) this.deletePreset(name);
+                    }).catch(() => {});
                 }
             });
         });
@@ -865,7 +866,7 @@ export class PhysicsPanel {
                 try {
                     const imported = JSON.parse(event.target?.result as string) as Preset[];
                     if (!Array.isArray(imported)) {
-                        alert('Неверный формат файла');
+                        inGameAlert('Неверный формат файла', 'Импорт').catch(() => {});
                         return;
                     }
 
@@ -888,9 +889,9 @@ export class PhysicsPanel {
 
                     this.savePresets();
                     this.updatePresetsList();
-                    alert(`Импортировано ${imported.length} пресетов`);
+                    inGameAlert(`Импортировано ${imported.length} пресетов`, 'Импорт').catch(() => {});
                 } catch (error) {
-                    alert('Ошибка при импорте: ' + error);
+                    inGameAlert('Ошибка при импорте: ' + error, 'Ошибка').catch(() => {});
                 }
             };
             reader.readAsText(file);

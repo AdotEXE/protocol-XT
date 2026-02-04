@@ -4,6 +4,7 @@
 
 import { ScreenshotMetadata } from "./screenshotManager";
 import { logger } from "./utils/logger";
+import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs";
 
 export class ScreenshotGallery {
     private container: HTMLDivElement | null = null;
@@ -250,8 +251,8 @@ export class ScreenshotGallery {
      * Удаление скриншота
      */
     deleteScreenshot(timestamp: number): void {
-        if (!confirm('Удалить этот скриншот?')) return;
-
+        inGameConfirm('Удалить этот скриншот?', 'Галерея').then((ok) => {
+            if (!ok) return;
         localStorage.removeItem(`ptx_screenshot_${timestamp}`);
         this.screenshots = this.screenshots.filter(m => m.timestamp !== timestamp);
 
@@ -276,11 +277,11 @@ export class ScreenshotGallery {
                 JSZip = jszipModule.default || jszipModule;
             } catch (error) {
                 logger.warn('[ScreenshotGallery] JSZip not available, skipping ZIP export');
-                alert('Экспорт в ZIP недоступен. Установите пакет jszip для этой функции.');
+                inGameAlert('Экспорт в ZIP недоступен. Установите пакет jszip для этой функции.', 'Экспорт').catch(() => {});
                 return;
             }
             if (!JSZip) {
-                alert('JSZip не загружен');
+                inGameAlert('JSZip не загружен', 'Экспорт').catch(() => {});
                 return;
             }
             const zip = new JSZip();
@@ -301,7 +302,7 @@ export class ScreenshotGallery {
             }
 
             if (count === 0) {
-                alert('Нет скриншотов для экспорта');
+                inGameAlert('Нет скриншотов для экспорта', 'Экспорт').catch(() => {});
                 return;
             }
 
@@ -316,7 +317,7 @@ export class ScreenshotGallery {
             logger.log(`[ScreenshotGallery] Exported ${count} screenshots`);
         } catch (error) {
             logger.error("[ScreenshotGallery] Export failed:", error);
-            alert('Ошибка экспорта. Убедитесь, что библиотека JSZip установлена.');
+            inGameAlert('Ошибка экспорта. Убедитесь, что библиотека JSZip установлена.', 'Экспорт').catch(() => {});
         }
     }
 
@@ -324,8 +325,8 @@ export class ScreenshotGallery {
      * Очистка всех скриншотов
      */
     clearAll(): void {
-        if (!confirm('Удалить ВСЕ скриншоты? Это действие нельзя отменить.')) return;
-
+        inGameConfirm('Удалить ВСЕ скриншоты? Это действие нельзя отменить.', 'Галерея').then((ok) => {
+            if (!ok) return;
         this.screenshots.forEach(meta => {
             localStorage.removeItem(`ptx_screenshot_${meta.timestamp}`);
         });
@@ -333,6 +334,7 @@ export class ScreenshotGallery {
         localStorage.removeItem('ptx_screenshots_meta');
         this.screenshots = [];
         this.renderGallery();
+        }).catch(() => {});
     }
 
     /**

@@ -7,6 +7,7 @@ import { ChunkSystem } from "./chunkSystem";
 import { MapType } from "./menu";
 import { CommonStyles } from "./commonStyles";
 import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs";
+import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs";
 
 export interface WorldGenSettings {
     // Chunk settings
@@ -924,7 +925,7 @@ export class WorldGenerationMenu {
         // Чтение currentProfile, чтобы избежать предупреждений компилятора и оставить поле для будущего UI
         void this.currentProfile;
         this.updateUI();
-        alert(`✅ Профиль "${profile.name}" загружен!`);
+        inGameAlert(`✅ Профиль "${profile.name}" загружен!`, "Профиль").catch(() => {});
     }
 
     private saveProfiles(): void {
@@ -955,7 +956,7 @@ export class WorldGenerationMenu {
         link.download = `world-gen-settings-${Date.now()}.json`;
         link.click();
         URL.revokeObjectURL(url);
-        alert("✅ Настройки экспортированы!");
+        inGameAlert("✅ Настройки экспортированы!", "Экспорт").catch(() => {});
     }
 
     private importSettings(): void {
