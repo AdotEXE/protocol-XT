@@ -242,6 +242,20 @@ export class TankMovementModule {
 
         if (this.aircraftPhysics) {
             const dt = this.tank.scene.getEngine().getDeltaTime() / 1000;
+
+            // Pass Mouse Input to AircraftPhysics
+            if (this.tank.scene) {
+                const engine = this.tank.scene.getEngine();
+                const width = engine.getRenderWidth();
+                const height = engine.getRenderHeight();
+
+                // Нормализация координат мыши (0..1)
+                const mouseX = this.tank.scene.pointerX / width;
+                const mouseY = this.tank.scene.pointerY / height;
+
+                this.aircraftPhysics.updateMousePosition(mouseX, mouseY);
+            }
+
             this.aircraftPhysics.update(Math.min(dt || 0.016, 0.05));
         } else if (flyMode && this.tank.physicsBody) {
             // Fallback for debug flyMode

@@ -5,6 +5,7 @@
 import { Vector3, Ray, Scene } from "@babylonjs/core";
 import { logger } from "../utils/logger";
 import { EnemyTank } from "../enemyTank";
+import { EnemyPlane } from "../enemyPlane";
 import { EnemyManager } from "../enemy";
 import type { SoundManager } from "../soundManager";
 import type { EffectsManager } from "../effects";
@@ -1102,16 +1103,38 @@ export class GameEnemies {
         }
 
         const groundNormal = (pos as any).groundNormal || Vector3.Up();
-        // ИСПРАВЛЕНО: Боты СРАЗУ получают цель для агрессивного поведения
+
+        // CHECK FOR PLANE SPAWN
+        // Max 2 planes, 25% chance
+        const activePlanes = this.enemyTanks.filter(e => (e as any).type === "plane").length;
+        const spawnPlane = activePlanes < 2 && Math.random() < 0.25;
+
         // Для карты "Песок" используем специальный обработчик смерти с респавном
         const isSandMap = this.systems.currentMapType === "sand";
-        const enemy = this.createEnemy(pos, aiDifficulty, difficultyScale, () => {
-            if (isSandMap) {
-                this.handleSandEnemyDeath(enemy!);
-            } else {
-                this.handleStandardEnemyDeath(enemy!);
-            }
-        }, groundNormal, false); // skipTargetAssignment = false - цель назначается СРАЗУ
+
+        let enemy: EnemyTank | null = null;
+
+        if (spawnPlane) {
+            // Spawn high in the air
+            const planePos = pos.clone();
+            planePos.y += 50;
+            enemy = this.createEnemyPlane(planePos, aiDifficulty, difficultyScale, () => {
+                if (isSandMap) {
+                    this.handleSandEnemyDeath(enemy!);
+                } else {
+                    this.handleStandardEnemyDeath(enemy!);
+                }
+            });
+            logger.log(`[GameEnemies] Spawning Enemy PLANE at height ${planePos.y}`);
+        } else {
+            enemy = this.createEnemy(pos, aiDifficulty, difficultyScale, () => {
+                if (isSandMap) {
+                    this.handleSandEnemyDeath(enemy!);
+                } else {
+                    this.handleStandardEnemyDeath(enemy!);
+                }
+            }, groundNormal, false); // skipTargetAssignment = false - цель назначается СРАЗУ
+        }
 
         if (enemy) {
             this.enemyTanks.push(enemy);
@@ -1124,6 +1147,37 @@ export class GameEnemies {
 
             logger.log(`[GameEnemies] Bot ${this.gradualSpawnCount}/${this.gradualSpawnMaxBots} spawned at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) - target assigned immediately`);
         }
+    }
+
+    /**
+     * Helper to create an enemy plane
+     */
+    private createEnemyPlane(
+        pos: Vector3,
+        difficulty: "easy" | "medium" | "hard" | "nightmare",
+        difficultyScale: number,
+        onDeath?: () => void
+    ): EnemyTank | null {
+        if (!this.systems?.scene || !this.systems.soundManager || !this.systems.effectsManager) return null;
+
+        const plane = new EnemyPlane(
+            this.systems.scene,
+            pos,
+            this.systems.soundManager,
+            this.systems.effectsManager,
+            difficulty,
+            difficultyScale
+        );
+
+        if (this.systems.tank) {
+            plane.setTarget(this.systems.tank);
+        }
+
+        if (onDeath) {
+            plane.onDeathObservable.add(onDeath);
+        }
+
+        return plane;
     }
 
     /**

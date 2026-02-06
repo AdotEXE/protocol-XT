@@ -5055,8 +5055,9 @@ export class Game {
 
             // Для карт Тартария, Песок, Безумие, Экспо и Брест спавним в случайном месте, для остальных - в гараже
             // ЗАЩИТНАЯ ПРОВЕРКА: только явно указанные карты, не undefined и не другие значения
-            if ((this.currentMapType !== undefined && (this.currentMapType === "tartaria" || this.currentMapType === "sand" || this.currentMapType === "normal" || this.currentMapType === "madness" || this.currentMapType === "expo" || this.currentMapType === "brest" || this.currentMapType === "arena")) || this.chunkSystem.garagePositions.length >= 1) {
-                if (this.currentMapType !== undefined && (this.currentMapType === "tartaria" || this.currentMapType === "sand" || this.currentMapType === "normal" || this.currentMapType === "madness" || this.currentMapType === "expo" || this.currentMapType === "brest" || this.currentMapType === "arena")) {
+            const mapTypeStr = this.currentMapType as string;
+            if ((this.currentMapType !== undefined && (mapTypeStr === "tartaria" || mapTypeStr === "sand" || mapTypeStr === "normal" || mapTypeStr === "madness" || mapTypeStr === "expo" || mapTypeStr === "brest" || mapTypeStr === "arena")) || this.chunkSystem.garagePositions.length >= 1) {
+                if (this.currentMapType !== undefined && (mapTypeStr === "tartaria" || mapTypeStr === "sand" || mapTypeStr === "normal" || mapTypeStr === "madness" || mapTypeStr === "expo" || mapTypeStr === "brest" || mapTypeStr === "arena")) {
                     logger.log(`[Game] ${this.currentMapType} map: spawning player at random location...`);
                     this.spawnPlayerRandom();
                 } else {
@@ -6004,7 +6005,7 @@ export class Game {
         logger.log(`[Game] Player spawned at safe location (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
 
         // Устанавливаем метку спавна на радаре и компасе
-        this.hud.setSpawnPosition(spawnPos.x, spawnPos.z);
+        this.hud?.setSpawnPosition(spawnPos.x, spawnPos.z);
 
         // Устанавливаем позицию и состояние танка
         if (this.tank.chassis && this.tank.physicsBody) {
@@ -6093,7 +6094,7 @@ export class Game {
                             this.gameGarage.setPlayerGaragePosition(spawnPos.clone());
                         }
                         // Устанавливаем метку спавна на радаре и компасе
-                        this.hud.setSpawnPosition(spawnPos.x, spawnPos.z);
+                        this.hud?.setSpawnPosition(spawnPos.x, spawnPos.z);
                         // КРИТИЧНО: Включаем режим мультиплеера для танка
                         this.tank.isMultiplayerMode = true;
                         logger.log(`[Game] ✅ Player spawned at server position (adjusted Y), isMultiplayerMode=true`);

@@ -489,7 +489,7 @@ export class EnemyTank {
     private readonly WALL_COOLDOWN = 12000; // СУПЕР: Уменьшено с 18 до 12 секунд - чаще используем стенку!
     private readonly WALL_DURATION = 8000;  // 8 секунд
     private wallTimeout: number = 0;
-    
+
     // ОПТИМИЗАЦИЯ ПАМЯТИ: Массив для хранения всех timeout ID для правильной очистки
     private activeTimeouts: NodeJS.Timeout[] = [];
 
@@ -900,7 +900,7 @@ export class EnemyTank {
      * Боты могут иметь 0-3 модуля, вероятность уменьшается с количеством
      * УЛУЧШЕНО: Добавлена проверка на пустой массив
      */
-    private selectRandomModules(): ModuleType[] {
+    protected selectRandomModules(): ModuleType[] {
         const modules: ModuleType[] = [];
 
         // Определяем количество модулей (0-3, чаще меньше)
@@ -5759,7 +5759,7 @@ export class EnemyTank {
 
         // Уничтожаем стенку если есть
         this.destroyWall();
-        
+
         // ОПТИМИЗАЦИЯ ПАМЯТИ: Очищаем массивы истории для предотвращения утечек
         this.targetPositionHistory = [];
         this.incomingProjectiles = [];

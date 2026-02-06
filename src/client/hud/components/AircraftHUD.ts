@@ -130,9 +130,10 @@ export class AircraftHUD {
         this.deadzoneCircle.width = `${size}px`;
         this.deadzoneCircle.height = `${size}px`;
         this.deadzoneCircle.thickness = scalePixels(2);
-        this.deadzoneCircle.color = "rgba(100, 255, 100, 0.3)"; // Полупрозрачный зелёный
+        this.deadzoneCircle.color = "transparent"; // Полностью невидимый
         this.deadzoneCircle.background = "transparent";
         this.deadzoneCircle.isHitTestVisible = false;
+        this.deadzoneCircle.isVisible = false; // ДОБАВЛЕНО: Полностью скрыт
         // По центру экрана
         this.deadzoneCircle.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
         this.deadzoneCircle.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;

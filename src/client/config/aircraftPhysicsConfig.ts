@@ -200,8 +200,8 @@ export interface AircraftPhysicsConfig {
 export const DEFAULT_AIRCRAFT_PHYSICS_CONFIG: AircraftPhysicsConfig = {
     controlMode: "mouseAim",
 
-    minSpeed: 20.0,
-    maxSpeed: 300.0, // Увеличено до 1080 км/ч (физический лимит, а не программный)
+    minSpeed: 1.8,  // 6.6 км/ч (минимальная скорость при 1% тяги)
+    maxSpeed: 185.0, // 666 км/ч = 185 м/с (100% тяги)
     baseSpeed: 50.0,
 
     mass: 15000, // 15 тонн (истребитель)
@@ -232,15 +232,15 @@ export const DEFAULT_AIRCRAFT_PHYSICS_CONFIG: AircraftPhysicsConfig = {
         maxLiftCoefficient: 1.5, // Было 1.2
         criticalAngleOfAttack: 0.35,
 
-        // ЗНАЧИТЕЛЬНО УВЕЛИЧЕНО сопротивление
-        zeroLiftDragCoefficient: 0.08, // Было 0.02 (в 4 раза больше)
-        inducedDragFactor: 0.1, // Было 0.05 (в 2 раза больше)
+        // ЗНАЧИТЕЛЬНО УМЕНЬШЕНО сопротивление для достижения 666 км/ч
+        zeroLiftDragCoefficient: 0.002, // Было 0.25 (слишком много), теперь 0.002 для скорости ~185 м/с
+        inducedDragFactor: 0.1, // Возвращено к 0.1
 
         // СБАЛАНСИРОВАНА ТЯГА
-        maxThrust: 180000, // Увеличена тяга (было 120000), чтобы компенсировать возросший Drag на макс скорости
+        maxThrust: 300000, // ЕЩЕ БОЛЬШЕ ТЯГИ для быстрого разгона
         minThrust: 0,
-        throttleRate: 0.8,
-        pitchTrim: 0.05,
+        throttleRate: 3.0, // ОЧЕНЬ БЫСТРЫЙ ОТКЛИК ГАЗА (было 0.15)
+        pitchTrim: 0.0, // Убираем авто-подъем носа, пусть летит прямо
     },
 
     mouseAim: {
@@ -285,6 +285,11 @@ export const DEFAULT_AIRCRAFT_PHYSICS_CONFIG: AircraftPhysicsConfig = {
     stallWarningMinSpeed: 8.0,  // ниже этой скорости (м/с) STALL! не показываем
     minAltitude: 15.0  // Самолёт должен стартовать выше земли (спавн ~1.2м)
 };
+
+export function getAircraftPhysicsConfig(type: string): AircraftPhysicsConfig {
+    // Currently only "fighter" / default is supported
+    return DEFAULT_AIRCRAFT_PHYSICS_CONFIG;
+}
 
 
 
