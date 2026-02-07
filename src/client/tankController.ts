@@ -130,6 +130,16 @@ export class TankController {
             clearTimeout(this.module8Timeout);
             this.module8Timeout = null;
         }
+
+        // Remove physics observers to prevent memory leaks
+        if (this._beforePhysicsObserver && this.scene) {
+            this.scene.onBeforePhysicsObservable.remove(this._beforePhysicsObserver);
+            this._beforePhysicsObserver = null;
+        }
+        if (this._afterPhysicsObserver && this.scene) {
+            this.scene.onAfterPhysicsObservable.remove(this._afterPhysicsObserver);
+            this._afterPhysicsObserver = null;
+        }
     }
 
     // Модули
@@ -482,6 +492,10 @@ export class TankController {
     // Pre-created materials for optimization
     bulletMat: StandardMaterial;
 
+    // Physics observer references (for cleanup)
+    private _beforePhysicsObserver: any = null;
+    private _afterPhysicsObserver: any = null;
+
     private _inputMap: { [key: string]: boolean } = {};
     private _lastJumpWarnTime: number = 0; // Throttle для лога "Cannot start jump"
 
@@ -651,11 +665,11 @@ export class TankController {
         // 6.1 Initialize Equipment (Now that visuals exist)
         this.equipment.initialize();
 
-        // 7. Loop & Inputs (Run ONCE)
-        scene.onBeforePhysicsObservable.add(() => this.updatePhysics());
+        // 7. Loop & Inputs (Run ONCE) — store refs for cleanup
+        this._beforePhysicsObserver = scene.onBeforePhysicsObservable.add(() => this.updatePhysics());
 
         // 3.1 КРИТИЧНО: Обновляем кэш позиций ПОСЛЕ шага физики, чтобы камера использовала актуальные данные
-        scene.onAfterPhysicsObservable.add(() => this.updatePositionCache());
+        this._afterPhysicsObserver = scene.onAfterPhysicsObservable.add(() => this.updatePositionCache());
 
         // 3.2 Инициализируем кэш позиций сразу
         if (this.chassis) {

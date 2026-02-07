@@ -1183,8 +1183,12 @@ export class CheatMenu {
                         this.game.scene.getEngine().stopRenderLoop();
                     } else {
                         (this.game.scene as any)._paused = false;
+                        const engine = this.game.scene.getEngine();
                         const scene = this.game.scene;
-                        this.game.scene.getEngine().runRenderLoop(() => scene.render());
+                        // Guard: only start render loop if none is running
+                        if (!(engine as any)._activeRenderLoops || (engine as any)._activeRenderLoops.length === 0) {
+                            engine.runRenderLoop(() => scene.render());
+                        }
                     }
                     if (this.game.hud) {
                         this.game.hud.showMessage(cheat.enabled ? "ПАУЗА" : "ИГРА", cheat.enabled ? "#ff0" : "#0f0", 2000);
