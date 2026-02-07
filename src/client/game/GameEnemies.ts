@@ -1123,9 +1123,10 @@ export class GameEnemies {
 
         let spawnPlane = false;
         if (isSandMap) {
-            // На карте sand: 50% ботов = самолёты
-            const maxPlanes = Math.ceil(this.gradualSpawnMaxBots / 2); // 2 из 4
-            spawnPlane = activePlanes < maxPlanes && totalEnemies % 2 === 1; // Каждый второй бот = самолёт
+            // На карте sand: 33% ботов = самолёты (1 из 3, макс 2)
+            // PERFORMANCE FIX: Reduced from 50% to 33% to reduce geometry load
+            const maxPlanes = Math.min(2, Math.ceil(this.gradualSpawnMaxBots / 3));
+            spawnPlane = activePlanes < maxPlanes && Math.random() < 0.33;
         } else {
             // Другие карты: обычная логика (25% шанс, макс 2)
             spawnPlane = activePlanes < 2 && Math.random() < 0.25;

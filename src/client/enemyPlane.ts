@@ -17,6 +17,7 @@ import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
 import { logger } from "./utils/logger";
 import { CHASSIS_TYPES, CANNON_TYPES, getCannonById } from "./tankTypes";
+import { MaterialFactory } from "./garage/materials";
 
 /**
  * Состояния AI самолёта
@@ -163,12 +164,12 @@ export class EnemyPlane extends EnemyTank {
         const length = 4.0;
         const wingSpan = 5.0;
 
-        // Fuselage
+        // Fuselage (tessellation reduced from 8 to 4 for performance)
         const fuselage = MeshBuilder.CreateCylinder(`planeFuselage_${this.id}`, {
             height: length,
             diameterTop: 0.5,
             diameterBottom: 1.0,
-            tessellation: 8
+            tessellation: 4
         }, this.scene);
         fuselage.rotation.x = Math.PI / 2;
 
@@ -202,11 +203,8 @@ export class EnemyPlane extends EnemyTank {
 
         fuselage.position.copyFrom(position);
 
-        // Красный цвет для врагов
-        const mat = new StandardMaterial(`enemyPlaneMat_${this.id}`, this.scene);
-        mat.diffuseColor = Color3.FromHexString("#cc3333");
-        mat.specularColor = new Color3(0.3, 0.3, 0.3);
-        mat.emissiveColor = new Color3(0.1, 0.02, 0.02);
+        // Shared material for all enemy planes (performance optimization)
+        const mat = MaterialFactory.createEnemyPlaneMaterial(this.scene);
         fuselage.material = mat;
         wings.material = mat;
         tail.material = mat;

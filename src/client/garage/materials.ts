@@ -10,6 +10,23 @@ export class MaterialFactory {
     private static materialCache: Map<string, StandardMaterial> = new Map();
 
     /**
+     * Shared material for enemy planes (performance optimization)
+     */
+    static createEnemyPlaneMaterial(scene: Scene): StandardMaterial {
+        const key = "enemyPlaneMat_shared";
+        if (this.materialCache.has(key)) {
+            return this.materialCache.get(key)!;
+        }
+
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = Color3.FromHexString("#cc3333");
+        mat.specularColor = new Color3(0.3, 0.3, 0.3);
+        mat.emissiveColor = new Color3(0.1, 0.02, 0.02);
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
      * Базовый материал с заданным цветом
      */
     static createBasicMaterial(scene: Scene, color: Color3, name: string = "basicMat"): StandardMaterial {
