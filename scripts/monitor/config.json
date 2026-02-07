@@ -5,7 +5,7 @@
     "reconnectInterval": 5000
   },
   "client": {
-    "viteUrl": "http://localhost:3000",
+    "viteUrl": "http://localhost:5001",
     "checkInterval": 1000
   },
   "updateInterval": 16,

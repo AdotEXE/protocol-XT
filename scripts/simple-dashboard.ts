@@ -119,15 +119,15 @@ console.log(`${colors.cyan}╠════════════════�
 console.log(`${colors.cyan}║  ${colors.white}📍 Локальный доступ:${colors.cyan}                                    ║${colors.reset}`);
 console.log(`${colors.cyan}║  ${colors.green}[*] SERVER${colors.cyan} - Game Backend (port 8000)              ║${colors.reset}`);
 console.log(`${colors.cyan}║     → ws://localhost:8000                          ║${colors.reset}`);
-console.log(`${colors.cyan}║  ${colors.cyan}[*] CLIENT${colors.cyan} - Game Frontend (port 5000)             ║${colors.reset}`);
-console.log(`${colors.cyan}║     → http://localhost:5000                         ║${colors.reset}`);
+console.log(`${colors.cyan}║  ${colors.cyan}[*] CLIENT${colors.cyan} - Game Frontend (port 5001)             ║${colors.reset}`);
+console.log(`${colors.cyan}║     → http://localhost:5001                         ║${colors.reset}`);
 console.log(`${colors.cyan}║  ${colors.magenta}[*] EDITOR${colors.cyan} - Map Editor (port 3000)               ║${colors.reset}`);
 console.log(`${colors.cyan}║     → http://localhost:3000                         ║${colors.reset}`);
 if (localIP) {
     console.log(`${colors.cyan}╠════════════════════════════════════════════════════╣${colors.reset}`);
     console.log(`${colors.cyan}║  ${colors.green}[*] Сетевой доступ (для других ПК в сети):${colors.cyan}         ║${colors.reset}`);
     console.log(`${colors.cyan}║     → ws://${localIP}:8000${' '.repeat(30 - localIP.length)}║${colors.reset}`);
-    console.log(`${colors.cyan}║     → http://${localIP}:5000${' '.repeat(29 - localIP.length)}║${colors.reset}`);
+    console.log(`${colors.cyan}║     → http://${localIP}:5001${' '.repeat(29 - localIP.length)}║${colors.reset}`);
     console.log(`${colors.cyan}║     → http://${localIP}:3000${' '.repeat(29 - localIP.length)}║${colors.reset}`);
 }
 if (allIPs.length > 1) {

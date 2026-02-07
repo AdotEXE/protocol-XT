@@ -8,9 +8,9 @@
  */
 
 import { exec } from 'child_process';
-import WebSocket from 'ws';
 import * as fs from 'fs';
 import * as path from 'path';
+import WebSocket from 'ws';
 
 interface WindowPosition {
     x: number;
@@ -123,7 +123,7 @@ Add-Type -TypeDefinition $code -ErrorAction Stop;
 $positioned = $false;
 for ($i = 0; $i -lt 150; $i++) {
     Start-Sleep -Milliseconds 20;
-    if ($positioned) { 
+    if ($positioned) {
         Write-Host "POSITIONED"
         exit 0
     }
@@ -141,13 +141,13 @@ for ($i = 0; $i -lt 150; $i++) {
                     $flags = $flags -bor [Win32]::SWP_NOSIZE;
                 }
                 $result = [Win32]::SetWindowPos($handle, [Win32]::HWND_TOP, $x, $y, $width, $height, $flags);
-                if ($result) { 
+                if ($result) {
                     $positioned = $true
                     Write-Host "POSITIONED"
                     exit 0
                 }
             }
-            
+
             $foundHandle = [IntPtr]::Zero;
             $callback = [Win32+EnumWindowsProc]{
                 param($hWnd, $lParam)
@@ -169,7 +169,7 @@ for ($i = 0; $i -lt 150; $i++) {
                     $flags = $flags -bor [Win32]::SWP_NOSIZE;
                 }
                 $result = [Win32]::SetWindowPos($foundHandle, [Win32]::HWND_TOP, $x, $y, $width, $height, $flags);
-                if ($result) { 
+                if ($result) {
                     $positioned = $true
                     Write-Host "POSITIONED"
                     exit 0
@@ -353,7 +353,7 @@ async function main() {
         // 3. Запускаем клиент последним
         console.log('[*] Запуск клиента...');
         await startInNewWindow(
-            windowConfig?.client?.title || 'Protocol TX - Клиент (Vite, порт 3000)',
+            windowConfig?.client?.title || 'Protocol TX - Клиент (Vite, порт 5001)',
             `${npmCmd} run dev`,
             workingDir,
             windowConfig?.client
@@ -362,7 +362,7 @@ async function main() {
         console.log('\n[OK] Все системы запущены в отдельных окнах!');
         console.log('[*] Мониторинг: отдельное окно терминала');
         console.log('[*]  Сервер: http://localhost:8000');
-        console.log('[*] Клиент: http://localhost:3000');
+        console.log('[*] Клиент: http://localhost:5001');
         console.log('\n[!] Закройте окна терминалов для остановки систем\n');
 
         // Завершаем главный процесс - все остальное в отдельных окнах

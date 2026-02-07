@@ -9,20 +9,20 @@ import type { MonitorConfig } from './core';
 export class ConfigManager {
     private config: MonitorConfig;
     private configPath: string;
-    
+
     constructor(configPath?: string) {
         // Default config path (relative to monitor directory)
         const defaultPath = path.join(process.cwd(), 'scripts', 'monitor', 'config.json');
         this.configPath = configPath || defaultPath;
-        
+
         // Load configuration
         this.config = this.loadConfig();
     }
-    
+
     getConfig(): MonitorConfig {
         return this.config;
     }
-    
+
     private loadConfig(): MonitorConfig {
         try {
             if (fs.existsSync(this.configPath)) {
@@ -37,7 +37,7 @@ export class ConfigManager {
             return this.getDefaultConfig();
         }
     }
-    
+
     private getDefaultConfig(): MonitorConfig {
         return {
             server: {
@@ -46,7 +46,7 @@ export class ConfigManager {
                 reconnectInterval: 5000
             },
             client: {
-                viteUrl: 'http://localhost:3000',
+                viteUrl: 'http://localhost:5001',
                 checkInterval: 1000
             },
             updateInterval: 16,

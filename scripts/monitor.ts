@@ -6,11 +6,11 @@
  */
 
 import { exec } from 'child_process';
-import * as path from 'path';
 import * as fs from 'fs';
+import * as path from 'path';
 import { MonitorCore } from './monitor/core';
-import { UIManager } from './monitor/ui';
 import { ExportManager } from './monitor/export';
+import { UIManager } from './monitor/ui';
 
 async function positionWindow(processId: number, position: { x: number; y: number }): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
@@ -49,7 +49,7 @@ Add-Type -TypeDefinition $code -ErrorAction Stop;
 $positioned = $false;
 for ($i = 0; $i -lt 100; $i++) {
     Start-Sleep -Milliseconds 10;
-    if ($positioned) { 
+    if ($positioned) {
         Write-Host "POSITIONED"
         exit 0
     }
@@ -63,13 +63,13 @@ for ($i = 0; $i -lt 100; $i++) {
                     Start-Sleep -Milliseconds 5;
                 }
                 $result = [Win32]::SetWindowPos($handle, [Win32]::HWND_TOP, $x, $y, 0, 0, [Win32]::SWP_NOSIZE -bor [Win32]::SWP_SHOWWINDOW);
-                if ($result) { 
+                if ($result) {
                     $positioned = $true
                     Write-Host "POSITIONED"
                     exit 0
                 }
             }
-            
+
             $foundHandle = [IntPtr]::Zero;
             $callback = [Win32+EnumWindowsProc]{
                 param($hWnd, $lParam)
@@ -87,7 +87,7 @@ for ($i = 0; $i -lt 100; $i++) {
             [Win32]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null;
             if ($foundHandle -ne [IntPtr]::Zero) {
                 $result = [Win32]::SetWindowPos($foundHandle, [Win32]::HWND_TOP, $x, $y, 0, 0, [Win32]::SWP_NOSIZE -bor [Win32]::SWP_SHOWWINDOW);
-                if ($result) { 
+                if ($result) {
                     $positioned = $true
                     Write-Host "POSITIONED"
                     exit 0
@@ -241,7 +241,7 @@ async function launchAllWindows(): Promise<void> {
             positions.topRight
         ),
         startInNewWindow(
-            'Protocol TX - Client (Vite, port 3000)',
+            'Protocol TX - Client (Vite, port 5001)',
             `${npmCmd} run dev`,
             workingDir,
             positions.bottomLeft

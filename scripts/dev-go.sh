@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # dev:go for Linux — запуск dev:unified с очисткой портов
-# Порты: Server 8000, Client 5000, Editor 3000, HTTP 7000, Web Dashboard 9000
+# Порты: Server 8000, Client 5001, Editor 3000, HTTP 7001, Web Dashboard 9000
 
 set -e
 
