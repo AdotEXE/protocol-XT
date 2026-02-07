@@ -17,12 +17,15 @@ const getServerURL = (): string => {
     if (typeof window !== 'undefined' && (window as any).SERVER_URL) {
         return (window as any).SERVER_URL;
     }
-    // Сервер всегда работает на порту 7001, независимо от порта клиента (5001)
-    // Используем hostname из текущего URL, но порт всегда 7001
     if (typeof window !== 'undefined' && window.location) {
         const hostname = window.location.hostname;
-        const protocol = window.location.protocol; // http: or https:
-        return `${protocol}//${hostname}:7001`;
+        const protocol = window.location.protocol;
+        // Локальная разработка — используем порт 7001 (отдельный сервер)
+        // Продакшен (Vercel и т.д.) — без порта, используем дефолтный 80/443
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return `${protocol}//${hostname}:7001`;
+        }
+        return `${protocol}//${hostname}`;
     }
     return 'http://localhost:7001';
 };

@@ -549,7 +549,11 @@ export class NetworkMenu {
 
         // Формируем правильный WebSocket URL (wss для HTTPS, ws для HTTP)
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const serverUrl = `${wsProtocol}//${serverAddress}:${this.settings.port}`;
+        // Добавляем порт только для localhost (в продакшене используется дефолтный 80/443)
+        const isLocal = serverAddress === 'localhost' || serverAddress === '127.0.0.1';
+        const serverUrl = isLocal
+            ? `${wsProtocol}//${serverAddress}:${this.settings.port}`
+            : `${wsProtocol}//${serverAddress}`;
 
         logger.log(`[NetworkMenu] Connecting to server: ${serverUrl}`);
 

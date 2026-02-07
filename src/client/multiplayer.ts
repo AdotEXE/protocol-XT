@@ -281,15 +281,15 @@ function getWebSocketUrl(defaultPort: number = 8000): string {
     const hostname = window.location.hostname;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-    // Если hostname localhost или 127.0.0.1, используем localhost
+    // Локальная разработка — используем порт (отдельный сервер)
+    // Продакшен (Vercel и т.д.) — без порта, используем дефолтный 80/443
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
         const url = `ws://localhost:${defaultPort}`;
         logger.log(`[Multiplayer] Auto-detected WebSocket URL (localhost): ${url}`);
         return url;
     }
 
-    // Иначе используем тот же hostname, что и для игры
-    const url = `${protocol}//${hostname}:${defaultPort}`;
+    const url = `${protocol}//${hostname}`;
     logger.log(`[Multiplayer] Auto-detected WebSocket URL (from hostname ${hostname}): ${url}`);
     return url;
 }
