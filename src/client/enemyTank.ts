@@ -36,6 +36,8 @@ import type { AICoordinator } from "./ai/AICoordinator";
 import { getMapBoundsFromConfig } from "./maps/MapConstants";
 import { RicochetSystem, DEFAULT_RICOCHET_CONFIG } from "./tank/combat/RicochetSystem";
 import { GlobalIntelligenceManager } from "./ai/GlobalIntelligenceManager";
+import { MaterialFactory } from "./garage/materials";
+import { ProjectilePool } from "./optimization/ProjectilePool";
 
 // === AI States ===
 type AIState = "idle" | "patrol" | "chase" | "attack" | "flank" | "retreat" | "evade" | "capturePOI" | "ambush" | "bait";
@@ -56,9 +58,10 @@ export class EnemyTank {
     private wheels: Mesh[] = [];
     private cannonAnimationElements: CannonAnimationElements = {};
 
-    // Wall mesh cache (avoid scene.meshes.filter every frame)
-    private _cachedWalls: AbstractMesh[] = [];
-    private _cachedWallsTime: number = 0;
+    // Wall mesh cache — STATIC: shared across all EnemyTank instances (one filter call per TTL for ALL enemies)
+    private static _sharedCachedWalls: AbstractMesh[] = [];
+    private static _sharedCachedWallsTime: number = 0;
+    private static readonly WALL_CACHE_TTL = 1000; // 1 second TTL (was 500ms per-instance)
 
     // HP Bar Refactor: Temporary on-hit display with distance
     private healthBar: Mesh | null = null;
@@ -376,6 +379,7 @@ export class EnemyTank {
     private static count = 0;
     private static allEnemies: EnemyTank[] = [];
     private static sharedBulletMat: StandardMaterial | null = null;
+    private static enemyBulletPool: ProjectilePool | null = null;
     protected id: number;
 
     // Статический метод для получения всех врагов (для автонаводки и других систем)
@@ -489,7 +493,7 @@ export class EnemyTank {
     // === OBSTACLE AVOIDANCE ===
     private obstacleAvoidanceDir = 0; // -1 = лево, 0 = прямо, 1 = право
     private lastObstacleCheck = 0;
-    private readonly OBSTACLE_CHECK_INTERVAL = 200; // мс
+    private OBSTACLE_CHECK_INTERVAL = 300; // мс (set to 200 for nightmare in applyDifficultySettings)
 
     // === PROTECTIVE WALL (Module 6) ===
     private wallMesh: Mesh | null = null;
@@ -573,6 +577,17 @@ export class EnemyTank {
             EnemyTank.sharedBulletMat.freeze();
         }
         this.bulletMat = EnemyTank.sharedBulletMat;
+
+        // Share enemy bullet pool (filterMembershipMask=16 for enemy bullets)
+        if (!EnemyTank.enemyBulletPool) {
+            EnemyTank.enemyBulletPool = new ProjectilePool(scene, {
+                initialSize: 20,
+                maxSize: 150,
+                bulletSize: 0.3,
+                bulletDepth: 1.5,
+                filterMembershipMask: 16 // Enemy bullet
+            });
+        }
 
         // Create visuals (same proportions as player!)
         this.chassis = this.createChassis(position);
@@ -873,6 +888,7 @@ export class EnemyTank {
                 // NIGHTMARE: Улучшенная скорость поворота башни
                 this.turretSpeed = 0.2; // NIGHTMARE: +67% (было 0.12) - молниеносное наведение!
                 this.turretLerpSpeed = 0.4; // NIGHTMARE: +60% (было 0.25) - мгновенная интерполяция!
+                this.OBSTACLE_CHECK_INTERVAL = 200; // NIGHTMARE: более частая проверка препятствий
                 break;
         }
 
@@ -974,24 +990,18 @@ export class EnemyTank {
                 pipe2.position.x = -0.3; pipe2.rotation.x = Math.PI / 2;
                 pipe1.parent = mesh; pipe2.parent = mesh;
 
-                const mat = new StandardMaterial("mat_" + module.id, this.scene);
-                mat.diffuseColor = color;
+                const mat = MaterialFactory.createEnemyModuleMaterial(this.scene, module.color || "#ffffff");
                 pipe1.material = mat; pipe2.material = mat;
             } else if (module.modelPath === "box_small") {
                 mesh = MeshBuilder.CreateBox("mod_" + module.id, { size: 0.4 * scale }, this.scene);
-                const mat = new StandardMaterial("mat_" + module.id, this.scene);
-                mat.diffuseColor = color;
-                mat.emissiveColor = color.scale(0.5);
-                mesh.material = mat;
+                mesh.material = MaterialFactory.createEnemyModuleMaterial(this.scene, module.color || "#ffffff", true);
             } else {
                 mesh = MeshBuilder.CreateBox("mod_" + module.id, {
                     width: 0.8 * scale,
                     height: 0.2 * scale,
                     depth: 0.8 * scale
                 }, this.scene);
-                const mat = new StandardMaterial("mat_" + module.id, this.scene);
-                mat.diffuseColor = color;
-                mesh.material = mat;
+                mesh.material = MaterialFactory.createEnemyModuleMaterial(this.scene, module.color || "#ffffff");
             }
 
             // Прикрепляем модуль НАПРЯМУЮ к родительскому мешу
@@ -1041,21 +1051,14 @@ export class EnemyTank {
             chassis.rotationQuaternion = spawnRotation;
         }
 
-        const mat = new StandardMaterial(`enemyTankMat_${this.id}`, this.scene);
-        // КРИТИЧНО: Используем цвет из выбранного корпуса
+        // КРИТИЧНО: Используем цвет из выбранного корпуса (shared via MaterialFactory)
         const colorHex = this.chassisType.color;
-        const color = Color3.FromHexString(colorHex);
-        mat.diffuseColor = color;
-        mat.specularColor = Color3.Black();
-        mat.freeze();
-        chassis.material = mat;
+        chassis.material = MaterialFactory.createEnemyChassisMaterial(this.scene, colorHex);
         chassis.metadata = { type: "enemyTank", instance: this };
 
         // Add visual details for heavy chassis types
         if (this.chassisType.id === "heavy" || this.chassisType.id === "siege") {
-            const armorMat = new StandardMaterial(`enemyArmor_${this.id}`, this.scene);
-            armorMat.diffuseColor = new Color3(0.4, 0.12, 0.08);
-            armorMat.freeze();
+            const armorMat = MaterialFactory.createEnemyArmorMaterial(this.scene);
 
             const leftPlate = MeshBuilder.CreateBox(`armorL_${this.id}`, {
                 width: 0.12, height: height * 0.8, depth: depth * 0.5
@@ -1094,11 +1097,7 @@ export class EnemyTank {
             turret.position = new Vector3(0, 0.7, 0);
         }
 
-        const mat = new StandardMaterial(`enemyTurretMat_${this.id}`, this.scene);
-        mat.diffuseColor = new Color3(0.4, 0.12, 0.08);
-        mat.specularColor = Color3.Black();
-        mat.freeze();
-        turret.material = mat;
+        turret.material = MaterialFactory.createEnemyTurretMaterial(this.scene);
         turret.renderingGroupId = 0;
         turret.metadata = { type: "enemyTank", instance: this };
 
@@ -1140,10 +1139,7 @@ export class EnemyTank {
     }
 
     protected createTracks(): void {
-        const trackMat = new StandardMaterial(`enemyTrackMat_${this.id}`, this.scene);
-        trackMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
-        trackMat.specularColor = Color3.Black();
-        trackMat.freeze();
+        const trackMat = MaterialFactory.createEnemyTrackMaterial(this.scene);
 
         // Left track (same as player)
         // Гусеницы уменьшены для избежания глитчей
@@ -1396,12 +1392,7 @@ export class EnemyTank {
         this.healthBarBackground.billboardMode = Mesh.BILLBOARDMODE_ALL;
         this.healthBarBackground.isVisible = false;
 
-        const bgMat = new StandardMaterial(`healthBgMat_${Date.now()}`, this.scene);
-        bgMat.diffuseColor = new Color3(0.3, 0.3, 0.3);
-        bgMat.emissiveColor = new Color3(0.15, 0.15, 0.15);
-        bgMat.backFaceCulling = false;
-        bgMat.disableLighting = true;
-        this.healthBarBackground.material = bgMat;
+        this.healthBarBackground.material = MaterialFactory.createEnemyHealthBarBgMaterial(this.scene);
 
         // Полоска
         this.healthBar = MeshBuilder.CreatePlane(
@@ -1414,12 +1405,7 @@ export class EnemyTank {
         this.healthBar.billboardMode = Mesh.BILLBOARDMODE_ALL;
         this.healthBar.isVisible = false;
 
-        const barMat = new StandardMaterial(`healthBarMat_${Date.now()}`, this.scene);
-        barMat.diffuseColor = new Color3(0.2, 0.8, 0.2);
-        barMat.emissiveColor = new Color3(0.1, 0.4, 0.1);
-        barMat.backFaceCulling = false;
-        barMat.disableLighting = true;
-        this.healthBar.material = barMat;
+        this.healthBar.material = MaterialFactory.createEnemyHealthBarGreenMaterial(this.scene);
 
         // Текст дистанции
         this.distanceTextPlane = MeshBuilder.CreatePlane(
@@ -1442,6 +1428,7 @@ export class EnemyTank {
         textMat.backFaceCulling = false;
         textMat.disableLighting = true;
         textMat.useAlphaFromDiffuseTexture = true;
+        textMat.freeze();
         this.distanceTextPlane.material = textMat;
     }
 
@@ -1455,18 +1442,13 @@ export class EnemyTank {
         this.healthBar.scaling.x = healthPercent;
         this.healthBar.position.x = -barWidth * (1 - healthPercent) * 0.5;
 
-        const mat = this.healthBar.material as StandardMaterial;
-        if (mat) {
-            if (healthPercent > 0.6) {
-                mat.diffuseColor = new Color3(0.2, 0.8, 0.2);
-                mat.emissiveColor = new Color3(0.1, 0.4, 0.1);
-            } else if (healthPercent > 0.3) {
-                mat.diffuseColor = new Color3(0.9, 0.8, 0.2);
-                mat.emissiveColor = new Color3(0.45, 0.4, 0.1);
-            } else {
-                mat.diffuseColor = new Color3(0.9, 0.2, 0.2);
-                mat.emissiveColor = new Color3(0.45, 0.1, 0.1);
-            }
+        // Swap between pre-made shared materials instead of mutating colors
+        if (healthPercent > 0.6) {
+            this.healthBar.material = MaterialFactory.createEnemyHealthBarGreenMaterial(this.scene);
+        } else if (healthPercent > 0.3) {
+            this.healthBar.material = MaterialFactory.createEnemyHealthBarYellowMaterial(this.scene);
+        } else {
+            this.healthBar.material = MaterialFactory.createEnemyHealthBarRedMaterial(this.scene);
         }
     }
 
@@ -2273,7 +2255,11 @@ export class EnemyTank {
 
     private checkObstacles(): number {
         const now = Date.now();
-        if (now - this.lastObstacleCheck < this.OBSTACLE_CHECK_INTERVAL) {
+        // Early exit: if moving freely (no obstacle detected last check), use 2x interval
+        const interval = this.obstacleAvoidanceDir === 0
+            ? this.OBSTACLE_CHECK_INTERVAL * 2
+            : this.OBSTACLE_CHECK_INTERVAL;
+        if (now - this.lastObstacleCheck < interval) {
             return this.obstacleAvoidanceDir;
         }
         this.lastObstacleCheck = now;
@@ -4993,18 +4979,18 @@ export class EnemyTank {
                 const moveDirection = bulletPos.subtract(prevBulletPos).normalize();
                 const ray = new Ray(prevBulletPos, moveDirection, moveDistance + 0.5);
 
-                // Используем кэш стенок (обновляется каждые 500мс)
+                // Shared wall cache across all enemies (1 filter call per WALL_CACHE_TTL for ALL enemies)
                 const now = Date.now();
-                if (now - this._cachedWallsTime > 500) {
-                    this._cachedWalls = this.scene.meshes.filter(mesh =>
+                if (now - EnemyTank._sharedCachedWallsTime > EnemyTank.WALL_CACHE_TTL) {
+                    EnemyTank._sharedCachedWalls = this.scene.meshes.filter(mesh =>
                         mesh.metadata &&
                         (mesh.metadata.type === "protectiveWall" || mesh.metadata.type === "enemyWall") &&
                         !mesh.isDisposed()
                     );
-                    this._cachedWallsTime = now;
+                    EnemyTank._sharedCachedWallsTime = now;
                 }
 
-                for (const wall of this._cachedWalls) {
+                for (const wall of EnemyTank._sharedCachedWalls) {
                     // Raycast проверка - ловит быстрые снаряды, проскакивающие через стенку
                     const pick = this.scene.pickWithRay(ray, (mesh) => mesh === wall);
 
@@ -5035,7 +5021,7 @@ export class EnemyTank {
 
             // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКОЙ (дополнительная проверка текущей позиции) ===
             // Используем кэш стенок (уже обновлён выше)
-            for (const wall of this._cachedWalls) {
+            for (const wall of EnemyTank._sharedCachedWalls) {
                 // Проверяем, находится ли пуля внутри границ стенки
                 if (this.checkPointInWall(bulletPos, wall as Mesh)) {
                     hasHit = true;
@@ -5158,39 +5144,17 @@ export class EnemyTank {
         const positions = [wingPosLeft, wingPosRight];
         const target = this.target;
 
+        const pool = EnemyTank.enemyBulletPool;
+        const impulseMultiplier = this.projectileSpeed / 200;
+        const aircraftMat = MaterialFactory.createAircraftBulletMaterial(this.scene);
+
         for (const spawnPos of positions) {
-            const bullet = MeshBuilder.CreateBox(`enemyAircraftMgBullet_${Date.now()}_${Math.random()}`, {
-                width: bulletSize * 1.5,
-                height: bulletSize * 1.5,
-                depth: bulletSize * 5
-            }, this.scene);
-            bullet.position.copyFrom(spawnPos);
-            bullet.lookAt(spawnPos.add(direction));
+            // Use pool for enemy aircraft MG bullets (avoids per-bullet mesh+physics allocation)
+            const bullet = pool
+                ? pool.acquireForEnemy(spawnPos, direction, damage, this, "aircraft_mg", impulseMultiplier, aircraftMat)
+                : null;
 
-            // Яркий жёлтый материал
-            const bulletMat = new StandardMaterial("enemyAircraftMgMat", this.scene);
-            bulletMat.diffuseColor = bulletColor;
-            bulletMat.emissiveColor = bulletColor.scale(2.5);
-            bulletMat.disableLighting = true;
-            bullet.material = bulletMat;
-
-            bullet.metadata = { type: "enemyBullet", owner: this, damage: damage, cannonType: "aircraft_mg" };
-
-            const shape = new PhysicsShape({
-                type: PhysicsShapeType.BOX,
-                parameters: { extents: new Vector3(bulletSize * 0.5, bulletSize * 0.5, bulletSize * 2) }
-            }, this.scene);
-            shape.filterMembershipMask = 16; // Enemy bullet
-            shape.filterCollideMask = 1 | 2 | 32 | 64;
-            shape.material = { friction: 0, restitution: 0.0 };
-
-            const body = new PhysicsBody(bullet, PhysicsMotionType.DYNAMIC, false, this.scene);
-            body.shape = shape;
-            body.setMassProperties({ mass: 0.001 });
-            body.setLinearDamping(0.01);
-
-            const impulseMultiplier = this.projectileSpeed / 200;
-            body.applyImpulse(direction.scale(3 * impulseMultiplier), bullet.position);
+            if (!bullet) continue;
 
             // Трассерный след
             if (this.effectsManager) {
@@ -5199,14 +5163,19 @@ export class EnemyTank {
 
             // Hit detection — упрощённая версия для авиапулемёта
             let hasHit = false;
+            const releaseBullet = () => {
+                if (pool) pool.release(bullet);
+                else if (!bullet.isDisposed()) bullet.dispose();
+            };
             const checkHit = () => {
-                if (hasHit || bullet.isDisposed()) return;
-
-                const velocity = body.getLinearVelocity();
-                const speedSq = velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z;
-                if (speedSq < 25) { bullet.dispose(); return; }
+                if (hasHit || bullet.isDisposed() || !bullet.isVisible) return;
 
                 const bulletPos = bullet.absolutePosition;
+                // Check if bullet has slowed down (pool doesn't expose body directly, use position delta)
+                if (bulletPos.y < 0.3 || bulletPos.y > 300 || Math.abs(bulletPos.x) > 550 || Math.abs(bulletPos.z) > 550) {
+                    releaseBullet();
+                    return;
+                }
 
                 // Проверяем попадание в игрока
                 if (target && target.isAlive && target.chassis && !target.chassis.isDisposed()) {
@@ -5216,26 +5185,18 @@ export class EnemyTank {
                         (target as any).takeDamage(damage, this.chassis.absolutePosition.clone());
                         this.effectsManager.createExplosion(bulletPos, 0.4);
                         this.soundManager.playHit("normal", bulletPos);
-                        bullet.dispose();
+                        releaseBullet();
                         return;
                     }
-                }
-
-                // Земля
-                if (bulletPos.y < 0.3) { bullet.dispose(); return; }
-                // Bounds
-                if (bulletPos.y > 300 || Math.abs(bulletPos.x) > 550 || Math.abs(bulletPos.z) > 550) {
-                    bullet.dispose();
-                    return;
                 }
 
                 requestAnimationFrame(checkHit);
             };
             checkHit();
 
-            // Auto dispose
+            // Auto release after 4 seconds
             const disposeTimeout = setTimeout(() => {
-                if (!bullet.isDisposed()) bullet.dispose();
+                if (!hasHit) releaseBullet();
             }, 4000);
             this.activeTimeouts.push(disposeTimeout);
         }
@@ -5304,12 +5265,7 @@ export class EnemyTank {
                 this.markGlow.parent = this.chassis;
                 this.markGlow.position = new Vector3(0, 0.5, 0);
 
-                const glowMat = new StandardMaterial("markGlowMat", this.scene);
-                glowMat.diffuseColor = new Color3(1, 0.3, 0); // Orange
-                glowMat.emissiveColor = new Color3(1, 0.4, 0); // Bright orange glow
-                glowMat.alpha = 0.3;
-                glowMat.disableLighting = true;
-                this.markGlow.material = glowMat;
+                this.markGlow.material = MaterialFactory.createEnemyGlowMaterial(this.scene);
                 this.markGlow.visibility = 0.4;
             }
         } else {
@@ -5509,12 +5465,9 @@ export class EnemyTank {
         // Поворачиваем стенку в направлении пушки (горизонтальное направление)
         this.wallMesh.rotation.y = Math.atan2(barrelForward.x, barrelForward.z);
 
-        // Материал стенки с цветом поверхности
-        const mat = new StandardMaterial(`enemyWallMat_${this.id}_${Date.now()}`, this.scene);
-        mat.diffuseColor = surfaceColor;
-        mat.emissiveColor = surfaceColor.scale(0.3);
-        mat.specularColor = Color3.Black();
-        this.wallMesh.material = mat;
+        // Материал стенки с цветом поверхности (shared via MaterialFactory, keyed by color)
+        const colorHex = surfaceColor.toHexString();
+        this.wallMesh.material = MaterialFactory.createEnemyWallMaterial(this.scene, colorHex);
 
         this.wallMesh.metadata = { type: "enemyWall", owner: this };
         // КРИТИЧНО: Устанавливаем isPickable = true для работы raycast проверки снарядов игрока

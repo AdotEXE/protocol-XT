@@ -697,6 +697,195 @@ export class MaterialFactory {
         return mat;
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // ENEMY COMBAT MATERIALS (shared, frozen — performance optimization)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Health bar background: gray, unlit, no back-face culling
+     */
+    static createEnemyHealthBarBgMaterial(scene: Scene): StandardMaterial {
+        const key = "enemy_healthBarBg";
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.3, 0.3, 0.3);
+        mat.emissiveColor = new Color3(0.15, 0.15, 0.15);
+        mat.backFaceCulling = false;
+        mat.disableLighting = true;
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Health bar green (HP > 60%)
+     */
+    static createEnemyHealthBarGreenMaterial(scene: Scene): StandardMaterial {
+        const key = "enemy_healthBarGreen";
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.2, 0.8, 0.2);
+        mat.emissiveColor = new Color3(0.1, 0.4, 0.1);
+        mat.backFaceCulling = false;
+        mat.disableLighting = true;
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Health bar yellow (HP 30-60%)
+     */
+    static createEnemyHealthBarYellowMaterial(scene: Scene): StandardMaterial {
+        const key = "enemy_healthBarYellow";
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.9, 0.8, 0.2);
+        mat.emissiveColor = new Color3(0.45, 0.4, 0.1);
+        mat.backFaceCulling = false;
+        mat.disableLighting = true;
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Health bar red (HP < 30%)
+     */
+    static createEnemyHealthBarRedMaterial(scene: Scene): StandardMaterial {
+        const key = "enemy_healthBarRed";
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.9, 0.2, 0.2);
+        mat.emissiveColor = new Color3(0.45, 0.1, 0.1);
+        mat.backFaceCulling = false;
+        mat.disableLighting = true;
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Enemy module material, keyed by hex color string.
+     * Shared across all enemies that use the same module color.
+     */
+    static createEnemyModuleMaterial(scene: Scene, colorHex: string, withEmissive: boolean = false): StandardMaterial {
+        const emissiveSuffix = withEmissive ? "_e" : "";
+        const key = `enemy_module_${colorHex}${emissiveSuffix}`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const color = Color3.FromHexString(colorHex);
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = color;
+        if (withEmissive) mat.emissiveColor = color.scale(0.5);
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Shared wall material for enemy-deployed walls.
+     * NOTE: surfaceColor varies per deployment, so this caches per color hex.
+     */
+    static createEnemyWallMaterial(scene: Scene, colorHex: string): StandardMaterial {
+        const key = `enemy_wall_${colorHex}`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const color = Color3.FromHexString(colorHex);
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = color;
+        mat.emissiveColor = color.scale(0.3);
+        mat.specularColor = Color3.Black();
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Mark glow material for tracer-marked enemies.
+     */
+    static createEnemyGlowMaterial(scene: Scene): StandardMaterial {
+        const key = "enemy_markGlow";
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(1, 0.3, 0);
+        mat.emissiveColor = new Color3(1, 0.4, 0);
+        mat.alpha = 0.3;
+        mat.disableLighting = true;
+        // NOTE: don't freeze — alpha materials sometimes need updates
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Aircraft MG bullet material (yellow tracer).
+     */
+    static createAircraftBulletMaterial(scene: Scene): StandardMaterial {
+        const key = "enemy_aircraftBullet";
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(1, 0.85, 0);
+        mat.emissiveColor = new Color3(2.5, 2.125, 0); // bulletColor.scale(2.5)
+        mat.disableLighting = true;
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Enemy chassis material, keyed by color hex.
+     */
+    static createEnemyChassisMaterial(scene: Scene, colorHex: string): StandardMaterial {
+        const key = `enemy_chassis_${colorHex}`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const color = Color3.FromHexString(colorHex);
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = color;
+        mat.specularColor = Color3.Black();
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Enemy turret material (dark red).
+     */
+    static createEnemyTurretMaterial(scene: Scene): StandardMaterial {
+        const key = "enemy_turret";
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.4, 0.12, 0.08);
+        mat.specularColor = Color3.Black();
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Enemy armor plate material (dark red, for heavy/siege chassis).
+     */
+    static createEnemyArmorMaterial(scene: Scene): StandardMaterial {
+        const key = "enemy_armor";
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.4, 0.12, 0.08);
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    /**
+     * Enemy track material (dark gray).
+     */
+    static createEnemyTrackMaterial(scene: Scene): StandardMaterial {
+        const key = "enemy_track";
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.12, 0.12, 0.12);
+        mat.specularColor = Color3.Black();
+        mat.freeze();
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
     /**
      * Очистка кеша материалов
      */

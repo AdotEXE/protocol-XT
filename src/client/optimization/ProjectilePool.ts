@@ -16,6 +16,7 @@ export interface ProjectilePoolConfig {
     maxSize: number;          // Максимальный размер пула
     bulletSize: number;       // Размер снаряда
     bulletDepth: number;      // Глубина снаряда
+    filterMembershipMask?: number; // Physics membership mask (default 8 = player projectile)
 }
 
 const DEFAULT_CONFIG: ProjectilePoolConfig = {
@@ -101,7 +102,7 @@ export class ProjectilePool {
             }
         }, this.scene);
         
-        shape.filterMembershipMask = 8; // Projectile
+        shape.filterMembershipMask = this.config.filterMembershipMask ?? 8; // Projectile (8=player, 16=enemy)
         shape.filterCollideMask = 1 | 2 | 32 | 64; // Player, environment, walls
         shape.material = { friction: 0, restitution: 0.0 };
         
@@ -175,6 +176,63 @@ export class ProjectilePool {
         
         this.activeProjectiles.add(projectile);
         
+        return projectile.mesh;
+    }
+
+    /**
+     * Acquire a projectile for enemy use (enemyBullet metadata type).
+     * Uses shared material if provided, otherwise falls back to color-based.
+     */
+    acquireForEnemy(
+        position: Vector3,
+        direction: Vector3,
+        damage: number,
+        owner: any,
+        cannonType: string,
+        impulseMultiplier: number = 1,
+        sharedMaterial?: StandardMaterial
+    ): Mesh | null {
+        let projectile: PooledProjectile | undefined;
+
+        if (this.pool.length > 0) {
+            projectile = this.pool.pop();
+            this.totalReused++;
+        } else {
+            if (this.activeProjectiles.size < this.config.maxSize) {
+                projectile = this.createProjectile();
+                this.totalCreated++;
+            } else {
+                return null;
+            }
+        }
+
+        if (!projectile) return null;
+
+        projectile.isActive = true;
+        projectile.mesh.isVisible = true;
+        projectile.mesh.position.copyFrom(position);
+        projectile.mesh.lookAt(position.add(direction));
+
+        // Use shared material if provided
+        if (sharedMaterial) {
+            projectile.mesh.material = sharedMaterial;
+        }
+
+        projectile.mesh.metadata = {
+            type: "enemyBullet",
+            owner: owner,
+            damage: damage,
+            cannonType: cannonType,
+            shootTime: Date.now(),
+            fromPool: true
+        };
+
+        if (projectile.physicsBody) {
+            projectile.physicsBody.setMotionType(PhysicsMotionType.DYNAMIC);
+            projectile.physicsBody.applyImpulse(direction.scale(3 * impulseMultiplier), position);
+        }
+
+        this.activeProjectiles.add(projectile);
         return projectile.mesh;
     }
 
