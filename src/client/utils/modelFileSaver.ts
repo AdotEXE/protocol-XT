@@ -13,20 +13,20 @@ import { CustomTankConfiguration } from '../workshop/types';
 const GAME_VERSION = '0.4.20553'; // TODO: получать из package.json динамически
 const MODEL_FORMAT_VERSION = '1.0';
 
-// URL сервера (по умолчанию localhost:7000)
+// URL сервера (по умолчанию localhost:7001)
 // В браузере process.env может быть недоступен, используем window.location или дефолт
 const getServerURL = (): string => {
     // Если установлен глобальный SERVER_URL, используем его
     if (typeof window !== 'undefined' && (window as any).SERVER_URL) {
         return (window as any).SERVER_URL;
     }
-    // Сервер всегда работает на порту 7000, независимо от порта клиента (5000)
-    // Используем hostname из текущего URL, но порт всегда 7000
+    // Сервер всегда работает на порту 7001, независимо от порта клиента (5001)
+    // Используем hostname из текущего URL, но порт всегда 7001
     if (typeof window !== 'undefined' && window.location) {
         const hostname = window.location.hostname;
-        return `http://${hostname}:7000`;
+        return `http://${hostname}:7001`;
     }
-    return 'http://localhost:7000';
+    return 'http://localhost:7001';
 };
 
 const SERVER_URL = getServerURL();

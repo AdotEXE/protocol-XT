@@ -225,13 +225,13 @@ async function bootstrap() {
         ui.addLog('═══════════════════════════════════════════════════════', 'info');
         ui.addLog('[*] Локальный доступ:', 'info');
         ui.addLog('   > Server: ws://localhost:8000', 'info');
-        ui.addLog('   > Client: http://localhost:5000', 'info');
+        ui.addLog('   > Client: http://localhost:5001', 'info');
         ui.addLog('   > Editor: http://localhost:3000', 'info');
         if (localIP) {
             ui.addLog('', 'info');
             ui.addLog('[*] Сетевой доступ (для других ПК в сети):', 'info');
             ui.addLog(`   > Server: ws://${localIP}:8000`, 'info');
-            ui.addLog(`   > Client: http://${localIP}:5000`, 'info');
+            ui.addLog(`   > Client: http://${localIP}:5001`, 'info');
             ui.addLog(`   > Editor: http://${localIP}:3000`, 'info');
         }
         if (allIPs.length > 1) {

@@ -23,14 +23,14 @@ echo "║      PROTOCOL TX - UNIFIED DEVELOPMENT DASHBOARD        ║"
 echo "╠═════════════════════════════════════════════════════════╣"
 echo "║  Порты:                                                 ║"
 echo "║     Server:          ws://localhost:8000  (WebSocket)   ║"
-echo "║     Client:        http://localhost:5000  (Vite)        ║"
+echo "║     Client:        http://localhost:5001  (Vite)        ║"
 echo "║     Editor:        http://localhost:3000  (PolyGen)     ║"
-echo "║     HTTP API:      http://localhost:7000  (мониторинг)  ║"
+echo "║     HTTP API:      http://localhost:7001  (мониторинг)  ║"
 echo "║     Web Dashboard: http://localhost:9000  (опционально) ║"
 echo "╠═════════════════════════════════════════════════════════╣"
 if [ -n "$LOCAL_IP" ]; then
   echo "║  Сетевой доступ:                                        ║"
-  echo "║     Client:        http://${LOCAL_IP}:5000              ║"
+  echo "║     Client:        http://${LOCAL_IP}:5001              ║"
   echo "║     Server:          ws://${LOCAL_IP}:8000              ║"
   echo "║     Editor:        http://${LOCAL_IP}:3000              ║"
 fi
@@ -56,8 +56,8 @@ kill_port() {
   fi
 }
 
-echo "[*] Очистка портов (3000, 5000, 7000, 8000, 9000)..."
-for p in 3000 5000 7000 8000 9000; do
+echo "[*] Очистка портов (3000, 5001, 7001, 8000, 9000)..."
+for p in 3000 5001 7001 8000 9000; do
   kill_port $p
 done
 echo "[+] Готово."

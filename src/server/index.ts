@@ -9,7 +9,7 @@ import { handleUpgradeRequest } from "./upgrade";
 import { getLocalIP, getAllLocalIPs } from "../../scripts/get-local-ip";
 
 const DEFAULT_WS_PORT = 8000;  // WebSocket сервер
-const DEFAULT_HTTP_PORT = 7000; // HTTP мониторинг
+const DEFAULT_HTTP_PORT = 7001; // HTTP мониторинг (changed from 7000 to avoid macOS AirPlay conflict)
 const HOST = process.env.HOST || "0.0.0.0"; // Слушаем на всех интерфейсах для доступа из сети
 
 // Путь к папке с моделями (C:\Users\dzoblin\Desktop\TX\json_models)

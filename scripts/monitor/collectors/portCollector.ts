@@ -35,8 +35,8 @@ export class PortCollector {
         // Определяем порты для проверки
         this.ports = [
             { port: 3000, label: 'Editor', url: 'http://localhost:3000', type: 'http' },
-            { port: 5000, label: 'Client', url: 'http://localhost:5000', type: 'http' },
-            { port: 7000, label: 'HTTP', url: 'http://localhost:7000', type: 'http' },
+            { port: 5001, label: 'Client', url: 'http://localhost:5001', type: 'http' },
+            { port: 7001, label: 'HTTP', url: 'http://localhost:7001', type: 'http' },
             { port: 8000, label: 'WS', url: 'ws://localhost:8000', type: 'websocket' },
             { port: 9000, label: 'Dashboard', url: 'http://localhost:9000', type: 'http' }
         ];
@@ -66,8 +66,8 @@ export class PortCollector {
                 resolve({ online: false });
             }, this.config.timeout);
 
-            // Для порта 7000 используем /health endpoint, для остальных просто проверяем доступность
-            const path = port === 7000 ? '/health' : '/';
+            // Для порта 7001 используем /health endpoint, для остальных просто проверяем доступность
+            const path = port === 7001 ? '/health' : '/';
             const urlObj = new URL(url);
             
             const req = http.request({
@@ -80,8 +80,8 @@ export class PortCollector {
                 clearTimeout(timeout);
                 const responseTime = Date.now() - startTime;
                 
-                // Для порта 7000 проверяем статус код, для остальных - просто доступность
-                if (port === 7000) {
+                // Для порта 7001 проверяем статус код, для остальных - просто доступность
+                if (port === 7001) {
                     resolve({ online: res.statusCode === 200, responseTime });
                 } else {
                     // Любой ответ означает что порт доступен

@@ -212,7 +212,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5000,
+    port: 5001, // Changed from 5000 to avoid conflict with macOS AirPlay Receiver
     host: '0.0.0.0', // Слушаем на всех интерфейсах для доступа из сети
     // Headers настраиваются через middleware, не через server.headers
   },
