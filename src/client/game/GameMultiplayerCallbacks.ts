@@ -2997,10 +2997,13 @@ export class GameMultiplayerCallbacks {
             position: pos
         });
 
-        // Add simple animation observer if possible, or just rely on static mesh
-        this.deps.scene.onBeforeRenderObservable.add(() => {
+        // Add simple animation observer — auto-remove when mesh is disposed
+        const observer = this.deps.scene.onBeforeRenderObservable.add(() => {
             if (!mesh.isDisposed()) {
                 mesh.rotation.y += 0.02;
+            } else {
+                // Mesh was disposed — remove this observer to prevent leak
+                this.deps.scene.onBeforeRenderObservable.remove(observer);
             }
         });
     }

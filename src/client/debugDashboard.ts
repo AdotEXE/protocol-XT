@@ -694,7 +694,7 @@ export class DebugDashboard {
         const perfMem = (performance as any).memory;
         if (perfMem) {
             memoryUsed = perfMem.usedJSHeapSize / 1048576;
-            memoryPeak = perfMem.peakJSHeapSize / 1048576;
+            memoryPeak = perfMem.totalJSHeapSize / 1048576;
             memoryLimit = perfMem.jsHeapSizeLimit / 1048576;
         }
         set("dbg-memory-used", `${memoryUsed.toFixed(1)} MB`);
@@ -1406,7 +1406,7 @@ export class DebugDashboard {
             const perfMem = (performance as any).memory;
             if (perfMem) {
                 const used = perfMem.usedJSHeapSize / 1048576;
-                const peak = perfMem.peakJSHeapSize / 1048576;
+                const peak = perfMem.totalJSHeapSize / 1048576;
                 if (memoryUsedEl) memoryUsedEl.textContent = `${used.toFixed(1)} MB`;
                 if (memoryPeakEl) memoryPeakEl.textContent = `${peak.toFixed(1)} MB`;
             } else {

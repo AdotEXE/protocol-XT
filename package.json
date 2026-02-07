@@ -12,7 +12,7 @@
     "vite-plugin-compression": "^0.5.1"
   },
   "name": "tx",
-  "version": "0.4.20028",
+  "version": "0.4.20603",
   "description": "Protocol TX - Advanced tank combat simulator with procedural world generation, multiplayer support, and extensive customization",
   "main": "index.js",
   "directories": {

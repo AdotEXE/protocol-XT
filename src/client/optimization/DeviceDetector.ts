@@ -20,6 +20,7 @@ export interface DeviceInfo {
     isMobile: boolean;
     isTablet: boolean;
     isDesktop: boolean;
+    isSoftwareRenderer: boolean; // true if using CPU-based software renderer (e.g. Microsoft Basic Render Driver)
     estimatedPerformance: number; // 0-100
 }
 
@@ -56,6 +57,7 @@ export class DeviceDetector {
             isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
             isTablet: /iPad|Android/i.test(navigator.userAgent) && !/Mobile/i.test(navigator.userAgent),
             isDesktop: !(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)),
+            isSoftwareRenderer: false,
             estimatedPerformance: 50
         };
 
@@ -95,7 +97,12 @@ export class DeviceDetector {
         // GPU score (0-40)
         if (info.gpuRenderer) {
             const renderer = info.gpuRenderer.toLowerCase();
-            if (renderer.includes("nvidia") && (renderer.includes("rtx") || renderer.includes("gtx"))) {
+            // Detect software renderers (CPU-based, no real GPU)
+            if (renderer.includes("basic render") || renderer.includes("swiftshader") ||
+                renderer.includes("llvmpipe") || renderer.includes("software rasterizer")) {
+                score += 0; // Software renderer — worst possible
+                info.isSoftwareRenderer = true;
+            } else if (renderer.includes("nvidia") && (renderer.includes("rtx") || renderer.includes("gtx"))) {
                 score += 40; // Высокопроизводительные NVIDIA
             } else if (renderer.includes("amd") && (renderer.includes("rx") || renderer.includes("radeon"))) {
                 score += 35; // Высокопроизводительные AMD
