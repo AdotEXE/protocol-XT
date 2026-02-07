@@ -8,6 +8,7 @@ import { getAircraftPhysicsConfig } from "../config/aircraftVehicleConfig";
 export class TankMovementModule {
     private tank: ITankController;
     private aircraftPhysics: AircraftPhysics | null = null;
+    private _physicsObserver: any = null;
 
     constructor(tank: ITankController) {
         this.tank = tank;
@@ -232,6 +233,8 @@ export class TankMovementModule {
                         this.tank as any,  // Передаём контроллер для доступа к _inputMap
                         getAircraftPhysicsConfig()
                     );
+                    // Phase 1.3: Регистрируем update ПОСЛЕ physics step
+                    this.registerPhysicsObserver();
                 }
             } catch (e) {
                 console.error("[TankMovement] Failed to init AircraftPhysics:", e);
@@ -241,28 +244,37 @@ export class TankMovementModule {
         // Removed cleanup logic for now to restore boot
 
         if (this.aircraftPhysics) {
-            const dt = this.tank.scene.getEngine().getDeltaTime() / 1000;
-
-            // Pass Mouse Input to AircraftPhysics
+            // Phase 1.3: Только передаём мышь. update() вызывается через onAfterPhysicsObservable
             if (this.tank.scene) {
                 const engine = this.tank.scene.getEngine();
                 const width = engine.getRenderWidth();
                 const height = engine.getRenderHeight();
 
-                // Нормализация координат мыши (0..1)
                 const mouseX = this.tank.scene.pointerX / width;
                 const mouseY = this.tank.scene.pointerY / height;
 
                 this.aircraftPhysics.updateMousePosition(mouseX, mouseY);
             }
-
-            this.aircraftPhysics.update(Math.min(dt || 0.016, 0.05));
         } else if (flyMode && this.tank.physicsBody) {
             // Fallback for debug flyMode
             const currentVel = this.tank.physicsBody.getLinearVelocity();
             if (inputMap["KeyQ"]) this.tank.physicsBody.setLinearVelocity(new Vector3(currentVel.x, 15, currentVel.z));
             if (inputMap["KeyE"]) this.tank.physicsBody.setLinearVelocity(new Vector3(currentVel.x, -15, currentVel.z));
         }
+    }
+
+    /**
+     * Phase 1.3: Регистрирует observer для вызова aircraftPhysics.update() ПОСЛЕ physics step.
+     * Это решает проблему "Havok добавил impulse, а мы читаем старое значение".
+     */
+    private registerPhysicsObserver(): void {
+        if (this._physicsObserver) return;
+        this._physicsObserver = this.tank.scene.onAfterPhysicsObservable.add(() => {
+            if (this.aircraftPhysics && (this.tank as any).isAlive) {
+                const dt = this.tank.scene.getEngine().getDeltaTime() / 1000;
+                this.aircraftPhysics.update(Math.min(dt || 0.016, 0.05));
+            }
+        });
     }
 
     /**
@@ -298,6 +310,10 @@ export class TankMovementModule {
         }
 
         // КРИТИЧНО: Сбрасываем физику самолета при респавне, чтобы она пересоздалась с новым телом/состоянием
+        if (this._physicsObserver) {
+            this.tank.scene.onAfterPhysicsObservable.remove(this._physicsObserver);
+            this._physicsObserver = null;
+        }
         if (this.aircraftPhysics) {
             this.aircraftPhysics.dispose();
             this.aircraftPhysics = null;

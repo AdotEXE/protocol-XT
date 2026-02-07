@@ -74,6 +74,10 @@ export class ServerPlayer {
     lastPing: number = Date.now();
     ping: number = 0;
 
+    // Diagnostics & rate limiting // [Opus 4.6]
+    _inputLogCount: number = 0;
+    _lastChatTime: number = 0;
+
     // Sequence tracking for client-side prediction reconciliation
     lastProcessedSequence: number = -1;
 

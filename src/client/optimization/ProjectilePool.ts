@@ -198,6 +198,9 @@ export class ProjectilePool {
             mesh.dispose();
             return;
         }
+
+        // Защита от двойного release
+        if (!projectile.isActive) return;
         
         // Деактивируем
         projectile.isActive = false;

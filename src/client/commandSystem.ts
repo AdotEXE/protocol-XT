@@ -4,6 +4,7 @@
 
 import { Vector3, Quaternion } from "@babylonjs/core";
 import { logger, LogLevel, loggingSettings, LogCategory } from "./utils/logger";
+import { safeLocalStorage } from "./utils/safeLocalStorage";
 
 export interface Command {
     name: string;
@@ -755,8 +756,8 @@ export class CommandSystem {
                     case 'money':
                     case 'coins':
                     case 'credits':
-                        const savedCoins = parseInt(localStorage.getItem('playerCoins') || '0');
-                        localStorage.setItem('playerCoins', String(savedCoins + amount));
+                        const savedCoins = parseInt(safeLocalStorage.get('playerCoins', '0'));
+                        safeLocalStorage.set('playerCoins', String(savedCoins + amount));
                         return `💰 Added ${amount} coins! Total: ${savedCoins + amount}`;
 
                     case 'fuel':
@@ -923,7 +924,7 @@ export class CommandSystem {
                     radius = parseFloat(_args[1] || '10') || 10;
                 } else {
                     x = parseFloat(_args[0]) || 0;
-                    z = parseFloat(_args[1]) || 0;
+                    z = parseFloat(_args[1] ?? "") || 0; // [Opus 4.6]
                     radius = parseFloat(_args[2] || '10') || 10;
                 }
 
@@ -1244,7 +1245,7 @@ export class CommandSystem {
                     type = _args[1] || 'basic';
                 } else if (_args.length >= 2 && !isNaN(parseFloat(_args[0]))) {
                     x = parseFloat(_args[0]) || 0;
-                    z = parseFloat(_args[1]) || 0;
+                    z = parseFloat(_args[1] ?? "") || 0; // [Opus 4.6]
                     type = _args[2] || 'basic';
                 } else {
                     type = _args[0] || 'basic';
@@ -1329,9 +1330,9 @@ export class CommandSystem {
                 game.scene.fogDensity = density;
 
                 if (_args.length >= 4) {
-                    const r = parseFloat(_args[1]) || 0.5;
-                    const g = parseFloat(_args[2]) || 0.5;
-                    const b = parseFloat(_args[3]) || 0.5;
+                    const r = parseFloat(_args[1] ?? "") || 0.5; // [Opus 4.6]
+                    const g = parseFloat(_args[2] ?? "") || 0.5; // [Opus 4.6]
+                    const b = parseFloat(_args[3] ?? "") || 0.5; // [Opus 4.6]
                     game.scene.fogColor.set(r, g, b);
                 }
 
@@ -1902,7 +1903,7 @@ export class CommandSystem {
                     '🎯 The Maus was the heaviest tank ever built (188 tons)',
                     '🎯 Active protection systems can intercept incoming missiles',
                 ];
-                return facts[Math.floor(Math.random() * facts.length)];
+                return facts[Math.floor(Math.random() * facts.length)] || ""; // [Opus 4.6]
             }
         });
 
@@ -1928,7 +1929,7 @@ export class CommandSystem {
                     '🎱 Outlook not so good',
                     '🎱 Very doubtful',
                 ];
-                return answers[Math.floor(Math.random() * answers.length)];
+                return answers[Math.floor(Math.random() * answers.length)] || ""; // [Opus 4.6]
             }
         });
 
@@ -1945,8 +1946,8 @@ export class CommandSystem {
 
                 if (!match) return 'Usage: roll NdM (e.g., roll 2d20)';
 
-                const count = Math.min(10, parseInt(match[1]) || 1);
-                const sides = Math.min(100, parseInt(match[2]) || 6);
+                const count = Math.min(10, parseInt(match[1] ?? "") || 1); // [Opus 4.6]
+                const sides = Math.min(100, parseInt(match[2] ?? "") || 6); // [Opus 4.6]
 
                 const rolls: number[] = [];
                 let total = 0;

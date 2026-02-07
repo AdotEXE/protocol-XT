@@ -13,6 +13,7 @@
 import { Scene, Vector3, Vector2, Mesh, MeshBuilder, StandardMaterial, Color3, TransformNode, GroundMesh, PolygonMeshBuilder } from "@babylonjs/core";
 import { PhysicsAggregate, PhysicsShapeType } from "@babylonjs/core/Physics";
 import earcut from "earcut";
+import { EnemyTank } from "./enemyTank"; // [Opus 4.6] Added missing import
 
 /** Интерфейс для объекта из карты */
 interface PlacedObject {

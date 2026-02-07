@@ -1,6 +1,6 @@
 import { Vector3 } from "@babylonjs/core";
 import { createClientMessage, deserializeMessage, serializeMessage } from "../shared/protocol";
-import type { ClientMessage, ServerMessage, ClientMetricsData, PingData, PongData, PlayerStatesData, ChatMessageData, ConsumablePickupData, ErrorData, OnlinePlayersListData, RpcEventData } from "../shared/messages";
+import type { ClientMessage, ServerMessage, ClientMetricsData, PingData, PongData, PlayerStatesData, ChatMessageData, ConsumablePickupData, ErrorData, OnlinePlayersListData, RpcEventData, PlayerProfileUpdatedData } from "../shared/messages"; // [Opus 4.6] Added PlayerProfileUpdatedData import
 import { ClientMessageType, ServerMessageType } from "../shared/messages";
 import type { PlayerData, PlayerInput, GameMode, PredictedState, ClientPredictionState, NetworkMetrics, ProjectileData, EnemyData, FlagData, Vector3Data } from "../shared/types";
 import { nanoid } from "nanoid";
@@ -244,6 +244,7 @@ export interface NetworkPlayer {
     interpolationDelay: number; // Adaptive delay based on ping (ms)
     // Debug counters
     _rotDebugCounter?: number;
+    _updateCount?: number; // [Opus 4.6] Added for position update diagnostics
 }
 
 /**
@@ -459,7 +460,7 @@ export class MultiplayerManager {
     }
 
     public getDrift(): number {
-        return this.networkMetrics.drift;
+        return this.networkMetrics.drift ?? 0; // [Opus 4.6] Default to 0 since drift is optional
     }
 
     /**
@@ -1642,9 +1643,11 @@ export class MultiplayerManager {
             const packetsSentPerSecond = this.packetsSent / elapsed;
             const packetsReceivedPerSecond = this.packetsReceived / elapsed;
 
-            // Store history (keep last 10 seconds)
+            // [Opus 4.6] Store history (keep last 10 seconds, hard limit 100 entries)
             this.packetsSentHistory.push({ timestamp: now, count: packetsSentPerSecond });
             this.packetsReceivedHistory.push({ timestamp: now, count: packetsReceivedPerSecond });
+            if (this.packetsSentHistory.length > 100) this.packetsSentHistory.splice(0, this.packetsSentHistory.length - 100);
+            if (this.packetsReceivedHistory.length > 100) this.packetsReceivedHistory.splice(0, this.packetsReceivedHistory.length - 100);
 
             // Remove old history entries (older than 10 seconds)
             // ОПТИМИЗАЦИЯ: Заменяем filter на обычный цикл для лучшей производительности

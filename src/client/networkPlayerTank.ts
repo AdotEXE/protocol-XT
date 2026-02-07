@@ -8,6 +8,7 @@
 import { Scene, Vector3, Mesh, AbstractMesh, Node, MeshBuilder, StandardMaterial, Color3, PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, Ray, Matrix, Quaternion, DynamicTexture } from "@babylonjs/core";
 import type { NetworkPlayer } from "./multiplayer";
 import { vector3Pool } from "./optimization/Vector3Pool";
+import { logger } from "./utils/logger";
 
 import { getChassisById, getCannonById, getTrackById, type ChassisType, type CannonType, type TrackType } from "./tankTypes";
 import { createUniqueCannon, type CannonAnimationElements } from "./tank/tankCannon";
@@ -1067,16 +1068,16 @@ export class NetworkPlayerTank {
         // Используем базовую интерполяцию без экстраполяции (dead reckoning отключён)
         // КРИТИЧНО: Y координата интерполируется ОЧЕНЬ медленно для полного устранения дёрганья
         const lerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED);
-        const yLerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED * 0.15); // Y интерполируется в 6.7 раз медленнее (было 0.4)
+        const yLerpFactor = Math.min(1.0, deltaTime * this.INTERPOLATION_SPEED * 0.5); // Y интерполируется в 2 раза медленнее (было 0.15 - слишком медленно)
 
         // Интерполяция позиции (оптимизированная версия)
         // КРИТИЧНО: Обновляем позицию только если есть значимые изменения
         if (shouldUpdatePosition) {
             this.chassis.position.x += dx * lerpFactor;
 
-            // КРИТИЧНО: Фильтрация малых изменений Y (шум квантования)
-            // Если изменение меньше 8 см - вообще не двигаем по Y!
-            if (Math.abs(dy) > 0.08) {
+            // Фильтрация малых изменений Y (шум квантования)
+            // Если изменение меньше 2 см - не двигаем по Y (было 0.08 - слишком грубо)
+            if (Math.abs(dy) > 0.02) {
                 this.chassis.position.y += dy * yLerpFactor;
             }
             this.chassis.position.z += dz * lerpFactor;

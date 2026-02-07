@@ -89,7 +89,7 @@ export class ContextualRepair {
         if (this.damagedModules.size === 1) {
             // Показываем одну кнопку
             const [module] = Array.from(this.damagedModules.values());
-            this.createOrUpdateButton(module);
+            if (module) this.createOrUpdateButton(module); // [Opus 4.6] Null-safe check
         } else {
             // Показываем кнопку с количеством, открывающую радиальное меню
             this.createMultiRepairButton();

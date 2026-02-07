@@ -4,6 +4,7 @@
 
 import { Vector3 } from "@babylonjs/core";
 import { CHASSIS_TYPES, CANNON_TYPES } from "./tankTypes";
+import { safeLocalStorage } from "./utils/safeLocalStorage";
 
 // ───────────────────────────────────────────────────────────────────────────
 // ТИПЫ И ИНТЕРФЕЙСЫ
@@ -858,7 +859,7 @@ export class ExperienceSystem {
     resetProgress(): void {
         this.chassisExperience.clear();
         this.cannonExperience.clear();
-        localStorage.removeItem("tx_experience_v2");
+        safeLocalStorage.remove("tx_experience_v2");
         this.initializeAllParts();
     }
     

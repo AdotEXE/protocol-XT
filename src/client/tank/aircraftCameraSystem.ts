@@ -31,6 +31,12 @@ export class AircraftCameraSystem {
     private currentFOV: number = 0.8;
     private targetFOV: number = 0.8;
 
+    // Phase 4.1: Camera shake
+    private _shakeIntensity: number = 0;
+    private _shakeTimer: number = 0;
+    private _shakeDuration: number = 0;
+    private _shakeOffset: Vector3 = Vector3.Zero();
+
     // Кэш
     private lastAircraftPosition: Vector3 = Vector3.Zero();
     private lastAircraftForward: Vector3 = Vector3.Forward();
@@ -60,7 +66,7 @@ export class AircraftCameraSystem {
         if (enabled) {
             this.targetFOV = 0.4; // Zoom (узкий FOV)
         } else {
-            this.targetFOV = this.config.camera?.fov ?? 0.8; // Normal FOV
+            this.targetFOV = 0.8; // [Opus 4.6] Normal FOV - AircraftCameraConfig has no nested camera.fov
         }
     }
 
@@ -120,6 +126,49 @@ export class AircraftCameraSystem {
 
             // World-up для стабильности в аркадном режиме (или aircraftUp если config.worldUpAlignment=false)
             this.camera.upVector = this.config.worldUpAlignment ? Vector3.Up() : aircraftUp;
+        }
+
+        // Phase 4.1: Применяем тряску камеры
+        this.updateShake(dt);
+        if (this._shakeOffset.length() > 0.001) {
+            this.camera.position = this.camera.position.add(this._shakeOffset);
+        }
+    }
+
+    /**
+     * Phase 4.1: Добавить тряску камеры (при попадании/столкновении)
+     * @param intensity Интенсивность тряски (0-1)
+     * @param duration Длительность в секундах
+     */
+    public addShake(intensity: number, duration: number = 0.3): void {
+        this._shakeIntensity = Math.max(this._shakeIntensity, intensity);
+        this._shakeDuration = Math.max(this._shakeDuration, duration);
+        this._shakeTimer = this._shakeDuration;
+    }
+
+    /**
+     * Обновить тряску камеры (экспоненциальное затухание)
+     */
+    private updateShake(dt: number): void {
+        if (this._shakeTimer <= 0) {
+            this._shakeOffset = Vector3.Zero();
+            return;
+        }
+
+        this._shakeTimer -= dt;
+        const progress = Math.max(0, this._shakeTimer / this._shakeDuration);
+        const currentIntensity = this._shakeIntensity * progress;
+
+        // Случайный offset
+        this._shakeOffset = new Vector3(
+            (Math.random() - 0.5) * 2 * currentIntensity,
+            (Math.random() - 0.5) * 2 * currentIntensity,
+            (Math.random() - 0.5) * 2 * currentIntensity
+        );
+
+        if (this._shakeTimer <= 0) {
+            this._shakeIntensity = 0;
+            this._shakeDuration = 0;
         }
     }
 

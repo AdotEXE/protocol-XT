@@ -808,6 +808,404 @@ export class ChassisDetailsGenerator {
         return toolBox;
     }
 
+    // [Opus 4.6] stub - creates vent bar details (multiple thin bars across a vent)
+    static createVentBars(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        count: number,
+        barWidth: number,
+        barHeight: number,
+        barDepth: number,
+        spacing: number,
+        index: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const totalWidth = count * (barWidth + spacing);
+        const bars = MeshBuilder.CreateBox(`${prefix}VentBars${index}`, {
+            width: totalWidth,
+            height: barHeight,
+            depth: barDepth
+        }, scene);
+        bars.position = addZFightingOffset(position, "up");
+        bars.parent = chassis;
+        bars.material = material;
+        return bars;
+    }
+
+    // [Opus 4.6] stub - creates roof vent (delegates to createVent)
+    static createRoofVent(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        return this.createVent(scene, chassis, position, width, height, depth, index, prefix);
+    }
+
+    // [Opus 4.6] stub - creates side light (uses SideLightMaterial)
+    static createSideLight(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const sideLight = MeshBuilder.CreateBox(`${prefix}SideLight${index}`, { width, height, depth }, scene);
+        sideLight.position = position;
+        sideLight.parent = chassis;
+        sideLight.material = MaterialFactory.createSideLightMaterial(scene, index, prefix);
+        return sideLight;
+    }
+
+    // [Opus 4.6] stub - creates spike detail (pointed protrusion)
+    static createSpike(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        angle: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const spike = MeshBuilder.CreateBox(`${prefix}Spike`, { width, height, depth }, scene);
+        spike.position = addZFightingOffset(position, "forward");
+        spike.rotation.y = angle;
+        spike.parent = chassis;
+        spike.material = material;
+        return spike;
+    }
+
+    // [Opus 4.6] stub - creates energy booster (glowing box)
+    static createEnergyBooster(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const booster = MeshBuilder.CreateBox(`${prefix}EnergyBooster${index}`, {
+            width: diameter,
+            height: diameter,
+            depth: diameter
+        }, scene);
+        booster.position = addZFightingOffset(position, "forward");
+        booster.parent = chassis;
+        booster.material = MaterialFactory.createEnergyBoosterMaterial(scene, index, prefix);
+        return booster;
+    }
+
+    // [Opus 4.6] stub - creates stealth generator
+    static createStealthGenerator(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const generator = MeshBuilder.CreateBox(`${prefix}StealthGen`, { width, height, depth }, scene);
+        generator.position = addZFightingOffset(position, "up");
+        generator.parent = chassis;
+        generator.material = MaterialFactory.createStealthGeneratorMaterial(scene, prefix);
+        return generator;
+    }
+
+    // [Opus 4.6] stub - creates thruster (hover engine)
+    static createThruster(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const thruster = MeshBuilder.CreateBox(`${prefix}Thruster${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        thruster.position = addZFightingOffset(position, "down");
+        thruster.parent = chassis;
+        thruster.material = MaterialFactory.createThrusterMaterial(scene, index, prefix);
+        return thruster;
+    }
+
+    // [Opus 4.6] stub - creates cylindrical roof vent
+    static createRoofVentCylindrical(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const vent = MeshBuilder.CreateBox(`${prefix}RoofVentCyl${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        vent.position = addZFightingOffset(position, "up");
+        vent.parent = chassis;
+        vent.material = MaterialFactory.createRoofVentMaterial(scene, index, prefix);
+        return vent;
+    }
+
+    // [Opus 4.6] stub - creates optical sensor
+    static createOpticalSensor(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const sensor = MeshBuilder.CreateBox(`${prefix}OpticalSensor${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        sensor.position = addZFightingOffset(position, "forward");
+        sensor.parent = chassis;
+        sensor.material = MaterialFactory.createHoverSensorMaterial(scene, index, prefix);
+        return sensor;
+    }
+
+    // [Opus 4.6] stub - creates cylindrical tail light
+    static createTailLightCylindrical(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const tailLight = MeshBuilder.CreateBox(`${prefix}TailLightCyl${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        tailLight.position = addZFightingOffset(position, "forward");
+        tailLight.parent = chassis;
+        tailLight.material = MaterialFactory.createTailLightMaterial(scene, index, prefix);
+        return tailLight;
+    }
+
+    // [Opus 4.6] stub - creates cylindrical intake
+    static createIntakeCylindrical(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const intake = MeshBuilder.CreateBox(`${prefix}IntakeCyl`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        intake.position = addZFightingOffset(position, "forward");
+        intake.parent = chassis;
+        intake.material = MaterialFactory.createIntakeMaterial(scene, prefix);
+        return intake;
+    }
+
+    // [Opus 4.6] stub - creates float (amphibious buoyancy element)
+    static createFloat(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        height: number,
+        width: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const floatMesh = MeshBuilder.CreateBox(`${prefix}Float`, {
+            width: width,
+            height: height,
+            depth: width
+        }, scene);
+        floatMesh.position = position;
+        floatMesh.parent = chassis;
+        floatMesh.material = material;
+        return floatMesh;
+    }
+
+    // [Opus 4.6] stub - creates water seal panel
+    static createWaterSeal(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const seal = MeshBuilder.CreateBox(`${prefix}WaterSeal`, { width, height, depth }, scene);
+        seal.position = addZFightingOffset(position, "up");
+        seal.parent = chassis;
+        seal.material = material;
+        return seal;
+    }
+
+    // [Opus 4.6] stub - creates energy generator (shield-type)
+    static createEnergyGenerator(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const generator = MeshBuilder.CreateBox(`${prefix}EnergyGen`, {
+            width: diameter,
+            height: diameter * 0.5,
+            depth: diameter
+        }, scene);
+        generator.position = addZFightingOffset(position, "up");
+        generator.parent = chassis;
+        generator.material = MaterialFactory.createShieldGeneratorMaterial(scene, prefix);
+        return generator;
+    }
+
+    // [Opus 4.6] stub - creates energy panel
+    static createEnergyPanel(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const panel = MeshBuilder.CreateBox(`${prefix}EnergyPanel${index}`, { width, height, depth }, scene);
+        panel.position = addZFightingOffset(position, "forward");
+        panel.parent = chassis;
+        panel.material = MaterialFactory.createEnergyPanelMaterial(scene, index, prefix);
+        return panel;
+    }
+
+    // [Opus 4.6] stub - creates energy coil
+    static createEnergyCoil(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        angle: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const coil = MeshBuilder.CreateBox(`${prefix}EnergyCoil${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        coil.position = addZFightingOffset(position, "up");
+        coil.rotation.y = angle;
+        coil.parent = chassis;
+        coil.material = MaterialFactory.createEnergyCoilMaterial(scene, index, prefix);
+        return coil;
+    }
+
+    // [Opus 4.6] stub - creates energy port
+    static createEnergyPort(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        angle: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const port = MeshBuilder.CreateBox(`${prefix}EnergyPort${index}`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        port.position = addZFightingOffset(position, "up");
+        port.rotation.y = angle;
+        port.parent = chassis;
+        port.material = MaterialFactory.createEnergyPortMaterial(scene, index, prefix);
+        return port;
+    }
+
+    // [Opus 4.6] stub - creates drone platform
+    static createDronePlatform(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const platform = MeshBuilder.CreateBox(`${prefix}DronePlatform${index}`, { width, height, depth }, scene);
+        platform.position = addZFightingOffset(position, "up");
+        platform.parent = chassis;
+        platform.material = MaterialFactory.createDronePlatformMaterial(scene, index, prefix);
+        return platform;
+    }
+
+    // [Opus 4.6] stub - creates sensor
+    static createSensor(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        width: number,
+        height: number,
+        depth: number,
+        index: number,
+        prefix: string = "preview"
+    ): Mesh {
+        const sensor = MeshBuilder.CreateBox(`${prefix}Sensor${index}`, { width, height, depth }, scene);
+        sensor.position = addZFightingOffset(position, "up");
+        sensor.parent = chassis;
+        sensor.material = MaterialFactory.createSensorMaterial(scene, index, prefix);
+        return sensor;
+    }
+
+    // [Opus 4.6] stub - creates cylindrical stabilizer
+    static createStabilizerCylindrical(
+        scene: Scene,
+        chassis: Mesh,
+        position: Vector3,
+        diameter: number,
+        height: number,
+        material: StandardMaterial,
+        prefix: string = "preview"
+    ): Mesh {
+        const stabilizer = MeshBuilder.CreateBox(`${prefix}StabilizerCyl`, {
+            width: diameter,
+            height: height,
+            depth: diameter
+        }, scene);
+        stabilizer.position = position;
+        stabilizer.parent = chassis;
+        stabilizer.material = material;
+        return stabilizer;
+    }
+
     /**
      * Создает полную модель самолета "Warhawk" (МиГ-31)
      * Использует встроенные данные модели

@@ -286,6 +286,41 @@ export class TankHealthModule {
     update(deltaTime: number): void {
         this.updateInvulnerability();
         this.updatePassiveRepair(deltaTime);
+        this.updateDamageSmoke(deltaTime);
+    }
+
+    // Phase 3.2: Прогрессивный дым повреждений для самолётов
+    private _damageSmokeTimer: number = 0;
+    private updateDamageSmoke(deltaTime: number): void {
+        if (!this.tank.isAlive || !this.tank.chassis || !this.tank.effectsManager) return;
+
+        const isPlane = (this.tank as any).chassisType?.id === "plane" ||
+            ((this.tank as any).chassisType && typeof (this.tank as any).chassisType === 'object' &&
+                (this.tank as any).chassisType?.id?.includes?.("plane"));
+        if (!isPlane) return;
+
+        this._damageSmokeTimer += deltaTime;
+        const hpPercent = (this.tank.currentHealth / this.tank.maxHealth) * 100;
+        const pos = this.tank.chassis.position;
+        const em = this.tank.effectsManager as any;
+
+        // HP < 20%: огонь (каждые 0.1с)
+        if (hpPercent < 20 && this._damageSmokeTimer > 0.1) {
+            this._damageSmokeTimer = 0;
+            if (typeof em.createFire === 'function') em.createFire(pos.clone(), 200);
+            if (typeof em.createDamageSmoke === 'function') em.createDamageSmoke(pos.clone());
+        }
+        // HP < 40%: густой дым (каждые 0.15с)
+        else if (hpPercent < 40 && this._damageSmokeTimer > 0.15) {
+            this._damageSmokeTimer = 0;
+            if (typeof em.createDamageSmoke === 'function') em.createDamageSmoke(pos.clone());
+            if (typeof em.createDamageSmoke === 'function') em.createDamageSmoke(pos.clone());
+        }
+        // HP < 75%: лёгкий дым (каждые 0.3с)
+        else if (hpPercent < 75 && this._damageSmokeTimer > 0.3) {
+            this._damageSmokeTimer = 0;
+            if (typeof em.createDamageSmoke === 'function') em.createDamageSmoke(pos.clone());
+        }
     }
 
     private updatePassiveRepair(deltaTime: number): void {
@@ -876,6 +911,23 @@ export class TankHealthModule {
             parts.push({ mesh: (tank as any).rightTrack, name: "rightTrack", mass: 300 });
         }
 
+        // Phase 3.3: Для самолётов — собираем все дочерние меши chassis (крылья, хвост и т.д.)
+        const isPlane = (tank as any).chassisType?.id === "plane" ||
+            ((tank as any).chassisType && typeof (tank as any).chassisType === 'object' &&
+                (tank as any).chassisType?.id?.includes?.("plane"));
+        if (isPlane && tank.chassis) {
+            const children = tank.chassis.getChildMeshes(true);
+            for (const child of children) {
+                if (child instanceof Mesh && !child.isDisposed()) {
+                    const name = child.name || "part";
+                    // Не дублируем уже добавленные части
+                    if (!parts.some(p => p.mesh === child)) {
+                        parts.push({ mesh: child, name: name, mass: 200 });
+                    }
+                }
+            }
+        }
+
         // Разбрасываем каждую часть - ТОЛЬКО ВИЗУАЛЬНАЯ АНИМАЦИЯ БЕЗ ФИЗИКИ
         for (const part of parts) {
             const mesh = part.mesh;
@@ -1208,7 +1260,14 @@ export class TankHealthModule {
             }
         }
 
-        // Очищаем список разрушенных частей
+        // Очищаем список разрушенных частей (dispose мешей для предотвращения утечек)
+        if (this.destroyedParts) {
+            for (const part of this.destroyedParts) {
+                if (part.mesh && !part.mesh.isDisposed()) {
+                    try { part.mesh.dispose(); } catch (e) { /* ignore */ }
+                }
+            }
+        }
         this.destroyedParts = [];
 
         // Восстанавливаем физику танка
@@ -1225,6 +1284,11 @@ export class TankHealthModule {
         // Это нужно для мультиплеерного респавна который вызывает restoreTankPhysics напрямую
         if (this.destroyedParts && this.destroyedParts.length > 0) {
             console.log(`[TankHealth] Clearing ${this.destroyedParts.length} destroyedParts before respawn`);
+            for (const part of this.destroyedParts) {
+                if (part.mesh && !part.mesh.isDisposed()) {
+                    try { part.mesh.dispose(); } catch (e) { /* ignore */ }
+                }
+            }
             this.destroyedParts = [];
         }
 

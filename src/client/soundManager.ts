@@ -1806,9 +1806,181 @@ export class SoundManager {
             this.reverbGain = null;
         }
 
+        // Dispose aircraft sounds
+        this.stopAircraftEngine();
+        this.stopWindSound();
+
         if (this.audioContext) {
             this.audioContext.close();
         }
+    }
+
+    // ==========================================
+    // Phase 5: AIRCRAFT SOUNDS
+    // ==========================================
+
+    private aircraftEngineOsc: OscillatorNode | null = null;
+    private aircraftEngineOsc2: OscillatorNode | null = null;
+    private aircraftEngineGain: GainNode | null = null;
+    private aircraftEngineFilter: BiquadFilterNode | null = null;
+    private aircraftEngineRunning: boolean = false;
+
+    private windNoise: AudioBufferSourceNode | null = null;
+    private windGain: GainNode | null = null;
+    private windFilter: BiquadFilterNode | null = null;
+    private windRunning: boolean = false;
+
+    /**
+     * Phase 5.1: Запустить loop звук авиационного двигателя
+     */
+    startAircraftEngine(): void {
+        if (!this.audioContext || !this.masterGain || this.aircraftEngineRunning) return;
+        this.resume();
+
+        try {
+            // Основной тон двигателя (высокий whine)
+            this.aircraftEngineOsc = this.audioContext.createOscillator();
+            this.aircraftEngineOsc.type = 'sawtooth';
+            this.aircraftEngineOsc.frequency.value = 120;
+
+            // Вторая гармоника
+            this.aircraftEngineOsc2 = this.audioContext.createOscillator();
+            this.aircraftEngineOsc2.type = 'triangle';
+            this.aircraftEngineOsc2.frequency.value = 240;
+
+            // Gain node
+            this.aircraftEngineGain = this.audioContext.createGain();
+            this.aircraftEngineGain.gain.value = 0.15 * this.engineVolume;
+
+            // Low-pass filter (убираем резкие высокие частоты)
+            this.aircraftEngineFilter = this.audioContext.createBiquadFilter();
+            this.aircraftEngineFilter.type = 'lowpass';
+            this.aircraftEngineFilter.frequency.value = 800;
+            this.aircraftEngineFilter.Q.value = 1.0;
+
+            // Connect: osc -> filter -> gain -> master
+            this.aircraftEngineOsc.connect(this.aircraftEngineFilter);
+            this.aircraftEngineOsc2.connect(this.aircraftEngineFilter);
+            this.aircraftEngineFilter.connect(this.aircraftEngineGain);
+            this.aircraftEngineGain.connect(this.masterGain);
+
+            this.aircraftEngineOsc.start();
+            this.aircraftEngineOsc2.start();
+            this.aircraftEngineRunning = true;
+        } catch (e) {
+            console.warn("[SoundManager] Failed to start aircraft engine:", e);
+        }
+    }
+
+    /**
+     * Phase 5.1: Обновить звук двигателя на основе throttle
+     * @param throttle Газ 0-1
+     */
+    updateAircraftEngine(throttle: number): void {
+        if (!this.aircraftEngineRunning || !this.aircraftEngineOsc || !this.aircraftEngineGain) return;
+
+        try {
+            // Pitch зависит от throttle: 0.5x - 1.5x
+            const basePitch = 120;
+            const pitchMult = 0.5 + throttle * 1.0;
+            this.aircraftEngineOsc.frequency.value = basePitch * pitchMult;
+            if (this.aircraftEngineOsc2) {
+                this.aircraftEngineOsc2.frequency.value = basePitch * pitchMult * 2;
+            }
+
+            // Громкость зависит от throttle
+            const volume = (0.1 + throttle * 0.25) * this.engineVolume;
+            this.aircraftEngineGain.gain.value = volume;
+
+            // Filter cutoff opens with throttle
+            if (this.aircraftEngineFilter) {
+                this.aircraftEngineFilter.frequency.value = 400 + throttle * 1200;
+            }
+        } catch (e) { }
+    }
+
+    /**
+     * Остановить звук авиационного двигателя
+     */
+    stopAircraftEngine(): void {
+        try {
+            if (this.aircraftEngineOsc) { this.aircraftEngineOsc.stop(); this.aircraftEngineOsc = null; }
+            if (this.aircraftEngineOsc2) { this.aircraftEngineOsc2.stop(); this.aircraftEngineOsc2 = null; }
+            if (this.aircraftEngineGain) { this.aircraftEngineGain.disconnect(); this.aircraftEngineGain = null; }
+            if (this.aircraftEngineFilter) { this.aircraftEngineFilter.disconnect(); this.aircraftEngineFilter = null; }
+        } catch (e) { }
+        this.aircraftEngineRunning = false;
+    }
+
+    /**
+     * Phase 5.2: Запустить звук ветра
+     */
+    startWindSound(): void {
+        if (!this.audioContext || !this.masterGain || this.windRunning) return;
+        this.resume();
+
+        try {
+            // Генерируем белый шум
+            const bufferSize = this.audioContext.sampleRate * 2; // 2 секунды
+            const buffer = this.audioContext.createBuffer(1, bufferSize, this.audioContext.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * 0.5;
+            }
+
+            this.windNoise = this.audioContext.createBufferSource();
+            this.windNoise.buffer = buffer;
+            this.windNoise.loop = true;
+
+            // Band-pass filter для имитации ветра
+            this.windFilter = this.audioContext.createBiquadFilter();
+            this.windFilter.type = 'bandpass';
+            this.windFilter.frequency.value = 500;
+            this.windFilter.Q.value = 0.5;
+
+            this.windGain = this.audioContext.createGain();
+            this.windGain.gain.value = 0;
+
+            this.windNoise.connect(this.windFilter);
+            this.windFilter.connect(this.windGain);
+            this.windGain.connect(this.masterGain);
+
+            this.windNoise.start();
+            this.windRunning = true;
+        } catch (e) {
+            console.warn("[SoundManager] Failed to start wind sound:", e);
+        }
+    }
+
+    /**
+     * Phase 5.2: Обновить звук ветра на основе скорости
+     * @param speed Текущая скорость м/с
+     * @param maxSpeed Максимальная скорость м/с
+     */
+    updateWindSound(speed: number, maxSpeed: number): void {
+        if (!this.windRunning || !this.windGain) return;
+
+        try {
+            const speedRatio = Math.min(1.0, speed / maxSpeed);
+            this.windGain.gain.value = speedRatio * 0.15 * this.masterVolume;
+
+            // Pitch ветра немного меняется со скоростью
+            if (this.windFilter) {
+                this.windFilter.frequency.value = 300 + speedRatio * 1500;
+            }
+        } catch (e) { }
+    }
+
+    /**
+     * Остановить звук ветра
+     */
+    stopWindSound(): void {
+        try {
+            if (this.windNoise) { this.windNoise.stop(); this.windNoise = null; }
+            if (this.windGain) { this.windGain.disconnect(); this.windGain = null; }
+            if (this.windFilter) { this.windFilter.disconnect(); this.windFilter = null; }
+        } catch (e) { }
+        this.windRunning = false;
     }
 }
 

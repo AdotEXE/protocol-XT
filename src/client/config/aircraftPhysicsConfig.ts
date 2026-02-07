@@ -192,6 +192,39 @@ export interface AircraftPhysicsConfig {
 
     /** Минимальная высота над землёй (м) */
     minAltitude: number;
+
+    // === Фаза 2: Расширенная аэродинамика ===
+
+    /** Множитель drag при сваливании (Stall) */
+    stallDragMultiplier?: number;
+    /** Множитель подъёмной силы (общий) */
+    liftMultiplier?: number;
+    /** Доля maxSpeed при которой control authority = 1.0 (0-1) */
+    controlAuthorityMinSpeed?: number;
+    /** Минимальный множитель управляемости на малой скорости */
+    controlAuthorityMinFactor?: number;
+    /** Минимальная сила alignment на малой скорости */
+    alignmentStrengthMin?: number;
+    /** Максимальная сила alignment на полной скорости */
+    alignmentStrengthMax?: number;
+    /** Множитель drag при активных воздушных тормозах */
+    airbrakeDragMultiplier?: number;
+
+    // === Фаза 3: Визуальные эффекты ===
+
+    /** Минимальная скорость для появления конденсационных следов */
+    contrailMinSpeed?: number;
+    /** Длина конденсационного следа (сегментов TrailMesh) */
+    contrailLength?: number;
+    /** Пороги HP для дыма повреждений [легкий, средний, огонь] */
+    damageSmokeThresholds?: number[];
+
+    // === Фаза 4: Камера ===
+
+    /** Интенсивность тряски камеры при попадании */
+    cameraShakeIntensity?: number;
+    /** Порог G для визуального эффекта перегрузки */
+    gForceVignetteThreshold?: number;
 }
 
 /**
@@ -283,7 +316,25 @@ export const DEFAULT_AIRCRAFT_PHYSICS_CONFIG: AircraftPhysicsConfig = {
     noInputAngularDamping: 0.3,  // Мягкое затухание
     levelAssistStrength: 0.05,  // Минимальная подтяжка
     stallWarningMinSpeed: 8.0,  // ниже этой скорости (м/с) STALL! не показываем
-    minAltitude: 15.0  // Самолёт должен стартовать выше земли (спавн ~1.2м)
+    minAltitude: 15.0,  // Самолёт должен стартовать выше земли (спавн ~1.2м)
+
+    // === Фаза 2: Расширенная аэродинамика ===
+    stallDragMultiplier: 3.0,
+    liftMultiplier: 1.0,
+    controlAuthorityMinSpeed: 0.3,   // При 30% maxSpeed управление достигает 100%
+    controlAuthorityMinFactor: 0.3,  // На нулевой скорости управление 30% от макс
+    alignmentStrengthMin: 0.05,      // Малая скорость — слабое выравнивание
+    alignmentStrengthMax: 0.30,      // Полная скорость — 30% за кадр
+    airbrakeDragMultiplier: 8.0,     // Воздушные тормоза x8 drag
+
+    // === Фаза 3: Визуальные эффекты ===
+    contrailMinSpeed: 80,
+    contrailLength: 60,
+    damageSmokeThresholds: [75, 40, 20],
+
+    // === Фаза 4: Камера ===
+    cameraShakeIntensity: 0.5,
+    gForceVignetteThreshold: 4.0
 };
 
 export function getAircraftPhysicsConfig(type: string): AircraftPhysicsConfig {

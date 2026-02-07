@@ -520,6 +520,22 @@ export const CANNON_TYPES: CannonType[] = [
         maxRange: calculateMaxRange(2.4, 180)
     },
 
+    // === AIRCRAFT WEAPONS ===
+    {
+        id: "aircraft_mg",
+        name: "Aircraft MG",
+        barrelLength: 1.4,
+        barrelWidth: 0.10,
+        damage: 2,          // 1/4 от огнемёта (8/4 = 2)
+        cooldown: 150,       // Такая же скорострельность как огнемёт
+        projectileSpeed: 250, // Быстрее чем огнемёт — это пулемёт
+        projectileSize: 0.08, // Маленькие пули
+        color: "#ffcc00",    // Жёлтые трассеры
+        description: "Авиационный пулемёт (2 ствола на крыльях). Урон: 2×2 | Перезарядка: 0.15с | Скорострельность как у огнемёта, но стреляет из двух точек одновременно. Первое оружие для самолётов!",
+        recoilMultiplier: 0.1, // Почти нулевая отдача (самолёт)
+        maxRange: calculateMaxRange(1.4, 250)
+    },
+
     // === SPECIAL EFFECT WEAPONS ===
     {
         id: "flamethrower",

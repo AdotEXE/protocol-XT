@@ -60,6 +60,7 @@ export enum ClientMessageType {
     // Network quality
     PING = "ping",
     RPC = "rpc",
+    UPDATE_PROFILE = "update_profile", // [Opus 4.6] Added to ClientMessageType (was only in ServerMessageType)
 
 }
 

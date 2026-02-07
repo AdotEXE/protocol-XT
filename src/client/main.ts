@@ -52,7 +52,7 @@ window.addEventListener('keydown', (e) => {
     ) {
         e.preventDefault();
         e.stopPropagation();
-        return false;
+        return; // [Opus 4.6] Fixed TS7030 - consistent void return
     }
 }, true);
 

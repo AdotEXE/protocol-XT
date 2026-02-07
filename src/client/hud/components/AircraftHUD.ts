@@ -79,6 +79,18 @@ export class AircraftHUD {
     // Throttle indicator (газ %)
     private throttleIndicator: TextBlock | null = null;
 
+    // Brake indicator (тормоза)
+    private brakeIndicator: TextBlock | null = null;
+
+    // Phase 6.1: Airbrake indicator
+    private airbrakeIndicator: TextBlock | null = null;
+
+    // Phase 6.2: Airspeed indicator
+    private airspeedIndicator: TextBlock | null = null;
+
+    // Phase 4.2: G-force vignette overlay
+    private gForceVignette: Rectangle | null = null;
+
     // Подсказка по управлению (показывается при входе в самолёт, исчезает через N сек)
     private controlsHint: TextBlock | null = null;
     private firstVisibleTime: number = 0;
@@ -98,6 +110,10 @@ export class AircraftHUD {
         this.createStallWarning();
         this.createGForceIndicator();
         this.createThrottleIndicator();
+        this.createBrakeIndicator();
+        this.createAirbrakeIndicator();
+        this.createAirspeedIndicator();
+        this.createGForceVignette();
         this.createControlsHint();
 
         this.setVisible(false);
@@ -269,6 +285,65 @@ export class AircraftHUD {
         this.guiTexture.addControl(this.throttleIndicator);
     }
 
+    private createBrakeIndicator(): void {
+        this.brakeIndicator = new TextBlock("aircraftBrakeIndicator");
+        this.brakeIndicator.text = "BRAKE";
+        this.brakeIndicator.fontSize = scalePixels(18);
+        this.brakeIndicator.color = "#ff4444";
+        this.brakeIndicator.fontWeight = "bold";
+        this.brakeIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.brakeIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.brakeIndicator.left = "20px";
+        this.brakeIndicator.top = "68px";
+        this.brakeIndicator.isVisible = false;
+        this.guiTexture.addControl(this.brakeIndicator);
+    }
+
+    // Phase 6.1: Индикатор воздушных тормозов
+    private createAirbrakeIndicator(): void {
+        this.airbrakeIndicator = new TextBlock("aircraftAirbrakeIndicator");
+        this.airbrakeIndicator.text = "AIR BRAKE";
+        this.airbrakeIndicator.fontSize = scalePixels(20);
+        this.airbrakeIndicator.color = "#ff6600";
+        this.airbrakeIndicator.fontWeight = "bold";
+        this.airbrakeIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.airbrakeIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        this.airbrakeIndicator.top = "140px";
+        this.airbrakeIndicator.isVisible = false;
+        this.guiTexture.addControl(this.airbrakeIndicator);
+    }
+
+    // Phase 6.2: Индикатор скорости
+    private createAirspeedIndicator(): void {
+        this.airspeedIndicator = new TextBlock("aircraftAirspeedIndicator");
+        this.airspeedIndicator.text = "SPD: 0";
+        this.airspeedIndicator.fontSize = scalePixels(18);
+        this.airspeedIndicator.color = "#88ff88";
+        this.airspeedIndicator.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        this.airspeedIndicator.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        this.airspeedIndicator.left = "20px";
+        this.airspeedIndicator.top = "92px";
+        this.airspeedIndicator.isVisible = false;
+        this.guiTexture.addControl(this.airspeedIndicator);
+    }
+
+    // Phase 4.2: G-force vignette (затемнение краёв экрана при перегрузке)
+    private createGForceVignette(): void {
+        this.gForceVignette = new Rectangle("gForceVignette");
+        this.gForceVignette.width = "100%";
+        this.gForceVignette.height = "100%";
+        this.gForceVignette.thickness = 0;
+        this.gForceVignette.background = "transparent";
+        this.gForceVignette.isHitTestVisible = false;
+        this.gForceVignette.isVisible = false;
+        this.gForceVignette.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+        this.gForceVignette.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+        // Используем радиальный градиент через border эффект (упрощение для GUI)
+        // Фактический эффект: толстая полупрозрачная чёрная рамка
+        this.gForceVignette.cornerRadius = 0;
+        this.guiTexture.addControl(this.gForceVignette);
+    }
+
     /**
      * Обновить позицию Aim Circle на экране
      * @param screenX X координата (0-1)
@@ -327,12 +402,17 @@ export class AircraftHUD {
         if (this.stallWarning) {
             this.stallWarning.isVisible = isStalling && this.isVisible;
 
-            // Пульсация при сваливании
+            // Phase 6.3: Мигание красным текстом при сваливании
             if (isStalling) {
-                const pulse = Math.sin(Date.now() / 100) * 0.3 + 0.7;
-                this.stallWarning.alpha = pulse;
+                const t = Date.now() / 150;
+                const blink = Math.sin(t) > 0;
+                this.stallWarning.color = blink ? "#ff0000" : "#ff6600";
+                this.stallWarning.alpha = blink ? 1.0 : 0.6;
+                this.stallWarning.text = "!! STALL !!";
             } else {
                 this.stallWarning.alpha = 1.0;
+                this.stallWarning.text = "STALL!";
+                this.stallWarning.color = "#ff0000";
             }
         }
     }
@@ -343,15 +423,36 @@ export class AircraftHUD {
      */
     updateGForceIndicator(gForce: number): void {
         if (this.gForceIndicator) {
-            this.gForceIndicator.text = `G: ${gForce.toFixed(1)}`;
+            // Phase 6.4: Числовое отображение с цветовой кодировкой
+            this.gForceIndicator.text = `${gForce.toFixed(1)}G`;
 
-            // Изменяем цвет в зависимости от перегрузки
-            if (gForce > 7) {
-                this.gForceIndicator.color = "#ff0000"; // Красный при высокой перегрузке
-            } else if (gForce > 5) {
-                this.gForceIndicator.color = "#ff8800"; // Оранжевый
+            if (gForce > 5) {
+                this.gForceIndicator.color = "#ff0000"; // Красный > 5G
+                this.gForceIndicator.fontWeight = "bold";
+            } else if (gForce > 3) {
+                this.gForceIndicator.color = "#ffff00"; // Жёлтый 3-5G
+                this.gForceIndicator.fontWeight = "bold";
             } else {
-                this.gForceIndicator.color = "#ffffff"; // Белый
+                this.gForceIndicator.color = "#ffffff"; // Белый < 3G
+                this.gForceIndicator.fontWeight = "normal";
+            }
+        }
+
+        // Phase 4.2: G-force vignette
+        if (this.gForceVignette) {
+            if (gForce > 4.0) {
+                this.gForceVignette.isVisible = true;
+                const vignetteStrength = Math.min(0.6, (gForce - 4.0) * 0.1);
+                // Чёрный полупрозрачный overlay для имитации виньетирования
+                this.gForceVignette.background = `rgba(0, 0, 0, ${vignetteStrength.toFixed(2)})`;
+
+                // При очень высоком G — добавляем красный оттенок
+                if (gForce > 7) {
+                    const redStrength = Math.min(0.3, (gForce - 7.0) * 0.05);
+                    this.gForceVignette.background = `rgba(80, 0, 0, ${(vignetteStrength + redStrength).toFixed(2)})`;
+                }
+            } else {
+                this.gForceVignette.isVisible = false;
             }
         }
     }
@@ -363,6 +464,56 @@ export class AircraftHUD {
         if (this.throttleIndicator) {
             const pct = Math.round(Math.max(0, Math.min(1, throttle)) * 100);
             this.throttleIndicator.text = `T: ${pct}%`;
+        }
+    }
+
+    /**
+     * Обновить индикатор тормозов
+     */
+    updateBrakeIndicator(isBraking: boolean): void {
+        if (this.brakeIndicator) {
+            this.brakeIndicator.isVisible = isBraking && this.isVisible;
+            if (isBraking) {
+                const pulse = Math.sin(Date.now() / 100) * 0.3 + 0.7;
+                this.brakeIndicator.alpha = pulse;
+            }
+        }
+    }
+
+    /**
+     * Phase 6.1: Обновить индикатор воздушных тормозов
+     */
+    updateAirbrakeIndicator(isActive: boolean): void {
+        if (this.airbrakeIndicator) {
+            this.airbrakeIndicator.isVisible = isActive && this.isVisible;
+            if (isActive) {
+                // Мигание оранжевым
+                const blink = Math.sin(Date.now() / 200) > 0;
+                this.airbrakeIndicator.alpha = blink ? 1.0 : 0.5;
+                this.airbrakeIndicator.color = blink ? "#ff6600" : "#ff3300";
+            }
+        }
+    }
+
+    /**
+     * Phase 6.2: Обновить индикатор скорости
+     * @param speed Скорость в м/с
+     * @param maxSpeed Максимальная скорость для цветовой кодировки
+     * @param isStalling Флаг сваливания
+     */
+    updateAirspeedIndicator(speed: number, maxSpeed: number = 185, isStalling: boolean = false): void {
+        if (this.airspeedIndicator) {
+            const kmh = Math.round(speed * 3.6); // м/с -> км/ч
+            this.airspeedIndicator.text = `SPD: ${kmh} km/h`;
+
+            // Цветовая кодировка
+            if (isStalling) {
+                this.airspeedIndicator.color = "#ff0000"; // Красный при сваливании
+            } else if (speed < maxSpeed * 0.2) {
+                this.airspeedIndicator.color = "#ffff00"; // Жёлтый при низкой скорости
+            } else {
+                this.airspeedIndicator.color = "#88ff88"; // Зелёный в норме
+            }
         }
     }
 
@@ -396,6 +547,18 @@ export class AircraftHUD {
         if (this.throttleIndicator) {
             this.throttleIndicator.isVisible = visible;
         }
+        if (this.brakeIndicator) {
+            this.brakeIndicator.isVisible = false; // Скрыт по умолчанию, показывается только при торможении
+        }
+        if (this.airbrakeIndicator) {
+            this.airbrakeIndicator.isVisible = false; // Показывается только при активных аэробрейках
+        }
+        if (this.airspeedIndicator) {
+            this.airspeedIndicator.isVisible = visible;
+        }
+        if (this.gForceVignette) {
+            this.gForceVignette.isVisible = false; // Управляется через updateGForceIndicator
+        }
         if (this.controlsHint) {
             this.controlsHint.isVisible = visible && this.config.showControlsHint;
         }
@@ -408,19 +571,27 @@ export class AircraftHUD {
      * @param isStalling Флаг сваливания
      * @param gForce Текущая перегрузка
      * @param throttle Тяга 0–1
+     * @param isBraking Активны ли тормоза
      */
     update(
         aimCircleScreenPos: { x: number; y: number },
         headingCrossScreenPos: { x: number; y: number },
         isStalling: boolean,
         gForce: number,
-        throttle: number = 0
+        throttle: number = 0,
+        isBraking: boolean = false,
+        airbrakeActive: boolean = false,
+        speed: number = 0,
+        maxSpeed: number = 185
     ): void {
         this.updateAimCirclePosition(aimCircleScreenPos.x, aimCircleScreenPos.y);
         this.updateHeadingCrossPosition(headingCrossScreenPos.x, headingCrossScreenPos.y);
         this.updateStallWarning(isStalling);
         this.updateGForceIndicator(gForce);
         this.updateThrottleIndicator(throttle);
+        this.updateBrakeIndicator(isBraking);
+        this.updateAirbrakeIndicator(airbrakeActive);
+        this.updateAirspeedIndicator(speed, maxSpeed, isStalling);
         if (this.controlsHint && this.config.showControlsHint && this.firstVisibleTime > 0) {
             const elapsed = Date.now() - this.firstVisibleTime;
             if (elapsed > this.config.controlsHintDurationMs) {
@@ -455,6 +626,18 @@ export class AircraftHUD {
         }
         if (this.controlsHint) {
             this.controlsHint.dispose();
+        }
+        if (this.brakeIndicator) {
+            this.brakeIndicator.dispose();
+        }
+        if (this.airbrakeIndicator) {
+            this.airbrakeIndicator.dispose();
+        }
+        if (this.airspeedIndicator) {
+            this.airspeedIndicator.dispose();
+        }
+        if (this.gForceVignette) {
+            this.gForceVignette.dispose();
         }
     }
 }

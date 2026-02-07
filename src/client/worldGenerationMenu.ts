@@ -6,8 +6,7 @@ import { Game } from "./game";
 import { ChunkSystem } from "./chunkSystem";
 import { MapType } from "./menu";
 import { CommonStyles } from "./commonStyles";
-import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs";
-import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs";
+import { inGameAlert, inGameConfirm } from "./utils/inGameDialogs"; // [Opus 4.6] Removed duplicate import
 
 export interface WorldGenSettings {
     // Chunk settings
@@ -184,7 +183,8 @@ export class WorldGenerationMenu {
         const mapType = (this.game as any).currentMapType || "normal";
         const mapInfoEl = document.getElementById("current-map-info");
         if (mapInfoEl) {
-            const mapNames: Record<MapType, string> = {
+            const mapNames: Record<MapType, string> = { // [Opus 4.6] Added missing MapType entries
+                normal: "Обычная",
                 sandbox: "Песочница",
                 sand: "Песок",
                 madness: "Безумие",
@@ -200,6 +200,7 @@ export class WorldGenerationMenu {
                 underground: "Подземная",
                 coastal: "Прибрежная",
                 tartaria: "Тартария",
+                islands: "Острова",
                 custom: "Пользовательская"
             };
             const key = mapType as MapType;

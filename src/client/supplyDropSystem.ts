@@ -137,7 +137,65 @@ export class SupplyDropSystem {
         return surfaceY;
     }
 
-    // ...
+    // [Opus 4.6] Added missing methods that spawnDrop depends on
+
+    /**
+     * Check if there's already an active drop at a given point
+     */
+    private hasActiveDropAtPoint(pointId: string): boolean {
+        for (const drop of this.activeDrops.values()) {
+            if (drop.pointId === pointId && drop.state !== "collected") {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Select a drop type from available types
+     */
+    private selectDropType(types: ConsumableType[], forceType?: string): ConsumableType | null {
+        if (forceType) {
+            const forced = types.find(t => t.id === forceType);
+            if (forced) return forced;
+        }
+        if (types.length === 0) return null;
+        return types[Math.floor(Math.random() * types.length)] ?? null;
+    }
+
+    /**
+     * Create a supply drop box mesh
+     */
+    private createDropBox(dropId: string, type: ConsumableType): Mesh {
+        const box = MeshBuilder.CreateBox(`drop_box_${dropId}`, { size: 2 }, this.scene);
+
+        let mat = this.materials.get(type.id);
+        if (!mat) {
+            mat = new StandardMaterial(`drop_mat_${type.id}`, this.scene);
+            mat.diffuseColor = new Color3(0.4, 0.6, 0.2);
+            mat.specularColor = new Color3(0.1, 0.1, 0.1);
+            this.materials.set(type.id, mat);
+        }
+        box.material = mat;
+        return box;
+    }
+
+    /**
+     * Create a parachute mesh
+     */
+    private createParachute(dropId: string): Mesh {
+        const chute = MeshBuilder.CreateDisc(`drop_chute_${dropId}`, { radius: 3, tessellation: 8 }, this.scene);
+        chute.rotation.x = Math.PI; // Face downward
+
+        if (!this.parachuteMaterial) {
+            this.parachuteMaterial = new StandardMaterial("parachute_mat", this.scene);
+            this.parachuteMaterial.diffuseColor = new Color3(0.9, 0.9, 0.9);
+            this.parachuteMaterial.alpha = 0.8;
+            this.parachuteMaterial.backFaceCulling = false;
+        }
+        chute.material = this.parachuteMaterial;
+        return chute;
+    }
 
     spawnDrop(point: DropPoint, forceType?: string): ActiveDrop | null {
         // КРИТИЧНО: Проверяем есть ли уже дроп на этой точке

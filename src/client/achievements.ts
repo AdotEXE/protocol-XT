@@ -1,5 +1,7 @@
 // Achievements System for TX Tank Game
 
+import { safeLocalStorage } from "./utils/safeLocalStorage";
+
 export interface Achievement {
     id: string;
     name: string;
@@ -981,7 +983,7 @@ export class AchievementsSystem {
     // Reset all progress (for debugging)
     resetProgress(): void {
         this.progress.clear();
-        localStorage.removeItem('achievements');
+        safeLocalStorage.remove('achievements');
         console.log("[Achievements] Progress reset");
     }
 }

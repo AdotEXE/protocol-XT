@@ -38,7 +38,7 @@ export class AuthUI {
                 display: flex;
                 justify-content: center;
                 align-items: center;
-                z-index: 100001;
+                z-index: 35000; /* [Opus 4.5] AUTH level */
                 font-family: 'Press Start 2P', monospace;
                 animation: fadeIn 0.2s ease;
             }
@@ -465,7 +465,7 @@ export class AuthUI {
         // Показываем контейнер СРАЗУ
         if (this.container) {
             this.container.style.display = "flex";
-            this.container.style.zIndex = "100001";
+            this.container.style.zIndex = "35000"; // [Opus 4.5] AUTH level
             this.container.style.visibility = "visible";
             this.container.style.opacity = "1";
         }
@@ -495,7 +495,7 @@ export class AuthUI {
         // Показываем контейнер СРАЗУ
         if (this.container) {
             this.container.style.display = "flex";
-            this.container.style.zIndex = "100001";
+            this.container.style.zIndex = "35000"; // [Opus 4.5] AUTH level
             this.container.style.visibility = "visible";
             this.container.style.opacity = "1";
         }
@@ -562,7 +562,7 @@ export class AuthUI {
             console.log("[AuthUI] Showing container");
             this.container.style.display = "flex";
         }
-        this.container.style.zIndex = "100001";
+        this.container.style.zIndex = "35000"; // [Opus 4.5] AUTH level
         this.container.style.visibility = "visible";
         this.container.style.opacity = "1";
 

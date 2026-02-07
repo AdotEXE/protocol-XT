@@ -667,6 +667,10 @@ export class Game {
     private _cachedTerrainMeshes: Mesh[] | null = null;
     private _terrainMeshesCacheFrame = -1;
 
+    // [Opus 4.6] Кэш позиции игрока - избегаем clone() каждый кадр
+    private _cachedPlayerPos: Vector3 = Vector3.Zero();
+    private _cachedHeadingPoint: Vector3 = Vector3.Zero();
+
     // Кэш для Date.now() - оптимизация частых вызовов
     private _cachedCurrentTime: number = 0;
     private _currentTimeCacheFrame = -1;
@@ -2914,21 +2918,20 @@ export class Game {
         this.gameStarted = false;
         this.gamePaused = false;
 
-        // Останавливаем звуки
+        // Останавливаем звуки (включая авиационные)
         if (this.soundManager) {
             this.soundManager.stopEngine();
+            const sm = this.soundManager as any;
+            if (typeof sm.stopAircraftEngine === 'function') sm.stopAircraftEngine();
+            if (typeof sm.stopWindSound === 'function') sm.stopWindSound();
         }
 
-        // Очищаем врагов
-        if (this.enemyTanks) {
-            // ОПТИМИЗАЦИЯ: Используем for цикл вместо forEach
-            const enemyCount2 = this.enemyTanks.length;
-            for (let i = 0; i < enemyCount2; i++) {
-                const enemy = this.enemyTanks[i];
-                if (enemy && enemy.chassis) enemy.chassis.dispose();
-            }
-            this.enemyTanks = [];
+        // Очищаем врагов через GameEnemies (останавливает таймеры респавна, dispose всех ресурсов)
+        if (this._gameEnemies) {
+            this._gameEnemies.dispose();
+            this._gameEnemies = undefined;
         }
+        this.enemyTanks = [];
 
         // Очищаем танк игрока - полностью удаляем все части
         if (this.tank) {
@@ -3150,7 +3153,9 @@ export class Game {
                                         let playerPos: Vector3 | undefined;
                                         let playerForward: Vector3 | undefined;
                                         if (this.tank && this.tank.chassis) {
-                                            playerPos = this.tank.chassis.position.clone();
+                                            // [Opus 4.6] Reuse cached vector instead of clone()
+                                            this._cachedPlayerPos.copyFrom(this.tank.chassis.position);
+                                            playerPos = this._cachedPlayerPos;
                                             if (this.camera) {
                                                 playerForward = this.camera.getForwardRay().direction;
                                             }
@@ -3178,6 +3183,7 @@ export class Game {
                                                 const showStallWarning = isStalling && speed > minSpeedForStall;
                                                 const gForce = aircraftPhysics.calculateGForce();
                                                 const throttle = aircraftPhysics.getThrottle();
+                                                const isBraking = aircraftPhysics.isBrakingActive ? aircraftPhysics.isBrakingActive() : false;
 
                                                 // Проецируем 3D позиции на экран
                                                 const engine = this.scene.getEngine();
@@ -3194,7 +3200,10 @@ export class Game {
 
                                                 // Heading Cross позиция (направление самолёта) — проецируем из 3D
                                                 const aircraftPos = this.tank.chassis.getAbsolutePosition();
-                                                const headingPoint = aircraftPos.add(forwardDir.scale(50));
+                                                // [Opus 4.6] Reuse cached vector to avoid allocation per frame
+                                                this._cachedHeadingPoint.copyFrom(aircraftPos);
+                                                this._cachedHeadingPoint.addInPlace(forwardDir.scale(50));
+                                                const headingPoint = this._cachedHeadingPoint;
                                                 const headingCrossScreen = Vector3.Project(
                                                     headingPoint,
                                                     Matrix.Identity(),
@@ -3207,15 +3216,37 @@ export class Game {
                                                     y: headingCrossScreen.y / height
                                                 };
 
-                                                // Обновляем Aircraft HUD
+                                                // Обновляем Aircraft HUD (с новыми данными: аэробрейки, скорость)
+                                                const airbrakeActive = aircraftPhysics.isBrakingActive();
                                                 this.hud.updateAircraftHUD(
                                                     aimCirclePos,
                                                     headingCrossPos,
                                                     showStallWarning,
                                                     gForce,
                                                     true,
-                                                    throttle
+                                                    throttle,
+                                                    isBraking,
+                                                    airbrakeActive,
+                                                    speed,
+                                                    185 // maxSpeed
                                                 );
+
+                                                // Phase 5: Обновляем звуки самолёта
+                                                if (this.soundManager) {
+                                                    const sm = this.soundManager as any;
+                                                    // Запускаем движок и ветер если ещё не запущены
+                                                    if (typeof sm.startAircraftEngine === 'function' && !sm.aircraftEngineRunning) {
+                                                        sm.startAircraftEngine();
+                                                        sm.startWindSound();
+                                                    }
+                                                    // Обновляем pitch/громкость
+                                                    if (typeof sm.updateAircraftEngine === 'function') {
+                                                        sm.updateAircraftEngine(throttle);
+                                                    }
+                                                    if (typeof sm.updateWindSound === 'function') {
+                                                        sm.updateWindSound(speed, 185);
+                                                    }
+                                                }
                                             }
                                         } else {
                                             // Скрываем Aircraft HUD если не в самолёте
@@ -3228,6 +3259,14 @@ export class Game {
                                                     false,
                                                     0
                                                 );
+                                            }
+                                            // Останавливаем звуки самолёта
+                                            if (this.soundManager) {
+                                                const sm = this.soundManager as any;
+                                                if (typeof sm.stopAircraftEngine === 'function' && sm.aircraftEngineRunning) {
+                                                    sm.stopAircraftEngine();
+                                                    sm.stopWindSound();
+                                                }
                                             }
                                         }
                                     }

@@ -54,6 +54,7 @@ if (typeof window !== "undefined") {
         CHASSIS_MODIFIERS,
         CANNON_MODIFIERS,
         applyChassisModifiers,
-        applyCannonModifiers
+        applyCannonModifiers,
+        clearVehiclePhysicsCache // [Opus 4.6] add missing method
     };
 }

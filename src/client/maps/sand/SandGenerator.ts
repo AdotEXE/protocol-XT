@@ -14,6 +14,7 @@ import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
 
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin";
+import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate"; // [Opus 4.6] Added missing import
 import { BaseMapGenerator } from "../shared/BaseMapGenerator";
 import { ChunkGenerationContext } from "../shared/MapGenerator";
 import { MAP_SIZES } from "../MapConstants";

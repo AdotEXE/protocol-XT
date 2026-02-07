@@ -76,9 +76,14 @@ export class UIManager {
     // Chart controls (kept for history access if needed, though charts are removed)
     private chartHistorySize: number = 60;
 
+    // [Opus 4.6] Public getter for screen (used by monitor.ts for key bindings)
+    public getScreen(): blessed.Widgets.Screen {
+        return this.screen;
+    }
+
     constructor(core: MonitorCore) {
         this._core = core;
-        this._theme = themes['terminal-green'];
+        this._theme = themes['terminal-green']!; // [Opus 4.6] Non-null assertion - theme always exists
 
         // Create screen
         this.screen = blessed.screen({
@@ -271,7 +276,7 @@ ${portsLine}`;
     private handleCommand(cmdStr: string): void {
         // Parse command
         const parts = cmdStr.split(' ');
-        const command = parts[0].toLowerCase().replace(/^\//, ''); // remove leading /
+        const command = (parts[0] ?? '').toLowerCase().replace(/^\//, ''); // [Opus 4.6] Null-safe access
         const args = parts.slice(1);
 
         this.addLog(`Executed: /${command} ${args.join(' ')}`, 'info');

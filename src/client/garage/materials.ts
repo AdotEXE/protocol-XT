@@ -603,6 +603,83 @@ export class MaterialFactory {
         return mat;
     }
 
+    // [Opus 4.6] stub - material for jet engines (dark metallic)
+    static createJetEngineMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
+        const key = `${prefix}JetEngineMat${index}`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.25, 0.25, 0.28);
+        mat.emissiveColor = new Color3(0.05, 0.03, 0);
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    // [Opus 4.6] stub - material for engine nozzles (dark with warm glow)
+    static createEngineMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
+        const key = `${prefix}EngineMat${index}`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.15, 0.15, 0.15);
+        mat.emissiveColor = new Color3(0.15, 0.08, 0);
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    // [Opus 4.6] stub - material for anti-gravity engines (blue glow)
+    static createAntiGravMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
+        const key = `${prefix}AntiGravMat${index}`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0, 0.5, 0.8);
+        mat.emissiveColor = new Color3(0, 0.3, 0.6);
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    // [Opus 4.6] stub - material for shield emitters (green glow)
+    static createShieldEmitterMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
+        const key = `${prefix}ShieldEmitterMat${index}`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0, 0.9, 0.5);
+        mat.emissiveColor = new Color3(0, 0.5, 0.25);
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    // [Opus 4.6] stub - material for drone launchers (purple/dark)
+    static createDroneLauncherMaterial(scene: Scene, prefix: string = "preview"): StandardMaterial {
+        const key = `${prefix}DroneLauncherMat`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.4, 0, 0.6);
+        mat.emissiveColor = new Color3(0.2, 0, 0.4);
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    // [Opus 4.6] stub - material for mini drones (purple/dark)
+    static createMiniDroneMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
+        const key = `${prefix}MiniDroneMat${index}`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.5, 0, 0.7);
+        mat.emissiveColor = new Color3(0.25, 0, 0.4);
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
+    // [Opus 4.6] stub - material for radar dishes (dark with slight glow)
+    static createRadarMaterial(scene: Scene, prefix: string = "preview"): StandardMaterial {
+        const key = `${prefix}RadarMat`;
+        if (this.materialCache.has(key)) return this.materialCache.get(key)!;
+        const mat = new StandardMaterial(key, scene);
+        mat.diffuseColor = new Color3(0.2, 0.2, 0.25);
+        mat.emissiveColor = new Color3(0.05, 0.08, 0.1);
+        this.materialCache.set(key, mat);
+        return mat;
+    }
+
     /**
      * Очистка кеша материалов
      */

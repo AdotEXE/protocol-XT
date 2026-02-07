@@ -11,14 +11,14 @@
 import { loadModelFromFile, loadAllModelsFromCategory } from './modelFileLoader';
 import type { ChassisType, CannonType } from '../tankTypes';
 import type { TrackType } from '../trackTypes';
-import type { ModulePreset } from '../tank/modules/ModuleTypes';
+import type { ModuleType } from '../tank/modules/ModuleTypes'; // [Opus 4.6] ModuleType -> ModuleType (correct export name)
 import type { CustomTankConfiguration } from '../workshop/types';
 
 // Кэш загруженных моделей
 let chassisCache: ChassisType[] | null = null;
 let cannonCache: CannonType[] | null = null;
 let trackCache: TrackType[] | null = null;
-let moduleCache: ModulePreset[] | null = null;
+let moduleCache: ModuleType[] | null = null;
 let customTanksCache: CustomTankConfiguration[] | null = null;
 
 /**
@@ -118,13 +118,13 @@ export async function loadTrackTypes(): Promise<TrackType[]> {
 /**
  * Загружает все модули из json_models
  */
-export async function loadModuleTypes(): Promise<ModulePreset[]> {
+export async function loadModuleTypes(): Promise<ModuleType[]> {
     if (moduleCache) {
         return moduleCache;
     }
 
     try {
-        const models = await loadAllModelsFromCategory<ModulePreset>('base-types');
+        const models = await loadAllModelsFromCategory<ModuleType>('base-types');
         // Фильтруем только modules (файлы начинаются с module-)
         const modules = models.filter((model: any) => {
             if (Array.isArray(model)) {
@@ -133,7 +133,7 @@ export async function loadModuleTypes(): Promise<ModulePreset[]> {
             return model.id && model.name !== undefined;
         }).flatMap((model: any) => Array.isArray(model) ? model : [model]);
 
-        moduleCache = modules as ModulePreset[];
+        moduleCache = modules as ModuleType[];
         console.log(`[ModelLoader] Loaded ${moduleCache.length} module types from json_models`);
         return moduleCache;
     } catch (e) {
@@ -173,7 +173,7 @@ export async function loadAllBaseTypes(): Promise<{
     chassis: ChassisType[];
     cannons: CannonType[];
     tracks: TrackType[];
-    modules: ModulePreset[];
+    modules: ModuleType[];
 }> {
     const [chassis, cannons, tracks, modules] = await Promise.all([
         loadChassisTypes(),
@@ -224,7 +224,7 @@ export async function getTrackById(id: string): Promise<TrackType | null> {
 /**
  * Получает модуль по ID (из кэша или загружает)
  */
-export async function getModuleById(id: string): Promise<ModulePreset | null> {
+export async function getModuleById(id: string): Promise<ModuleType | null> {
     const modules = await loadModuleTypes();
     return modules.find(m => m.id === id) || null;
 }

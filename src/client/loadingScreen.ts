@@ -230,7 +230,7 @@ export class LoadingScreen {
         
         // Выбираем случайную подсказку
         this.currentTipIndex = Math.floor(Math.random() * LOADING_TIPS.length);
-        const tip = LOADING_TIPS[this.currentTipIndex];
+        const tip = LOADING_TIPS[this.currentTipIndex] ?? ""; // [Opus 4.6] Default for possibly undefined index
         
         const tipEl = document.getElementById('simple-loading-tip');
         if (tipEl) {

@@ -18,6 +18,7 @@ import {
     DynamicTexture
 } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from "@babylonjs/gui";
+import { Vector3Pool } from "./optimization/Vector3Pool";
 import { SoundManager } from "./soundManager";
 import { EffectsManager } from "./effects";
 import { logger } from "./utils/logger";
@@ -39,10 +40,14 @@ import { GlobalIntelligenceManager } from "./ai/GlobalIntelligenceManager";
 // === AI States ===
 type AIState = "idle" | "patrol" | "chase" | "attack" | "flank" | "retreat" | "evade" | "capturePOI" | "ambush" | "bait";
 
+// Shared vector pool for enemy tank operations (reduces GC pressure)
+const enemyVector3Pool = new Vector3Pool(30);
+
 export class EnemyTank {
-    private scene: Scene;
+    // [Opus 4.6] protected for EnemyPlane subclass access
+    protected scene: Scene;
     private soundManager: SoundManager;
-    private effectsManager: EffectsManager;
+    protected effectsManager: EffectsManager;
 
     // === Visuals ===
     chassis: Mesh;
@@ -50,6 +55,10 @@ export class EnemyTank {
     barrel: Mesh;
     private wheels: Mesh[] = [];
     private cannonAnimationElements: CannonAnimationElements = {};
+
+    // Wall mesh cache (avoid scene.meshes.filter every frame)
+    private _cachedWalls: AbstractMesh[] = [];
+    private _cachedWallsTime: number = 0;
 
     // HP Bar Refactor: Temporary on-hit display with distance
     private healthBar: Mesh | null = null;
@@ -112,15 +121,17 @@ export class EnemyTank {
     private spawnGroundNormal: Vector3 = Vector3.Up();
 
     // === Equipment (random selection) ===
-    private chassisType!: ChassisType;
-    private cannonType!: CannonType;
-    private trackType!: TrackType;
+    // [Opus 4.6] protected for EnemyPlane subclass access
+    protected chassisType!: ChassisType;
+    protected cannonType!: CannonType;
+    protected trackType!: TrackType;
     private modules: ModuleType[] = [];
     private moduleIds: string[] = []; // IDs from server
     private moduleMeshes: Mesh[] = [];
 
     // === AI State ===
-    private target: { chassis: Mesh, isAlive: boolean, currentHealth?: number, turret?: Mesh, barrel?: Mesh } | null = null;
+    // [Opus 4.6] protected for EnemyPlane subclass access
+    protected target: { chassis: Mesh, isAlive: boolean, currentHealth?: number, turret?: Mesh, barrel?: Mesh } | null = null;
     private state: AIState = "patrol"; // ИСПРАВЛЕНО: По умолчанию патрулирование
     private patrolPoints: Vector3[] = [];
     private currentPatrolIndex = 0;
@@ -223,7 +234,7 @@ export class EnemyTank {
     private readonly STYLE_UPDATE_INTERVAL = 500; // EXTREME: -50% (было 1000) - мгновенная адаптация!
 
     // EXTREME: Молниеносная реакция на урон
-    private lastDamageTime = 0;
+    protected lastDamageTime = 0;
     private damageReactionCooldown = 0;
     private consecutiveHits = 0;
 
@@ -365,7 +376,7 @@ export class EnemyTank {
     private static count = 0;
     private static allEnemies: EnemyTank[] = [];
     private static sharedBulletMat: StandardMaterial | null = null;
-    private id: number;
+    protected id: number;
 
     // Статический метод для получения всех врагов (для автонаводки и других систем)
     public static getAllEnemies(): EnemyTank[] {
@@ -993,7 +1004,8 @@ export class EnemyTank {
 
     // === VISUALS (same as player) ===
 
-    private createChassis(position: Vector3): Mesh {
+    // [Opus 4.6] protected for EnemyPlane override
+    protected createChassis(position: Vector3): Mesh {
         // КРИТИЧНО: Используем размеры из выбранного корпуса
         const width = this.chassisType.width;
         const height = this.chassisType.height;
@@ -1063,7 +1075,8 @@ export class EnemyTank {
         return chassis;
     }
 
-    private createTurret(): Mesh {
+    // [Opus 4.6] protected for EnemyPlane override
+    protected createTurret(): Mesh {
         // Same as player turret!
         const turret = MeshBuilder.CreateBox(`enemyTurret_${this.id}`, {
             width: 1.4,
@@ -1092,7 +1105,7 @@ export class EnemyTank {
         return turret;
     }
 
-    private createBarrel(): Mesh {
+    protected createBarrel(): Mesh {
         // Используем размеры из выбранной пушки
         const barrelWidth = this.cannonType.barrelWidth;
         const barrelLength = this.cannonType.barrelLength;
@@ -1126,7 +1139,7 @@ export class EnemyTank {
         return barrel;
     }
 
-    private createTracks(): void {
+    protected createTracks(): void {
         const trackMat = new StandardMaterial(`enemyTrackMat_${this.id}`, this.scene);
         trackMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
         trackMat.specularColor = Color3.Black();
@@ -1227,7 +1240,7 @@ export class EnemyTank {
 
     // === PHYSICS (SAME AS PLAYER!) ===
 
-    private setupPhysics(): void {
+    protected setupPhysics(): void {
         // Физика корпуса (chassis) с РЕАЛИСТИЧНЫМ ГУСЕНИЧНЫМ ХИТБОКСОМ
         // Compound shape: центральный BOX + скруглённые CYLINDER спереди и сзади
         // КРИТИЧНО: Используем множители размеров для синхронизации с визуальной моделью
@@ -2225,6 +2238,8 @@ export class EnemyTank {
         const game = (window as any).gameInstance;
         const currentMapType = game?.mapType || "normal";
         const mapBounds = getMapBoundsFromConfig(currentMapType);
+        // [Opus 4.6] Guard against null mapBounds
+        if (!mapBounds) return;
         const mapSize = Math.max(mapBounds.maxX - mapBounds.minX, mapBounds.maxZ - mapBounds.minZ);
         // Расстояние = 20-40% от размера карты (вместо фиксированных 50-150м)
         const newDist = mapSize * (0.2 + Math.random() * 0.2);
@@ -3130,7 +3145,7 @@ export class EnemyTank {
                     // this.state = "retreat";
                     // this.stateTimer = 3000;
                     // Вместо retreat - используем укрытие для фланга
-                    if (this.state !== "attack" && this.state !== "flank") {
+                    if (this.state !== "attack" && (this.state as string) !== "flank") {
                         this.state = "flank";
                         this.stateTimer = 2000;
                     }
@@ -4859,6 +4874,12 @@ export class EnemyTank {
 
         // КРИТИЧНО: Не используем isReloading - cooldown отслеживается через lastShotTime в doAttack()
 
+        // === AIRCRAFT MG: Двойной пулемёт на крыльях ===
+        if (this.cannonType.id === "aircraft_mg" && isPlane) {
+            this.fireEnemyAircraftMG(barrelDir);
+            return;
+        }
+
         // Вражеские танки используют стандартную пушку по умолчанию with 3D positioning
         this.soundManager.playShoot("standard", muzzlePos);
 
@@ -4972,14 +4993,18 @@ export class EnemyTank {
                 const moveDirection = bulletPos.subtract(prevBulletPos).normalize();
                 const ray = new Ray(prevBulletPos, moveDirection, moveDistance + 0.5);
 
-                // КРИТИЧНО: Ищем ВСЕ стенки на сцене (protectiveWall и enemyWall)
-                const walls = this.scene.meshes.filter(mesh =>
-                    mesh.metadata &&
-                    (mesh.metadata.type === "protectiveWall" || mesh.metadata.type === "enemyWall") &&
-                    !mesh.isDisposed()
-                );
+                // Используем кэш стенок (обновляется каждые 500мс)
+                const now = Date.now();
+                if (now - this._cachedWallsTime > 500) {
+                    this._cachedWalls = this.scene.meshes.filter(mesh =>
+                        mesh.metadata &&
+                        (mesh.metadata.type === "protectiveWall" || mesh.metadata.type === "enemyWall") &&
+                        !mesh.isDisposed()
+                    );
+                    this._cachedWallsTime = now;
+                }
 
-                for (const wall of walls) {
+                for (const wall of this._cachedWalls) {
                     // Raycast проверка - ловит быстрые снаряды, проскакивающие через стенку
                     const pick = this.scene.pickWithRay(ray, (mesh) => mesh === wall);
 
@@ -5009,13 +5034,8 @@ export class EnemyTank {
             }
 
             // === ПРОВЕРКА СТОЛКНОВЕНИЯ СО СТЕНКОЙ (дополнительная проверка текущей позиции) ===
-            // КРИТИЧНО: Ищем ВСЕ стенки на сцене (protectiveWall и enemyWall)
-            const walls = this.scene.meshes.filter(mesh =>
-                mesh.metadata &&
-                (mesh.metadata.type === "protectiveWall" || mesh.metadata.type === "enemyWall") &&
-                !mesh.isDisposed()
-            );
-            for (const wall of walls) {
+            // Используем кэш стенок (уже обновлён выше)
+            for (const wall of this._cachedWalls) {
                 // Проверяем, находится ли пуля внутри границ стенки
                 if (this.checkPointInWall(bulletPos, wall as Mesh)) {
                     hasHit = true;
@@ -5102,6 +5122,123 @@ export class EnemyTank {
             if (!ball.isDisposed()) ball.dispose();
         }, 5000);
         this.activeTimeouts.push(ballDisposeTimeout);
+    }
+
+    /**
+     * Авиационный пулемёт для вражеских самолётов — стреляет из двух точек на крыльях.
+     */
+    private fireEnemyAircraftMG(direction: Vector3): void {
+        const wingSpan = 2.5;
+        const wingGunForwardOffset = 1.0;
+
+        this.chassis.computeWorldMatrix(true);
+        const worldMatrix = this.chassis.getWorldMatrix();
+
+        const localLeft = new Vector3(-wingSpan, -0.2, wingGunForwardOffset);
+        const localRight = new Vector3(wingSpan, -0.2, wingGunForwardOffset);
+
+        const wingPosLeft = Vector3.TransformCoordinates(localLeft, worldMatrix);
+        const wingPosRight = Vector3.TransformCoordinates(localRight, worldMatrix);
+
+        // Звук пулемёта
+        this.soundManager.playShoot("standard", wingPosLeft);
+
+        // Muzzle flash на обоих крыльях
+        this.effectsManager.createMuzzleFlash(wingPosLeft, direction);
+        this.effectsManager.createMuzzleFlash(wingPosRight, direction);
+
+        const bulletColor = new Color3(1, 0.85, 0); // Жёлтый трассер
+        const bulletSize = this.cannonType.projectileSize;
+
+        // Урон с учётом сложности
+        const scale = Math.min(Math.max(this.difficultyScale, 0.7), 1.8);
+        const damageScale = 1 + (scale - 1) * 0.5;
+        const damage = Math.round(this.damage * damageScale);
+
+        const positions = [wingPosLeft, wingPosRight];
+        const target = this.target;
+
+        for (const spawnPos of positions) {
+            const bullet = MeshBuilder.CreateBox(`enemyAircraftMgBullet_${Date.now()}_${Math.random()}`, {
+                width: bulletSize * 1.5,
+                height: bulletSize * 1.5,
+                depth: bulletSize * 5
+            }, this.scene);
+            bullet.position.copyFrom(spawnPos);
+            bullet.lookAt(spawnPos.add(direction));
+
+            // Яркий жёлтый материал
+            const bulletMat = new StandardMaterial("enemyAircraftMgMat", this.scene);
+            bulletMat.diffuseColor = bulletColor;
+            bulletMat.emissiveColor = bulletColor.scale(2.5);
+            bulletMat.disableLighting = true;
+            bullet.material = bulletMat;
+
+            bullet.metadata = { type: "enemyBullet", owner: this, damage: damage, cannonType: "aircraft_mg" };
+
+            const shape = new PhysicsShape({
+                type: PhysicsShapeType.BOX,
+                parameters: { extents: new Vector3(bulletSize * 0.5, bulletSize * 0.5, bulletSize * 2) }
+            }, this.scene);
+            shape.filterMembershipMask = 16; // Enemy bullet
+            shape.filterCollideMask = 1 | 2 | 32 | 64;
+            shape.material = { friction: 0, restitution: 0.0 };
+
+            const body = new PhysicsBody(bullet, PhysicsMotionType.DYNAMIC, false, this.scene);
+            body.shape = shape;
+            body.setMassProperties({ mass: 0.001 });
+            body.setLinearDamping(0.01);
+
+            const impulseMultiplier = this.projectileSpeed / 200;
+            body.applyImpulse(direction.scale(3 * impulseMultiplier), bullet.position);
+
+            // Трассерный след
+            if (this.effectsManager) {
+                this.effectsManager.createBulletTrail(bullet, bulletColor, "aircraft_mg");
+            }
+
+            // Hit detection — упрощённая версия для авиапулемёта
+            let hasHit = false;
+            const checkHit = () => {
+                if (hasHit || bullet.isDisposed()) return;
+
+                const velocity = body.getLinearVelocity();
+                const speedSq = velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z;
+                if (speedSq < 25) { bullet.dispose(); return; }
+
+                const bulletPos = bullet.absolutePosition;
+
+                // Проверяем попадание в игрока
+                if (target && target.isAlive && target.chassis && !target.chassis.isDisposed()) {
+                    const dist = Vector3.Distance(bulletPos, target.chassis.absolutePosition);
+                    if (dist < 3.5) {
+                        hasHit = true;
+                        (target as any).takeDamage(damage, this.chassis.absolutePosition.clone());
+                        this.effectsManager.createExplosion(bulletPos, 0.4);
+                        this.soundManager.playHit("normal", bulletPos);
+                        bullet.dispose();
+                        return;
+                    }
+                }
+
+                // Земля
+                if (bulletPos.y < 0.3) { bullet.dispose(); return; }
+                // Bounds
+                if (bulletPos.y > 300 || Math.abs(bulletPos.x) > 550 || Math.abs(bulletPos.z) > 550) {
+                    bullet.dispose();
+                    return;
+                }
+
+                requestAnimationFrame(checkHit);
+            };
+            checkHit();
+
+            // Auto dispose
+            const disposeTimeout = setTimeout(() => {
+                if (!bullet.isDisposed()) bullet.dispose();
+            }, 4000);
+            this.activeTimeouts.push(disposeTimeout);
+        }
     }
 
     // === DAMAGE & DEATH ===
@@ -6192,6 +6329,8 @@ export class EnemyTank {
         candidates.sort((a, b) => b.score - a.score);
 
         const best = candidates[0];
+        // [Opus 4.6] Guard against empty candidates
+        if (!best) return null;
 
         // Cache result
         this.coverCache = { position: best.pos.clone(), timestamp: Date.now() };

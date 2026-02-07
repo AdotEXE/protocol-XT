@@ -580,7 +580,7 @@ export class DebugDashboard {
         // GC Pauses (оценка на основе frame time spikes)
         // Если frame time резко увеличился, возможно был GC pause
         const gcPauses = this.fpsHistory.length > 1
-            ? this.fpsHistory.filter((fps, i) => i > 0 && fps < this.fpsHistory[i - 1] - 10).length
+            ? this.fpsHistory.filter((fps, i) => i > 0 && fps < (this.fpsHistory[i - 1] ?? fps) - 10).length // [Opus 4.6] Null-safe access
             : 0;
         set("dbg-gc-pauses", gcPauses.toString());
         set("dbg-totalmesh", this.scene.meshes.length.toString());

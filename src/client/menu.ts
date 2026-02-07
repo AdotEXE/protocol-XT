@@ -5625,7 +5625,7 @@ export class MainMenu {
 
                 if (canvas) {
                     // Пытаемся получить существующий engine
-                    let engine = Engine.getLastCreatedEngine();
+                    let engine = Engine.LastCreatedEngine; // [Opus 4.6] Fixed: getLastCreatedEngine() → LastCreatedEngine (static property)
                     console.log("[Menu] Engine:", engine ? "exists" : "null");
 
                     if (!engine) {
@@ -6599,7 +6599,7 @@ export class MainMenu {
                 this.hideMapSelection();
                 if (this.onStartGame && typeof this.onStartGame === 'function') {
 
-                    this.onStartGame(mapType);
+                    this.onStartGame(this.selectedGameMode || 'singleplayer', mapType, this.selectedChassis, this.selectedCannon); // [Opus 4.6] Fixed: pass all 4 required args
                 } else {
                     console.error("[Menu] onStartGame callback is not set!");
                 }
@@ -6713,10 +6713,11 @@ export class MainMenu {
                         if (this.onStartGame && typeof this.onStartGame === 'function') {
                             const mapData = getCustomMapData(mapName);
                             if (mapData) {
-                                this.onStartGame('custom', mapData);
+                                localStorage.setItem("selectedCustomMapData", JSON.stringify(mapData)); // [Opus 4.6] Store for game.ts callback
+                                this.onStartGame('custom', 'custom', this.selectedChassis, this.selectedCannon); // [Opus 4.6] Fixed: pass all 4 required args
                             } else {
                                 console.error("Could not retrieve map data for", mapName);
-                                this.onStartGame('custom'); // Fallback
+                                this.onStartGame('custom', 'custom', this.selectedChassis, this.selectedCannon); // [Opus 4.6] Fixed: pass all 4 required args (fallback)
                             }
                         }
                     } else {
@@ -9083,7 +9084,7 @@ transition: all 0.2s;
         // Закрываем меню и запускаем игру
         this.hide();
         this.hidePlayMenu();
-        this.onStartGame(this.selectedMapType);
+        this.onStartGame('multiplayer', this.selectedMapType || 'normal', this.selectedChassis, this.selectedCannon); // [Opus 4.6] Fixed: pass all 4 required args
 
         // После запуска игры подключаемся к мультиплееру
         setTimeout(() => {
@@ -12057,7 +12058,7 @@ transition: all 0.2s;
             `;
             document.getElementById("exp-lobby-create-room")?.addEventListener("click", () => {
                 document.getElementById("expanded-lobby-modal")?.remove();
-                this.showPlayWindow();
+                this.showPlayMenu(); // [Opus 4.6] Fixed: was showPlayWindow() (0 args) → showPlayMenu() (0 args)
             });
             return;
         }
@@ -14448,7 +14449,7 @@ line - height: 1.4;
             debugLog("[Menu] startSelectedGame: onStartGame callback:", typeof this.onStartGame);
             if (this.onStartGame && typeof this.onStartGame === 'function') {
                 // Передаем mapType и mapData (если есть)
-                this.onStartGame(this.selectedMapType, mapData);
+                this.onStartGame(this.selectedGameMode || 'multiplayer', this.selectedMapType || 'normal', this.selectedChassis, this.selectedCannon); // [Opus 4.6] Fixed: pass all 4 required args
             } else {
                 console.error("[Menu] startSelectedGame (multiplayer): onStartGame callback is not set!");
             }
@@ -14487,7 +14488,7 @@ line - height: 1.4;
 
             if (this.onStartGame && typeof this.onStartGame === 'function') {
                 // КРИТИЧНО: Передаем mapType и mapData (если есть)
-                this.onStartGame(this.selectedMapType, mapData);
+                this.onStartGame(this.selectedGameMode || 'singleplayer', this.selectedMapType || 'normal', this.selectedChassis, this.selectedCannon); // [Opus 4.6] Fixed: pass all 4 required args
             } else {
                 console.error("[Menu] onStartGame callback is not set!");
             }
@@ -14512,7 +14513,7 @@ line - height: 1.4;
         debugLog("[Menu] quickStart: calling onStartGame with map:", savedMap);
         debugLog("[Menu] quickStart: onStartGame callback:", typeof this.onStartGame);
         if (this.onStartGame && typeof this.onStartGame === 'function') {
-            this.onStartGame(savedMap);
+            this.onStartGame(this.selectedGameMode || 'singleplayer', savedMap || 'normal', this.selectedChassis, this.selectedCannon); // [Opus 4.6] Fixed: pass all 4 required args
         } else {
             console.error("[Menu] quickStart: onStartGame callback is not set!");
         }
@@ -14545,7 +14546,7 @@ line - height: 1.4;
                     this.hidePlayMenu();
 
                     if (this.onStartGame) {
-                        this.onStartGame(mapType);
+                        this.onStartGame(mode, mapType, chassisId, cannonId); // [Opus 4.6] Fixed: pass all 4 required args
                     }
                 },
                 getOwnedChassisIds: () => this.ownedChassisIds,
@@ -15378,7 +15379,7 @@ line - height: 1.4;
         }
 
         console.warn("[Menu] Garage not initialized, cannot open tank editor");
-        this.showNotification("Гараж не инициализирован!", "error");
+        this.showNotification("Гараж не инициализирован!", "info"); // [Opus 4.6] Fixed: "error" is not a valid type; using "info"
     }
 
     private saveTankConfig(): void {
@@ -15628,9 +15629,10 @@ line - height: 1.4;
         return "Давно";
     }
 
-    private showProfile(): void {
-        // Импортируем AvatarSelector динамически
-        import("./menu/avatarSelector").then(({ AvatarSelector }) => {
+    private async showProfile(): Promise<void> {
+        try {
+            // Импортируем AvatarSelector динамически
+            const { AvatarSelector } = await import("./menu/avatarSelector");
             const selector = new AvatarSelector({
                 onAvatarSelected: (avatarId: string) => {
                     localStorage.setItem('selectedAvatar', avatarId);
@@ -15644,39 +15646,38 @@ line - height: 1.4;
             });
             selector.show();
             this.enforceCanvasPointerEvents();
-        }).catch((error) => {
+        } catch (error) {
             console.error("[Menu] Failed to load AvatarSelector:", error);
             authUI.showUserProfile({
                 onAuthSuccess: () => this.updateAuthUI(),
                 onClose: () => this.enforceCanvasPointerEvents()
             });
             this.enforceCanvasPointerEvents();
-        });
+        }
     }
 
     /** Открывает только меню выбора аватарок (кнопка «АВАТАРКИ»). Не подменяет профилем при ошибке. */
-    private showAvatarSelector(): void {
-        import("./menu/avatarSelector")
-            .then(({ AvatarSelector }) => {
-                const selector = new AvatarSelector({
-                    onAvatarSelected: (avatarId: string) => {
-                        localStorage.setItem("selectedAvatar", avatarId);
-                        if (typeof (this as any).updatePlayerAvatarDisplay === "function") {
-                            (this as any).updatePlayerAvatarDisplay();
-                        }
-                    },
-                    onClose: () => this.enforceCanvasPointerEvents()
-                });
-                selector.show();
-                this.enforceCanvasPointerEvents();
-            })
-            .catch((err) => {
-                console.error("[Menu] Failed to load AvatarSelector:", err);
-                try {
-                    inGameAlert("Не удалось открыть меню аватарок. Проверьте консоль (F12).", "Ошибка").catch(() => { });
-                } catch (_) { }
-                this.enforceCanvasPointerEvents();
+    private async showAvatarSelector(): Promise<void> {
+        try {
+            const { AvatarSelector } = await import("./menu/avatarSelector");
+            const selector = new AvatarSelector({
+                onAvatarSelected: (avatarId: string) => {
+                    localStorage.setItem("selectedAvatar", avatarId);
+                    if (typeof (this as any).updatePlayerAvatarDisplay === "function") {
+                        (this as any).updatePlayerAvatarDisplay();
+                    }
+                },
+                onClose: () => this.enforceCanvasPointerEvents()
             });
+            selector.show();
+            this.enforceCanvasPointerEvents();
+        } catch (err) {
+            console.error("[Menu] Failed to load AvatarSelector:", err);
+            try {
+                inGameAlert("Не удалось открыть меню аватарок. Проверьте консоль (F12).", "Ошибка").catch(() => { });
+            } catch (_) { }
+            this.enforceCanvasPointerEvents();
+        }
     }
 
     private async updateAuthUI(): Promise<void> {

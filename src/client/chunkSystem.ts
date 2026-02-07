@@ -1423,13 +1423,13 @@ export class ChunkSystem {
         }
 
         // Для карт "sand", "madness" и "brest" НЕ создаём гаражи - спавн будет случайным внутри карты
-        if (this.config.mapType === "sand" || this.config.mapType === "madness" || this.config.mapType === "brest" || this.config.mapType === "arena") {
+        if ((this.config.mapType as string) === "sand" || (this.config.mapType as string) === "madness" || (this.config.mapType as string) === "brest" || (this.config.mapType as string) === "arena") { // [Opus 4.6] cast to avoid TS2367 after earlier narrowing
             // Sand/Madness/Brest/Arena map: No garages, random spawn inside map
             return;
         }
 
         // Для карты "expo" создаём ОДИН гараж в центре
-        if (this.config.mapType === "expo") {
+        if ((this.config.mapType as string) === "expo") { // [Opus 4.6] cast to avoid TS2367 after earlier narrowing
             const garagePos = getPlayerGaragePosition("expo") ?? [0, 0];
             this.createGarageAt(garagePos[0], garagePos[1], 0);
             // Expo map: Created single garage at center
@@ -3640,7 +3640,7 @@ export class ChunkSystem {
                                     this.config.mapType === "urban_warfare" ? "city" :
                                         this.config.mapType === "underground" ? "wasteland" :
                                             this.config.mapType === "coastal" ? "park" :
-                                                this.config.mapType === "sand" ? "wasteland" :
+                                                (this.config.mapType as string) === "sand" ? "wasteland" : // [Opus 4.6] cast to avoid TS2367
                                                     this.config.mapType === "madness" ? "wasteland" : "military";
 
                 // КРИТИЧНО: Для фиксированных карт (sand, arena, expo) НЕ создаём ground mesh -
@@ -3717,7 +3717,7 @@ export class ChunkSystem {
         // КРИТИЧЕСКИ ВАЖНО: Гаражи генерируем ПЕРВЫМИ, чтобы исключить их области из генерации других объектов
         // ИСПРАВЛЕНИЕ: Не генерируем гаражи для "sand" карты - там полностью случайный спавн
         // УДАЛЕНО: normal из проверки
-        if (this.config.mapType !== "sand") {
+        if ((this.config.mapType as string) !== "sand") { // [Opus 4.6] cast to avoid TS2367
             this.generateGarages(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);
         }
 

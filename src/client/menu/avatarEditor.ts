@@ -35,7 +35,7 @@ type PixelVariant = PixelAvatarOptions['variant'];
 export function getVariantAndSeedFromDescription(description: string): { variant: PixelVariant; seed: number } {
     const s = description.toLowerCase().trim();
     const variants: PixelVariant[] = ['tank', 'soldier', 'commander', 'pilot', 'sniper', 'engineer', 'medic', 'spy', 'cyborg', 'ninja', 'viking', 'knight'];
-    const keywords: Record<PixelVariant, string[]> = {
+    const keywords: Record<NonNullable<PixelVariant>, string[]> = { // [Opus 4.6] NonNullable - PixelVariant can be undefined
         tank: ['танк', 'tank', 'броня', 'пушка'],
         soldier: ['солдат', 'soldier', 'пехота', 'пехотинец'],
         commander: ['командир', 'commander'],
@@ -215,9 +215,9 @@ export function applyCustomColors(canvas: HTMLCanvasElement, colors: AvatarEdito
     
     // Простая замена цветов (можно улучшить)
     for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
+        const r = data[i] ?? 0; // [Opus 4.6] Default for possibly undefined index
+        const g = data[i + 1] ?? 0; // [Opus 4.6]
+        const b = data[i + 2] ?? 0; // [Opus 4.6]
         
         // Заменяем зеленые оттенки на primary цвет
         if (colors.primary && g > r && g > b) {
@@ -270,7 +270,8 @@ export function getPixelColor(canvas: HTMLCanvasElement, x: number, y: number): 
     const g = imageData.data[1];
     const b = imageData.data[2];
     
-    return `#${[r, g, b].map(c => c.toString(16).padStart(2, '0')).join('')}`;
+    // [Opus 4.6] Guard against undefined array values
+    return `#${[r, g, b].map(c => (c ?? 0).toString(16).padStart(2, '0')).join('')}`;
 }
 
 /**
@@ -292,7 +293,8 @@ export function exportAvatarAsJSON(canvas: HTMLCanvasElement): string {
             // Пропускаем полностью прозрачные пиксели
             if (a === 0) continue;
             
-            const color = `#${[r, g, b].map(c => c.toString(16).padStart(2, '0')).join('')}`;
+            // [Opus 4.6] Guard against undefined
+            const color = `#${[r, g, b].map(c => (c ?? 0).toString(16).padStart(2, '0')).join('')}`;
             pixels.push({ x, y, color });
         }
     }
@@ -347,9 +349,9 @@ export async function generateMultipleVariants(
 function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return result ? {
-        r: parseInt(result[1], 16),
-        g: parseInt(result[2], 16),
-        b: parseInt(result[3], 16)
+        r: parseInt(result[1] ?? "0", 16),
+        g: parseInt(result[2] ?? "0", 16),
+        b: parseInt(result[3] ?? "0", 16)
     } : null;
 }
 

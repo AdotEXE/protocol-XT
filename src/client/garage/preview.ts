@@ -1769,7 +1769,7 @@ function addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene,
                 ChassisDetailsGenerator.createStabilizer(
                     scene, chassis,
                     new Vector3((i === 0 ? -1 : 1) * w * 0.48, h * 0.1, -d * 0.15),
-                    0.08, h * 0.4, d * 0.3,
+                    0.08, h * 0.4,
                     accentMat, `previewHover${i}`
                 );
             }

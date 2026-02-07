@@ -36,6 +36,7 @@ export class GameServer {
     private rooms: Map<string, GameRoom> = new Map();
     private matchmaking: MatchmakingSystem = new MatchmakingSystem();
     private tickInterval: NodeJS.Timeout | null = null;
+    private monitoringIntervals: NodeJS.Timeout[] = [];
     private lastTick: number = Date.now();
     private tickCount: number = 0;
     private deltaCompressor: Map<string, DeltaCompressor> = new Map(); // Per-room compressors
@@ -883,6 +884,7 @@ export class GameServer {
                 room.scheduleDeletion(ROOM_DELETION_DELAY, () => {
                     this.rooms.delete(room.id);
                     this.spatialGrids.delete(room.id); // Удаляем spatial grid вместе с комнатой
+                    this.deltaCompressor.delete(room.id); // Очищаем delta compressor
                     // Отправляем обновленный список комнат всем подключенным клиентам
                     this.broadcastRoomListToAll();
                 });
@@ -1154,10 +1156,20 @@ export class GameServer {
         const room = this.rooms.get(player.roomId);
         if (!room || !room.isActive) return;
 
-        // Rate limiting DISABLED - no restrictions on input frequency
-        // if (!this.rateLimiter.checkLimit(player.id, "input", 120)) { ... }
+        // MVP: Basic rate limiting (120 inputs/sec max)
+        if (!this.rateLimiter.checkLimit(player.id, "input", 120)) {
+            return; // Too many inputs, drop
+        }
 
-        // ALL VALIDATION DISABLED - accept all player input without checks
+        // MVP: Basic position bounds validation
+        if (data.position) {
+            const px = data.position.x, py = data.position.y, pz = data.position.z;
+            if (typeof px !== 'number' || typeof py !== 'number' || typeof pz !== 'number' ||
+                !isFinite(px) || !isFinite(py) || !isFinite(pz) ||
+                Math.abs(px) > 1000 || py < -50 || py > 500 || Math.abs(pz) > 1000) {
+                return; // Invalid position, drop input
+            }
+        }
 
         // ДИАГНОСТИКА: Логируем инпут от игроков (только первые несколько раз или при движении)
         const throttle = data.throttle || 0;
@@ -1371,8 +1383,17 @@ export class GameServer {
 
         if (player.status !== "alive") return;
 
-        // Rate limiting DISABLED - no restrictions on shooting
-        // Validation DISABLED - accept all shoot data
+        // MVP: Basic shoot rate limiting (10 shots/sec max)
+        if (!this.rateLimiter.checkLimit(player.id, "shoot", 10)) {
+            return; // Too many shots, drop
+        }
+
+        // MVP: Basic shoot data validation
+        if (!data.position || !data.direction ||
+            !isFinite(data.position.x) || !isFinite(data.position.y) || !isFinite(data.position.z) ||
+            !isFinite(data.direction.x) || !isFinite(data.direction.y) || !isFinite(data.direction.z)) {
+            return; // Invalid shoot data, drop
+        }
 
         // Create projectile on server
         const projId = nanoid();
@@ -1530,6 +1551,17 @@ export class GameServer {
         if (!message || typeof message !== "string" || message.length === 0) {
             return;
         }
+
+        // RATE LIMITING: 1 message per 500ms per player
+        const now = Date.now();
+        const CHAT_RATE_LIMIT_MS = 500;
+        if (!player._lastChatTime) player._lastChatTime = 0;
+
+        if (now - player._lastChatTime < CHAT_RATE_LIMIT_MS) {
+            // Too fast - silently drop the message
+            return;
+        }
+        player._lastChatTime = now;
 
         // Truncate long messages
         const truncatedMessage = message.substring(0, 500);
@@ -1897,9 +1929,9 @@ export class GameServer {
 
     private startMonitoringBroadcast(): void {
         // Broadcast monitoring stats every second to monitoring clients
-        setInterval(() => {
+        this.monitoringIntervals.push(setInterval(() => {
             this.broadcastMonitoringStats();
-        }, 1000);
+        }, 1000));
     }
 
     private startPeriodicStats(): void {
@@ -1907,7 +1939,7 @@ export class GameServer {
         let lastStats: { rooms: number; activeRooms: number; players: number; connectedPlayers: number } | null = null;
 
         // Выводим статистику каждые 5 минут или при изменениях
-        setInterval(() => {
+        this.monitoringIntervals.push(setInterval(() => {
             const activeRooms = Array.from(this.rooms.values()).filter(r => r.isActive).length;
             const totalRooms = this.rooms.size;
             const totalPlayers = this.players.size;
@@ -1926,16 +1958,16 @@ export class GameServer {
                 serverLogger.log(`[Server] 📊 Статистика: комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
                 lastStats = currentStats;
             }
-        }, 30000); // Проверяем каждые 30 секунд, но логируем только при изменениях
+        }, 30000)); // Проверяем каждые 30 секунд, но логируем только при изменениях
 
         // Также логируем каждые 5 минут независимо от изменений (для мониторинга)
-        setInterval(() => {
+        this.monitoringIntervals.push(setInterval(() => {
             const activeRooms = Array.from(this.rooms.values()).filter(r => r.isActive).length;
             const totalRooms = this.rooms.size;
             const totalPlayers = this.players.size;
             const connectedPlayers = Array.from(this.players.values()).filter(p => p.connected).length;
             serverLogger.log(`[Server] 📊 Статистика (периодическая): комнат=${totalRooms} (активных=${activeRooms}), игроков=${totalPlayers} (подключено=${connectedPlayers})`);
-        }, 300000); // 5 минут
+        }, 300000)); // 5 минут
     }
 
     private broadcastMonitoringStats(): void {
@@ -2081,10 +2113,10 @@ export class GameServer {
                     const playerUpdateTracker = this.lastPlayerUpdateTick.get(player.id)!;
 
                     // SPATIAL PARTITIONING: Get nearby players from spatial grid
-                    // ВАЖНО: Если игроков мало (< 10), не используем spatial filtering - всех видно
+                    // [Opus 4.6] Spatial filtering для оптимизации O(n²) → O(n) при >= 4 игроках
                     let nearbyPlayerIds: Set<string> | null = null;
                     const playerCount = room.getAllPlayers().length;
-                    if (playerCount >= 10 && spatialGrid.getPlayerCount() > 0) {
+                    if (playerCount >= 4 && spatialGrid.getPlayerCount() > 0) {
                         nearbyPlayerIds = spatialGrid.getNearbyPlayers(player.id, 300); // 300 unit radius
                     }
 
@@ -2481,6 +2513,15 @@ export class GameServer {
         if (this.tickInterval) {
             clearInterval(this.tickInterval);
         }
+
+        // Очищаем все мониторинг-интервалы
+        for (const interval of this.monitoringIntervals) {
+            clearInterval(interval);
+        }
+        this.monitoringIntervals = [];
+
+        // Очищаем delta compressors
+        this.deltaCompressor.clear();
 
         this.wss.close();
         serverLogger.log("[Server] Server shutdown");

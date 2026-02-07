@@ -272,7 +272,7 @@ export class TransformEditor {
             this.previewTank.chassis,
             this.previewTank.turret,
             this.previewTank.barrel,
-            ...(this.previewTank.wheels || [])
+            ...[this.previewTank.leftTrack, this.previewTank.rightTrack].filter(Boolean) // [Opus 4.6] PreviewTank uses leftTrack/rightTrack, not wheels
         ].filter(Boolean);
 
         // Проверяем сам меш и его родителей

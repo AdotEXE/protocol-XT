@@ -11142,6 +11142,7 @@ export class HUD {
      * @param gForce Текущая перегрузка
      * @param throttle Тяга 0–1
      * @param isVisible Показывать ли HUD (true если в самолёте)
+     * @param isBraking Активны ли воздушные тормоза
      */
     public updateAircraftHUD(
         aimCircleScreenPos: { x: number; y: number },
@@ -11149,7 +11150,11 @@ export class HUD {
         isStalling: boolean,
         gForce: number,
         isVisible: boolean,
-        throttle: number = 0
+        throttle: number = 0,
+        isBraking: boolean = false,
+        airbrakeActive: boolean = false,
+        speed: number = 0,
+        maxSpeed: number = 185
     ): void {
         if (this.aircraftHUD) {
             this.aircraftHUD.setVisible(isVisible);
@@ -11159,7 +11164,11 @@ export class HUD {
                     headingCrossScreenPos,
                     isStalling,
                     gForce,
-                    throttle
+                    throttle,
+                    isBraking,
+                    airbrakeActive,
+                    speed,
+                    maxSpeed
                 );
             }
         }

@@ -413,7 +413,7 @@ export class BotPerformanceUI {
                 bar.background = barColor;
                 bar.top = `${top + 15 + (40 - barHeight)}px`;
                 bar.left = `${-280 + index * barWidth}px`;
-                this.container.addControl(bar);
+                this.container?.addControl(bar); // [Opus 4.6] Null-safe access
             });
 
             // Текстовое представление для дополнительной информации

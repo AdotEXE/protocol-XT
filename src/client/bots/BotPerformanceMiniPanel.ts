@@ -141,9 +141,9 @@ export class BotPerformanceMiniPanel {
             this.container.addControl(title);
             yOffset += lineHeight + 5;
 
-            // Ключевые метрики
-            const fpsColor = metrics.averageFPSImpact > 5 ? "#f00" : metrics.averageFPSImpact > 2 ? "#ff0" : "#0f0";
-            this.addMiniLine(`FPS: ${metrics.averageFPSImpact.toFixed(1)}%`, yOffset, fpsColor);
+            // Ключевые метрики - [Opus 4.5] Fixed: use estimatedFPSImpact instead of averageFPSImpact
+            const fpsColor = metrics.estimatedFPSImpact > 5 ? "#f00" : metrics.estimatedFPSImpact > 2 ? "#ff0" : "#0f0";
+            this.addMiniLine(`FPS: ${metrics.estimatedFPSImpact.toFixed(1)}%`, yOffset, fpsColor);
             yOffset += lineHeight;
 
             this.addMiniLine(`Ботов: ${metrics.aliveBots}/${metrics.totalBots}`, yOffset);

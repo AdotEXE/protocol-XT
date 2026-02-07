@@ -44,7 +44,7 @@ import { createClientMessage } from "../shared/protocol";
 import { isMobileDevice } from "./mobile/MobileDetection";
 import { timerManager } from "./optimization/TimerManager";
 import { vector3Pool } from "./optimization/Vector3Pool";
-import { updateTrajectoryLine } from "./tank/tankTrajectoryVisualization";
+import { updateTrajectoryLine, disposeTrajectoryLine } from "./tank/tankTrajectoryVisualization"; // [Opus 4.6] added disposeTrajectoryLine
 
 export class TankController {
     scene: Scene;
@@ -1075,7 +1075,12 @@ export class TankController {
         const savedTrackId = localStorage.getItem("selectedTrack") || "standard";
 
         this.chassisType = getChassisById(savedChassisId);
-        this.cannonType = getCannonById(savedCannonId);
+        // Для самолёта принудительно ставим авиационный пулемёт
+        if (this.chassisType.id === "plane") {
+            this.cannonType = getCannonById("aircraft_mg");
+        } else {
+            this.cannonType = getCannonById(savedCannonId);
+        }
         this.trackType = getTrackById(savedTrackId);
 
         // Инициализируем характеристики танка
@@ -2266,10 +2271,10 @@ export class TankController {
             this.toggleAimMode(false);
         }
 
-        // Очищаем визуализацию траектории
-        if (this.aimTrajectoryLine) {
-            disposeTrajectoryLine(this.aimTrajectoryLine);
-            this.aimTrajectoryLine = null;
+        // Очищаем визуализацию траектории // [Opus 4.6] aimTrajectoryLine → trajectoryLine
+        if (this.trajectoryLine) {
+            disposeTrajectoryLine(this.trajectoryLine);
+            this.trajectoryLine = null;
         }
 
         // КРИТИЧНО: Отправляем событие для сброса углов камеры в game.ts ПОСЛЕ сброса вращения
@@ -2834,9 +2839,9 @@ export class TankController {
             // Включаем траекторию при прицеливании
             this.updateAimTrajectory();
         } else {
-            // Скрываем траекторию когда не прицеливаемся
-            if (this.aimTrajectoryLine) {
-                this.aimTrajectoryLine.setEnabled(false);
+            // Скрываем траекторию когда не прицеливаемся // [Opus 4.6] aimTrajectoryLine → trajectoryLine
+            if (this.trajectoryLine) {
+                this.trajectoryLine.setEnabled(false);
             }
         }
     }
@@ -2846,8 +2851,8 @@ export class TankController {
      */
     private updateAimTrajectory(): void {
         if (!this.isAiming || !this.showProjectileTrajectory || !this.scene || !this.barrel || !this.cannonType) {
-            if (this.aimTrajectoryLine) {
-                this.aimTrajectoryLine.setEnabled(false);
+            if (this.trajectoryLine) { // [Opus 4.6] aimTrajectoryLine → trajectoryLine
+                this.trajectoryLine.setEnabled(false);
             }
             return;
         }
@@ -2865,9 +2870,9 @@ export class TankController {
                 muzzlePosition.y += 0.3;
             }
 
-            // Обновляем или создаем линию траектории
-            this.aimTrajectoryLine = updateTrajectoryLine(
-                this.aimTrajectoryLine,
+            // Обновляем или создаем линию траектории // [Opus 4.6] aimTrajectoryLine → trajectoryLine
+            this.trajectoryLine = updateTrajectoryLine(
+                this.trajectoryLine,
                 this.scene,
                 this.cannonType,
                 muzzlePosition,
@@ -2875,8 +2880,8 @@ export class TankController {
                 300 // Максимальная дальность визуализации
             );
 
-            if (this.aimTrajectoryLine) {
-                this.aimTrajectoryLine.setEnabled(true);
+            if (this.trajectoryLine) {
+                this.trajectoryLine.setEnabled(true);
             }
         } catch (error) {
             logger.warn("[TankController] Failed to update aim trajectory:", error);
@@ -2991,7 +2996,7 @@ export class TankController {
         // === ПРОВЕРКА ТУРЕЛЕЙ ВРАГОВ ===
         if (this.enemyManager && this.enemyManager.turrets) {
             for (const turret of this.enemyManager.turrets) {
-                if (!turret.isAlive || !turret.base || turret.isDestroyed || turret.base.isDisposed()) continue;
+                if (!turret.isAlive || !turret.base || !turret.isAlive || turret.base.isDisposed()) continue; // [Opus 4.6] isDestroyed → !isAlive
                 checkTarget(turret.base.getAbsolutePosition());
             }
         }
@@ -3143,14 +3148,16 @@ export class TankController {
                     this.soundManager.playReloadComplete();
                 }
             }, this.cooldown);
+            this.tankTimeouts.push(reloadTimeout as any);
 
             // FAILSAFE: Если через 2x cooldown reload всё еще active - принудительно сбрасываем
-            setTimeout(() => {
+            const failsafeTimeout = setTimeout(() => {
                 if (this.isReloading) {
                     logger.warn('[TankController] FAILSAFE: Reload was stuck, forcing reset');
                     this.isReloading = false;
                 }
             }, this.cooldown * 2 + 500);
+            this.tankTimeouts.push(failsafeTimeout as any);
 
             // Play shooting sound (с учётом типа пушки) with 3D positioning
             if (this.soundManager) {
@@ -3282,7 +3289,11 @@ export class TankController {
             }
 
             // Create projectile mesh with unique shape for some types
-            if (this.cannonType.id === "shotgun") {
+            if (this.cannonType.id === "aircraft_mg") {
+                // Авиационный пулемёт — стреляет из двух точек на крыльях одновременно
+                this.fireAircraftMG(muzzlePos, shootDirection);
+                return; // Aircraft MG handled separately
+            } else if (this.cannonType.id === "shotgun") {
                 // Shotgun fires multiple projectiles
                 this.fireShotgunSpread(muzzlePos, shootDirection);
                 return; // Shotgun handled separately
@@ -3901,7 +3912,7 @@ export class TankController {
                             // ИМПАКТ: Если рикошета не произошло (угол слишком крутой), снаряд взрывается/удаляется
                             // Это предотвращает "скольжение" снаряда по земле
                             if (this.effectsManager) this.effectsManager.createHitSpark(bulletPos); // Или createExplosion если HE
-                            if (this.soundManager) this.soundManager.playHit("soft", bulletPos);
+                            if (this.soundManager) this.soundManager.playHit("normal", bulletPos); // [Opus 4.6] "soft" → "normal" (valid hit type)
 
                             // Записываем промах (попадание в землю)
                             if (this.playerProgression) {
@@ -4059,6 +4070,88 @@ export class TankController {
 
             // Hit detection (same as normal projectile)
             this.setupProjectileHitDetection(pellet, body);
+        }
+    }
+
+    /**
+     * Авиационный пулемёт — стреляет из двух точек на крыльях одновременно.
+     * Каждый выстрел создаёт 2 снаряда (левое и правое крыло).
+     */
+    private fireAircraftMG(muzzlePos: Vector3, direction: Vector3): void {
+        // Половина размаха крыла — позиции пушек на крыльях
+        const wingSpan = 2.5; // Чуть ближе к фюзеляжу чем contrails (3.0)
+        const wingGunForwardOffset = 1.0; // Пушки чуть впереди по оси Z
+
+        // Получаем ориентацию самолёта для расчёта мировых позиций крыльев
+        const chassis = this.chassis;
+        chassis.computeWorldMatrix(true);
+        const worldMatrix = chassis.getWorldMatrix();
+
+        // Локальные позиции пулемётов на крыльях (относительно chassis)
+        const localLeft = new Vector3(-wingSpan, -0.2, wingGunForwardOffset);
+        const localRight = new Vector3(wingSpan, -0.2, wingGunForwardOffset);
+
+        // Трансформируем в мировые координаты
+        const wingPosLeft = Vector3.TransformCoordinates(localLeft, worldMatrix);
+        const wingPosRight = Vector3.TransformCoordinates(localRight, worldMatrix);
+
+        // Стреляем из обоих крыльев
+        const positions = [wingPosLeft, wingPosRight];
+        const bulletColor = new Color3(1, 0.85, 0); // Жёлтый трассер
+
+        for (const spawnPos of positions) {
+            // Создаём снаряд-пулю (маленький и быстрый)
+            const bullet = MeshBuilder.CreateBox("aircraftMgBullet", {
+                width: this.projectileSize * 1.5,
+                height: this.projectileSize * 1.5,
+                depth: this.projectileSize * 5 // Вытянутый — трассер
+            }, this.scene);
+
+            bullet.position.copyFrom(spawnPos);
+            bullet.lookAt(spawnPos.add(direction));
+
+            // Яркий жёлтый материал трассера
+            const bulletMat = new StandardMaterial("aircraftMgMat", this.scene);
+            bulletMat.diffuseColor = bulletColor;
+            bulletMat.emissiveColor = bulletColor.scale(2.5);
+            bulletMat.disableLighting = true;
+            bullet.material = bulletMat;
+
+            bullet.metadata = {
+                type: "bullet",
+                owner: "player",
+                damage: this.damage, // Урон уже задан в cannonType (2)
+                cannonType: "aircraft_mg"
+            };
+
+            // Физика снаряда
+            const shape = new PhysicsShape({
+                type: PhysicsShapeType.BOX,
+                parameters: { extents: new Vector3(this.projectileSize * 0.5, this.projectileSize * 0.5, this.projectileSize * 2) }
+            }, this.scene);
+            shape.filterMembershipMask = 4; // Player bullet group
+            shape.filterCollideMask = 2 | 8 | 32; // Environment, enemy tanks, protective walls
+
+            const body = new PhysicsBody(bullet, PhysicsMotionType.DYNAMIC, false, this.scene);
+            body.shape = shape;
+            body.setMassProperties({ mass: 0.001 });
+            body.setLinearDamping(0.01);
+            // Авиапулемёт — быстрые пули
+            body.applyImpulse(direction.scale(this.projectileSpeed * 0.018), bullet.position);
+
+            // Трассерный след
+            if (this.effectsManager) {
+                this.effectsManager.createBulletTrail(bullet, bulletColor, "aircraft_mg");
+            }
+
+            // Детекция попаданий
+            this.setupProjectileHitDetection(bullet, body);
+        }
+
+        // Мини-вспышки на обоих крыльях
+        if (this.effectsManager) {
+            this.effectsManager.createMuzzleFlash(wingPosLeft, direction, "aircraft_mg");
+            this.effectsManager.createMuzzleFlash(wingPosRight, direction, "aircraft_mg");
         }
     }
 
@@ -5152,7 +5245,7 @@ export class TankController {
             this.checkTriggers(dt);
 
             // === САМОЛЁТ: обрабатываем ввод и выходим ДО tilt/танковой физики ===
-            const isPlane = this.chassisType === "plane" || (typeof this.chassisType === 'object' && (
+            const isPlane = this.chassisType?.id === "plane" || (typeof this.chassisType === 'object' && ( // [Opus 4.6] ChassisType is object, compare .id
                 (this.chassisType as any)?.id === "plane" ||
                 (this.chassisType as any)?.id?.includes?.("plane") ||
                 (this.chassisType as any)?.id?.includes?.("mig31")

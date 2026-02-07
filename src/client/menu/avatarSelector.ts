@@ -26,6 +26,8 @@ export interface AvatarSelectorCallbacks {
 }
 
 export class AvatarSelector {
+    private static currentInstance: AvatarSelector | null = null;
+
     private overlay: HTMLDivElement | null = null;
     private currentAvatar: string = 'tank';
     private callbacks: AvatarSelectorCallbacks;
@@ -39,7 +41,16 @@ export class AvatarSelector {
      * Показывает селектор аватарок
      */
     public show(): void {
-        if (this.overlay) return; // Уже открыт
+        // Если уже есть открытый экземпляр - не открываем ещё один
+        if (AvatarSelector.currentInstance?.overlay) {
+            console.log('[AvatarSelector] Already open, skipping');
+            return;
+        }
+
+        if (this.overlay) return; // Этот экземпляр уже открыт
+
+        // Регистрируем себя как текущий активный экземпляр
+        AvatarSelector.currentInstance = this;
 
         this.overlay = document.createElement('div');
         this.overlay.className = 'avatar-selector-overlay';
@@ -133,19 +144,19 @@ export class AvatarSelector {
 
         const switchTab = (tab: string) => {
             activeTab = tab as any;
-            
+
             [presetTab, generatorTab, editorTab, historyTab].forEach((btn, idx) => {
-                const isActive = (tab === 'preset' && idx === 0) || 
-                                (tab === 'generator' && idx === 1) || 
-                                (tab === 'editor' && idx === 2) ||
-                                (tab === 'history' && idx === 3);
+                const isActive = (tab === 'preset' && idx === 0) ||
+                    (tab === 'generator' && idx === 1) ||
+                    (tab === 'editor' && idx === 2) ||
+                    (tab === 'history' && idx === 3);
                 btn.style.background = isActive ? 'rgba(0, 255, 0, 0.2)' : 'rgba(0, 0, 0, 0.5)';
                 btn.style.borderColor = isActive ? '#0f0' : '#080';
                 btn.style.color = isActive ? '#0f0' : '#080';
             });
-            
+
             tabContent.innerHTML = '';
-            
+
             if (tab === 'preset') {
                 this.createPresetTabContent(tabContent);
             } else if (tab === 'generator') {
@@ -228,6 +239,12 @@ export class AvatarSelector {
             this.overlay.remove();
             this.overlay = null;
         }
+
+        // Очищаем статический экземпляр чтобы можно было открыть снова
+        if (AvatarSelector.currentInstance === this) {
+            AvatarSelector.currentInstance = null;
+        }
+
         if (this.callbacks.onClose) {
             this.callbacks.onClose();
         }
@@ -375,21 +392,21 @@ export class AvatarSelector {
         // === ШАБЛОНЫ ===
         const templatesSection = document.createElement('div');
         templatesSection.style.cssText = 'margin: 6px 0; flex-shrink: 0;';
-        
+
         const templatesLabel = document.createElement('label');
         templatesLabel.textContent = 'ШАБЛОНЫ:';
         templatesLabel.style.cssText = 'color: #0f0; font-size: 8px; display: block; margin-bottom: 4px;';
-        
+
         const templatesContainer = document.createElement('div');
         templatesContainer.style.cssText = 'display: flex; gap: 6px; flex-wrap: wrap;';
-        
+
         const templates = [
             { name: 'Танк', desc: 'Зеленый танк с пушкой и гусеницами' },
             { name: 'Солдат', desc: 'Военный в камуфляже с оружием' },
             { name: 'Командир', desc: 'Офицер с погонами и биноклем' },
             { name: 'Киборг', desc: 'Робот-танк с механическими деталями' },
         ];
-        
+
         templates.forEach(template => {
             const templateBtn = document.createElement('button');
             templateBtn.textContent = template.name;
@@ -403,24 +420,24 @@ export class AvatarSelector {
                 font-size: 8px;
                 transition: all 0.2s ease;
             `;
-            
+
             templateBtn.addEventListener('mouseenter', () => {
                 templateBtn.style.borderColor = '#0f0';
                 templateBtn.style.color = '#0f0';
             });
-            
+
             templateBtn.addEventListener('mouseleave', () => {
                 templateBtn.style.borderColor = '#080';
                 templateBtn.style.color = '#0a0';
             });
-            
+
             templateBtn.addEventListener('click', () => {
                 descriptionInput.value = template.desc;
             });
-            
+
             templatesContainer.appendChild(templateBtn);
         });
-        
+
         templatesSection.appendChild(templatesLabel);
         templatesSection.appendChild(templatesContainer);
 
@@ -459,7 +476,7 @@ export class AvatarSelector {
             const labelEl = document.createElement('label');
             labelEl.textContent = label + ':';
             labelEl.style.cssText = 'color: #0f0; font-size: 9px; display: block; margin-bottom: 3px;';
-            
+
             const select = document.createElement('select');
             select.id = id;
             select.style.cssText = `
@@ -471,14 +488,14 @@ export class AvatarSelector {
                 font-family: inherit;
                 font-size: 9px;
             `;
-            
+
             if (defaultValue) {
                 const defaultOpt = document.createElement('option');
                 defaultOpt.value = '';
                 defaultOpt.textContent = 'По умолчанию';
                 select.appendChild(defaultOpt);
             }
-            
+
             options.forEach(opt => {
                 const option = document.createElement('option');
                 option.value = opt.toLowerCase().replace(/\s+/g, '-');
@@ -486,14 +503,14 @@ export class AvatarSelector {
                 if (opt.toLowerCase() === defaultValue.toLowerCase()) option.selected = true;
                 select.appendChild(option);
             });
-            
+
             const container = document.createElement('div');
             container.appendChild(labelEl);
             container.appendChild(select);
             return { container, select };
         };
 
-        const styleSelect = createSelect('СТИЛЬ', 'avatar-style', 
+        const styleSelect = createSelect('СТИЛЬ', 'avatar-style',
             ['Pixel', 'Retro', 'Military', 'Sci-Fi', 'Cyberpunk', 'Steampunk', 'Post-Apocalyptic'], 'pixel');
         const themeSelect = createSelect('ТЕМА', 'avatar-theme',
             ['Tank', 'Soldier', 'Vehicle', 'Character', 'Emblem'], 'tank');
@@ -521,7 +538,7 @@ export class AvatarSelector {
         const colorsLabel = document.createElement('label');
         colorsLabel.textContent = 'ЦВЕТОВАЯ ПАЛИТРА (через запятую):';
         colorsLabel.style.cssText = 'color: #0f0; font-size: 9px; display: block; margin-bottom: 3px;';
-        
+
         const colorsInput = document.createElement('input');
         colorsInput.type = 'text';
         colorsInput.id = 'avatar-colors';
@@ -540,7 +557,7 @@ export class AvatarSelector {
         const accessoriesLabel = document.createElement('label');
         accessoriesLabel.textContent = 'АКСЕССУАРЫ (через запятую):';
         accessoriesLabel.style.cssText = 'color: #0f0; font-size: 9px; display: block; margin-bottom: 3px;';
-        
+
         const accessoriesInput = document.createElement('input');
         accessoriesInput.type = 'text';
         accessoriesInput.id = 'avatar-accessories';
@@ -572,11 +589,11 @@ export class AvatarSelector {
         // === ИСТОРИЯ ГЕНЕРАЦИЙ ===
         const historySection = document.createElement('div');
         historySection.style.cssText = 'border-bottom: 1px solid #080; padding: 10px 0; flex-shrink: 0;';
-        
+
         const historyLabel = document.createElement('label');
         historyLabel.textContent = 'ИСТОРИЯ ГЕНЕРАЦИЙ:';
         historyLabel.style.cssText = 'color: #0f0; font-size: 8px; display: block; margin-bottom: 4px;';
-        
+
         const historyContainer = document.createElement('div');
         historyContainer.id = 'avatar-history';
         historyContainer.style.cssText = `
@@ -590,16 +607,16 @@ export class AvatarSelector {
             border: 1px solid #080;
             margin-bottom: 8px;
         `;
-        
+
         const updateHistoryDisplay = () => {
             const history = getGenerationHistory();
             historyContainer.innerHTML = '';
-            
+
             if (history.length === 0) {
                 historyContainer.innerHTML = '<div style="color: #0a0; font-size: 8px; grid-column: 1/-1; text-align: center; padding: 10px;">История пуста</div>';
                 return;
             }
-            
+
             history.forEach((item) => {
                 const historyItem = document.createElement('div');
                 historyItem.style.cssText = `
@@ -608,7 +625,7 @@ export class AvatarSelector {
                     border: 1px solid #080;
                     transition: all 0.2s ease;
                 `;
-                
+
                 loadCustomAvatarAsync(item.id).then(canvas => {
                     if (canvas) {
                         const displayCanvas = canvas.cloneNode(true) as HTMLCanvasElement;
@@ -618,29 +635,29 @@ export class AvatarSelector {
                         displayCanvas.style.imageRendering = '-moz-crisp-edges';
                         displayCanvas.style.imageRendering = 'crisp-edges';
                         historyItem.appendChild(displayCanvas);
-                        
+
                         historyItem.addEventListener('click', () => {
                             this.selectAvatar(item.id);
                         });
-                        
+
                         historyItem.addEventListener('mouseenter', () => {
                             historyItem.style.borderColor = '#0f0';
                             historyItem.style.transform = 'scale(1.1)';
                         });
-                        
+
                         historyItem.addEventListener('mouseleave', () => {
                             historyItem.style.borderColor = '#080';
                             historyItem.style.transform = 'scale(1)';
                         });
                     }
                 });
-                
+
                 historyContainer.appendChild(historyItem);
             });
         };
-        
+
         updateHistoryDisplay();
-        
+
         const clearHistoryBtn = document.createElement('button');
         clearHistoryBtn.textContent = 'ОЧИСТИТЬ ИСТОРИЮ';
         clearHistoryBtn.style.cssText = `
@@ -654,14 +671,14 @@ export class AvatarSelector {
             font-size: 8px;
             margin-bottom: 8px;
         `;
-        
+
         clearHistoryBtn.addEventListener('click', () => {
             inGameConfirm('Очистить всю историю генераций?', 'Подтверждение').then((ok) => {
                 if (ok) {
                     clearGenerationHistory();
                     updateHistoryDisplay();
                 }
-            }).catch(() => {});
+            }).catch(() => { });
         });
 
         // === ПРЕВЬЮ И КНОПКИ ===
@@ -769,7 +786,7 @@ export class AvatarSelector {
         let generatedCanvas: HTMLCanvasElement | null = null;
 
         const generateRequest = (): GeminiAvatarRequest => {
-            const colors = colorsInput.value.trim() 
+            const colors = colorsInput.value.trim()
                 ? colorsInput.value.split(',').map(c => c.trim()).filter(c => c)
                 : undefined;
 
@@ -795,7 +812,7 @@ export class AvatarSelector {
         generateBtn.addEventListener('click', async () => {
             const description = descriptionInput.value.trim();
             if (!description) {
-                inGameAlert('Введите описание аватара!', 'Аватар').catch(() => {});
+                inGameAlert('Введите описание аватара!', 'Аватар').catch(() => { });
                 return;
             }
 
@@ -817,12 +834,12 @@ export class AvatarSelector {
                     displayCanvas.style.imageRendering = '-moz-crisp-edges';
                     displayCanvas.style.imageRendering = 'crisp-edges';
                     previewContainer.appendChild(displayCanvas);
-                    
+
                     useBtn.style.opacity = '1';
                     useBtn.style.cursor = 'pointer';
                     exportBtn.style.opacity = '1';
                     exportBtn.style.cursor = 'pointer';
-                    
+
                     updateHistoryDisplay();
                 } else {
                     previewContainer.innerHTML = '<div style="color: #f00; font-size: 10px;">Ошибка генерации</div>';
@@ -839,7 +856,7 @@ export class AvatarSelector {
         generateMultipleBtn.addEventListener('click', async () => {
             const description = descriptionInput.value.trim();
             if (!description) {
-                inGameAlert('Введите описание аватара!', 'Аватар').catch(() => {});
+                inGameAlert('Введите описание аватара!', 'Аватар').catch(() => { });
                 return;
             }
 
@@ -868,21 +885,21 @@ export class AvatarSelector {
                         padding: 5px;
                         transition: all 0.2s ease;
                     `;
-                    
+
                     const displayCanvas = canvas.cloneNode(true) as HTMLCanvasElement;
                     displayCanvas.style.width = '96px';
                     displayCanvas.style.height = '96px';
                     displayCanvas.style.imageRendering = 'pixelated';
                     displayCanvas.style.imageRendering = '-moz-crisp-edges';
                     displayCanvas.style.imageRendering = 'crisp-edges';
-                    
+
                     const label = document.createElement('div');
                     label.textContent = `Вариант ${index + 1}`;
                     label.style.cssText = 'color: #0a0; font-size: 8px;';
-                    
+
                     variantContainer.appendChild(displayCanvas);
                     variantContainer.appendChild(label);
-                    
+
                     variantContainer.addEventListener('click', () => {
                         generatedCanvas = canvas;
                         previewContainer.innerHTML = '';
@@ -894,27 +911,27 @@ export class AvatarSelector {
                         mainCanvas.style.imageRendering = 'crisp-edges';
                         previewContainer.appendChild(mainCanvas);
                     });
-                    
+
                     variantContainer.addEventListener('mouseenter', () => {
                         variantContainer.style.borderColor = '#0f0';
                         variantContainer.style.transform = 'scale(1.05)';
                     });
-                    
+
                     variantContainer.addEventListener('mouseleave', () => {
                         variantContainer.style.borderColor = '#080';
                         variantContainer.style.transform = 'scale(1)';
                     });
-                    
+
                     previewContainer.appendChild(variantContainer);
                 });
-                
+
                 if (generatedCanvas) {
                     useBtn.style.opacity = '1';
                     useBtn.style.cursor = 'pointer';
                     exportBtn.style.opacity = '1';
                     exportBtn.style.cursor = 'pointer';
                 }
-                
+
                 updateHistoryDisplay();
             } catch (error) {
                 console.error('[AvatarSelector] Generation error:', error);
@@ -936,7 +953,7 @@ export class AvatarSelector {
 
         exportBtn.addEventListener('click', () => {
             if (!generatedCanvas) {
-                inGameAlert('Сначала сгенерируйте аватар!', 'Аватар').catch(() => {});
+                inGameAlert('Сначала сгенерируйте аватар!', 'Аватар').catch(() => { });
                 return;
             }
 
@@ -1034,31 +1051,31 @@ export class AvatarSelector {
         mainSection.appendChild(descriptionLabel);
         mainSection.appendChild(descriptionInput);
         mainSection.appendChild(templatesSection);
-        
+
         advancedSection.appendChild(advancedToggle);
         advancedSection.appendChild(advancedPanel);
-        
+
         historySection.appendChild(historyLabel);
         historySection.appendChild(historyContainer);
         historySection.appendChild(clearHistoryBtn);
-        
+
         previewSection.appendChild(previewContainer);
-        
+
         importBtn.addEventListener('click', () => {
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = '.png,.json,image/png,application/json';
             input.style.display = 'none';
-            
+
             input.addEventListener('change', async (e) => {
                 const file = (e.target as HTMLInputElement).files?.[0];
                 if (!file) return;
-                
+
                 const reader = new FileReader();
                 reader.onload = async (event) => {
                     try {
                         let canvas: HTMLCanvasElement | null = null;
-                        
+
                         if (file.type === 'application/json' || file.name.endsWith('.json')) {
                             // Импорт из JSON
                             const json = event.target?.result as string;
@@ -1069,7 +1086,7 @@ export class AvatarSelector {
                             const { importAvatarFromBase64 } = await import("./avatarEditor");
                             canvas = await importAvatarFromBase64(base64);
                         }
-                        
+
                         if (canvas) {
                             generatedCanvas = canvas;
                             previewContainer.innerHTML = '';
@@ -1080,29 +1097,29 @@ export class AvatarSelector {
                             displayCanvas.style.imageRendering = '-moz-crisp-edges';
                             displayCanvas.style.imageRendering = 'crisp-edges';
                             previewContainer.appendChild(displayCanvas);
-                            
+
                             useBtn.style.opacity = '1';
                             useBtn.style.cursor = 'pointer';
                             exportBtn.style.opacity = '1';
                             exportBtn.style.cursor = 'pointer';
-                            
+
                             updateHistoryDisplay();
                         } else {
-                            inGameAlert('Ошибка импорта аватара', 'Ошибка').catch(() => {});
+                            inGameAlert('Ошибка импорта аватара', 'Ошибка').catch(() => { });
                         }
                     } catch (error) {
                         console.error('[AvatarSelector] Import error:', error);
-                        inGameAlert('Ошибка импорта: ' + (error as Error).message, 'Ошибка').catch(() => {});
+                        inGameAlert('Ошибка импорта: ' + (error as Error).message, 'Ошибка').catch(() => { });
                     }
                 };
-                
+
                 if (file.type === 'application/json' || file.name.endsWith('.json')) {
                     reader.readAsText(file);
                 } else {
                     reader.readAsDataURL(file);
                 }
             });
-            
+
             document.body.appendChild(input);
             input.click();
             document.body.removeChild(input);
@@ -1132,7 +1149,7 @@ export class AvatarSelector {
 
         // Загружаем текущий аватар или создаем новый
         let editingCanvas: HTMLCanvasElement;
-        
+
         if (this.currentAvatar.startsWith('custom_')) {
             const loaded = loadCustomAvatar(this.currentAvatar);
             editingCanvas = loaded || generatePixelAvatar({ variant: 'tank' });
@@ -1248,10 +1265,10 @@ export class AvatarSelector {
 
         // Инструменты редактора
         let currentTool: 'brush' | 'fill' | 'eraser' | 'eyedropper' = 'brush';
-        
+
         const toolsSection = document.createElement('div');
         toolsSection.style.cssText = 'display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;';
-        
+
         const createToolButton = (tool: typeof currentTool, label: string) => {
             const btn = document.createElement('button');
             btn.textContent = label;
@@ -1265,28 +1282,28 @@ export class AvatarSelector {
                 font-size: 9px;
                 transition: all 0.2s ease;
             `;
-            
+
             btn.addEventListener('click', () => {
                 currentTool = tool;
                 toolsSection.querySelectorAll('button').forEach((b, idx) => {
                     const isActive = (tool === 'brush' && idx === 0) ||
-                                   (tool === 'fill' && idx === 1) ||
-                                   (tool === 'eraser' && idx === 2) ||
-                                   (tool === 'eyedropper' && idx === 3);
+                        (tool === 'fill' && idx === 1) ||
+                        (tool === 'eraser' && idx === 2) ||
+                        (tool === 'eyedropper' && idx === 3);
                     b.style.background = isActive ? 'rgba(0, 255, 0, 0.3)' : 'rgba(0, 0, 0, 0.5)';
                     b.style.borderColor = isActive ? '#0f0' : '#080';
                     b.style.color = isActive ? '#0f0' : '#0a0';
                 });
             });
-            
+
             return btn;
         };
-        
+
         const brushBtn = createToolButton('brush', 'КИСТЬ');
         const fillBtn = createToolButton('fill', 'ЗАЛИВКА');
         const eraserBtn = createToolButton('eraser', 'ЛАСТИК');
         const eyedropperBtn = createToolButton('eyedropper', 'ПИПЕТКА');
-        
+
         toolsSection.appendChild(brushBtn);
         toolsSection.appendChild(fillBtn);
         toolsSection.appendChild(eraserBtn);
@@ -1315,22 +1332,22 @@ export class AvatarSelector {
             const ctx = editingCanvas.getContext('2d')!;
             const imageData = ctx.getImageData(0, 0, 32, 32);
             const data = imageData.data;
-            
+
             if (startX < 0 || startX >= 32 || startY < 0 || startY >= 32) return;
-            
+
             const targetIdx = (startY * 32 + startX) * 4;
             const targetR = data[targetIdx];
             const targetG = data[targetIdx + 1];
             const targetB = data[targetIdx + 2];
-            
+
             if (targetColor === fillColor) return; // Уже залито
-            
+
             const fillRgb = hexToRgb(fillColor);
             if (!fillRgb) return;
-            
+
             const stack: Array<{ x: number; y: number }> = [{ x: startX, y: startY }];
             const visited = new Set<string>();
-            
+
             while (stack.length > 0) {
                 const item = stack.pop();
                 if (!item) continue;
@@ -1338,25 +1355,25 @@ export class AvatarSelector {
                 const key = `${x},${y}`;
                 if (visited.has(key)) continue;
                 if (x < 0 || x >= 32 || y < 0 || y >= 32) continue;
-                
+
                 const idx = (y * 32 + x) * 4;
                 const r = data[idx];
                 const g = data[idx + 1];
                 const b = data[idx + 2];
-                
+
                 if (r === targetR && g === targetG && b === targetB) {
                     data[idx] = fillRgb.r;
                     data[idx + 1] = fillRgb.g;
                     data[idx + 2] = fillRgb.b;
                     visited.add(key);
-                    
+
                     if (x + 1 < 32) stack.push({ x: x + 1, y });
                     if (x - 1 >= 0) stack.push({ x: x - 1, y });
                     if (y + 1 < 32) stack.push({ x, y: y + 1 });
                     if (y - 1 >= 0) stack.push({ x, y: y - 1 });
                 }
             }
-            
+
             ctx.putImageData(imageData, 0, 0);
         };
 
@@ -1373,9 +1390,9 @@ export class AvatarSelector {
         editCanvas.addEventListener('mousedown', (e) => {
             const coords = getPixelCoords(e);
             if (!coords) return;
-            
+
             isDrawing = true;
-            
+
             if (currentTool === 'brush') {
                 editPixel(editingCanvas, coords.x, coords.y, selectedColor);
                 updateCanvasDisplay();
@@ -1404,7 +1421,7 @@ export class AvatarSelector {
             if (!isDrawing) return;
             const coords = getPixelCoords(e);
             if (!coords) return;
-            
+
             if (currentTool === 'brush') {
                 editPixel(editingCanvas, coords.x, coords.y, selectedColor);
                 updateCanvasDisplay();
@@ -1493,7 +1510,7 @@ export class AvatarSelector {
      */
     private createHistoryTabContent(container: HTMLElement): void {
         const history = getGenerationHistory();
-        
+
         if (history.length === 0) {
             container.innerHTML = '<div style="color: #0a0; text-align: center; padding: 50px;">История генераций пуста</div>';
             return;

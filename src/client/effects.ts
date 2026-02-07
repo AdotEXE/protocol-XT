@@ -22,6 +22,8 @@ export class EffectsManager {
     private flashMat: StandardMaterial;
     private explosionMat: StandardMaterial;
     private dustMat: StandardMaterial;
+    // [Opus 4.6] Shared debris material - avoids creating new StandardMaterial per debris piece
+    private _sharedDebrisMat: StandardMaterial | null = null;
 
     // УЛУЧШЕНО: Опциональная улучшенная система частиц
     private particleEffects: ParticleEffects | null = null;
@@ -589,7 +591,7 @@ export class EffectsManager {
             debris.position = position.clone();
             this.activeEffects.add(debris); // Добавить в отслеживание
 
-            // УЛУЧШЕНО: Создаём отдельный материал для обломка
+            // [Opus 4.6] Create lightweight material per debris (needed for individual alpha animation)
             const debrisMat = new StandardMaterial("debrisMat", this.scene);
             debrisMat.diffuseColor = new Color3(1, 0.5, 0);
             debrisMat.specularColor = Color3.Black();
@@ -1000,6 +1002,8 @@ export class EffectsManager {
                         if (trailMat) trailMat.alpha = alpha;
                         if (alpha <= 0) {
                             trail.dispose();
+                            // [Opus 4.6] Dispose trail material to prevent leak
+                            try { if (trailMat) trailMat.dispose(); } catch (e) { /* already disposed */ }
                             if (fadeOutDescriptor) this.removeObserver(fadeOutDescriptor);
                         }
                     };
@@ -1312,7 +1316,7 @@ export class EffectsManager {
         const index = this._observers.findIndex(o => o.observer === observer);
         if (index !== -1) {
             const entry = this._observers[index];
-            entry.observable.remove(entry.observer);
+            if (entry) entry.observable.remove(entry.observer);
             this._observers.splice(index, 1);
         }
     }

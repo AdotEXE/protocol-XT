@@ -738,7 +738,7 @@ export class CheatMenu {
             category: "debug",
             toggle: () => {
                 if (!this.tank || !this.game) {
-                    inGameAlert("Танк или игра не инициализированы!", "Читы").catch(() => {});
+                    inGameAlert("Танк или игра не инициализированы!", "Читы").catch(() => { });
                     return;
                 }
 
@@ -749,33 +749,33 @@ export class CheatMenu {
                         const posX = parseFloat(x);
                         const posZ = parseFloat(z);
 
-                        if (!isNaN(posX) && !isNaN(posZ)) {
-                        // КРИТИЧНО: Вычисляем высоту террейна автоматически
-                        const groundHeight = this.getGroundHeight(posX, posZ);
-                        // Безопасная высота: +5м над террейном, минимум 7м
-                        const safeHeight = Math.max(groundHeight + 5.0, 7.0);
+                        if (!isNaN(posX) && !isNaN(posZ) && this.tank && this.tank.chassis) { // [Opus 4.5] Added null checks
+                            // КРИТИЧНО: Вычисляем высоту террейна автоматически
+                            const groundHeight = this.getGroundHeight(posX, posZ);
+                            // Безопасная высота: +5м над террейном, минимум 7м
+                            const safeHeight = Math.max(groundHeight + 5.0, 7.0);
 
-                        const targetPos = new Vector3(posX, safeHeight, posZ);
-                        this.tank.chassis.position = targetPos;
-                        if (this.tank.physicsBody) {
-                            this.tank.physicsBody.setTargetTransform(
-                                targetPos,
-                                this.tank.chassis.rotationQuaternion!
-                            );
-                            // КРИТИЧНО: Сбрасываем скорости при телепортации
-                            this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
-                            this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                            const targetPos = new Vector3(posX, safeHeight, posZ);
+                            this.tank.chassis.position = targetPos;
+                            if (this.tank.physicsBody) {
+                                this.tank.physicsBody.setTargetTransform(
+                                    targetPos,
+                                    this.tank.chassis.rotationQuaternion!
+                                );
+                                // КРИТИЧНО: Сбрасываем скорости при телепортации
+                                this.tank.physicsBody.setLinearVelocity(Vector3.Zero());
+                                this.tank.physicsBody.setAngularVelocity(Vector3.Zero());
+                            }
+                            // Обновляем матрицы
+                            this.tank.chassis.computeWorldMatrix(true);
+                            if (this.game && this.game.hud) { // [Opus 4.5] Added null check
+                                this.game.hud.showMessage(`Телепорт: (${posX.toFixed(1)}, ${safeHeight.toFixed(1)}, ${posZ.toFixed(1)}) - террейн: ${groundHeight.toFixed(1)}м`, "#0f0", 2000);
+                            }
+                        } else {
+                            inGameAlert("Неверные координаты!", "Читы").catch(() => { });
                         }
-                        // Обновляем матрицы
-                        this.tank.chassis.computeWorldMatrix(true);
-                        if (this.game.hud) {
-                            this.game.hud.showMessage(`Телепорт: (${posX.toFixed(1)}, ${safeHeight.toFixed(1)}, ${posZ.toFixed(1)}) - террейн: ${groundHeight.toFixed(1)}м`, "#0f0", 2000);
-                        }
-                    } else {
-                        inGameAlert("Неверные координаты!", "Читы").catch(() => {});
-                    }
-                    }).catch(() => {});
-                }).catch(() => {});
+                    }).catch(() => { });
+                }).catch(() => { });
             }
         });
 
@@ -788,7 +788,7 @@ export class CheatMenu {
             category: "debug",
             toggle: async () => {
                 if (!this.game || !this.tank) {
-                    inGameAlert("Игра или танк не инициализированы!", "Читы").catch(() => {});
+                    inGameAlert("Игра или танк не инициализированы!", "Читы").catch(() => { });
                     return;
                 }
 
@@ -927,7 +927,7 @@ export class CheatMenu {
             buttonText: "📍 XZ",
             toggle: () => {
                 inGamePrompt("Введите X, Z через запятую (Y вычисляется автоматически):", "0, 0", "Телепорт").then((coords) => {
-                if (!coords || !this.tank || !this.tank.chassis) return;
+                    if (!coords || !this.tank || !this.tank.chassis) return;
                     const parts = coords.split(",").map(s => parseFloat(s.trim()));
                     const posX = parts[0];
                     const posZ = parts[1];
@@ -952,9 +952,9 @@ export class CheatMenu {
                         this.tank.chassis.computeWorldMatrix(true);
                         this.showCheatNotification(`ТП: ${posX.toFixed(1)}, ${safeHeight.toFixed(1)}, ${posZ.toFixed(1)} 📍 (террейн: ${groundHeight.toFixed(1)}м)`);
                     } else {
-                        inGameAlert("Неверные координаты! Используйте формат: X, Z", "Читы").catch(() => {});
+                        inGameAlert("Неверные координаты! Используйте формат: X, Z", "Читы").catch(() => { });
                     }
-                }).catch(() => {});
+                }).catch(() => { });
             }
         });
 

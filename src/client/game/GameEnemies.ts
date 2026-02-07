@@ -81,6 +81,9 @@ export class GameEnemies {
     private sandRespawnDelay = 30000; // 30 секунд задержки перед респавном
     private sandPendingRespawns = 0; // Счётчик ожидающих респавнов
 
+    // Трекинг таймаутов для cleanup
+    private _respawnTimeouts: ReturnType<typeof setTimeout>[] = [];
+
     // Логирование адаптивной сложности
     private _lastAdaptiveDifficultyLogTime = 0;
 
@@ -274,7 +277,14 @@ export class GameEnemies {
         // Останавливаем постепенный спавн
         this.stopGradualSpawning();
 
+        // Очищаем все pending respawn таймауты
+        for (const t of this._respawnTimeouts) {
+            clearTimeout(t);
+        }
+        this._respawnTimeouts = [];
+
         this.frontlineWaveNumber = 0;
+        this.sandPendingRespawns = 0;
 
         logger.log("[GameEnemies] Cleared all enemies");
     }
@@ -717,7 +727,7 @@ export class GameEnemies {
         if (idx !== -1) this.enemyTanks.splice(idx, 1);
 
         // Респавн через 30 секунд
-        setTimeout(() => {
+        this._respawnTimeouts.push(setTimeout(() => {
             if (this.systems?.currentMapType === "polygon" &&
                 this.systems.soundManager && this.systems.effectsManager) {
 
@@ -738,7 +748,7 @@ export class GameEnemies {
                     logger.log(`[GameEnemies] Training bot respawned at (${spawnX.toFixed(1)}, ${spawnY.toFixed(1)}, ${spawnZ.toFixed(1)})`);
                 }
             }
-        }, 30000);
+        }, 30000));
     }
 
     /**
@@ -755,9 +765,9 @@ export class GameEnemies {
         this.spawnFrontlineDefenders();
 
         // Первая волна через 10 секунд
-        setTimeout(() => {
+        this._respawnTimeouts.push(setTimeout(() => {
             this.spawnFrontlineWave();
-        }, 10000);
+        }, 10000));
 
         // Таймер волн
         this.frontlineWaveTimer = window.setInterval(() => {
@@ -889,7 +899,7 @@ export class GameEnemies {
 
         // Респавн защитников
         if (type === "defender" && this.systems?.currentMapType === "frontline") {
-            setTimeout(() => {
+            this._respawnTimeouts.push(setTimeout(() => {
                 if (this.systems?.currentMapType === "frontline" &&
                     this.systems.soundManager && this.systems.effectsManager) {
 
@@ -916,7 +926,7 @@ export class GameEnemies {
                         logger.log(`[GameEnemies] Frontline: Defender respawned at (${newX.toFixed(1)}, ${spawnY.toFixed(1)}, ${newZ.toFixed(1)})`);
                     }
                 }
-            }, 60000);
+            }, 60000));
         }
     }
 
@@ -981,7 +991,7 @@ export class GameEnemies {
         logger.log(`[GameEnemies] Starting gradual spawn: delay=${this.gradualSpawnDelay}ms, interval=${this.gradualSpawnInterval}ms, maxBots=${this.gradualSpawnMaxBots}`);
 
         // Запускаем спавн через 2 секунды
-        setTimeout(() => {
+        this._respawnTimeouts.push(setTimeout(() => {
             if (!this.systems) return;
 
             // Спавним первого бота сразу
@@ -1001,7 +1011,7 @@ export class GameEnemies {
 
                 this.spawnSingleBot();
             }, this.gradualSpawnInterval);
-        }, this.gradualSpawnDelay);
+        }, this.gradualSpawnDelay));
     }
 
     /**
@@ -1104,13 +1114,22 @@ export class GameEnemies {
 
         const groundNormal = (pos as any).groundNormal || Vector3.Up();
 
-        // CHECK FOR PLANE SPAWN
-        // Max 2 planes, 25% chance
-        const activePlanes = this.enemyTanks.filter(e => (e as any).type === "plane").length;
-        const spawnPlane = activePlanes < 2 && Math.random() < 0.25;
-
-        // Для карты "Песок" используем специальный обработчик смерти с респавном
+        // [Opus 4.6] CHECK FOR PLANE SPAWN
+        // На карте "sand" 50% ботов = самолёты (2 из 4)
+        // На других картах: макс 2 самолёта, 25% шанс
         const isSandMap = this.systems.currentMapType === "sand";
+        const activePlanes = this.enemyTanks.filter(e => (e as any).type === "plane").length;
+        const totalEnemies = this.enemyTanks.length;
+
+        let spawnPlane = false;
+        if (isSandMap) {
+            // На карте sand: 50% ботов = самолёты
+            const maxPlanes = Math.ceil(this.gradualSpawnMaxBots / 2); // 2 из 4
+            spawnPlane = activePlanes < maxPlanes && totalEnemies % 2 === 1; // Каждый второй бот = самолёт
+        } else {
+            // Другие карты: обычная логика (25% шанс, макс 2)
+            spawnPlane = activePlanes < 2 && Math.random() < 0.25;
+        }
 
         let enemy: EnemyTank | null = null;
 
@@ -1140,12 +1159,14 @@ export class GameEnemies {
             this.enemyTanks.push(enemy);
             this.gradualSpawnCount++;
 
-            // ДОБАВЛЕНО: Проверка после увеличения счётчика
-            if (this.gradualSpawnCount > this.gradualSpawnMaxBots) {
-                logger.error(`[GameEnemies] BUG: Spawned MORE bots (${this.gradualSpawnCount}) than max (${this.gradualSpawnMaxBots})!`);
-            }
-
             logger.log(`[GameEnemies] Bot ${this.gradualSpawnCount}/${this.gradualSpawnMaxBots} spawned at (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) - target assigned immediately`);
+
+            // Достигли лимита — останавливаем таймер сразу
+            if (this.gradualSpawnCount >= this.gradualSpawnMaxBots && this.gradualSpawnTimer !== null) {
+                clearInterval(this.gradualSpawnTimer);
+                this.gradualSpawnTimer = null;
+                logger.log(`[GameEnemies] Gradual spawn complete: ${this.gradualSpawnCount} bots spawned (limit reached)`);
+            }
         }
     }
 
@@ -1177,7 +1198,7 @@ export class GameEnemies {
             plane.onDeathObservable.add(onDeath);
         }
 
-        return plane;
+        return plane as unknown as EnemyTank;
     }
 
     /**
@@ -1374,11 +1395,11 @@ export class GameEnemies {
         }
 
         // Respawn after 5 seconds
-        setTimeout(() => {
+        this._respawnTimeouts.push(setTimeout(() => {
             if (this.systems && this.systems.gameStarted) {
                 this.spawnSingleBot();
             }
-        }, 5000);
+        }, 5000));
     }
 
     /**
@@ -1407,7 +1428,7 @@ export class GameEnemies {
         // Респавн через 30 секунд
         logger.log(`[GameEnemies] Sand map: Bot will respawn in ${this.sandRespawnDelay / 1000} seconds (${this.enemyTanks.length} alive, ${this.sandPendingRespawns} pending)`);
 
-        setTimeout(() => {
+        this._respawnTimeouts.push(setTimeout(() => {
             // Уменьшаем счётчик ожидающих респавнов
             this.sandPendingRespawns = Math.max(0, this.sandPendingRespawns - 1);
 
@@ -1426,7 +1447,7 @@ export class GameEnemies {
 
             // Спавним нового бота
             this.spawnSandBot();
-        }, this.sandRespawnDelay);
+        }, this.sandRespawnDelay));
     }
 
     /**

@@ -5,6 +5,8 @@
 import { CHASSIS_TYPES, CANNON_TYPES } from "../tankTypes";
 import type { MapType } from "../menu";
 import { getCustomMapsList, loadCustomMap, getCustomMapData } from "../maps/custom";
+import { Z_INDEX } from "./MenuStyles"; // [Opus 4.5] Unified z-index system
+import { safeLocalStorage } from "../utils/safeLocalStorage";
 
 // CSS Styles for the unified play panel
 const UNIFIED_PLAY_STYLES = `
@@ -19,7 +21,7 @@ const UNIFIED_PLAY_STYLES = `
     background: rgba(5, 15, 5, 0.98) !important;
     border: 2px solid #0f0 !important;
     box-shadow: 0 0 40px rgba(0, 255, 0, 0.4), inset 0 0 60px rgba(0, 255, 0, 0.05) !important;
-    z-index: 100000 !important;
+    z-index: 10000 !important; /* [Opus 4.5] MODAL level */
     display: flex;
     flex-direction: column;
     font-family: 'Press Start 2P', monospace;
@@ -365,10 +367,10 @@ export class UnifiedPlayMenu {
         this.callbacks = callbacks;
 
         // Load saved selections
-        this.selectedMode = localStorage.getItem("selectedGameMode") || "ffa";
-        this.selectedMap = localStorage.getItem("selectedMapType") || "desert";
-        this.selectedChassis = localStorage.getItem("selectedChassis") || "medium";
-        this.selectedCannon = localStorage.getItem("selectedCannon") || "standard";
+        this.selectedMode = safeLocalStorage.get("selectedGameMode", "ffa");
+        this.selectedMap = safeLocalStorage.get("selectedMapType", "desert");
+        this.selectedChassis = safeLocalStorage.get("selectedChassis", "medium");
+        this.selectedCannon = safeLocalStorage.get("selectedCannon", "standard");
 
         this.panel = this.createPanel();
         this.injectStyles();
@@ -461,11 +463,11 @@ export class UnifiedPlayMenu {
             if (e.code === "ArrowLeft") {
                 e.preventDefault();
                 const newIdx = (currentIdx - 1 + tabOrder.length) % tabOrder.length;
-                this.switchTab(tabOrder[newIdx]);
+                this.switchTab(tabOrder[newIdx]!); // [Opus 4.5] Non-null assertion
             } else if (e.code === "ArrowRight") {
                 e.preventDefault();
                 const newIdx = (currentIdx + 1) % tabOrder.length;
-                this.switchTab(tabOrder[newIdx]);
+                this.switchTab(tabOrder[newIdx]!); // [Opus 4.5] Non-null assertion
             } else if (e.code === "Enter") {
                 e.preventDefault();
                 this.startGame();
@@ -524,7 +526,7 @@ export class UnifiedPlayMenu {
         content.querySelectorAll(".upm-mode-item").forEach(item => {
             item.addEventListener("click", () => {
                 this.selectedMode = (item as HTMLElement).dataset.mode || "ffa";
-                localStorage.setItem("selectedGameMode", this.selectedMode);
+                safeLocalStorage.set("selectedGameMode", this.selectedMode);
                 content.querySelectorAll(".upm-mode-item").forEach(i => i.classList.remove("selected"));
                 item.classList.add("selected");
             });
@@ -595,13 +597,13 @@ export class UnifiedPlayMenu {
                         this.selectedMap = "custom"; // Store 'custom' as type for Game
                         // We need to store specific map name somewhere? 
                         // loadCustomMap stores it in localStorage maybe?
-                        localStorage.setItem("selectedMapType", "custom");
+                        safeLocalStorage.set("selectedMapType", "custom");
                         // Also Save current custom map name if needed by Game?
                         // Game.ts probably reads it from wherever loadCustomMap puts it.
                     }
                 } else {
                     this.selectedMap = mapId;
-                    localStorage.setItem("selectedMapType", this.selectedMap);
+                    safeLocalStorage.set("selectedMapType", this.selectedMap);
                 }
 
                 content.querySelectorAll(".upm-map-item").forEach(i => i.classList.remove("selected"));
@@ -651,7 +653,7 @@ export class UnifiedPlayMenu {
             `;
             btn.addEventListener("click", () => {
                 this.selectedChassis = chassis.id;
-                localStorage.setItem("selectedChassis", chassis.id);
+                safeLocalStorage.set("selectedChassis", chassis.id);
                 chassisList.querySelectorAll(".upm-part-option").forEach(b => b.classList.remove("selected"));
                 btn.classList.add("selected");
             });
@@ -665,11 +667,11 @@ export class UnifiedPlayMenu {
             btn.className = `upm-part-option ${this.selectedCannon === cannon.id ? 'selected' : ''}`;
             btn.innerHTML = `
                 <div>${cannon.name}</div>
-                <div class="stats">${Math.round(cannon.damage)} DMG • ${cannon.reloadTime}s</div>
+                <div class="stats">${Math.round(cannon.damage)} DMG • ${(cannon.cooldown / 1000).toFixed(1)}s</div>
             `;
             btn.addEventListener("click", () => {
                 this.selectedCannon = cannon.id;
-                localStorage.setItem("selectedCannon", cannon.id);
+                safeLocalStorage.set("selectedCannon", cannon.id);
                 cannonList.querySelectorAll(".upm-part-option").forEach(b => b.classList.remove("selected"));
                 btn.classList.add("selected");
             });
@@ -681,8 +683,8 @@ export class UnifiedPlayMenu {
             btn.addEventListener("click", () => {
                 this.callbacks.selectPreset((btn as HTMLElement).dataset.preset || "balanced");
                 // Reload saved values
-                this.selectedChassis = localStorage.getItem("selectedChassis") || "medium";
-                this.selectedCannon = localStorage.getItem("selectedCannon") || "standard";
+                this.selectedChassis = safeLocalStorage.get("selectedChassis", "medium");
+                this.selectedCannon = safeLocalStorage.get("selectedCannon", "standard");
                 this.renderTankTab(); // Re-render to update selections
             });
         });
@@ -691,8 +693,8 @@ export class UnifiedPlayMenu {
     private startGame(): void {
         let mapType: MapType;
         if (this.selectedMap === "random") {
-            const mapTypes: MapType[] = ["normal", "desert", "forest", "snow"];
-            mapType = mapTypes[Math.floor(Math.random() * mapTypes.length)];
+            const mapTypes: MapType[] = ["sand", "sandbox", "arena", "brest"]; // [Opus 4.5] Fixed to valid MapType values
+            mapType = mapTypes[Math.floor(Math.random() * mapTypes.length)]!; // [Opus 4.6] Non-null assertion - array is non-empty
         } else {
             mapType = this.selectedMap as MapType;
         }

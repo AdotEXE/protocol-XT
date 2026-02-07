@@ -483,7 +483,7 @@ export const PHYSICS_CONFIG: PhysicsConfig = {
     enemyTank: {
         // EXTREME NIGHTMARE AI: Боты ЗНАЧИТЕЛЬНО превосходят игрока!
         basic: {
-            mass: 40000, // 40 тонн (x4) - синхронизировано с игроком
+            mass: 50000, // 50 тонн - синхронизировано с игроком
             hoverHeight: 1.0,
             moveSpeed: 36, // EXTREME: +50% скорость (было 24)
             turnSpeed: 8.0, // EXTREME: +60% скорость поворота (было 2.5)
@@ -722,7 +722,7 @@ function createDefaultConfig(): PhysicsConfig {
         enemyTank: {
             // DEFAULT: Синхронизированные параметры с игроком
             basic: {
-                mass: 40000, // СИНХРОНИЗИРОВАНО с игроком (40 тонн, x4)
+                mass: 50000, // СИНХРОНИЗИРОВАНО с игроком (50 тонн)
                 hoverHeight: 1.0,
                 moveSpeed: 24, // Идентично игроку
                 turnSpeed: 5.0, // Идентично игроку
