@@ -1,11 +1,11 @@
 /**
  * @module utils/modelFileLoader
  * @description Утилита для загрузки моделей из файлов через серверный API
- * 
+ *
  * Проверяет совместимость версий и выполняет миграцию при необходимости.
  */
 
-import { ModelMetadata, ModelWithMetadata, CustomTankConfiguration } from '../workshop/types';
+import { CustomTankConfiguration, ModelMetadata, ModelWithMetadata } from '../workshop/types';
 import { migrateModel } from './modelMigration';
 
 // Версия игры
@@ -20,12 +20,15 @@ const getServerURL = (): string => {
     if (typeof window !== 'undefined' && window.location) {
         const hostname = window.location.hostname;
         const protocol = window.location.protocol;
+
         // Локальная разработка — используем порт 7001 (отдельный сервер)
-        // Продакшен (Vercel и т.д.) — без порта, используем дефолтный 80/443
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
             return `${protocol}//${hostname}:7001`;
         }
-        return `${protocol}//${hostname}`;
+
+        // Продакшен (Vercel и т.д.) — используем текущий origin (протокол + хост + порт)
+        // Это автоматически решает проблему с SSL и портами
+        return window.location.origin;
     }
     return 'http://localhost:7001';
 };
@@ -66,21 +69,21 @@ function checkCompatibility(metadata: ModelMetadata): { compatible: boolean; rea
 function compareVersions(v1: string, v2: string): number {
     const parts1 = v1.split('.').map(Number);
     const parts2 = v2.split('.').map(Number);
-    
+
     for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
         const part1 = parts1[i] || 0;
         const part2 = parts2[i] || 0;
-        
+
         if (part1 < part2) return -1;
         if (part1 > part2) return 1;
     }
-    
+
     return 0;
 }
 
 /**
  * Загружает модель из файла
- * 
+ *
  * @param category - Категория модели
  * @param filename - Имя файла
  * @returns Promise с данными модели или null при ошибке
@@ -113,7 +116,7 @@ export async function loadModelFromFile<T>(
         if (result.data.metadata && result.data.data) {
             // Модель с метаданными
             const modelWithMetadata = result.data as ModelWithMetadata<T>;
-            
+
             // Проверяем совместимость
             const compatibility = checkCompatibility(modelWithMetadata.metadata);
             if (!compatibility.compatible) {
@@ -180,7 +183,7 @@ export async function loadAllModelsFromCategory<T>(
         }
 
         const models: T[] = [];
-        
+
         // Загружаем каждую модель
         for (const modelInfo of result.models) {
             const data = await loadModelFromFile<T>(category, modelInfo.filename);

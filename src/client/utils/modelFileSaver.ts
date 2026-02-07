@@ -1,13 +1,12 @@
 /**
  * @module utils/modelFileSaver
  * @description Утилита для сохранения моделей в файлы через серверный API
- * 
+ *
  * Валидирует модели перед сохранением и добавляет метаданные версионирования.
  */
 
-import { ModelMetadata, ModelWithMetadata } from '../workshop/types';
+import { CustomTankConfiguration, ModelMetadata, ModelWithMetadata } from '../workshop/types';
 import { validateCustomTankConfig } from './modelValidator';
-import { CustomTankConfiguration } from '../workshop/types';
 
 // Версия игры из package.json (можно получить динамически или захардкодить)
 const GAME_VERSION = '0.4.20553'; // TODO: получать из package.json динамически
@@ -23,12 +22,14 @@ const getServerURL = (): string => {
     if (typeof window !== 'undefined' && window.location) {
         const hostname = window.location.hostname;
         const protocol = window.location.protocol;
+
         // Локальная разработка — используем порт 7001 (отдельный сервер)
-        // Продакшен (Vercel и т.д.) — без порта, используем дефолтный 80/443
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
             return `${protocol}//${hostname}:7001`;
         }
-        return `${protocol}//${hostname}`;
+
+        // Продакшен (Vercel и т.д.) — используем текущий origin (протокол + хост + порт)
+        return window.location.origin;
     }
     return 'http://localhost:7001';
 };
@@ -55,7 +56,7 @@ function createMetadata(
 
 /**
  * Сохраняет модель в файл через серверный API
- * 
+ *
  * @param modelName - Имя файла (без расширения .json)
  * @param data - Данные модели
  * @param category - Категория: 'custom-tanks', 'base-types', 'generated-models'
@@ -73,7 +74,7 @@ export async function saveModelToFile<T>(
         if (validate && category === 'custom-tanks') {
             const config = data as unknown as CustomTankConfiguration;
             const validation = validateCustomTankConfig(config);
-            
+
             if (!validation.valid) {
                 const errorMsg = `Validation failed: ${validation.errors.join(', ')}`;
                 console.error('[ModelFileSaver]', errorMsg);
@@ -101,7 +102,7 @@ export async function saveModelToFile<T>(
         // Отправляем запрос на сервер
         const url = `${SERVER_URL}/api/models/save`;
         console.log(`[ModelFileSaver] Sending request to: ${url} for ${category}/${filename}`);
-        
+
         const response = await fetch(url, {
             method: 'POST',
             headers: {
@@ -127,7 +128,7 @@ export async function saveModelToFile<T>(
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
         console.error('[ModelFileSaver] Failed to save model:', errorMsg);
-        
+
         // Fallback на localStorage для кастомных танков
         if (category === 'custom-tanks') {
             console.warn('[ModelFileSaver] Falling back to localStorage');
@@ -135,20 +136,20 @@ export async function saveModelToFile<T>(
                 const config = data as unknown as CustomTankConfiguration;
                 const existing = JSON.parse(localStorage.getItem('customTankConfigurations') || '[]');
                 const index = existing.findIndex((c: CustomTankConfiguration) => c.id === config.id);
-                
+
                 if (index >= 0) {
                     existing[index] = config;
                 } else {
                     existing.push(config);
                 }
-                
+
                 localStorage.setItem('customTankConfigurations', JSON.stringify(existing));
                 return { success: true };
             } catch (e) {
                 console.error('[ModelFileSaver] localStorage fallback failed:', e);
             }
         }
-        
+
         return { success: false, error: errorMsg };
     }
 }
