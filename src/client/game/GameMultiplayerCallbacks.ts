@@ -1660,7 +1660,8 @@ export class GameMultiplayerCallbacks {
             return;
         }
 
-        const serverUrl = mm.getServerUrl() || "ws://localhost:8000";
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const serverUrl = mm.getServerUrl() || `${wsProtocol}//localhost:8000`;
 
         // Initialize voice chat (уже импортирован статически)
         if (roomId && playerId) {

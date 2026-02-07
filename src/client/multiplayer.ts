@@ -698,8 +698,9 @@ export class MultiplayerManager {
 
             // Убеждаемся, что используется правильный протокол
             if (!normalizedUrl.startsWith('ws://') && !normalizedUrl.startsWith('wss://')) {
-                // Если протокол не указан, добавляем ws://
-                normalizedUrl = `ws://${normalizedUrl}`;
+                // Если протокол не указан, добавляем ws:// или wss:// в зависимости от протокола страницы
+                const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                normalizedUrl = `${wsProtocol}//${normalizedUrl}`;
             }
 
             // Validate URL format

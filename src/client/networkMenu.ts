@@ -547,8 +547,9 @@ export class NetworkMenu {
         // Убираем слэш в конце, если есть
         serverAddress = serverAddress.replace(/\/$/, '');
 
-        // Формируем правильный WebSocket URL
-        const serverUrl = `ws://${serverAddress}:${this.settings.port}`;
+        // Формируем правильный WebSocket URL (wss для HTTPS, ws для HTTP)
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const serverUrl = `${wsProtocol}//${serverAddress}:${this.settings.port}`;
 
         logger.log(`[NetworkMenu] Connecting to server: ${serverUrl}`);
 

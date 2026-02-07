@@ -24,7 +24,8 @@ const getServerURL = (): string => {
     // Используем hostname из текущего URL, но порт всегда 7001
     if (typeof window !== 'undefined' && window.location) {
         const hostname = window.location.hostname;
-        return `http://${hostname}:7001`;
+        const protocol = window.location.protocol; // http: or https:
+        return `${protocol}//${hostname}:7001`;
     }
     return 'http://localhost:7001';
 };
