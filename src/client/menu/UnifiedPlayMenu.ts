@@ -21,7 +21,7 @@ const UNIFIED_PLAY_STYLES = `
     background: rgba(5, 15, 5, 0.98) !important;
     border: 2px solid #0f0 !important;
     box-shadow: 0 0 40px rgba(0, 255, 0, 0.4), inset 0 0 60px rgba(0, 255, 0, 0.05) !important;
-    z-index: 10000 !important; /* [Opus 4.5] MODAL level */
+    z-index: 100002 !important; /* Must be above #main-menu (z-index: 99999) */
     display: flex;
     flex-direction: column;
     font-family: 'Press Start 2P', monospace;
@@ -708,7 +708,14 @@ export class UnifiedPlayMenu {
     }
 
     public show(): void {
-        this.panel.style.display = "flex";
+        // Force visibility with !important styles
+        // z-index 100002 is required to appear above #main-menu (z-index: 99999)
+        this.panel.style.setProperty("display", "flex", "important");
+        this.panel.style.setProperty("visibility", "visible", "important");
+        this.panel.style.setProperty("opacity", "1", "important");
+        this.panel.style.setProperty("pointer-events", "auto", "important");
+        this.panel.style.setProperty("z-index", "100002", "important");
+
         this.renderModeTab(); // Initial tab
     }
 
