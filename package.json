@@ -12,7 +12,7 @@
     "vite-plugin-compression": "^0.5.1"
   },
   "name": "tx",
-  "version": "0.4.20600",
+  "version": "0.4.20601",
   "description": "Protocol TX - Advanced tank combat simulator with procedural world generation, multiplayer support, and extensive customization",
   "main": "index.js",
   "directories": {
@@ -67,7 +67,8 @@
     "dev": "npx vite",
     "dev:unified": "npx tsx scripts/unified-dashboard.ts",
     "dev:rescue": "npx tsx scripts/unified-dashboard.ts",
-    "dev:go": "start pwsh -NoExit -File scripts/dev-go.ps1",
+    "dev:go": "node scripts/dev-go-runner.js",
+    "dev:go:linux": "bash scripts/dev-go.sh",
     "dev:simple": "npx tsx scripts/simple-dashboard.ts",
     "dev:web": "npx tsx scripts/web-dashboard/server.ts",
     "build": "npx vite build",
