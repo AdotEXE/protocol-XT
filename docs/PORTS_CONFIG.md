@@ -157,7 +157,7 @@ npm run dev:web
    ```
 
 ### Не подключается к серверу
-1. Убедитесь что сервер запущен: `npm run server:start` или `npm run dev:go`
+1. Убедитесь что сервер запущен: `npm run dev:go` (всё в одном) или `npm run server` (только сервер). На Windows скрипты `server:start` и `kill:ports` требуют .ps1-файлов (могут отсутствовать в репо) — используйте `npm run server` или `npm run dev:go`.
 2. Проверьте URL в консоли браузера (должен быть `ws://localhost:8000`)
 3. Проверьте переменную окружения `VITE_WS_SERVER_URL`
 4. Проверьте, что порт 8000 не занят: `netstat -ano | findstr :8000`

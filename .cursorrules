@@ -296,10 +296,10 @@ All systems are initialized in `GameSystems.init()` and updated through `Game.up
 - `docs/CONTRIBUTING.md` - Contribution guidelines
 
 ## 🔧 Tools & Scripts
-- `npm run dev` - Start client dev server (Vite, port 5000)
-- `npm run server` - Start game server (Node.js, port 8080)
-- `npm run start:all` - Start client + server + monitoring
-- `npm run monitor` - System monitoring dashboard
+- `npm run dev:go` - **Main script**: start server + client (+ optional map editor) in one go (port 5001, 8000)
+- `npm run dev` - Start client dev server (Vite, port 5001)
+- `npm run server` - Start game server (Node.js, port 8000)
+- `npm run start:all` / `npm run monitor` - Same as dev:go (single entry point)
 - `npm run build` - Build production bundle
 - `npm run analyze` - Analyze bundle size
 - `npm run version:get` - Get current version

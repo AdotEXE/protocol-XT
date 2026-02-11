@@ -7,6 +7,7 @@ import { UIManager } from './monitor/ui';
 import { DashboardBridge } from './monitor/dashboard-bridge';
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 import { getLocalIP, getAllLocalIPs } from './get-local-ip';
 
 // Force colors for child processes
@@ -15,11 +16,12 @@ process.env.FORCE_COLOR = '1';
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const EDITOR_ROOT = path.resolve(PROJECT_ROOT, 'PolyGenStudio-main');
 
-// Configuration
-const SERVICES = [
+// Базовый список: только сервер и клиент (всегда в репо). Редактор — только если есть папка.
+// Запуск через npm (есть везде), без run-npm/run-npm.cmd — одинаково работает на Windows и Linux.
+const SERVICES_BASE = [
     {
         name: 'Server',
-        command: path.join(PROJECT_ROOT, 'scripts', 'run-npm'),
+        command: 'npm',
         args: ['run', 'server:dev'],
         cwd: PROJECT_ROOT,
         logMethod: 'addServerLog',
@@ -27,7 +29,7 @@ const SERVICES = [
     },
     {
         name: 'Client',
-        command: path.join(PROJECT_ROOT, 'scripts', 'run-npm'),
+        command: 'npm',
         args: ['run', 'dev'],
         cwd: PROJECT_ROOT,
         logMethod: 'addClientLog',
@@ -35,13 +37,15 @@ const SERVICES = [
     },
     {
         name: 'Editor',
-        command: path.join(PROJECT_ROOT, 'scripts', 'run-npm'),
+        command: 'npm',
         args: ['run', 'dev'],
         cwd: EDITOR_ROOT,
         logMethod: 'addEditorLog',
         color: 'magenta'
     }
 ];
+
+const SERVICES = SERVICES_BASE.filter(s => s.name !== 'Editor' || fs.existsSync(s.cwd));
 
 // Initialize Monitor
 const core = new MonitorCore();
@@ -58,12 +62,10 @@ function startService(service: any) {
         return;
     }
 
-    const cmd = process.platform === 'win32' ? `${service.command}.cmd` : service.command;
-
     ui.addLog(`Starting ${service.name}...`, 'info');
     dashboard.broadcastLog({ id: Date.now(), timestamp: new Date().toISOString(), service: 'System', level: 'info', message: `Starting ${service.name}...` });
 
-    const child = spawn(cmd, service.args, {
+    const child = spawn(service.command, service.args, {
         cwd: service.cwd,
         env: { ...process.env, FORCE_COLOR: '1' },
         shell: true,
@@ -222,17 +224,18 @@ async function bootstrap() {
         const localIP = getLocalIP();
         const allIPs = getAllLocalIPs();
 
+        const hasEditor = SERVICES.some(s => s.name === 'Editor');
         ui.addLog('═══════════════════════════════════════════════════════', 'info');
         ui.addLog('[*] Локальный доступ:', 'info');
         ui.addLog('   > Server: ws://localhost:8000', 'info');
         ui.addLog('   > Client: http://localhost:5001', 'info');
-        ui.addLog('   > Editor: http://localhost:3000', 'info');
+        if (hasEditor) ui.addLog('   > Editor: http://localhost:3000', 'info');
         if (localIP) {
             ui.addLog('', 'info');
             ui.addLog('[*] Сетевой доступ (для других ПК в сети):', 'info');
             ui.addLog(`   > Server: ws://${localIP}:8000`, 'info');
             ui.addLog(`   > Client: http://${localIP}:5001`, 'info');
-            ui.addLog(`   > Editor: http://${localIP}:3000`, 'info');
+            if (hasEditor) ui.addLog(`   > Editor: http://${localIP}:3000`, 'info');
         }
         if (allIPs.length > 1) {
             ui.addLog('', 'info');

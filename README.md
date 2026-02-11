@@ -82,6 +82,16 @@ Follow these instructions to set up the project locally for development and test
 
 ### Running the Project
 
+**One command (recommended)** — start server, client, and optional map editor:
+
+```bash
+npm run dev:go
+```
+
+The game will be at `http://localhost:5001`, WebSocket server on port `8000`. See [docs/SETUP.md](docs/SETUP.md) and [docs/PORTS_CONFIG.md](docs/PORTS_CONFIG.md).
+
+**Or run separately:**
+
 1.  **Start the Multiplayer Server**
     ```bash
     npm run server
