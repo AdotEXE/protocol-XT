@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "..\\scripts\\run-node.cmd node_modules/vite/bin/vite.js",
-    "build": "..\\scripts\\run-node.cmd node_modules/vite/bin/vite.js build",
+    "dev": "npx vite",
+    "build": "npx vite build",
     "preview": "vite preview"
   },
   "dependencies": {

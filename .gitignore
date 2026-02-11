@@ -140,7 +140,13 @@ tsc_*.txt
 -*
 # Files with command-like names
 *tree*
+!src/client/menu/skillTreeUI.ts
 *tat*
+!src/client/playerStats.ts
+!src/client/realtimeStats.ts
+!src/client/game/GameStats.ts
+!src/client/game/GameStatsOverlay.ts
+!src/client/hud/components/TankStatus.ts
 *findstr*
 *Select-String*
 *ion generation*

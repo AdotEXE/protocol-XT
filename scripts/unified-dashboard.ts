@@ -62,6 +62,36 @@ function startService(service: any) {
         return;
     }
 
+    // Editor: если в папке нет node_modules — сначала npm install
+    if (service.name === 'Editor') {
+        const nodeModules = path.join(service.cwd, 'node_modules');
+        if (!fs.existsSync(nodeModules)) {
+            ui.addLog('Editor: installing dependencies (first run)...', 'info');
+            dashboard.broadcastLog({ id: Date.now(), timestamp: new Date().toISOString(), service: 'System', level: 'info', message: 'Editor: installing dependencies (first run)...' });
+            const install = spawn('npm', ['install'], {
+                cwd: service.cwd,
+                env: { ...process.env, FORCE_COLOR: '1' },
+                shell: true,
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+            install.stderr?.on('data', (d: Buffer) => { ui.addEditorLog?.(d.toString().trim(), 'error'); });
+            install.stdout?.on('data', (d: Buffer) => { ui.addEditorLog?.(d.toString().trim(), 'info'); });
+            install.on('close', (code) => {
+                if (code === 0) {
+                    ui.addLog('Editor: dependencies installed, starting dev server...', 'info');
+                    startServiceInner(service);
+                } else {
+                    ui.addLog(`Editor: npm install failed (code ${code}). Run "cd PolyGenStudio-main && npm install" manually.`, 'error');
+                }
+            });
+            return;
+        }
+    }
+
+    startServiceInner(service);
+}
+
+function startServiceInner(service: any) {
     ui.addLog(`Starting ${service.name}...`, 'info');
     dashboard.broadcastLog({ id: Date.now(), timestamp: new Date().toISOString(), service: 'System', level: 'info', message: `Starting ${service.name}...` });
 

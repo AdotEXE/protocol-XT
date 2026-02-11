@@ -38,7 +38,8 @@ export { authUI } from './authUI';
 // Скилл-дерево
 export { 
     createSkillsPanelHTML, 
-    updateSkillTreeDisplay
+    updateSkillTreeDisplay,
+    saveSkillTreeCameraPosition
 } from './skillTreeUI';
 
 export type { SkillTreeCallbacks } from './skillTreeUI';
