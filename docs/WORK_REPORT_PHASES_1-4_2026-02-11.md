@@ -161,8 +161,7 @@
 | `src/client/dailyQuests.ts` | Ежедневные задания daily_pickups, daily_critical |
 | `src/server/gameServer.ts` | Лаг-компенсация в handlePlayerHit, rate limit PLAYER_HIT, удаление из очередей режимов при отключении |
 | `package.json` | Vitest, скрипты test / test:watch |
-| `next/CHECKLIST.md` | Отметки выполнения фаз 1–4 |
-| `next/HANDOFF.md` | Описание Phase 4 и handoff |
+| `docs/` (отчёты и планы) | Отметки выполнения фаз 1–4 и контекст handoff |
 
 ---
 
