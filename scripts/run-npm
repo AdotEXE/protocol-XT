@@ -1,0 +1,5 @@
+#!/bin/sh
+# Wrapper script to run npm commands
+# This ensures npm is executed correctly across different platforms
+
+exec npm "$@"

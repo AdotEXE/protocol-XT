@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140262,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "wide",
+    "name": "Wide Tracks",
+    "description": "Wider tracks for better terrain handling",
+    "width": 0.55,
+    "height": 0.55,
+    "depth": 3.5,
+    "color": "#2a2a2a",
+    "style": "wide",
+    "stats": {
+      "durabilityBonus": 0.1
+    },
+    "cost": 300
+  }
+}

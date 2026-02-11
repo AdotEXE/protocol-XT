@@ -1,0 +1,133 @@
+/**
+ * Responsive Styles for Protocol TX
+ * Common breakpoints and responsive utilities
+ */
+
+/* Base font size for rem calculations */
+:root {
+    font-size: clamp(12px, 1.2vw, 16px);
+}
+
+/* Breakpoints */
+/* Mobile: < 768px */
+/* Tablet: 768px - 1024px */
+/* Desktop: > 1024px */
+/* Large Desktop: > 1920px */
+
+/* Mobile styles */
+@media (max-width: 767px) {
+    :root {
+        font-size: 12px;
+    }
+    
+    /* Ensure UI elements are readable on small screens */
+    * {
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+
+/* Tablet styles */
+@media (min-width: 768px) and (max-width: 1023px) {
+    :root {
+        font-size: 14px;
+    }
+}
+
+/* Desktop styles */
+@media (min-width: 1024px) and (max-width: 1919px) {
+    :root {
+        font-size: 16px;
+    }
+}
+
+/* Large Desktop styles */
+@media (min-width: 1920px) {
+    :root {
+        font-size: 18px;
+    }
+}
+
+/* Ultra-wide screens */
+@media (min-width: 2560px) {
+    :root {
+        font-size: 20px;
+    }
+}
+
+/* Utility classes for responsive sizing */
+.responsive-text {
+    font-size: clamp(0.75rem, 1.2vw, 1rem);
+}
+
+.responsive-padding {
+    padding: clamp(0.5rem, 1vh, 1rem);
+}
+
+.responsive-margin {
+    margin: clamp(0.5rem, 1vh, 1rem);
+}
+
+/* Responsive containers */
+.responsive-container {
+    width: 100%;
+    max-width: min(1200px, 90vw);
+    margin: 0 auto;
+    padding: clamp(1rem, 2vh, 2rem);
+}
+
+/* Responsive buttons */
+.responsive-btn {
+    padding: clamp(0.5rem, 1vh, 0.75rem) clamp(1rem, 2vw, 1.5rem);
+    font-size: clamp(0.75rem, 1.2vw, 1rem);
+    border-width: clamp(1px, 0.1vw, 2px);
+}
+
+/* Responsive images */
+.responsive-img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Hide on mobile */
+@media (max-width: 767px) {
+    .hide-mobile {
+        display: none !important;
+    }
+}
+
+/* Hide on desktop */
+@media (min-width: 768px) {
+    .hide-desktop {
+        display: none !important;
+    }
+}
+
+/* Touch-friendly targets on mobile */
+@media (max-width: 767px) {
+    button, a, .clickable {
+        min-height: 44px;
+        min-width: 44px;
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

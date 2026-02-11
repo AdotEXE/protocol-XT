@@ -1,0 +1,30 @@
+{
+  "name": "polygen-ai-studio",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "..\\scripts\\run-node.cmd node_modules/vite/bin/vite.js",
+    "build": "..\\scripts\\run-node.cmd node_modules/vite/bin/vite.js build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "@google/genai": "^1.33.0",
+    "@react-three/fiber": "^9.4.2",
+    "uuid": "^13.0.0",
+    "@react-three/drei": "^10.7.7",
+    "three": "^0.182.0",
+    "three-stdlib": "^2.35.0",
+    "idb-keyval": "^6.2.1",
+    "this": "^1.1.0",
+    "socket.io-client": "^4.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

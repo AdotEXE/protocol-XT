@@ -1,0 +1,331 @@
+# Protocol TX - Cursor AI Rules
+
+## 🎯 Project Context
+Protocol TX is a high-performance, multiplayer 3D tank combat simulator built with:
+- **Frontend**: TypeScript, Babylon.js 8.40, Vite 7.2, React
+- **Backend**: Node.js, WebSocket (Geckos.io), Express
+- **Physics**: Havok Physics Engine
+- **Architecture**: Client-Server separation (src/client, src/server, src/shared)
+- **Deployment**: Vercel (client), Railway (server)
+- **Version**: 0.4.20421
+
+## 🏗️ Architecture Principles
+
+### Code Organization
+- **Client** (`src/client/`): Rendering, input, prediction, UI, game systems
+  - `game/` - Core game orchestration (Game.ts, GameSystems.ts)
+  - `tank/` - Tank components (Chassis, Weapons, Physics)
+  - `hud/` - UI components (React/Babylon GUI)
+  - `maps/` - Procedural map generators
+  - `effects/` - Visual effects and particles
+  - `workshop/` - Tank customization system
+- **Server** (`src/server/`): Authoritative game state, physics validation, synchronization
+- **Shared** (`src/shared/`): Common types, constants, utilities, network protocols
+- **Path Aliases**: Always use `@client/*`, `@server/*`, `@shared/*` instead of relative paths
+
+### Game Systems Architecture
+The game uses a modular system architecture managed by `GameSystems` class:
+- **Core Systems**: TankController, HUD, SoundManager, EffectsManager
+- **Gameplay Systems**: EnemyManager, ChunkSystem, DestructionSystem
+- **Progression Systems**: CurrencyManager, ExperienceSystem, PlayerProgression, AchievementsSystem
+- **Multiplayer**: MultiplayerManager, NetworkPlayerTanks
+- **UI Systems**: ChatSystem, MissionSystem, AimingSystem, PlayerStatsSystem
+- **World Systems**: ChunkSystem, POISystem, WorldManager
+
+All systems are initialized in `GameSystems.init()` and updated through `Game.update()` with adaptive intervals.
+
+### Performance Requirements
+- **Target**: 60 FPS gameplay (minimum 30 FPS on low-end devices)
+- **Adaptive Update Intervals**:
+  - Camera: Every frame (critical for smooth gameplay)
+  - Physics: Every frame (required for accuracy)
+  - HUD: Every 6 frames (UI doesn't need 60 FPS)
+  - Chunk System: Every 12-16 frames (depends on map size)
+  - Enemy AI: Every 5-6 frames
+  - Enemy Turrets: Every 15 frames (low priority)
+  - Garage System: Every 3 frames
+  - Consumables: Every 15 frames
+  - **Adaptive**: When FPS < 30, intervals increase by 50%
+- **Caching**: Cache expensive operations per frame:
+  - `getAbsolutePosition()` - cached once per frame
+  - `computeWorldMatrix()` - cached to avoid redundant calculations
+  - Raycasts - cached when camera position unchanged (> 0.5m)
+  - Performance gain: 80-90% reduction in expensive calculations
+- **LOD System**:
+  - Enemy details disabled beyond 150m (tracks, wheels, small parts)
+  - Physics LOD: Distant enemies (> 100m) use ANIMATED mode instead of DYNAMIC
+  - Material LOD: Simplified materials for distant objects
+  - Performance gain: 30-40% reduction for distant objects
+- **Effect Limits**: Maximum 50 active effects (oldest removed when limit reached)
+- **Material Pooling**: Shared materials reused, static materials frozen
+- **Production Optimizations**: Anti-aliasing, shadows, particles, fog disabled in production
+
+### Code Style
+- **TypeScript strict mode**: Always use proper types, avoid `any`
+  - Use `unknown` instead of `any` when type is truly unknown
+  - Use type guards for runtime type checking
+  - Prefer interfaces for object shapes, types for unions/intersections
+- **Naming Conventions**: 
+  - Classes: `PascalCase` (e.g., `TankController`, `GameSystems`)
+  - Functions/Methods: `camelCase` (e.g., `updatePhysics()`, `getPosition()`)
+  - Constants: `UPPER_SNAKE_CASE` (e.g., `MAX_EFFECTS`, `UPDATE_INTERVAL`)
+  - Private members: prefix with `_` (e.g., `_updateTick`, `_cachedPosition`)
+  - Event handlers: prefix with `on` or `handle` (e.g., `onShoot()`, `handleInput()`)
+- **File Naming**:
+  - Components: `PascalCase.ts` (e.g., `TankController.ts`)
+  - Utilities: `camelCase.ts` (e.g., `mathUtils.ts`, `physicsUtils.ts`)
+  - Types: `types.ts` or `*.types.ts` (e.g., `TankTypes.ts`)
+  - Configs: `*.config.ts` (e.g., `physicsConfig.ts`)
+- **Documentation**: 
+  - Use JSDoc for public APIs, complex logic, and non-obvious code
+  - Include `@param`, `@returns`, `@throws` where applicable
+  - Explain "why", not "what" (code should be self-documenting)
+- **Error handling**: 
+  - Always handle errors, use try-catch for async operations
+  - Log errors with context using `logger.error()`
+  - Don't silently swallow errors
+- **Code Organization**:
+  - One class/interface per file (except related types)
+  - Group related functions in modules
+  - Use barrel exports (`index.ts`) for clean imports
+
+## 🚀 Development Workflow
+
+### Before Making Changes
+1. **Check Documentation**: Review `docs/` folder for existing solutions
+2. **Semantic Search**: Use semantic search to understand architecture and data flow
+3. **Review Related Files**: Check similar implementations for patterns
+4. **Understand Impact**: Consider client-server, performance, multiplayer implications
+5. **Check Dependencies**: Understand what systems depend on your changes
+
+### When Writing Code
+1. **Follow Existing Patterns**: 
+   - Match the style of surrounding code
+   - Use same patterns as similar systems
+   - Check `docs/BEST_PRACTICES.md` for guidelines
+2. **Optimize for Performance**:
+   - Cache expensive calculations per frame
+   - Use object pooling for frequently created/destroyed objects
+   - Implement adaptive update intervals
+   - Use LOD for distant objects
+3. **Handle Edge Cases**:
+   - Null/undefined checks (use optional chaining `?.`)
+   - Boundary conditions (array bounds, division by zero)
+   - Network failures (timeouts, disconnections)
+   - Invalid user input
+4. **Add Comments**:
+   - Explain "why", not "what" (code should be self-documenting)
+   - Document complex algorithms
+   - Note performance considerations
+   - Mark TODO/FIXME with context
+5. **Type Everything**:
+   - No implicit `any`, use proper interfaces/types
+   - Use type guards for runtime checks
+   - Export types from `@shared/types` when used by both client/server
+6. **System Integration**:
+   - Register new systems in `GameSystems.init()`
+   - Add update calls in `Game.update()` with appropriate interval
+   - Dispose resources in cleanup methods
+   - Unsubscribe from events to prevent memory leaks
+
+### Multiplayer Considerations
+- **Server Authority**: 
+  - Server is authoritative for all game state (positions, health, damage)
+  - All state changes must be validated server-side
+  - Client can predict but server corrects discrepancies
+  - Never trust client input for critical operations
+- **Client Prediction**:
+  - Implement client-side prediction for smooth gameplay
+  - Use reconciliation when server state differs
+  - Predict movement, shooting, and immediate feedback
+- **Network Protocol**:
+  - Use binary protocols (msgpack) for efficiency
+  - Minimize data sent (only changed values)
+  - Use delta compression for updates
+  - Batch multiple updates when possible
+- **Synchronization**:
+  - 60Hz sync rate (60 updates per second)
+  - Use interpolation for smooth rendering between updates
+  - Handle network lag gracefully (extrapolation, lag compensation)
+  - Test with simulated network conditions
+- **Network Architecture**:
+  - WebSocket (TCP) for reliable messages (chat, commands)
+  - Geckos.io (UDP) for fast game state updates
+  - Connection handling: reconnection, timeout, heartbeat
+- **Multiplayer Systems**:
+  - `MultiplayerManager` handles connection and sync
+  - `NetworkPlayerTank` represents remote players
+  - Server validates all actions before applying
+  - Client shows predicted state, server corrects
+
+### Physics & Gameplay
+- **Havok Physics**:
+  - Use Havok Physics for all collisions and interactions
+  - Physics bodies: DYNAMIC (active), STATIC (immovable), ANIMATED (kinematic)
+  - Use ANIMATED mode for distant objects to reduce CPU load
+  - Apply forces in `onBeforePhysicsObservable` callback
+  - Read positions in `onAfterPhysicsObservable` callback
+  - Never manually sync mesh.position with physics body (Havok does this automatically)
+- **Hover Mechanics**:
+  - Implement hover with raycasts to ground
+  - Use anisotropic friction for realistic movement
+  - Apply upright forces for stability
+  - Hover height, stiffness, damping configurable per tank
+- **Ballistic System**:
+  - Realistic projectile trajectories with gravity
+  - Travel time calculation for moving targets
+  - Ricochet system for glancing hits
+  - Damage falloff with distance
+- **Destructible Environment**:
+  - Breakable objects with health system
+  - Changing cover affects gameplay
+  - DestructionSystem manages object health and removal
+- **Physics Configuration**:
+  - Check `src/client/config/physicsConfig.ts` for tuning
+  - Use `docs/PHYSICS_PARAMETERS.md` for detailed parameters
+  - Test physics changes with physics visualizer (F4)
+
+## 📝 File Naming Conventions
+- Components: `PascalCase.ts` (e.g., `TankController.ts`)
+- Utilities: `camelCase.ts` (e.g., `mathUtils.ts`)
+- Types: `types.ts` or `*.types.ts`
+- Configs: `*.config.ts` or `*.config.json`
+
+## 🔍 Code Search Strategy
+- Use semantic search for understanding architecture and data flow
+- Use grep for exact symbol/function names
+- Check `docs/` folder for existing documentation
+- Review `ARCHITECTURE.md` for system design
+
+## ⚠️ Common Pitfalls to Avoid
+- **Architecture Violations**:
+  - Don't break client-server separation (no server code in client, vice versa)
+  - Don't bypass server validation (all state changes must be validated)
+  - Don't mix concerns (physics in UI code, rendering in physics code)
+- **Memory Leaks**:
+  - Always unsubscribe from events (Observable.remove(), removeEventListener())
+  - Dispose Babylon.js resources (meshes, materials, textures)
+  - Clear intervals/timeouts
+  - Remove references in cleanup methods
+- **Performance Issues**:
+  - Don't ignore performance implications (check FPS impact)
+  - Don't update systems every frame if not needed (use intervals)
+  - Don't create objects in hot paths (use pooling)
+  - Don't use `getAbsolutePosition()` in tight loops without caching
+- **Type Safety**:
+  - Don't use `any` type without good reason (use `unknown` + type guards)
+  - Don't ignore TypeScript errors (fix them properly)
+  - Don't use type assertions without validation
+- **Code Quality**:
+  - Don't commit console.logs in production code (use logger)
+  - Don't leave TODO comments without context
+  - Don't duplicate code (extract to utilities)
+  - Don't ignore error handling
+- **Physics Mistakes**:
+  - Don't manually sync mesh.position with physics body
+  - Don't apply forces outside `onBeforePhysicsObservable`
+  - Don't read positions in `onBeforePhysicsObservable` (use `onAfterPhysicsObservable`)
+  - Don't use DYNAMIC physics for static/distant objects
+
+## 🎨 UI/UX Guidelines
+- **UI Frameworks**:
+  - **Babylon GUI**: Use for in-game HUD, menus, overlays
+  - **React**: Use for editor/admin interfaces (PolyGen Studio, Workshop)
+  - **HTML/CSS**: Use for static pages, loading screens
+- **HUD System**:
+  - Located in `src/client/hud/`
+  - Components in `hud/components/`
+  - Use `HUDManager` for centralized management
+  - Update HUD every 6 frames (not every frame)
+- **Styling**:
+  - Maintain consistent styling across all UI
+  - Use theme system (`uiTheme.ts`, `HUDTheme.ts`)
+  - Support dark/light themes
+  - Responsive design for different screen sizes
+- **Performance**:
+  - Don't update UI every frame if not needed
+  - Use adaptive update intervals
+  - Cache expensive UI calculations
+  - Minimize DOM/Babylon GUI updates
+- **Accessibility**:
+  - Support keyboard navigation
+  - Provide visual feedback for all actions
+  - Clear error messages
+  - Helpful tooltips and hints
+
+## 🧪 Testing Approach
+- **Multiplayer Testing**:
+  - Use `npm run start:all` to start multiple clients
+  - Test with 2+ clients simultaneously
+  - Verify synchronization (positions, health, actions)
+  - Test network lag scenarios (use browser DevTools throttling)
+  - Test disconnections and reconnections
+  - Check `docs/TESTING_TWO_CLIENTS.md` for procedures
+- **Physics Testing**:
+  - Use physics visualizer (F4) to see physics bodies
+  - Verify collisions, forces, constraints
+  - Test edge cases (high speed, large objects, stacking)
+  - Check physics parameters in `docs/PHYSICS_PARAMETERS.md`
+- **Performance Testing**:
+  - Use Chrome DevTools Performance tab
+  - Monitor FPS (target: 60 FPS)
+  - Check memory usage (watch for leaks)
+  - Profile CPU usage (identify bottlenecks)
+  - Test on different devices (high-end, mid-range, low-end)
+- **Edge Cases**:
+  - Network lag (100ms+, 500ms+)
+  - Packet loss scenarios
+  - Rapid input (spam clicking, rapid movement)
+  - Boundary conditions (map edges, spawn points)
+  - Invalid input handling
+- **Browser Compatibility**:
+  - Test on Chrome, Firefox, Safari, Edge
+  - Verify WebGPU/WebGL2 support
+  - Check mobile browsers if applicable
+
+## 📚 Key Documentation Files
+- `docs/ARCHITECTURE.md` - System architecture and design patterns
+- `docs/PERFORMANCE.md` - Performance optimizations and tuning
+- `docs/FEATURES.md` - Detailed game mechanics and systems
+- `docs/API.md` - Internal API reference
+- `docs/BEST_PRACTICES.md` - Code quality guidelines and patterns
+- `docs/PHYSICS_PARAMETERS.md` - Physics tuning guide
+- `docs/MULTIPLAYER_SYNC_PROBLEMS.md` - Known sync issues and solutions
+- `docs/TROUBLESHOOTING.md` - Common issues and fixes
+- `docs/SETUP.md` - Development environment setup
+- `docs/CONTRIBUTING.md` - Contribution guidelines
+
+## 🔧 Tools & Scripts
+- `npm run dev` - Start client dev server (Vite, port 5000)
+- `npm run server` - Start game server (Node.js, port 8080)
+- `npm run start:all` - Start client + server + monitoring
+- `npm run monitor` - System monitoring dashboard
+- `npm run build` - Build production bundle
+- `npm run analyze` - Analyze bundle size
+- `npm run version:get` - Get current version
+- `npm run version:increment` - Increment version
+
+## 🎮 Game Systems Reference
+Key systems and their locations:
+- **Game Core**: `src/client/game/Game.ts`, `GameSystems.ts`
+- **Tank**: `src/client/tankController.ts`, `src/client/tank/`
+- **HUD**: `src/client/hud/`, `src/client/hud/components/`
+- **Maps**: `src/client/maps/` (generators), `src/client/chunkSystem.ts`
+- **Multiplayer**: `src/client/multiplayer.ts`, `src/server/`
+- **Effects**: `src/client/effects/`, `src/client/effects.ts`
+- **Workshop**: `src/client/workshop/` (tank customization)
+- **Garage**: `src/client/garage/` (upgrades, customization)
+
+## 💡 AI Assistant Guidelines
+When helping with this project:
+1. **Always consider multiplayer implications** - Every change affects sync
+2. **Optimize for performance** - Target 60 FPS, use adaptive intervals
+3. **Maintain type safety** - No `any`, proper interfaces, type guards
+4. **Follow existing patterns** - Match code style, use same approaches
+5. **Check documentation first** - Review `docs/` before major changes
+6. **Consider both perspectives** - Client prediction vs server authority
+7. **Suggest improvements** - But respect existing architecture
+8. **Use semantic search** - Understand context before making changes
+9. **Test thoroughly** - Consider edge cases, network conditions, performance
+10. **Document complex logic** - Add JSDoc for non-obvious code
+

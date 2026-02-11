@@ -1,0 +1,630 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919139910,
+    "compatibility": {}
+  },
+  "data": [
+    {
+      "id": "plane_part_0_1769919139910",
+      "name": "fuselage_main",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "size": {
+        "x": 2,
+        "y": 1.2,
+        "z": 10
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_1_1769919139910",
+      "name": "nose_base",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": -0.2,
+        "z": 6
+      },
+      "size": {
+        "x": 1.2,
+        "y": 1,
+        "z": 2
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_2_1769919139910",
+      "name": "nose_tip",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": -0.2,
+        "z": 7.8
+      },
+      "size": {
+        "x": 0.6,
+        "y": 0.6,
+        "z": 1.6
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#4A4A4A",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_3_1769919139910",
+      "name": "cockpit_front",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": 0.6,
+        "z": 5.2
+      },
+      "size": {
+        "x": 0.7,
+        "y": 0.4,
+        "z": 1.2
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#2A3B4C",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 0.8,
+        "transparent": true
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_4_1769919139910",
+      "name": "cockpit_rear",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": 0.6,
+        "z": 4
+      },
+      "size": {
+        "x": 0.7,
+        "y": 0.4,
+        "z": 1.2
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#2A3B4C",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 0.8,
+        "transparent": true
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_5_1769919139910",
+      "name": "intake_left",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": -1.3,
+        "y": -0.2,
+        "z": 1.5
+      },
+      "size": {
+        "x": 0.8,
+        "y": 1.2,
+        "z": 4.5
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_6_1769919139910",
+      "name": "intake_right",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 1.3,
+        "y": -0.2,
+        "z": 1.5
+      },
+      "size": {
+        "x": 0.8,
+        "y": 1.2,
+        "z": 4.5
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_7_1769919139910",
+      "name": "wing_left_inner",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": -2,
+        "y": 0.25,
+        "z": 0.5
+      },
+      "size": {
+        "x": 2,
+        "y": 0.1,
+        "z": 4
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_8_1769919139910",
+      "name": "wing_right_inner",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 2,
+        "y": 0.25,
+        "z": 0.5
+      },
+      "size": {
+        "x": 2,
+        "y": 0.1,
+        "z": 4
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_9_1769919139910",
+      "name": "wing_left_outer",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": -4,
+        "y": 0.25,
+        "z": -1
+      },
+      "size": {
+        "x": 2,
+        "y": 0.1,
+        "z": 3
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_10_1769919139910",
+      "name": "wing_right_outer",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 4,
+        "y": 0.25,
+        "z": -1
+      },
+      "size": {
+        "x": 2,
+        "y": 0.1,
+        "z": 3
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_11_1769919139910",
+      "name": "vertical_fin_left",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": -0.85,
+        "y": 1.5,
+        "z": -4
+      },
+      "size": {
+        "x": 0.1,
+        "y": 1.8,
+        "z": 3
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": -5
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_12_1769919139910",
+      "name": "vertical_fin_right",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 0.85,
+        "y": 1.5,
+        "z": -4
+      },
+      "size": {
+        "x": 0.1,
+        "y": 1.8,
+        "z": 3
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 5
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_13_1769919139910",
+      "name": "horizontal_tail_left",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": -2.5,
+        "y": 0,
+        "z": -5.5
+      },
+      "size": {
+        "x": 2,
+        "y": 0.1,
+        "z": 2.5
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_14_1769919139910",
+      "name": "horizontal_tail_right",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 2.5,
+        "y": 0,
+        "z": -5.5
+      },
+      "size": {
+        "x": 2,
+        "y": 0.1,
+        "z": 2.5
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#8E9399",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_15_1769919139910",
+      "name": "engine_nozzle_left",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": -0.6,
+        "y": -0.2,
+        "z": -5.8
+      },
+      "size": {
+        "x": 1,
+        "y": 1,
+        "z": 1.8
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#333333",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0.3,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_16_1769919139910",
+      "name": "engine_nozzle_right",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 0.6,
+        "y": -0.2,
+        "z": -5.8
+      },
+      "size": {
+        "x": 1,
+        "y": 1,
+        "z": 1.8
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#333333",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0.3,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_17_1769919139910",
+      "name": "front_gear",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 0,
+        "y": -1.2,
+        "z": 5.5
+      },
+      "size": {
+        "x": 0.3,
+        "y": 0.8,
+        "z": 0.3
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#1A1A1A",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_18_1769919139910",
+      "name": "rear_gear_left",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": -1.2,
+        "y": -1.2,
+        "z": -1
+      },
+      "size": {
+        "x": 0.5,
+        "y": 0.8,
+        "z": 0.5
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#1A1A1A",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    },
+    {
+      "id": "plane_part_19_1769919139910",
+      "name": "rear_gear_right",
+      "type": "cube",
+      "parentId": null,
+      "position": {
+        "x": 1.2,
+        "y": -1.2,
+        "z": -1
+      },
+      "size": {
+        "x": 0.5,
+        "y": 0.8,
+        "z": 0.5
+      },
+      "rotation": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "color": "#1A1A1A",
+      "material": {
+        "roughness": 0.7,
+        "metalness": 0.1,
+        "emissive": 0,
+        "opacity": 1,
+        "transparent": false
+      },
+      "visible": true,
+      "isLocked": false
+    }
+  ]
+}

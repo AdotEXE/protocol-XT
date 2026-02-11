@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140342,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "reload_system",
+    "name": "Авто-заряжание",
+    "description": "-15% время перезарядки",
+    "cost": 400,
+    "unlocked": false,
+    "type": "module",
+    "stats": {
+      "reload": -0.15
+    },
+    "icon": "⚡",
+    "rarity": "common"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141092,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "piercing",
+    "name": "Piercing Rail",
+    "barrelLength": 3.2,
+    "barrelWidth": 0.18,
+    "damage": 32,
+    "cooldown": 2800,
+    "projectileSpeed": 350,
+    "projectileSize": 0.12,
+    "color": "#cccccc",
+    "description": "Бронебойная пушка, пронзает врагов. Урон: 32 | Перезарядка: 2.8с | Проходит через 3 врагов, снижение урона на 20% за цель.",
+    "recoilMultiplier": 3.6,
+    "maxRange": 431
+  }
+}

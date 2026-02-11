@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140609,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "rocket",
+    "name": "Rocket Launcher",
+    "barrelLength": 2.2,
+    "barrelWidth": 0.3,
+    "damage": 45,
+    "cooldown": 3000,
+    "projectileSpeed": 150,
+    "projectileSize": 0.28,
+    "color": "#ff8800",
+    "description": "Ракетная установка с взрывным уроном. Урон: 45 | Перезарядка: 3.0с | Радиус взрыва: 3м. Эффективна против групп врагов.",
+    "recoilMultiplier": 3.2,
+    "maxRange": 251
+  }
+}

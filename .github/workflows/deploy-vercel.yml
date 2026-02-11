@@ -1,0 +1,33 @@
+name: CI Build Check
+
+# Этот workflow только проверяет сборку
+# Автоматический деплой выполняется через официальную интеграцию Vercel
+# См. Vercel Dashboard → Settings → Git
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        
+      - name: Build Success
+        run: echo "✅ Build completed successfully - Vercel will handle deployment automatically"

@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140250,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "siege",
+    "name": "Siege",
+    "width": 3,
+    "height": 1.1,
+    "depth": 4.5,
+    "mass": 3500,
+    "maxHealth": 200,
+    "moveSpeed": 12,
+    "turnSpeed": 3,
+    "acceleration": 5000,
+    "color": "#654321",
+    "description": "Осадный корпус с максимальной защитой. Способность: временное усиление брони на 50% (перезарядка 45 сек). Очень медленный, но практически неуязвимый. Идеален для защиты позиций. HP: 200 | Скорость: 12 | Броня: максимальная",
+    "specialAbility": "siege"
+  }
+}

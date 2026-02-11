@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140815,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "module_engine_turbo",
+    "name": "Turbocharger Mk1",
+    "description": "Boosts engine power for higher top speed and acceleration.",
+    "type": "engine",
+    "rarity": "rare",
+    "price": 1200,
+    "attachmentPoint": "engine_deck",
+    "modelPath": "cylinder_pair",
+    "color": "#a0a0a0",
+    "scale": 0.8,
+    "stats": {
+      "speedMultiplier": 1.15,
+      "turnSpeedMultiplier": 1.1
+    }
+  }
+}

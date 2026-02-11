@@ -1,0 +1,21 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919139904,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "rapid",
+    "name": "Rapid",
+    "barrelLength": 1.7,
+    "barrelWidth": 0.15,
+    "damage": 15,
+    "cooldown": 1000,
+    "projectileSpeed": 160,
+    "projectileSize": 0.15,
+    "color": "#888888",
+    "description": "Fast fire rate, low damage",
+    "recoilMultiplier": 1
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140559,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "tesla",
+    "name": "Tesla Coil",
+    "barrelLength": 1.8,
+    "barrelWidth": 0.32,
+    "damage": 20,
+    "cooldown": 1800,
+    "projectileSpeed": 190,
+    "projectileSize": 0.2,
+    "color": "#00ffff",
+    "description": "Катушка Тесла с цепной молнией. Урон: 20 | Перезарядка: 1.8с | Эффект: урон переходит на 2 ближайших врагов (50% урона). Отлично против групп.",
+    "recoilMultiplier": 0.8,
+    "maxRange": 239
+  }
+}

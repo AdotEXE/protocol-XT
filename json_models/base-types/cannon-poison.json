@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140989,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "poison",
+    "name": "Toxin Launcher",
+    "barrelLength": 1.9,
+    "barrelWidth": 0.21,
+    "damage": 16,
+    "cooldown": 2100,
+    "projectileSpeed": 150,
+    "projectileSize": 0.17,
+    "color": "#9900ff",
+    "description": "Токсичный инжектор с отравлением. Урон: 16 | Перезарядка: 2.1с | Эффект: яд 10 сек (2 урона/сек). Долгий DoT.",
+    "recoilMultiplier": 1,
+    "maxRange": 227
+  }
+}

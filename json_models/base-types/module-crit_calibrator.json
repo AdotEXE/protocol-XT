@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140532,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "crit_calibrator",
+    "name": "Критический калибратор",
+    "description": "+15% шанс крита, +5% урона",
+    "cost": 800,
+    "unlocked": false,
+    "type": "module",
+    "stats": {
+      "critChance": 0.15,
+      "damage": 0.05
+    },
+    "icon": "💥",
+    "rarity": "epic"
+  }
+}

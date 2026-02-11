@@ -1,0 +1,622 @@
+[
+  {
+    "id": "5ed28ead-67fc-4c3e-938c-ea3583498c9f",
+    "name": "fuselage_main",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 0,
+      "y": 1.6,
+      "z": 0
+    },
+    "size": {
+      "x": 2.001,
+      "y": 1.201,
+      "z": 10.001
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "4a6511e0-4fe6-4389-b93c-2f12579c43c3",
+    "name": "nose_base",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 0,
+      "y": 1.4,
+      "z": 6
+    },
+    "size": {
+      "x": 1.2,
+      "y": 1,
+      "z": 2
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "598a2643-664b-4c7f-830c-7b1a43ac69b9",
+    "name": "nose_tip",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 0,
+      "y": 1.4,
+      "z": 7.8
+    },
+    "size": {
+      "x": 0.6,
+      "y": 0.6,
+      "z": 1.6
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#4A4A4A",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "df28e6d0-ee53-4968-896a-49cb5c4138fc",
+    "name": "cockpit_front",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 0,
+      "y": 2.201,
+      "z": 5.2
+    },
+    "size": {
+      "x": 0.7,
+      "y": 0.4,
+      "z": 1.2
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#2A3B4C",
+    "material": {
+      "roughness": 0.1,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 0.8,
+      "transparent": true
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "64a3281e-b75f-41e7-9088-fa599f1d4e24",
+    "name": "cockpit_rear",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 0,
+      "y": 2.201,
+      "z": 4
+    },
+    "size": {
+      "x": 0.7,
+      "y": 0.4,
+      "z": 1.2
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#2A3B4C",
+    "material": {
+      "roughness": 0.1,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 0.8,
+      "transparent": true
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "870d8ed4-da53-487b-a757-45971fd7744b",
+    "name": "intake_left",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": -1.3,
+      "y": 1.4,
+      "z": 1.5
+    },
+    "size": {
+      "x": 0.8,
+      "y": 1.2,
+      "z": 4.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "b9823f95-48ba-4ff5-ba07-3218a0996c22",
+    "name": "intake_right",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 1.3,
+      "y": 1.4,
+      "z": 1.5
+    },
+    "size": {
+      "x": 0.8,
+      "y": 1.2,
+      "z": 4.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "8e6e97b9-22bd-4b2c-9430-f51b43bab4e7",
+    "name": "wing_left_inner",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": -2,
+      "y": 1.85,
+      "z": 0.5
+    },
+    "size": {
+      "x": 2,
+      "y": 0.1,
+      "z": 4
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "b4178ffc-5147-4743-9244-8efeb03425fa",
+    "name": "wing_right_inner",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 2,
+      "y": 1.85,
+      "z": 0.5
+    },
+    "size": {
+      "x": 2,
+      "y": 0.1,
+      "z": 4
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "3c652ddf-95c0-4554-89cf-0c32d1c2ddad",
+    "name": "wing_left_outer",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": -4,
+      "y": 1.85,
+      "z": -1
+    },
+    "size": {
+      "x": 2,
+      "y": 0.1,
+      "z": 3
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "8bf2c552-cebe-47b6-8d86-bc9d22de47a1",
+    "name": "wing_right_outer",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 4,
+      "y": 1.85,
+      "z": -1
+    },
+    "size": {
+      "x": 2,
+      "y": 0.1,
+      "z": 3
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "4ef022f4-eb99-421e-9694-4751b1498203",
+    "name": "vertical_fin_left",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": -0.85,
+      "y": 3.1,
+      "z": -4
+    },
+    "size": {
+      "x": 0.1,
+      "y": 1.8,
+      "z": 3
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": -5
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "3dfd255c-d649-4ad7-8be1-934a5c3170d6",
+    "name": "vertical_fin_right",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 0.85,
+      "y": 3.1,
+      "z": -4
+    },
+    "size": {
+      "x": 0.1,
+      "y": 1.8,
+      "z": 3
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 5
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "a187c5f8-74a8-4536-889b-d3f399a8777a",
+    "name": "horizontal_tail_left",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": -2.5,
+      "y": 1.6,
+      "z": -5.5
+    },
+    "size": {
+      "x": 2,
+      "y": 0.1,
+      "z": 2.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "6fccc192-fe66-43d3-95ae-14e58cf7f4b5",
+    "name": "horizontal_tail_right",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 2.5,
+      "y": 1.6,
+      "z": -5.5
+    },
+    "size": {
+      "x": 2,
+      "y": 0.1,
+      "z": 2.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#8E9399",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "3092bbd0-5446-497e-b042-e3c3c5f7158e",
+    "name": "engine_nozzle_left",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": -0.6,
+      "y": 1.4,
+      "z": -5.8
+    },
+    "size": {
+      "x": 1,
+      "y": 1,
+      "z": 1.8
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#333333",
+    "material": {
+      "roughness": 0.4,
+      "metalness": 0.8,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "fab79e65-d9e0-40d5-b452-7c57a815b63e",
+    "name": "engine_nozzle_right",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 0.6,
+      "y": 1.4,
+      "z": -5.8
+    },
+    "size": {
+      "x": 1,
+      "y": 1,
+      "z": 1.8
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#333333",
+    "material": {
+      "roughness": 0.4,
+      "metalness": 0.8,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "92a6767c-3b6c-4006-80b5-6ae16dd2d435",
+    "name": "front_gear",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 0,
+      "y": 0.4,
+      "z": 5.5
+    },
+    "size": {
+      "x": 0.3,
+      "y": 0.8,
+      "z": 0.3
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#1A1A1A",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "6d780bf9-47e2-468f-8934-76a31ae71fff",
+    "name": "rear_gear_left",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": -1.2,
+      "y": 0.4,
+      "z": -1
+    },
+    "size": {
+      "x": 0.5,
+      "y": 0.8,
+      "z": 0.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#1A1A1A",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  },
+  {
+    "id": "525fbdd3-8769-4a14-9331-0d547922fe2d",
+    "name": "rear_gear_right",
+    "type": "cube",
+    "parentId": null,
+    "position": {
+      "x": 1.2,
+      "y": 0.4,
+      "z": -1
+    },
+    "size": {
+      "x": 0.5,
+      "y": 0.8,
+      "z": 0.5
+    },
+    "rotation": {
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "color": "#1A1A1A",
+    "material": {
+      "roughness": 0.7,
+      "metalness": 0.1,
+      "emissive": 0,
+      "opacity": 1,
+      "transparent": false
+    },
+    "visible": true,
+    "isLocked": false
+  }
+]

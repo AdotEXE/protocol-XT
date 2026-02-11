@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140628,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "stealth",
+    "name": "Stealth",
+    "width": 1.9,
+    "height": 0.65,
+    "depth": 3.2,
+    "mass": 1100,
+    "maxHealth": 70,
+    "moveSpeed": 28,
+    "turnSpeed": 6.4,
+    "acceleration": 13000,
+    "color": "#333333",
+    "description": "Стелс-корпус с активной маскировкой. Способность: временная невидимость на 5 секунд (перезарядка 30 сек). Низкий профиль, средняя броня, высокая скорость. Идеален для разведки и внезапных атак. HP: 70 | Скорость: 28 | Броня: средняя",
+    "specialAbility": "stealth"
+  }
+}

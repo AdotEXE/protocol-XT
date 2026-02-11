@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140570,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "holo_evader",
+    "name": "Голографический уклонитель",
+    "description": "+12% уклонения, +5% скорости",
+    "cost": 750,
+    "unlocked": false,
+    "type": "module",
+    "stats": {
+      "evasion": 0.12,
+      "speed": 0.05
+    },
+    "icon": "👻",
+    "rarity": "epic"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140415,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "gatling",
+    "name": "Gatling",
+    "barrelLength": 1.9,
+    "barrelWidth": 0.22,
+    "damage": 10,
+    "cooldown": 300,
+    "projectileSpeed": 180,
+    "projectileSize": 0.12,
+    "color": "#aaaaaa",
+    "description": "Very fast fire rate",
+    "recoilMultiplier": 0.5,
+    "maxRange": 242
+  }
+}

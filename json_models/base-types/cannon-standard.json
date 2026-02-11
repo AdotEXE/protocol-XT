@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140259,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "standard",
+    "name": "Standard",
+    "barrelLength": 2.1,
+    "barrelWidth": 0.2,
+    "damage": 25,
+    "cooldown": 2000,
+    "projectileSpeed": 200,
+    "projectileSize": 0.2,
+    "color": "#666666",
+    "description": "Balanced cannon",
+    "recoilMultiplier": 2,
+    "maxRange": 268
+  }
+}

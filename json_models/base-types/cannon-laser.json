@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140517,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "laser",
+    "name": "Laser Beam",
+    "barrelLength": 2.8,
+    "barrelWidth": 0.16,
+    "damage": 30,
+    "cooldown": 1500,
+    "projectileSpeed": 400,
+    "projectileSize": 0.14,
+    "color": "#ff0000",
+    "description": "Лазерный луч мгновенного попадания. Урон: 30 | Перезарядка: 1.5с | Скорость: 400 м/с (мгновенно). Высокая точность, нет задержки попадания. Идеален для быстрых целей.",
+    "recoilMultiplier": 0.6,
+    "maxRange": 424
+  }
+}

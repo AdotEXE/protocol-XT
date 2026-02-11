@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141014,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "emp",
+    "name": "EMP Blaster",
+    "barrelLength": 2.2,
+    "barrelWidth": 0.25,
+    "damage": 15,
+    "cooldown": 3500,
+    "projectileSpeed": 200,
+    "projectileSize": 0.23,
+    "color": "#ffff00",
+    "description": "ЭМИ бластер, отключает системы. Урон: 15 | Перезарядка: 3.5с | Эффект: отключение способностей на 6 сек. Тактическое оружие.",
+    "recoilMultiplier": 0.8,
+    "maxRange": 276
+  }
+}

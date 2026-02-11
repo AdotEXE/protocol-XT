@@ -1,0 +1,22 @@
+{
+  "name": "Protocol TX",
+  "short_name": "PTX",
+  "description": "Advanced tank combat simulator with procedural world generation",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#1a1a1c",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["games", "entertainment"],
+  "screenshots": [],
+  "shortcuts": []
+}
+

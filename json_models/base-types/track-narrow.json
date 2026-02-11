@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140338,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "narrow",
+    "name": "Narrow Tracks",
+    "description": "Lightweight narrow tracks for speed",
+    "width": 0.3,
+    "height": 0.45,
+    "depth": 3.3,
+    "color": "#151515",
+    "style": "narrow",
+    "stats": {
+      "speedBonus": 0.15
+    },
+    "cost": 400
+  }
+}

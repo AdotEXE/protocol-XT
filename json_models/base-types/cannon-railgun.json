@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140584,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "railgun",
+    "name": "Railgun",
+    "barrelLength": 3.5,
+    "barrelWidth": 0.2,
+    "damage": 60,
+    "cooldown": 5000,
+    "projectileSpeed": 500,
+    "projectileSize": 0.16,
+    "color": "#0088ff",
+    "description": "Рельсотрон с экстремальным уроном. Урон: 60 | Перезарядка: 5.0с | Скорость: 500 м/с. Самый высокий урон, но очень медленная перезарядка. Один выстрел - одно убийство.",
+    "recoilMultiplier": 5,
+    "maxRange": 530
+  }
+}

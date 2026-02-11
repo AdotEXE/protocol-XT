@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141130,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "beam",
+    "name": "Beam Cannon",
+    "barrelLength": 2.7,
+    "barrelWidth": 0.19,
+    "damage": 26,
+    "cooldown": 1900,
+    "projectileSpeed": 380,
+    "projectileSize": 0.15,
+    "color": "#ff00aa",
+    "description": "Лучовая пушка с непрерывным лучом. Урон: 26 | Перезарядка: 1.9с | Непрерывный луч 2 сек, накапливающийся урон.",
+    "recoilMultiplier": 0.7,
+    "maxRange": 406
+  }
+}

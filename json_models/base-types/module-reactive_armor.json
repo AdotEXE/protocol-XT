@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140436,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "reactive_armor",
+    "name": "Реактивная броня",
+    "description": "+25% брони, +10% здоровья",
+    "cost": 650,
+    "unlocked": false,
+    "type": "module",
+    "stats": {
+      "armor": 0.25,
+      "health": 0.1
+    },
+    "icon": "🔰",
+    "rarity": "rare"
+  }
+}

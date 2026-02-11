@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140935,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "acid",
+    "name": "Acid Launcher",
+    "barrelLength": 2.1,
+    "barrelWidth": 0.22,
+    "damage": 18,
+    "cooldown": 2200,
+    "projectileSpeed": 140,
+    "projectileSize": 0.2,
+    "color": "#00ff00",
+    "description": "Кислотный распылитель с коррозией. Урон: 18 | Перезарядка: 2.2с | Эффект: коррозия 8 сек (3 урона/сек), снижает броню на 20%.",
+    "recoilMultiplier": 1.2,
+    "maxRange": 238
+  }
+}

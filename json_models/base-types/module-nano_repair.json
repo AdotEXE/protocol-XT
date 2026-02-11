@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140596,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "nano_repair",
+    "name": "Нано-ремонтный комплекс",
+    "description": "+3% авто-ремонт/сек, +5% здоровья",
+    "cost": 900,
+    "unlocked": false,
+    "type": "module",
+    "stats": {
+      "repairRate": 0.03,
+      "health": 0.05
+    },
+    "icon": "🔧",
+    "rarity": "legendary"
+  }
+}

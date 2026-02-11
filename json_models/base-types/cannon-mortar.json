@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140775,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "mortar",
+    "name": "Mortar",
+    "barrelLength": 1.5,
+    "barrelWidth": 0.35,
+    "damage": 55,
+    "cooldown": 4500,
+    "projectileSpeed": 100,
+    "projectileSize": 0.32,
+    "color": "#8b4513",
+    "description": "Миномет с высокой дугой траектории. Урон: 55 | Перезарядка: 4.5с | Радиус взрыва: 5м. Стреляет через препятствия, массивный урон по области.",
+    "recoilMultiplier": 4.4,
+    "maxRange": 170
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140599,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "scout",
+    "name": "Scout",
+    "width": 1.6,
+    "height": 0.6,
+    "depth": 2.8,
+    "mass": 1000,
+    "maxHealth": 60,
+    "moveSpeed": 36,
+    "turnSpeed": 7,
+    "acceleration": 15000,
+    "color": "#ffff00",
+    "description": "Very fast but fragile"
+  }
+}

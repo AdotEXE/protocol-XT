@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140446,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "light",
+    "name": "Light",
+    "width": 1.8,
+    "height": 0.7,
+    "depth": 3,
+    "mass": 1250,
+    "maxHealth": 80,
+    "moveSpeed": 30,
+    "turnSpeed": 6,
+    "acceleration": 12500,
+    "color": "#4a9eff",
+    "description": "Fast and agile, but weak armor"
+  }
+}

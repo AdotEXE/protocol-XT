@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140906,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "flamethrower",
+    "name": "Flamethrower",
+    "barrelLength": 1.6,
+    "barrelWidth": 0.24,
+    "damage": 8,
+    "cooldown": 150,
+    "projectileSpeed": 120,
+    "projectileSize": 0.18,
+    "color": "#ff3300",
+    "description": "Огнемет с непрерывным огнем. Урон: 12 | Перезарядка: 0.1с | Эффект: горение 5 сек (5 урона/сек). Ближний бой, высокая DPS. Самая скорострельная пушка!",
+    "recoilMultiplier": 0.3,
+    "maxRange": 188
+  }
+}

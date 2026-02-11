@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140336,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "heavy",
+    "name": "Heavy",
+    "barrelLength": 2.5,
+    "barrelWidth": 0.25,
+    "damage": 40,
+    "cooldown": 3500,
+    "projectileSpeed": 240,
+    "projectileSize": 0.25,
+    "color": "#444444",
+    "description": "Slow but powerful",
+    "recoilMultiplier": 3.6,
+    "maxRange": 320
+  }
+}

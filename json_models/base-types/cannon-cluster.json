@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140831,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "cluster",
+    "name": "Cluster Launcher",
+    "barrelLength": 2,
+    "barrelWidth": 0.26,
+    "damage": 25,
+    "cooldown": 2800,
+    "projectileSpeed": 170,
+    "projectileSize": 0.24,
+    "color": "#ff4444",
+    "description": "Кластерная установка, разделяющиеся снаряды. Урон: 25 | Перезарядка: 2.8с | Разделяется на 5 снарядов. Покрывает большую площадь.",
+    "recoilMultiplier": 2.4,
+    "maxRange": 245
+  }
+}

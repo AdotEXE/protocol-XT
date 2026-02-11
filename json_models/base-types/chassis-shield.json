@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140367,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "shield",
+    "name": "Shield",
+    "width": 2.3,
+    "height": 0.9,
+    "depth": 3.7,
+    "mass": 2000,
+    "maxHealth": 110,
+    "moveSpeed": 20,
+    "turnSpeed": 4.4,
+    "acceleration": 9000,
+    "color": "#88ff88",
+    "description": "Корпус с энергетическим щитом. Способность: активация щита, поглощающего 100 урона (перезарядка 40 сек). Баланс между защитой и мобильностью. HP: 110 | Скорость: 20 | Броня: высокая",
+    "specialAbility": "shield"
+  }
+}

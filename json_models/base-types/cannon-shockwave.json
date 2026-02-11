@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141112,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "shockwave",
+    "name": "Shockwave Cannon",
+    "barrelLength": 2.6,
+    "barrelWidth": 0.32,
+    "damage": 28,
+    "cooldown": 3000,
+    "projectileSpeed": 110,
+    "projectileSize": 0.3,
+    "color": "#ffaa00",
+    "description": "Ударная волна с отбрасыванием. Урон: 28 | Перезарядка: 3.0с | Радиус: 4м, отбрасывает врагов, контроль территории.",
+    "recoilMultiplier": 2.6,
+    "maxRange": 263
+  }
+}

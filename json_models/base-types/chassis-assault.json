@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140573,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "assault",
+    "name": "Assault",
+    "width": 2.4,
+    "height": 0.85,
+    "depth": 3.8,
+    "mass": 2125,
+    "maxHealth": 120,
+    "moveSpeed": 22,
+    "turnSpeed": 4.6,
+    "acceleration": 9375,
+    "color": "#ff4444",
+    "description": "Good speed and protection"
+  }
+}

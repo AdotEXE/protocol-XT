@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protocol TX Editor</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #0d1117;
+            color: #fff;
+            font-family: 'Consolas', monospace;
+            text-align: center;
+        }
+        .container {
+            border: 1px solid #3fb950;
+            padding: 40px;
+            border-radius: 8px;
+            max-width: 600px;
+            background: rgba(13, 17, 23, 0.9);
+            box-shadow: 0 0 20px rgba(63, 185, 80, 0.2);
+        }
+        h1 { color: #3fb950; margin-bottom: 20px; }
+        p { margin-bottom: 30px; line-height: 1.6; color: #8b949e; }
+        .code {
+            background: #161b22;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: monospace;
+            color: #e6edf3;
+            margin: 10px 0;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚠️ Редактор не подключен</h1>
+        <p>
+            Редактор карт (PolyGenStudio) — это отдельное приложение.<br>
+            В данный момент оно не настроено для онлайн-версии.
+        </p>
+        
+        <div style="text-align: left; margin: 20px auto; width: fit-content;">
+            <strong>Как исправить:</strong>
+            <ol style="color: #8b949e;">
+                <li>Задеплойте папку <code>PolyGenStudio-main</code> как отдельный проект на Vercel.</li>
+                <li>Скопируйте полученный URL (например <code>https://my-editor.vercel.app</code>).</li>
+                <li>Добавьте переменную в настройки основного проекта Protocol TX:</li>
+            </ol>
+            <div class="code">VITE_EDITOR_URL=https://my-editor.vercel.app</div>
+        </div>
+
+        <p style="font-size: 12px; margin-top: 30px; opacity: 0.7;">
+            Для разработчиков: локально используйте <code>npm run start:all</code> чтобы запустить и игру, и редактор.
+        </p>
+    </div>
+</body>
+</html>

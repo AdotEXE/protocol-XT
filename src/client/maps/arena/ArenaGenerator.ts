@@ -1,0 +1,343 @@
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { BaseMapGenerator } from "../shared/BaseMapGenerator";
+import { ChunkGenerationContext } from "../shared/MapGenerator";
+import { MAP_SIZES } from "../MapConstants";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+
+export interface ArenaConfig {
+    arenaSize: number;
+    laneWidth: number;
+    baseAreaSize: number;
+}
+
+export const DEFAULT_ARENA_CONFIG: ArenaConfig = {
+    arenaSize: MAP_SIZES.arena?.size ?? 160,
+    laneWidth: 20,
+    baseAreaSize: 30,
+};
+
+export class ArenaGenerator extends BaseMapGenerator {
+    readonly mapType = "arena";
+    readonly displayName = "ESL Arena";
+    readonly description = "Профессиональная киберспортивная карта. Симметричная 3-х линейная структура.";
+    private config: ArenaConfig;
+
+    constructor(config: Partial<ArenaConfig> = {}) {
+        super();
+        this.config = { ...DEFAULT_ARENA_CONFIG, ...config };
+    }
+
+    generateContent(context: ChunkGenerationContext): void {
+        const { worldX, worldZ, size, chunkParent } = context;
+        const arenaHalf = this.config.arenaSize / 2;
+
+        const mapMinX = -arenaHalf;
+        const mapMaxX = arenaHalf;
+        const mapMinZ = -arenaHalf;
+        const mapMaxZ = arenaHalf;
+
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+
+        // Bounding box check for optimization
+        if (chunkMaxX < mapMinX || chunkMinX > mapMaxX ||
+            chunkMaxZ < mapMinZ || chunkMinZ > mapMaxZ) {
+            return;
+        }
+
+        // Create a root node for this chunk's content to keep hierarchy clean
+        const contentRoot = new TransformNode("arena_content", chunkParent.getScene());
+        contentRoot.parent = chunkParent;
+
+        // 1. Generate Floor (Grid Pattern)
+        this.generateFloor(context, contentRoot);
+
+        // 2. Generate Symmetrical Layout
+        // We define objects for one side (Positive Z) and mirror them to Negative Z
+        this.generateSymmetricalContent(context, contentRoot);
+
+        // 3. Generate Central Objectives
+        this.generateCenter(context, contentRoot);
+
+        // 4. Perimeter Walls
+        this.generatePerimeter(context, contentRoot);
+
+        // 5. Finalize: Merge meshes for performance
+        this.mergePendingMeshes(contentRoot);
+    }
+
+    private isObjectCenterInChunk(pos: Vector3, context: ChunkGenerationContext): boolean {
+        // Strict check: only spawn if the object's CENTER is strictly within this chunk's indices
+        // This prevents double-spawning on borders
+        const chunkSize = context.size;
+        const chunkIndexX = context.chunkX;
+        const chunkIndexZ = context.chunkZ;
+
+        const objChunkX = Math.floor(pos.x / chunkSize);
+        const objChunkZ = Math.floor(pos.z / chunkSize);
+
+        return objChunkX === chunkIndexX && objChunkZ === chunkIndexZ;
+    }
+
+    private generateFloor(context: ChunkGenerationContext, parent: TransformNode): void {
+        const { worldX, worldZ, size, scene } = context;
+        const arenaHalf = this.config.arenaSize / 2;
+
+        // Проверяем пересечение чанка с ареной
+        const chunkMinX = worldX;
+        const chunkMaxX = worldX + size;
+        const chunkMinZ = worldZ;
+        const chunkMaxZ = worldZ + size;
+        const mapMinX = -arenaHalf;
+        const mapMaxX = arenaHalf;
+        const mapMinZ = -arenaHalf;
+        const mapMaxZ = arenaHalf;
+
+        // Пропускаем если чанк полностью вне арены
+        if (chunkMaxX < mapMinX || chunkMinX > mapMaxX ||
+            chunkMaxZ < mapMinZ || chunkMinZ > mapMaxZ) {
+            return;
+        }
+
+        // Создаём пол для этого чанка
+        const { MeshBuilder } = require("@babylonjs/core/Meshes/meshBuilder");
+        const { Vector3 } = require("@babylonjs/core/Maths/math.vector");
+
+        const floorMat = this.createMaterial("arena_floor", new Color3(0.15, 0.15, 0.18));
+        const floor = MeshBuilder.CreateBox("arena_ground", {
+            width: size,
+            height: 0.2,
+            depth: size
+        }, scene);
+        floor.position = new Vector3(size / 2, -0.1, size / 2);
+        floor.material = floorMat;
+        floor.parent = parent;
+        floor.isPickable = true;
+        floor.receiveShadows = true;
+    }
+
+    private generateSymmetricalContent(context: ChunkGenerationContext, parent: TransformNode): void {
+        // Define key coordinates for ONE side (Red Base side, Z > 0)
+        // Then we will generate the object AND its mirrored counterpart (Blue Base side, Z < 0)
+
+        const baseZ = this.config.arenaSize / 2 - 15;
+        const midLaneX = 0;
+        const sideLaneX = 40;
+
+        // --- BASES ---
+        // Spawn protection walls
+        this.createMirroredObject(context, parent, (isMirror) => {
+            const z = baseZ - 5;
+            return {
+                pos: new Vector3(0, 2, z),
+                size: { width: 20, height: 4, depth: 1 },
+                name: "base_shield",
+                mat: isMirror ? "mat_blue_glass" : "mat_red_glass",
+                color: isMirror ? new Color3(0.2, 0.2, 0.8) : new Color3(0.8, 0.2, 0.2)
+            };
+        });
+
+        // Base Flank Covers (L-Shape Logic)
+        this.createMirroredObject(context, parent, () => ({
+            pos: new Vector3(15, 1.5, baseZ),
+            size: { width: 4, height: 3, depth: 8 },
+            name: "base_cover_right",
+            mat: "mat_metal",
+            color: new Color3(0.3, 0.3, 0.35)
+        }));
+        this.createMirroredObject(context, parent, () => ({
+            pos: new Vector3(-15, 1.5, baseZ),
+            size: { width: 4, height: 3, depth: 8 },
+            name: "base_cover_left",
+            mat: "mat_metal",
+            color: new Color3(0.3, 0.3, 0.35)
+        }));
+
+
+        // --- LANE OBJECTS ---
+
+        // Mid Lane: "The Sniper Pillars" (near mid)
+        this.createMirroredObject(context, parent, () => ({
+            pos: new Vector3(18, 2.5, 20),
+            size: { width: 2, height: 5, depth: 2 },
+            name: "mid_pillar_r",
+            mat: "mat_concrete",
+            color: new Color3(0.6, 0.6, 0.6)
+        }));
+        this.createMirroredObject(context, parent, () => ({
+            pos: new Vector3(-18, 2.5, 20),
+            size: { width: 2, height: 5, depth: 2 },
+            name: "mid_pillar_l",
+            mat: "mat_concrete",
+            color: new Color3(0.6, 0.6, 0.6)
+        }));
+
+        // Side Lanes: "Angle Holders" (Large blocks blocking LOS)
+        this.createMirroredObject(context, parent, () => ({
+            // Side block slightly off center
+            pos: new Vector3(sideLaneX, 2, 35),
+            size: { width: 10, height: 4, depth: 15 },
+            name: "side_block_main",
+            mat: "mat_heavy_metal",
+            color: new Color3(0.25, 0.25, 0.3)
+        }));
+
+        // Side Lanes: Small cover for advancing
+        this.createMirroredObject(context, parent, () => ({
+            pos: new Vector3(sideLaneX + 5, 1, 15),
+            size: { width: 3, height: 2, depth: 3 },
+            name: "side_cover_small",
+            mat: "mat_crate",
+            color: new Color3(0.4, 0.3, 0.2)
+        }));
+    }
+
+    private generateCenter(context: ChunkGenerationContext, parent: TransformNode): void {
+        // The Centerpiece (The "Monument")
+        // Just one, at 0,0,0. strictly symmetrical.
+
+        if (this.isObjectCenterInChunk(new Vector3(0, 0, 0), context)) {
+            // Central Platform
+            const platformMat = this.createMaterial("center_plat_mat", new Color3(0.1, 0.1, 0.1), new Color3(0.1, 0, 0)); // Dark with faint glow
+            this.createBox(
+                "center_platform",
+                { width: 16, height: 0.5, depth: 16 },
+                new Vector3(0, 0.25, 0),
+                platformMat,
+                parent,
+                true,
+                true
+            );
+
+            // Central Monolith
+            const monoMat = this.createMaterial("monolith_mat", new Color3(0.9, 0.8, 0.2), new Color3(0.2, 0.1, 0)); // Gold-ish
+            this.createBox(
+                "center_monolith",
+                { width: 4, height: 6, depth: 4 },
+                new Vector3(0, 3, 0),
+                monoMat,
+                parent,
+                true,
+                true
+            );
+
+            // Cover around center
+            const coverMat = this.createMaterial("center_cover_mat", new Color3(0.4, 0.4, 0.45));
+            // 4 corners of center
+            const corners = [{ x: 6, z: 6 }, { x: -6, z: 6 }, { x: 6, z: -6 }, { x: -6, z: -6 }];
+            for (const c of corners) {
+                this.createBox(
+                    "center_corner",
+                    { width: 3, height: 2.5, depth: 3 },
+                    new Vector3(c.x, 1.25, c.z),
+                    coverMat,
+                    parent,
+                    true,
+                    true
+                );
+            }
+        }
+    }
+
+    private generatePerimeter(context: ChunkGenerationContext, parent: TransformNode): void {
+        const { worldX, worldZ, size } = context;
+        const half = this.config.arenaSize / 2;
+        const height = 8;
+        const thickness = 4;
+
+        const wallMat = this.createMaterial("arena_wall_mat", new Color3(0.15, 0.15, 0.2));
+
+        const drawWall = (pos: Vector3, w: number, d: number) => {
+            if (this.isObjectCenterInChunk(pos, context)) {
+                this.createWallSegment("wall", w, height, d, new Vector3(pos.x, height / 2, pos.z), wallMat, parent, true, true);
+            }
+        };
+
+        // North/South Walls
+        drawWall(new Vector3(0, 0, half), this.config.arenaSize + thickness, thickness);
+        drawWall(new Vector3(0, 0, -half), this.config.arenaSize + thickness, thickness);
+
+        // East/West Walls
+        drawWall(new Vector3(half, 0, 0), thickness, this.config.arenaSize + thickness);
+        drawWall(new Vector3(-half, 0, 0), thickness, this.config.arenaSize + thickness);
+    }
+
+    // --- Helper for Symmetry ---
+
+    private createMirroredObject(
+        context: ChunkGenerationContext,
+        parent: TransformNode,
+        def: (isMirror: boolean) => {
+            name: string;
+            size: { width: number; height: number; depth: number };
+            pos: Vector3;
+            mat: StandardMaterial | string;
+            color?: Color3;
+        }
+    ): void {
+        // 1. Original (Red Side / Positive Z)
+        const obj1 = def(false);
+        // Use STRICT center check to prevent clones
+        if (this.isObjectCenterInChunk(obj1.pos, context)) {
+            let mat1 = obj1.mat;
+            if (typeof mat1 === "string" && obj1.color) {
+                // Check if mat exists, else create it. 
+                // Note: In a real efficient system we'd cache these globally, but here we rely on getMat/createMaterial
+                try {
+                    mat1 = this.getMat(mat1 as string);
+                } catch {
+                    mat1 = this.createMaterial(mat1 as string, obj1.color);
+                }
+            }
+
+            this.createBox(
+                obj1.name,
+                obj1.size,
+                obj1.pos,
+                mat1,
+                parent,
+                true,
+                true
+            );
+        }
+
+        // 2. Mirror (Blue Side / Negative Z)
+        // If the object is exactly on Z=0, we might strictly skip it or double place it. 
+        // For this logic, we assume Z != 0 for side content.
+        if (Math.abs(obj1.pos.z) < 0.1) return; // Skip mirror if on center line to avoid Z-fighting duplicates if not intended
+
+        const obj2 = def(true);
+        // Mirror Logic: Invert Z and X (Point symmetry) OR just Z (Plane symmetry)?
+        // Competitive maps usually use Rotational Symmetry (Point 180deg) for fair diagonal play, 
+        // OR Mirror Symmetry (X-axis). 
+        // Let's stick to X-axis Mirror (Z becomes -Z) which is "Football Field" style.
+        const mirrorPos = new Vector3(obj1.pos.x, obj1.pos.y, -obj1.pos.z);
+
+        // Use STRICT center check for mirror too
+        if (this.isObjectCenterInChunk(mirrorPos, context)) {
+            let mat2 = obj2.mat;
+            if (typeof mat2 === "string" && obj2.color) {
+                try {
+                    mat2 = this.getMat(mat2 as string);
+                } catch {
+                    mat2 = this.createMaterial(mat2 as string, obj2.color);
+                }
+            }
+
+            this.createBox(
+                obj2.name + "_mirror",
+                obj2.size,
+                mirrorPos,
+                mat2,
+                parent,
+                true,
+                true
+            );
+        }
+    }
+}

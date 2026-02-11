@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140404,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "artillery",
+    "name": "Artillery",
+    "width": 2.8,
+    "height": 1,
+    "depth": 4.2,
+    "mass": 2800,
+    "maxHealth": 130,
+    "moveSpeed": 16,
+    "turnSpeed": 3.6,
+    "acceleration": 6500,
+    "color": "#8b4513",
+    "description": "Артиллерийский корпус для дальнего боя. Способность: увеличенная дальность стрельбы на 50%. Медленный, но мощный. Идеален для поддержки с тыла. HP: 130 | Скорость: 16 | Броня: высокая",
+    "specialAbility": "artillery"
+  }
+}

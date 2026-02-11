@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919141052,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "multishot",
+    "name": "Multi-Barrel",
+    "barrelLength": 2.1,
+    "barrelWidth": 0.38,
+    "damage": 14,
+    "cooldown": 1600,
+    "projectileSpeed": 175,
+    "projectileSize": 0.13,
+    "color": "#8888aa",
+    "description": "Многоствольная пушка, 3 выстрела одновременно. Урон: 14×3 | Перезарядка: 1.6с | Три снаряда параллельно, хороший DPS.",
+    "recoilMultiplier": 2.2,
+    "maxRange": 256
+  }
+}

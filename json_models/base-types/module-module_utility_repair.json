@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "gameVersion": "0.4.20553",
+    "savedAt": 1769919140879,
+    "compatibility": {}
+  },
+  "data": {
+    "id": "module_utility_repair",
+    "name": "Nano-Repair Unit",
+    "description": "Slowly regenerates hull integrity over time.",
+    "type": "utility",
+    "rarity": "epic",
+    "price": 2500,
+    "attachmentPoint": "chassis_rear",
+    "modelPath": "box_kit",
+    "color": "#00ff00",
+    "scale": 0.7,
+    "stats": {
+      "autoRepair": true,
+      "massAdd": 100
+    }
+  }
+}
