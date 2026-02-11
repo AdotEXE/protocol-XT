@@ -55,6 +55,7 @@ export interface PreviewScene {
     trajectoryVisualization?: import("./trajectoryVisualization").TrajectoryVisualization | null;
     tank?: PreviewTank | null; // Текущий танк для доступа из событий
     cannonId?: string; // ID текущей пушки
+    _resizeObserver?: ResizeObserver; // отписка при cleanup
 }
 
 /**
@@ -69,11 +70,9 @@ export function initPreviewScene(
         return null;
     }
 
-    // Create canvas
+    // Create canvas — размер подстраивается под контейнер (единый размер во всех вкладках)
     const canvas = document.createElement('canvas');
     canvas.className = 'garage-preview-canvas';
-    canvas.width = 400;
-    canvas.height = 300;
     previewContainer.appendChild(canvas);
 
     // ОПТИМИЗАЦИЯ: Отключаем тяжёлые опции для лучшей производительности
@@ -81,6 +80,20 @@ export function initPreviewScene(
         preserveDrawingBuffer: false, // Не нужен для превью
         stencil: false // Не используем stencil buffer
     });
+
+    // Размер canvas = размер контейнера (единый блок предпросмотра во всех вкладках)
+    const resizePreview = () => {
+        const w = previewContainer.clientWidth || 400;
+        const h = previewContainer.clientHeight || 300;
+        if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+            engine.resize();
+        }
+    };
+    resizePreview();
+    const resizeObserver = new ResizeObserver(resizePreview);
+    resizeObserver.observe(previewContainer);
 
     // Create scene with optimizations
     const scene = new Scene(engine);
@@ -201,7 +214,8 @@ export function initPreviewScene(
         stopRenderLoop,
         triggerRender,
         tank: null,
-        cannonId: "standard"
+        cannonId: "standard",
+        _resizeObserver: resizeObserver
     };
 
     const shoot = () => {
@@ -341,6 +355,11 @@ export function cleanupPreviewScene(previewScene: PreviewScene | null): void {
     try {
         logger.log("[Garage Preview] Starting cleanup...");
 
+        // 0. Отписаться от ResizeObserver
+        if (previewScene._resizeObserver) {
+            previewScene._resizeObserver.disconnect();
+            previewScene._resizeObserver = undefined;
+        }
         // 1. Остановить render loop ПЕРВЫМ и ВАЖНЕЙШИМ
         if (previewScene.stopRenderLoop) {
             previewScene.stopRenderLoop();

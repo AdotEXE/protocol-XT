@@ -617,8 +617,11 @@ export class Garage {
                 min-height: 0;
                 overflow-y: auto;
             }
+            /* Фиксированный размер предпросмотра во всех вкладках — как на первой (CHASSIS) */
             .garage-preview {
-                height: 40%;
+                height: 320px;
+                min-height: 320px;
+                max-height: 320px;
                 background: rgba(0,20,0,0.5);
                 border: 1px solid #080;
                 display: flex;

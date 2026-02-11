@@ -811,6 +811,9 @@ export class MainMenu {
                         <div class="stat-item"><span class="stat-icon">☠</span><span id="kills-display">0</span></div>
                         <div class="stat-item"><span class="stat-icon">◷</span><span id="playtime-display">0ч</span></div>
                     </div>
+                    <div class="player-card-links" style="margin-top: 6px; font-size: 9px;">
+                        <span class="player-card-link" id="player-info-open-progress" style="color: #0a0; cursor: pointer; text-decoration: underline;">Уровень и достижения</span>
+                    </div>
                 </div>
 
                 <!-- Auth section -->
@@ -5942,26 +5945,35 @@ export class MainMenu {
             // Устанавливаем флаг после успешной привязки всех обработчиков
             this.buttonHandlersAttached = true;
 
-            // Добавляем обработчик клика на карточку игрока для открытия панели прогресса
+            // Клик по карточке игрока открывает меню АВАТАРОК (выбор/смена аватарки)
             const playerCard = document.getElementById("player-info");
             if (playerCard) {
                 playerCard.addEventListener("click", (e) => {
-                    // Ignore clicks on the callsign (nickname) updates
                     const target = e.target as HTMLElement;
                     if (target.id === "player-callsign" || target.closest("#player-callsign")) {
                         return;
                     }
+                    if (target.id === "player-info-open-progress" || target.closest("#player-info-open-progress")) {
+                        try {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            this.showProgress();
+                        } catch (err) {
+                            debugError("[Menu] Error opening progress panel:", err);
+                        }
+                        return;
+                    }
 
                     try {
-                        debugLog("[Menu] Player card clicked, opening progress panel");
+                        debugLog("[Menu] Player card clicked, opening avatar menu");
                         e.preventDefault();
                         e.stopPropagation();
-                        this.showProgress();
+                        this.showAvatarSelector();
                     } catch (error) {
-                        debugError("[Menu] Error opening progress panel:", error);
+                        debugError("[Menu] Error opening avatar menu:", error);
                     }
                 }, true);
-                debugLog("[Menu] Player card click handler attached");
+                debugLog("[Menu] Player card click handler attached (opens avatar menu)");
             } else {
                 debugWarn("[Menu] Player card (#player-info) not found");
             }
