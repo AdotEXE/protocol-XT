@@ -78,7 +78,7 @@ async function isServerAvailable(): Promise<boolean> {
     const serverUrl = getServerURL();
     if (!serverUrl) {
         _serverAvailable = false;
-        console.info('[ModelFileLoader] No game server in production — using static imports only');
+        logger.info('[ModelFileLoader] No game server in production — using static imports only');
         return false;
     }
 
@@ -89,7 +89,7 @@ async function isServerAvailable(): Promise<boolean> {
         serverUrl.startsWith('http://')
     ) {
         _serverAvailable = false;
-        console.info(
+        logger.info(
             '[ModelFileLoader] Skipping server API (HTTPS page cannot fetch HTTP server)'
         );
         return false;
@@ -108,7 +108,7 @@ async function isServerAvailable(): Promise<boolean> {
     }
 
     if (!_serverAvailable) {
-        console.info(
+        logger.info(
             '[ModelFileLoader] Game server not reachable — using static imports only'
         );
     }

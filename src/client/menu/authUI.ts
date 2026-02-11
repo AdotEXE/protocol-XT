@@ -4,7 +4,6 @@
 
 import { firebaseService } from "../firebaseService";
 import { logger } from "../utils/logger";
-import { logger } from "../utils/logger";
 
 export type AuthFormType = "login" | "register" | "reset" | "profile" | null;
 
@@ -807,16 +806,21 @@ export class AuthUI {
         });
 
         const adminQuickLoginBtn = document.getElementById("admin-quick-login");
-        adminQuickLoginBtn?.addEventListener("click", async () => {
-            const btn = adminQuickLoginBtn as HTMLButtonElement;
-            btn.disabled = true;
-            btn.innerHTML = '<span class="btn-icon">👑</span> ВХОД...';
+        // В production быстрый вход админом отключён (безопасность)
+        const isProd = typeof import.meta !== "undefined" && (import.meta as { env?: { PROD?: boolean } }).env?.PROD === true;
+        if (adminQuickLoginBtn) {
+            if (isProd) {
+                adminQuickLoginBtn.remove();
+            } else {
+                adminQuickLoginBtn.addEventListener("click", async () => {
+                    const btn = adminQuickLoginBtn as HTMLButtonElement;
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="btn-icon">👑</span> ВХОД...';
 
-            // Быстрый вход админом - используем стандартные учетные данные
-            const adminEmail = "admin@admin.com";
-            const adminPassword = "admin";
+                    const adminEmail = import.meta.env?.VITE_ADMIN_QUICK_LOGIN_EMAIL ?? "admin@admin.com";
+                    const adminPassword = import.meta.env?.VITE_ADMIN_QUICK_LOGIN_PASSWORD ?? "admin";
 
-            const result = await firebaseService.signInWithEmail(adminEmail, adminPassword);
+                    const result = await firebaseService.signInWithEmail(adminEmail, adminPassword);
 
             if (result.success) {
                 this.hide();
@@ -842,7 +846,9 @@ export class AuthUI {
                 btn.innerHTML = '<span class="btn-icon">👑</span> Быстрый вход (админ)';
                 logger.error("[AuthUI] Admin login failed:", result.error);
             }
-        });
+                });
+            }
+        }
 
         showRegister?.addEventListener("click", (e) => {
             e.preventDefault();

@@ -104,7 +104,7 @@ export async function saveModelToFile<T>(
 
         // [Opus 4.5] Check if server is available (not in production)
         if (!SERVER_URL) {
-            console.info('[ModelFileSaver] No game server in production, using localStorage fallback');
+            logger.info('[ModelFileSaver] No game server in production, using localStorage fallback');
             throw new Error('Server not available in production');
         }
 

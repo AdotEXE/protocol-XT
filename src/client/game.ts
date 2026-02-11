@@ -2494,7 +2494,6 @@ export class Game {
             this.aimCamera.setTarget(initialAimTarget);
             this.aimCamera.minZ = 0.1; // Минимальное расстояние отсечения
             this.aimCamera.maxZ = 20000; // Максимальное расстояние отсечения (далёкие объекты видны)
-            // console.log("[Game] AimCamera created with minZ=0.1, maxZ=10000");
 
             // КРИТИЧНО: Устанавливаем камеру как активную СРАЗУ и проверяем
             this.scene.activeCamera = this.camera;
@@ -7431,7 +7430,6 @@ export class Game {
 
             // DEBUG: Логируем инпут (закомментировано для чистоты консоли)
             // if (this._updateTick % 60 === 0 && (Math.abs(throttle) > 0.01 || Math.abs(steer) > 0.01)) {
-            //     console.log(`%c[Game] 📤 Input: throttle=${throttle.toFixed(2)}, steer=${steer.toFixed(2)}`, 'color: #f59e0b; font-weight: bold;');
             // }
 
             // КРИТИЧНО: Используем getCachedChassisPosition() для получения мировых координат

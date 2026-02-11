@@ -28,7 +28,7 @@ import {
 import { MouseAimSystem } from "./mouseAimSystem";
 import { PIDController } from "./pidController";
 import { AerodynamicsSystem } from "./aerodynamicsSystem";
-import { logger } from "../../utils/logger";
+import { logger } from "../utils/logger";
 import {
     DEFAULT_AIRCRAFT_PHYSICS_CONFIG,
     type AircraftPhysicsConfig

@@ -38,16 +38,16 @@ import {
 } from "firebase/firestore";
 import { logger } from "./utils/logger";
 
-// Firebase configuration (should be in .env or config file)
-// Используем реальную конфигурацию из документации, если переменные окружения не заданы
+// Firebase configuration from .env (no hardcoded fallbacks in production)
+const env = typeof import.meta !== "undefined" ? (import.meta as { env?: Record<string, string | undefined> }).env : undefined;
 const firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBvTtaOb9NuWgwJJgQ0lhnyLDkoRpvhAAY",
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "protocol-tx.firebaseapp.com",
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "protocol-tx",
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "protocol-tx.firebasestorage.app",
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "513687323344",
-    appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:513687323344:web:bdcbda7d8aa142cac8d4d5",
-    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-HP3TNXC04H"
+    apiKey: env?.VITE_FIREBASE_API_KEY ?? "",
+    authDomain: env?.VITE_FIREBASE_AUTH_DOMAIN ?? "",
+    projectId: env?.VITE_FIREBASE_PROJECT_ID ?? "",
+    storageBucket: env?.VITE_FIREBASE_STORAGE_BUCKET ?? "",
+    messagingSenderId: env?.VITE_FIREBASE_MESSAGING_SENDER_ID ?? "",
+    appId: env?.VITE_FIREBASE_APP_ID ?? "",
+    measurementId: env?.VITE_FIREBASE_MEASUREMENT_ID ?? ""
 };
 
 /**

@@ -1503,6 +1503,14 @@ export class GameMultiplayerCallbacks {
             } catch (e) {
                 logger.error("[updateLocalPlayerToServer] Force teleport error:", e);
             }
+            // Синхронизация башни и ствола после телепортации (как при спавне)
+            if (tank.turret) {
+                tank.turret.rotation.y = this._localPlayerServerTurretRotation;
+            }
+            if (tank.barrel) {
+                tank.barrel.rotation.x = -(this._localPlayerServerAimPitch || 0);
+            }
+            tank.aimPitch = this._localPlayerServerAimPitch;
             return; // После телепортации не делаем мягкую коррекцию
         }
 

@@ -2,7 +2,7 @@
 import { Scene } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Rectangle, TextBlock, Control, ScrollViewer } from "@babylonjs/gui";
 import { CommandSystem } from "./commandSystem";
-import { LogLevel, loggingSettings } from "./utils/logger";
+import { logger, LogLevel, loggingSettings } from "./utils/logger";
 import { inGamePrompt } from "./utils/inGameDialogs";
 
 export type MessageType = "system" | "info" | "warning" | "error" | "success" | "log" | "combat" | "economy" | "chat";
@@ -169,7 +169,9 @@ export class ChatSystem {
             // Если ошибка при чтении - очищаем
             try {
                 localStorage.removeItem(`window_position_system-terminal`);
-            } catch { }
+            } catch (inner) {
+                logger.debug("[ChatSystem] Failed to clear invalid window_position_system-terminal:", inner);
+            }
         }
 
         // Загружаем сохраненные позицию и размер
@@ -1034,7 +1036,7 @@ export class ChatSystem {
             localStorage.setItem(key, JSON.stringify(position));
         } catch (e) {
             if (loggingSettings?.getLevel() >= LogLevel.DEBUG) {
-                console.debug("[Chat] Failed to save window position:", e);
+                logger.debug("[Chat] Failed to save window position:", e);
             }
         }
     }
@@ -1054,7 +1056,7 @@ export class ChatSystem {
                 // Если размеры слишком большие (больше 80% экрана), сбрасываем
                 if (data.width && (data.width > maxWidth || data.width > window.innerWidth * 0.8)) {
                     if (loggingSettings?.getLevel() >= LogLevel.DEBUG) {
-                        console.debug("[Chat] Invalid saved width, resetting");
+                        logger.debug("[Chat] Invalid saved width, resetting");
                     }
                     localStorage.removeItem(key);
                     return null;
@@ -1073,7 +1075,9 @@ export class ChatSystem {
             try {
                 const key = `window_position_${windowId}`;
                 localStorage.removeItem(key);
-            } catch { }
+            } catch (inner) {
+                logger.debug("[ChatSystem] Failed to remove invalid window position key:", inner);
+            }
         }
         return null;
     }

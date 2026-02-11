@@ -8,28 +8,18 @@ let isDevelopment: boolean;
 let isProduction: boolean;
 
 try {
-    // Пытаемся использовать Vite env (для клиента)
-    // ИСПРАВЛЕНО: Используем eval для обхода ограничений TypeScript на import.meta
-    // eslint-disable-next-line @typescript-eslint/no-implied-eval
-    const metaEnv = (typeof (globalThis as any).import !== 'undefined' ||
-        // @ts-ignore TS1343 - import.meta работает в Vite runtime, но требует настройки module в tsconfig
-        (typeof (eval('typeof import.meta !== "undefined"') ? (eval('import.meta') as any) : null) !== 'undefined' &&
-            (eval('import.meta') as any).env))
-        ? (eval('import.meta') as any).env
-        : null;
-
-    if (metaEnv) {
-        isDevelopment = metaEnv.DEV ?? false;
-        isProduction = metaEnv.PROD ?? false;
+    // Vite provides import.meta.env; in Node (tests) it may be undefined
+    const meta = typeof import.meta !== "undefined" ? (import.meta as { env?: { DEV?: boolean; PROD?: boolean } }).env : undefined;
+    if (meta) {
+        isDevelopment = meta.DEV ?? false;
+        isProduction = meta.PROD ?? false;
     } else {
-        // Fallback для Node.js (сервер)
-        isDevelopment = process.env.NODE_ENV !== 'production';
-        isProduction = process.env.NODE_ENV === 'production';
+        isDevelopment = typeof process !== "undefined" && process.env?.NODE_ENV !== "production";
+        isProduction = typeof process !== "undefined" && process.env?.NODE_ENV === "production";
     }
-} catch (e) {
-    // Fallback для Node.js (сервер) при ошибке
-    isDevelopment = process.env.NODE_ENV !== 'production';
-    isProduction = process.env.NODE_ENV === 'production';
+} catch {
+    isDevelopment = typeof process !== "undefined" && process.env?.NODE_ENV !== "production";
+    isProduction = typeof process !== "undefined" && process.env?.NODE_ENV === "production";
 }
 
 /**

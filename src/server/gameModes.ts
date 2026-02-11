@@ -582,7 +582,6 @@ export class SurvivalMode implements GameModeRules {
             if (activeEnemies === 0) {
                 this.waveState = "RESTING";
                 this.restTimer = 10000; // 10s rest
-                // console.log("Wave Cleared! Resting...");
 
                 // REWARD: Heal all players
                 room.getAllPlayers().forEach(p => {
@@ -718,7 +717,6 @@ export class RaidMode implements GameModeRules {
             // Since ServerEnemy class isn't easily extensible here without editing it, we'll use a local Set
             if (hpPercent < 0.5 && !this.enragedBosses.has(mainBoss.id)) {
                 this.enragedBosses.add(mainBoss.id);
-                // console.log("BOSS ENRAGED! SPAWNING MINIONS!");
 
                 // Spawn Minions
                 room.botCount = 3 + this.bossesDefeated; // More minions for later bosses

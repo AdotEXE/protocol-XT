@@ -9005,25 +9005,27 @@ transition: all 0.2s;
 
             const isCurrentPlayer = player.id === currentPlayerId;
             const isReady = (this as any).roomReadyPlayers?.has(player.id) || false;
+            const safePlayerName = this.escapeHtml(player.name ?? "");
+            const safePlayerId = this.escapeHtml(player.id ?? "");
 
             playerItem.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 8px; flex: 1;">
                     ${player.isOwner ? '<span style="color: #fbbf24;">👑</span>' : ''}
                     <span style="color: ${isCurrentPlayer ? '#4ade80' : '#fff'}; font-weight: ${isCurrentPlayer ? '600' : '400'};">
-                        ${player.name}${isCurrentPlayer ? ' (Вы)' : ''}
+                        ${safePlayerName}${isCurrentPlayer ? ' (Вы)' : ''}
                     </span>
                 </div>
                 <div style="display: flex; gap: 4px; align-items: center;">
                     ${isReady ? '<span style="color: #4ade80; font-size: 12px;">✓ Готов</span>' : '<span style="color: #888; font-size: 12px;">Не готов</span>'}
                     ${!isCurrentPlayer && isCreator ? `
-                        <button class="room-player-kick-btn" data-player-id="${player.id}" data-player-name="${player.name}"
+                        <button class="room-player-kick-btn" data-player-id="${safePlayerId}" data-player-name="${safePlayerName}"
                                 style="padding: 4px 8px; font-size: 9px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 3px; color: #ef4444; cursor: pointer; transition: all 0.2s;"
                                 title="Кикнуть игрока">
                             🚫
                         </button>
                     ` : ''}
                     ${!isCurrentPlayer ? `
-                        <button class="room-player-profile-btn" data-player-id="${player.id}" data-player-name="${player.name}"
+                        <button class="room-player-profile-btn" data-player-id="${safePlayerId}" data-player-name="${safePlayerName}"
                                 style="padding: 4px 8px; font-size: 9px; background: rgba(102, 126, 234, 0.2); border: 1px solid #667eea; border-radius: 3px; color: #a78bfa; cursor: pointer; transition: all 0.2s;"
                                 title="Профиль игрока">
                             👤
@@ -9432,18 +9434,21 @@ transition: all 0.2s;
             const statusText = room.isActive ? "Игра идет" : "Ожидание";
             const isFull = room.players >= room.maxPlayers;
             const mapType = room.mapType || "normal";
+            const safeRoomId = this.escapeHtml(String(room.id ?? ""));
+            const safeMode = this.escapeHtml(String(room.mode ?? "").toUpperCase());
+            const safeMapType = this.escapeHtml(mapType);
 
             roomItem.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                    <div style="font-weight: bold; color: #fff; font-size: 13px;">Комната ${room.id}</div>
+                    <div style="font-weight: bold; color: #fff; font-size: 13px;">Комната ${safeRoomId}</div>
                     <div style="font-size: 11px; color: ${statusColor}; background: rgba(0, 0, 0, 0.3); padding: 2px 6px; border-radius: 4px;">${statusText}</div>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #aaa; margin-bottom: 4px;">
-                    <span>Режим: <span style="color: #fff;">${room.mode.toUpperCase()}</span></span>
+                    <span>Режим: <span style="color: #fff;">${safeMode}</span></span>
                     <span>Игроков: <span style="color: ${isFull ? '#ef4444' : '#4ade80'};">${room.players}/${room.maxPlayers}</span></span>
                 </div>
                 <div style="font-size: 11px; color: #aaa;">
-                    <span>Карта: <span style="color: #fbbf24;">${mapType}</span></span>
+                    <span>Карта: <span style="color: #fbbf24;">${safeMapType}</span></span>
                 </div>
                 <div style="margin-top: 8px; text-align: center; font-size: 10px; color: #667eea; opacity: 0.7;">
                     Клик — детали • Двойной клик — войти
@@ -10233,16 +10238,16 @@ transition: all 0.2s;
                 const friendItem = document.createElement("div");
                 friendItem.style.cssText = "padding: 8px; background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(0, 255, 0, 0.2); border-radius: 4px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;";
 
-                // Экранируем имя друга
                 const friendName = friend.name || friend.id;
-                const escapedName = friendName.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                const safeFriendName = this.escapeHtml(String(friendName));
+                const safeFriendId = this.escapeHtml(String(friend.id ?? ""));
 
                 friendItem.innerHTML = `
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="color: #4ade80; font-size: 12px;">●</span>
-                        <span style="color: #0f0; font-size: 11px;">${escapedName}</span>
+                        <span style="color: #0f0; font-size: 11px;">${safeFriendName}</span>
                     </div>
-                    <button class="panel-btn" data-friend-id="${friend.id}" style="padding: 4px 8px; font-size: 10px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80;">
+                    <button class="panel-btn" data-friend-id="${safeFriendId}" style="padding: 4px 8px; font-size: 10px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80;">
                         Пригласить
                     </button>
                 `;
@@ -11002,19 +11007,20 @@ transition: all 0.2s;
             const multiplayerManager = game?.multiplayerManager;
             const currentPlayerId = multiplayerManager?.getPlayerId();
 
-            // Создаём кнопки только иконками (без текста)
+            const safePlayerName2 = this.escapeHtml(player.name ?? "");
+            const safePlayerId2 = this.escapeHtml(player.id ?? "");
             const buttonsHtml = player.id !== currentPlayerId ? `
                 <div class="lobby-player-actions">
-                    <button class="lobby-action-btn lobby-message-btn" data-player-id="${player.id}" data-player-name="${player.name}" title="Написать">💬</button>
-                    <button class="lobby-action-btn lobby-invite-btn" data-player-id="${player.id}" data-player-name="${player.name}" title="Пригласить">👥</button>
-                    <button class="lobby-action-btn lobby-friend-btn ${isFriend ? 'active' : ''}" data-player-id="${player.id}" data-player-name="${player.name}" title="${isFriend ? 'В друзьях' : 'Добавить в друзья'}">⭐</button>
+                    <button class="lobby-action-btn lobby-message-btn" data-player-id="${safePlayerId2}" data-player-name="${safePlayerName2}" title="Написать">💬</button>
+                    <button class="lobby-action-btn lobby-invite-btn" data-player-id="${safePlayerId2}" data-player-name="${safePlayerName2}" title="Пригласить">👥</button>
+                    <button class="lobby-action-btn lobby-friend-btn ${isFriend ? 'active' : ''}" data-player-id="${safePlayerId2}" data-player-name="${safePlayerName2}" title="${isFriend ? 'В друзьях' : 'Добавить в друзья'}">⭐</button>
                 </div>
             ` : '';
 
             playerItem.innerHTML = `
                 <div class="lobby-player-name-simple">
                     ${isFriend ? '<span class="lobby-friend-star">⭐</span>' : ''}
-                    <span class="lobby-player-name-text">${player.name}</span>
+                    <span class="lobby-player-name-text">${safePlayerName2}</span>
                 </div>
                 ${buttonsHtml}
             `;
@@ -11232,11 +11238,14 @@ transition: all 0.2s;
             const isPrivate = room.isPrivate || false;
             const hasPassword = room.password || false;
             const gameTime = room.gameTime ? this.formatGameTime(room.gameTime) : "0:00";
+            const safeRoomId2 = this.escapeHtml(String(room.id ?? ""));
+            const safeMode2 = this.escapeHtml(String(room.mode ?? "N/A").toUpperCase());
+            const safeMapType2 = this.escapeHtml(mapType);
 
             roomItem.innerHTML = `
                 <div class="lobby-room-header">
-                    <span class="lobby-room-id">Комната ${room.id}</span>
-                    <span class="lobby-room-mode">${room.mode?.toUpperCase() || 'N/A'}</span>
+                    <span class="lobby-room-id">Комната ${safeRoomId2}</span>
+                    <span class="lobby-room-mode">${safeMode2}</span>
                 </div>
                 <div class="lobby-room-info">
                     <span class="lobby-room-players">${room.players}/${room.maxPlayers}</span>
@@ -11245,7 +11254,7 @@ transition: all 0.2s;
                 <div class="lobby-room-details">
                     <div class="lobby-room-detail-item">
                         <span class="lobby-detail-label">Карта:</span>
-                        <span class="lobby-detail-value">${mapType}</span>
+                        <span class="lobby-detail-value">${safeMapType2}</span>
                     </div>
                     ${room.isActive ? `<div class="lobby-room-detail-item">
                         <span class="lobby-detail-label">Время:</span>
@@ -11254,7 +11263,7 @@ transition: all 0.2s;
                     ${isPrivate ? '<div class="lobby-room-badge lobby-room-private">🔒 Приватная</div>' : ''}
                     ${hasPassword ? '<div class="lobby-room-badge lobby-room-password">🔑 Пароль</div>' : ''}
                 </div>
-                ${!isFull ? `<button class="lobby-join-btn" data-room-id="${room.id}">ПРИСОЕДИНИТЬСЯ</button>` : '<div class="lobby-room-full">КОМНАТА ЗАПОЛНЕНА</div>'}
+                ${!isFull ? `<button class="lobby-join-btn" data-room-id="${safeRoomId2}">ПРИСОЕДИНИТЬСЯ</button>` : '<div class="lobby-room-full">КОМНАТА ЗАПОЛНЕНА</div>'}
             `;
 
             // Клик по комнате - присоединение (если не полная)
@@ -12080,9 +12089,13 @@ transition: all 0.2s;
             return;
         }
 
-        // Рендерим комнаты
-        container.innerHTML = rooms.map((room: any) => `
-            <div class="exp-lobby-room-card" data-room-id="${room.id}" style="
+        // Рендерим комнаты (escapeHtml для защиты от XSS)
+        container.innerHTML = rooms.map((room: any) => {
+            const safeExpRoomId = this.escapeHtml(String(room.id ?? ""));
+            const safeExpMapName = this.escapeHtml(String(room.mapName || "Стандартная карта"));
+            const safeExpPing = this.escapeHtml(String(room.ping ?? "--"));
+            return `
+            <div class="exp-lobby-room-card" data-room-id="${safeExpRoomId}" style="
                 display: flex; align-items: center; gap: 15px; padding: 12px;
                 background: rgba(0, 40, 0, 0.4); border: 1px solid rgba(0, 255, 0, 0.3);
                 margin-bottom: 8px; border-radius: 6px; cursor: pointer;
@@ -12092,9 +12105,9 @@ transition: all 0.2s;
                     <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: #0f0; font-size: 24px;">🗺️</div>
                 </div>
                 <div style="flex: 1;">
-                    <div style="color: #0f0; font-family: 'Press Start 2P'; font-size: 11px; margin-bottom: 6px;">[КОМНАТА ${room.id.slice(-4).toUpperCase()}]</div>
+                    <div style="color: #0f0; font-family: 'Press Start 2P'; font-size: 11px; margin-bottom: 6px;">[КОМНАТА ${safeExpRoomId.slice(-4).toUpperCase()}]</div>
                     <div style="color: #7f7; font-size: 10px;">Игроков: ${room.players || 0}</div>
-                    <div style="color: #5f5; font-size: 9px; margin-top: 4px;">${room.mapName || "Стандартная карта"}</div>
+                    <div style="color: #5f5; font-size: 9px; margin-top: 4px;">${safeExpMapName}</div>
                 </div>
                 <div style="text-align: center; width: 60px;">
                     <div style="color: ${room.isActive ? "#4ade80" : "#a78bfa"}; font-size: 10px;">${room.isActive ? "В ИГРЕ" : "ЛОББИ"}</div>
@@ -12103,15 +12116,16 @@ transition: all 0.2s;
                     <div style="color: #0ff; font-size: 12px;">👥 ${room.players || 0}</div>
                 </div>
                 <div style="text-align: center; width: 50px;">
-                    <div style="color: #4ade80; font-size: 10px;">${room.ping || "--"}</div>
+                    <div style="color: #4ade80; font-size: 10px;">${safeExpPing}</div>
                 </div>
-                <button class="exp-lobby-join-btn" data-room-id="${room.id}" style="
+                <button class="exp-lobby-join-btn" data-room-id="${safeExpRoomId}" style="
                     padding: 10px 16px; background: #0f0; border: none; color: #000;
                     font-weight: bold; font-family: 'Press Start 2P'; font-size: 8px;
                     cursor: pointer; border-radius: 4px;
                 ">ВОЙТИ</button>
             </div>
-        `).join("");
+        `;
+        }).join("");
 
         // Добавляем обработчики для кнопок входа
         container.querySelectorAll(".exp-lobby-join-btn").forEach(btn => {
@@ -13263,24 +13277,26 @@ line - height: 1.4;
             `;
 
             const isCurrentPlayer = player.id === currentPlayerId;
+            const safePlayerName3 = this.escapeHtml(player.name ?? "");
+            const safePlayerId3 = this.escapeHtml(player.id ?? "");
 
             playerItem.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
                     ${player.isOwner ? '<span style="color: #fbbf24; font-size: 14px;">👑</span>' : ''}
                     <span style="color: ${isCurrentPlayer ? '#4ade80' : '#fff'}; font-weight: ${isCurrentPlayer ? '600' : '400'};">
-                        ${player.name}${isCurrentPlayer ? ' (Вы)' : ''}
+                        ${safePlayerName3}${isCurrentPlayer ? ' (Вы)' : ''}
                     </span>
                 </div>
                 <div style="display: flex; gap: 6px;">
                     ${!isCurrentPlayer && isCreator ? `
-                        <button class="room-details-player-kick-btn" data-player-id="${player.id}" data-player-name="${player.name}"
+                        <button class="room-details-player-kick-btn" data-player-id="${safePlayerId3}" data-player-name="${safePlayerName3}"
                                 style="padding: 6px 10px; font-size: 10px; background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 4px; color: #ef4444; cursor: pointer; transition: all 0.2s;"
                                 title="Кикнуть игрока">
                             🚫 Кик
                         </button>
                     ` : ''}
                     ${!isCurrentPlayer ? `
-                        <button class="room-details-player-profile-btn" data-player-id="${player.id}" data-player-name="${player.name}"
+                        <button class="room-details-player-profile-btn" data-player-id="${safePlayerId3}" data-player-name="${safePlayerName3}"
                                 style="padding: 6px 10px; font-size: 10px; background: rgba(102, 126, 234, 0.2); border: 1px solid #667eea; border-radius: 4px; color: #a78bfa; cursor: pointer; transition: all 0.2s;"
                                 title="Профиль игрока">
                             👤 Профиль

@@ -7249,7 +7249,7 @@ export class HUD {
             }
         } catch (e) {
             if (typeof loggingSettings !== 'undefined' && loggingSettings.getLevel() >= LogLevel.DEBUG) {
-                console.debug("[HUD] Error updating XP bar:", e);
+                logger.debug("[HUD] Error updating XP bar:", e);
             }
         }
     }

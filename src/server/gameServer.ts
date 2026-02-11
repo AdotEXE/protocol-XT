@@ -26,6 +26,33 @@ import { MonitoringAPI } from "./monitoring";
 import { serverLogger } from "./logger";
 import { SpatialHashGrid } from "./spatialHash";
 
+/** Payload for CONNECT message */
+interface ConnectData {
+    playerId?: string;
+    playerName?: string;
+    idToken?: string;
+}
+
+/** Payload for CREATE_ROOM message */
+interface CreateRoomData {
+    mode?: string;
+    maxPlayers?: number;
+    isPrivate?: boolean;
+    settings?: Record<string, unknown>;
+    worldSeed?: number;
+    mapType?: string;
+    enableBots?: boolean;
+    botCount?: number;
+    customMapData?: unknown;
+    chassisType?: string;
+    cannonType?: string;
+    trackType?: string;
+    tankColor?: string;
+    turretColor?: string;
+    playerName?: string;
+    modules?: unknown[];
+}
+
 const TICK_RATE = 60; // 60 Hz
 const TICK_INTERVAL = 1000 / TICK_RATE; // ~16.67ms
 const ROOM_DELETION_DELAY = 5 * 60 * 1000; // 5 minutes in milliseconds
@@ -567,7 +594,7 @@ export class GameServer {
         }
     }
 
-    private async handleConnect(ws: WebSocket, data: any): Promise<void> {
+    private async handleConnect(ws: WebSocket, data: ConnectData): Promise<void> {
         const playerId = data.playerId;
         const idToken = data.idToken; // Firebase ID токен
 
@@ -666,7 +693,7 @@ export class GameServer {
 
         // Send connection confirmation
         // Send UDP port if available so client knows where to connect
-        const connectData: any = {
+        const connectData: { playerId: string; playerName: string; authenticated: boolean; udpPort?: number } = {
             playerId: player.id,
             playerName: player.name,
             authenticated: !!verifiedUserId
@@ -677,7 +704,7 @@ export class GameServer {
         this.send(ws, createServerMessage(ServerMessageType.CONNECTED, connectData));
     }
 
-    private handleCreateRoom(player: ServerPlayer, data: any): void {
+    private handleCreateRoom(player: ServerPlayer, data: CreateRoomData): void {
         const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType, enableBots, botCount, customMapData } = data;
 
         const { chassisType, cannonType, trackType, tankColor, turretColor, playerName, modules } = data; // Extract customization
