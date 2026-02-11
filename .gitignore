@@ -29,6 +29,7 @@ vercel.token
 vercel.json.secret
 
 # IDE
+.cursor/
 .vscode/
 .idea/
 *.swp
