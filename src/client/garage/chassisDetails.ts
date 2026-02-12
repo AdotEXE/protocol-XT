@@ -1221,10 +1221,16 @@ export class ChassisDetailsGenerator {
     ): void {
         // Рассчитываем масштаб относительно исходной модели
         // Исходная модель: ~10 единиц в длину (z), ~10 в ширину (с крыльями), ~4 в высоту
+        // ИСПРАВЛЕНО: Используем более разумный масштаб для видимости модели
         const scaleX = width / 10;
         const scaleY = height / 4;
         const scaleZ = depth / 10;
-        const scale = Math.min(scaleX, scaleY, scaleZ) * 1.8; // 2x увеличение модели
+        // Для превью в гараже делаем самолёт КРУПНЕЕ, чтобы он точно был виден
+        // В игре ("game") оставляем более аккуратный масштаб
+        const baseScale = (scaleX + scaleY + scaleZ) / 3;
+        const scale = prefix === "preview"
+            ? baseScale * 1.2   // крупнее в гараже
+            : baseScale * 0.8;  // как было в бою
 
         // Материалы создаются один раз
         const materials: Map<string, StandardMaterial> = new Map();
@@ -1272,6 +1278,14 @@ export class ChassisDetailsGenerator {
                 (part as any).alpha,
                 (part as any).emissive
             );
+            
+            // ВАЖНО: Убеждаемся что меш включён и видим
+            mesh.setEnabled(true);
+            mesh.isVisible = true;
         }
+        
+        // ВАЖНО: Убеждаемся что родительский контейнер включён для отображения дочерних элементов
+        chassis.setEnabled(true);
+        chassis.isVisible = true;
     }
 }

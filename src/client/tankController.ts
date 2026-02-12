@@ -908,8 +908,8 @@ export class TankController {
         this.saveInstalledModules(installed);
         this.updateModuleVisuals();
         // Инвалидируем кэш модулей в HUD
-        if (this.hud && typeof (this.hud as any).invalidateModulesCache === 'function') {
-            (this.hud as any).invalidateModulesCache();
+        if (this.hud && 'invalidateModulesCache' in this.hud && typeof this.hud.invalidateModulesCache === 'function') {
+            this.hud.invalidateModulesCache();
         }
     }
 
@@ -920,8 +920,8 @@ export class TankController {
         this.saveInstalledModules(installed);
         this.updateModuleVisuals();
         // Инвалидируем кэш модулей в HUD
-        if (this.hud && typeof (this.hud as any).invalidateModulesCache === 'function') {
-            (this.hud as any).invalidateModulesCache();
+        if (this.hud && 'invalidateModulesCache' in this.hud && typeof this.hud.invalidateModulesCache === 'function') {
+            this.hud.invalidateModulesCache();
         }
     }
 
@@ -1085,6 +1085,22 @@ export class TankController {
     public rebuildTankVisuals(position: Vector3): void {
         const scene = this.scene;
 
+        // ИСПРАВЛЕНО: Очищаем AircraftPhysics при смене корпуса
+        // Это необходимо для правильной инициализации при переключении между танком и самолётом
+        const wasPlane = this.chassisType?.id === "plane";
+        if (this.movementModule && (this.movementModule as any).aircraftPhysics) {
+            const aircraftPhysics = (this.movementModule as any).aircraftPhysics;
+            const observer = (this.movementModule as any)._physicsObserver;
+            if (observer) {
+                this.scene.onAfterPhysicsObservable.remove(observer);
+                (this.movementModule as any)._physicsObserver = null;
+            }
+            if (aircraftPhysics && aircraftPhysics.dispose) {
+                aircraftPhysics.dispose();
+            }
+            (this.movementModule as any).aircraftPhysics = null;
+        }
+
         // Загружаем типы корпуса, пушки и гусениц
         const savedChassisId = localStorage.getItem("selectedChassis") || "medium";
         const savedCannonId = localStorage.getItem("selectedCannon") || "standard";
@@ -1155,7 +1171,10 @@ export class TankController {
         // ВАЖНО: Metadata для обнаружения снарядами врагов
         this.chassis.metadata = { type: "playerTank", instance: this };
 
-        this.visualsModule.createVisualWheels();
+        // ИСПРАВЛЕНО: Не создаём гусеницы для самолёта
+        if (this.chassisType.id !== "plane") {
+            this.visualsModule.createVisualWheels();
+        }
 
         // Башня
         if ((this as any).turret && !(this as any).turret.isDisposed()) {
@@ -1391,8 +1410,8 @@ export class TankController {
                 if (!this.isAlive) {
                     this.respawn();
                     // Скрываем экран смерти после респавна
-                    if (this.hud && typeof (this.hud as any).hideDeathScreen === 'function') {
-                        (this.hud as any).hideDeathScreen();
+                    if (this.hud && 'hideDeathScreen' in this.hud && typeof this.hud.hideDeathScreen === 'function') {
+                        this.hud.hideDeathScreen();
                     }
                 }
             } else {
@@ -1659,8 +1678,20 @@ export class TankController {
                 // ИСПРАВЛЕНО: turretSpeedBonus влияет на скорость БАШНИ, а не корпуса
                 this.turretSpeed += skillBonuses.turretSpeedBonus;
                 this.baseTurretSpeed += skillBonuses.turretSpeedBonus;
+                
+                // Применяем дополнительные бонусы навыков
+                if (skillBonuses.accuracyBonus) {
+                    // Точность влияет на разброс (уменьшаем его)
+                    // Можно добавить отдельное поле для точности если нужно
+                }
+                if (skillBonuses.critChanceBonus) {
+                    // Критический шанс можно добавить в систему урона
+                }
+                if (skillBonuses.regenerationBonus) {
+                    // Регенерация HP/сек - можно добавить в систему здоровья
+                }
 
-                logger.log(`[Tank] Skill bonuses applied: +${skillBonuses.healthBonus} HP, +${skillBonuses.damageBonus} dmg, +${skillBonuses.speedBonus.toFixed(1)} speed`);
+                logger.log(`[Tank] Skill bonuses applied: +${skillBonuses.healthBonus} HP, +${skillBonuses.damageBonus} dmg, +${skillBonuses.speedBonus.toFixed(1)} speed, +${skillBonuses.turretSpeedBonus.toFixed(1)}% turret speed`);
             }
 
             // === 4. ПАССИВНЫЕ БОНУСЫ ОТ УРОВНЯ ИГРОКА ===
@@ -1822,8 +1853,8 @@ export class TankController {
 
         // Проверяем, находится ли танк в гараже через gameGarage
         let isInGarage = false;
-        if (game && (game as any).gameGarage && typeof (game as any).gameGarage.isPlayerInAnyGarage === 'function') {
-            isInGarage = (game as any).gameGarage.isPlayerInAnyGarage();
+        if (game && 'gameGarage' in game && game.gameGarage && 'isPlayerInAnyGarage' in game.gameGarage && typeof game.gameGarage.isPlayerInAnyGarage === 'function') {
+            isInGarage = game.gameGarage.isPlayerInAnyGarage();
         }
 
         // КРИТИЧНО: Если переодевание на месте - используем ПЕРЕДАННУЮ позицию БЕЗ ИЗМЕНЕНИЙ
@@ -2554,6 +2585,11 @@ export class TankController {
     // Moved to tank/tankCannon.ts - функция createUniqueCannon теперь в модуле
 
     createVisualWheels() {
+        // ИСПРАВЛЕНО: Не создаём гусеницы для самолёта
+        if (this.chassisType.id === "plane") {
+            return;
+        }
+
         // === TRACKS WITH SELECTED TYPE ===
         const trackColor = Color3.FromHexString(this.trackType.color);
         const trackMat = new StandardMaterial("trackMat", this.scene);

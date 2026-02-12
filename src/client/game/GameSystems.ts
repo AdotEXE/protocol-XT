@@ -165,8 +165,8 @@ export class GameSystems implements Partial<IGameSystems> {
             this.missionSystem.setOnMissionComplete(onMissionComplete);
             
             // Связываем HUD с системой миссий
-            if (this.hud && typeof (this.hud as any).setMissionSystem === "function") {
-                (this.hud as any).setMissionSystem(this.missionSystem);
+            if (this.hud && 'setMissionSystem' in this.hud && typeof this.hud.setMissionSystem === "function") {
+                this.hud.setMissionSystem(this.missionSystem);
             }
             
             // Initialize Player Stats System
@@ -358,8 +358,8 @@ export class GameSystems implements Partial<IGameSystems> {
             if (this.tank && typeof (this.tank as any).dispose === 'function') {
                 (this.tank as any).dispose();
             }
-            if (this.hud && typeof (this.hud as any).dispose === 'function') {
-                (this.hud as any).dispose();
+            if (this.hud && 'dispose' in this.hud && typeof this.hud.dispose === 'function') {
+                this.hud.dispose();
             }
             if (this.soundManager && typeof (this.soundManager as any).dispose === 'function') {
                 this.soundManager.dispose();

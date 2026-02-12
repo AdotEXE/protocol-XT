@@ -619,9 +619,27 @@ export class AircraftPhysics {
 
         try {
             const currentVel = this.cachedVelocity;
+            
+            // ИСПРАВЛЕНО: Инициализация при первом вызове
+            if (this._lastVelocity.lengthSquared() < 0.0001) {
+                this._lastVelocity = currentVel.clone();
+                this._currentGForce = 1.0;
+                return;
+            }
+            
             const deltaVel = currentVel.subtract(this._lastVelocity);
+            const speedChange = deltaVel.length();
+            
+            // ИСПРАВЛЕНО: Игнорируем микроскопические изменения (< 0.1 м/с)
+            // Это предотвращает показ перегрузки в покое из-за ошибок округления
+            const MIN_SPEED_CHANGE = 0.1;
+            if (speedChange < MIN_SPEED_CHANGE) {
+                this._currentGForce = 1.0; // Базовый 1G в покое
+                return;
+            }
+            
             const safeDt = Math.max(dt, 0.001);
-            const acceleration = deltaVel.length() / safeDt;
+            const acceleration = speedChange / safeDt;
 
             // G = acceleration / 9.81 + 1.0 (базовая гравитация)
             this._currentGForce = 1.0 + acceleration / 9.81;

@@ -122,6 +122,7 @@ export interface IGameGarage {
     readonly CAPTURE_TIME_SINGLE: number;
     readonly CAPTURE_RADIUS: number;
     readonly PLAYER_ID: string;
+    isPlayerInAnyGarage?: () => boolean;
 }
 
 /**
@@ -205,3 +206,18 @@ export interface IGameOptimization {
     readonly _colorEmissiveEnemy: import("@babylonjs/core").Color3;
 }
 
+/**
+ * Расширенный интерфейс Game для методов, используемых через window.gameInstance
+ */
+export interface IGameExtended extends IGameCore, IGameSystems, IGameLazyModules, IGameSettings, IGameGarage, IGameCamera, IGameEnemies, IGameMultiplayer, IGameUI, IGameProgress, IGameOptimization {
+    gameGarage?: IGameGarage;
+    gameEnemies?: IGameEnemies;
+    currentMapId?: string;
+    currentWeather?: string;
+    timeScale?: number;
+    matrixMode?: boolean;
+    nightVision?: boolean;
+    discoInterval?: NodeJS.Timeout | null;
+    getGroundHeight?: (x: number, z: number) => number;
+    _isInitializing?: boolean;
+}

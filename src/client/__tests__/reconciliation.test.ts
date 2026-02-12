@@ -4,8 +4,7 @@
  */
 
 import { Vector3 } from "@babylonjs/core";
-declare var describe: any, it: any, expect: any, beforeEach: any, jest: any;
-// import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { PlayerData, PredictedState } from "../../shared/types";
 
 // Моки для тестирования
@@ -13,17 +12,17 @@ class MockTank {
     chassis = {
         position: new Vector3(0, 0, 0),
         rotation: { y: 0 },
-        computeWorldMatrix: jest.fn()
+        computeWorldMatrix: vi.fn()
     };
     turret = { rotation: { y: 0 } };
     barrel = { rotation: { x: 0 } };
     physicsBody = {
-        setMotionType: jest.fn(),
-        setLinearVelocity: jest.fn(),
-        setAngularVelocity: jest.fn()
+        setMotionType: vi.fn(),
+        setLinearVelocity: vi.fn(),
+        setAngularVelocity: vi.fn()
     };
     aimPitch = 0;
-    updatePositionCache = jest.fn();
+    updatePositionCache = vi.fn();
 }
 
 describe("Reconciliation Tests", () => {

@@ -1274,11 +1274,11 @@ export class Garage {
             if (cannonType) {
                 // Вычисляем позицию танка и направление ствола
                 const tankPosition = this.previewTank.chassis.position.clone();
-                const barrelDirection = Vector3.Forward().applyRotationQuaternion(
-                    this.previewTank.barrel.absoluteRotationQuaternion ||
-                    this.previewTank.turret.absoluteRotationQuaternion ||
-                    this.previewTank.chassis.absoluteRotationQuaternion
-                );
+                const barrelQuat =
+                    this.previewTank.barrel?.absoluteRotationQuaternion ||
+                    this.previewTank.turret?.absoluteRotationQuaternion ||
+                    this.previewTank.chassis.absoluteRotationQuaternion;
+                const barrelDirection = Vector3.Forward().applyRotationQuaternion(barrelQuat);
 
                 // ОТКЛЮЧЕНО: Визуализация траектории отключена по запросу пользователя
                 // Очищаем старую визуализацию если она есть
@@ -4678,11 +4678,11 @@ export class Garage {
                     const cannonType = getCannonById(previewCannonId);
                     if (cannonType) {
                         const tankPosition = this.previewTank.chassis.position.clone();
-                        const barrelDirection = Vector3.Forward().applyRotationQuaternion(
-                            this.previewTank.barrel.absoluteRotationQuaternion ||
-                            this.previewTank.turret.absoluteRotationQuaternion ||
-                            this.previewTank.chassis.absoluteRotationQuaternion
-                        );
+                        const barrelQuat =
+                            this.previewTank.barrel?.absoluteRotationQuaternion ||
+                            this.previewTank.turret?.absoluteRotationQuaternion ||
+                            this.previewTank.chassis.absoluteRotationQuaternion;
+                        const barrelDirection = Vector3.Forward().applyRotationQuaternion(barrelQuat);
 
                         // ОТКЛЮЧЕНО: Визуализация траектории отключена по запросу пользователя
                         // this.previewSceneData.trajectoryVisualization = updateTrajectoryVisualization(

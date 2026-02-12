@@ -4468,6 +4468,16 @@ export class MainMenu {
                 box-shadow: 0 0 20px rgba(0,255,100,0.15);
                 cursor: grab;
                 flex: 1;
+                position: relative;
+                user-select: none; /* Предотвращаем выделение текста при drag */
+            }
+
+            .skill-tree-wrapper.dragging {
+                cursor: grabbing !important;
+            }
+
+            .skill-tree-wrapper.dragging * {
+                pointer-events: none; /* Отключаем клики на узлы во время drag */
             }
 
             .skill-tree-header {
@@ -4514,8 +4524,8 @@ export class MainMenu {
 
             .skill-tree {
                 position: relative;
-                min-height: 640px;
-                min-width: 2500px; /* Шире для трех деревьев */
+                min-height: 1200px; /* Увеличено для большого дерева */
+                min-width: 3000px; /* Увеличено для большого дерева с множеством веток */
                 background-image: linear-gradient(90deg, rgba(0,255,120,0.05) 1px, transparent 1px);
                 background-repeat: repeat;
                 background-size: 160px 1px;
@@ -4524,6 +4534,18 @@ export class MainMenu {
                 border-left: none;
                 border-right: none;
                 border-bottom: none;
+                transform-origin: top left;
+                transition: transform 0.1s ease-out; /* Плавный zoom */
+            }
+
+            .skill-connection {
+                position: absolute;
+                height: 2px;
+                background: rgba(0,255,120,0.8);
+                box-shadow: 0 0 8px rgba(0,255,120,0.9);
+                opacity: 0.85;
+                z-index: 1; /* Под карточками, но над фоном */
+                pointer-events: none;
             }
 
             .skill-node {
@@ -4911,6 +4933,7 @@ export class MainMenu {
                 padding: 20px;
                 max-height: 60vh;
                 overflow-y: auto;
+                position: relative; /* Для правильного позиционирования селектора аватарок внутри */
             }
 
             .progress-tab-content {
@@ -7629,18 +7652,146 @@ transition: all 0.2s;
                                                                                                                                                                                                                                         </label>
                                                                                                                                                                                                                                         </div>
                                                                                                                                                                                                                                         </div>
-                                                                                                                                                                                                                                        </div>
+                                                                                                        </div>
 
-                                                                                                                                                                                                                                        <!--Автозапуск при готовности-->
-                                                                                                                                                                                                                                            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0, 255, 0, 0.2);" >
-                                                                                                                                                                                                                                                <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #aaa; cursor: pointer;" >
-                                                                                                                                                                                                                                                    <input type="checkbox" id="mp-room-panel-auto-start" style="cursor: pointer;" >
-                                                                                                                                                                                                                                                        <span>🚀 Автозапуск при готовности всех игроков </span>
-                                                                                                                                                                                                                                                            </label>
-                                                                                                                                                                                                                                                            </div>
+                                                                                                        <!--Режим-специфичные настройки-->
+                                                                                                            <div id="mp-room-panel-mode-specific-settings" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0, 255, 0, 0.2); display: none;" >
+                                                                                                                <div style="font-weight: bold; color: #0f0; font-size: 12px; margin-bottom: 10px;" >🎮 Настройки режима </div>
+                                                                                                                    
+                                                                                                                    <!--FFA Settings-->
+                                                                                                                        <div id="mp-room-panel-ffa-settings" class="mode-settings-group" style="display: none;" >
+                                                                                                                            <div style="margin-bottom: 10px;" >
+                                                                                                                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                    <label for="mp-room-panel-ffa-kill-limit" style="font-size: 11px; color: #aaa;" > Лимит убийств для победы: </label>
+                                                                                                                                        <span id="mp-room-panel-ffa-kill-limit-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 20 </span>
+                                                                                                                                            </div>
+                                                                                                                                            <input type="range" id="mp-room-panel-ffa-kill-limit" min="5" max="100" value="20" step="5" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                </div>
+                                                                                                                                                </div>
 
-                                                                                                                                                                                                                                                            <!--Кнопка сохранения настроек-->
-                                                                                                                                                                                                                                                                <button class="panel-btn" id="mp-room-panel-save-settings" style="width: 100%; padding: 10px; font-size: 12px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80; margin-top: 10px;" >
+                                                                                                                                                <!--TDM Settings-->
+                                                                                                                                                    <div id="mp-room-panel-tdm-settings" class="mode-settings-group" style="display: none;" >
+                                                                                                                                                        <div style="margin-bottom: 10px;" >
+                                                                                                                                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                <label for="mp-room-panel-tdm-kill-limit" style="font-size: 11px; color: #aaa;" > Лимит убийств команды: </label>
+                                                                                                                                                                    <span id="mp-room-panel-tdm-kill-limit-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 50 </span>
+                                                                                                                                                                        </div>
+                                                                                                                                                                        <input type="range" id="mp-room-panel-tdm-kill-limit" min="10" max="200" value="50" step="10" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                            </div>
+                                                                                                                                                                            </div>
+
+                                                                                                                                                                            <!--CTF Settings-->
+                                                                                                                                                                                <div id="mp-room-panel-ctf-settings" class="mode-settings-group" style="display: none;" >
+                                                                                                                                                                                    <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                            <label for="mp-room-panel-ctf-flags-to-win" style="font-size: 11px; color: #aaa;" > Флагов для победы: </label>
+                                                                                                                                                                                                <span id="mp-room-panel-ctf-flags-to-win-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 3 </span>
+                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                    <input type="range" id="mp-room-panel-ctf-flags-to-win" min="1" max="10" value="3" step="1" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                        </div>
+
+                                                                                                                                                                                                        <!--Battle Royale Settings-->
+                                                                                                                                                                                                            <div id="mp-room-panel-br-settings" class="mode-settings-group" style="display: none;" >
+                                                                                                                                                                                                                <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                        <label for="mp-room-panel-br-zone-shrink-time" style="font-size: 11px; color: #aaa;" > Время сжатия зоны (мин): </label>
+                                                                                                                                                                                                                            <span id="mp-room-panel-br-zone-shrink-time-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 5 </span>
+                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                <input type="range" id="mp-room-panel-br-zone-shrink-time" min="2" max="15" value="5" step="1" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                    <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                                            <label for="mp-room-panel-br-zone-damage" style="font-size: 11px; color: #aaa;" > Урон вне зоны (HP/сек): </label>
+                                                                                                                                                                                                                                                <span id="mp-room-panel-br-zone-damage-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 5 </span>
+                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                    <input type="range" id="mp-room-panel-br-zone-damage" min="1" max="20" value="5" step="1" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                        </div>
+
+                                                                                                                                                                                                                                                        <!--Control Point Settings-->
+                                                                                                                                                                                                                                                            <div id="mp-room-panel-cp-settings" class="mode-settings-group" style="display: none;" >
+                                                                                                                                                                                                                                                                <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                                                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                                                                        <label for="mp-room-panel-cp-points-count" style="font-size: 11px; color: #aaa;" > Количество точек: </label>
+                                                                                                                                                                                                                                                                            <span id="mp-room-panel-cp-points-count-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 3 </span>
+                                                                                                                                                                                                                                                                                </div>
+                                                                                                                                                                                                                                                                                <input type="range" id="mp-room-panel-cp-points-count" min="2" max="5" value="3" step="1" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                    <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                                                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                                                                                            <label for="mp-room-panel-cp-capture-speed" style="font-size: 11px; color: #aaa;" > Скорость захвата (%/сек): </label>
+                                                                                                                                                                                                                                                                                                <span id="mp-room-panel-cp-capture-speed-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 25 </span>
+                                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                                    <input type="range" id="mp-room-panel-cp-capture-speed" min="10" max="50" value="25" step="5" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                        <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                                                                                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                                                                                                                <label for="mp-room-panel-cp-max-score" style="font-size: 11px; color: #aaa;" > Очков для победы: </label>
+                                                                                                                                                                                                                                                                                                                    <span id="mp-room-panel-cp-max-score-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 1000 </span>
+                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                        <input type="range" id="mp-room-panel-cp-max-score" min="500" max="5000" value="1000" step="100" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                                                                            </div>
+
+                                                                                                                                                                                                                                                                                                                            <!--Escort Settings-->
+                                                                                                                                                                                                                                                                                                                                <div id="mp-room-panel-escort-settings" class="mode-settings-group" style="display: none;" >
+                                                                                                                                                                                                                                                                                                                                    <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                                                                                                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                                                                                                                                            <label for="mp-room-panel-escort-payload-health" style="font-size: 11px; color: #aaa;" > Здоровье конвоя: </label>
+                                                                                                                                                                                                                                                                                                                                                <span id="mp-room-panel-escort-payload-health-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 2500 </span>
+                                                                                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                                                                                    <input type="range" id="mp-room-panel-escort-payload-health" min="1000" max="10000" value="2500" step="100" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                        <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                                                                                                                                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                                                                                                                                                                <label for="mp-room-panel-escort-payload-speed" style="font-size: 11px; color: #aaa;" > Скорость движения: </label>
+                                                                                                                                                                                                                                                                                                                                                                    <span id="mp-room-panel-escort-payload-speed-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 4 </span>
+                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                        <input type="range" id="mp-room-panel-escort-payload-speed" min="1" max="10" value="4" step="0.5" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                                                                                                                            </div>
+
+                                                                                                                                                                                                                                                                                                                                                                            <!--Survival Settings-->
+                                                                                                                                                                                                                                                                                                                                                                                <div id="mp-room-panel-survival-settings" class="mode-settings-group" style="display: none;" >
+                                                                                                                                                                                                                                                                                                                                                                                    <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                                                                                                                                                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                                                                                                                                                                                            <label for="mp-room-panel-survival-max-waves" style="font-size: 11px; color: #aaa;" > Максимум волн: </label>
+                                                                                                                                                                                                                                                                                                                                                                                                <span id="mp-room-panel-survival-max-waves-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 20 </span>
+                                                                                                                                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                                                                                                                                    <input type="range" id="mp-room-panel-survival-max-waves" min="5" max="50" value="20" step="5" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                                                        <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                                                                                                                                                                                                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                                                                                                                                                                                                <label for="mp-room-panel-survival-rest-time" style="font-size: 11px; color: #aaa;" > Время между волнами (сек): </label>
+                                                                                                                                                                                                                                                                                                                                                                                                    <span id="mp-room-panel-survival-rest-time-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 10 </span>
+                                                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                                                        <input type="range" id="mp-room-panel-survival-rest-time" min="5" max="60" value="10" step="5" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                                            </div>
+                                                                                                                                                                                                                                                                                                                                            </div>
+
+                                                                                                                                                                                                                                                                                                                                            <!--Raid Settings-->
+                                                                                                                                                                                                                                                                                                                                                <div id="mp-room-panel-raid-settings" class="mode-settings-group" style="display: none;" >
+                                                                                                                                                                                                                                                                                                                                                    <div style="margin-bottom: 10px;" >
+                                                                                                                                                                                                                                                                                                                                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" >
+                                                                                                                                                                                                                                                                                                                                                            <label for="mp-room-panel-raid-boss-count" style="font-size: 11px; color: #aaa;" > Количество боссов: </label>
+                                                                                                                                                                                                                                                                                                                                                                <span id="mp-room-panel-raid-boss-count-value" style="font-size: 12px; color: #4ade80; font-weight: bold;" > 3 </span>
+                                                                                                                                                                                                                                                                                                                                                                    </div>
+                                                                                                                                                                                                                                                                                                                                                                    <input type="range" id="mp-room-panel-raid-boss-count" min="1" max="10" value="3" step="1" style="width: 100%; height: 5px; background: rgba(0, 0, 0, 0.3); border-radius: 3px; outline: none; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                        </div>
+                                                                                                                                                                                                                                                                                                                                                                        </div>
+
+                                                                                                                                                                                                                                                                                                                                                                        <!--Автозапуск при готовности-->
+                                                                                                                                                                                                                                                                                                                                            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(0, 255, 0, 0.2);" >
+                                                                                                                                                                                                                                                                                                                                                                                <label style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #aaa; cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                                                                                    <input type="checkbox" id="mp-room-panel-auto-start" style="cursor: pointer;" >
+                                                                                                                                                                                                                                                                                                                                                                                        <span>🚀 Автозапуск при готовности всех игроков </span>
+                                                                                                                                                                                                                                                                                                                                                                                            </label>
+                                                                                                                                                                                                                                                                                                                                                                                            </div>
+
+                                                                                                                                                                                                                                                                                                                                                                                            <!--Кнопка сохранения настроек-->
+                                                                                                                                                                                                                                                                                                                                                                                                <button class="panel-btn" id="mp-room-panel-save-settings" style="width: 100%; padding: 10px; font-size: 12px; background: rgba(74, 222, 128, 0.2); border-color: #4ade80; color: #4ade80; margin-top: 10px;" >
                             💾 Сохранить настройки
     </button>
     </div>
@@ -9447,7 +9598,9 @@ transition: all 0.2s;
             const isFull = room.players >= room.maxPlayers;
             const mapType = room.mapType || "normal";
             const safeRoomId = this.escapeHtml(String(room.id ?? ""));
-            const safeMode = this.escapeHtml(String(room.mode ?? "").toUpperCase());
+            // КРИТИЧНО: Конвертируем серверный режим в читаемое название
+            const { getModeDisplayName } = require("./shared/gameModeUtils");
+            const safeMode = this.escapeHtml(getModeDisplayName(room.mode ?? "ffa"));
             const safeMapType = this.escapeHtml(mapType);
 
             roomItem.innerHTML = `
@@ -9503,27 +9656,61 @@ transition: all 0.2s;
         // Обновляем режим
         const modeEl = document.getElementById("mp-room-panel-mode");
         if (modeEl) {
-            const modeNames: Record<string, string> = {
-                "ffa": "Free-for-All",
-                "tdm": "Team Deathmatch",
-                "coop": "Co-op PvE",
-                "battle_royale": "Battle Royale",
-                "ctf": "Capture the Flag",
-                "survival": "Survival",
-                "raid": "Raid"
-            };
-            modeEl.textContent = modeNames[mode] || mode.toUpperCase();
+            // КРИТИЧНО: Используем функцию конвертации для читаемого названия
+            const { getModeDisplayName } = require("./shared/gameModeUtils");
+            modeEl.textContent = getModeDisplayName(mode);
 
             // Показываем блок команд только для режимов с командами
             const teamsBlock = document.getElementById("mp-room-panel-teams");
             if (teamsBlock) {
-                const teamModes = ["tdm", "ctf"];
+                const teamModes = ["tdm", "ctf", "control_point", "escort"];
                 if (teamModes.includes(mode.toLowerCase())) {
                     teamsBlock.style.display = "block";
                     this.updateTeamsDisplay();
                 } else {
                     teamsBlock.style.display = "none";
                 }
+            }
+
+            // Показываем/скрываем режим-специфичные настройки
+            const modeSpecificSettings = document.getElementById("mp-room-panel-mode-specific-settings");
+            const modeLower = mode.toLowerCase();
+            
+            // Скрываем все группы настроек
+            document.querySelectorAll(".mode-settings-group").forEach((el: Element) => {
+                (el as HTMLElement).style.display = "none";
+            });
+
+            // Показываем нужную группу настроек
+            if (modeSpecificSettings) {
+                let showSettings = false;
+                if (modeLower === "ffa") {
+                    (document.getElementById("mp-room-panel-ffa-settings") as HTMLElement)!.style.display = "block";
+                    showSettings = true;
+                } else if (modeLower === "tdm") {
+                    (document.getElementById("mp-room-panel-tdm-settings") as HTMLElement)!.style.display = "block";
+                    showSettings = true;
+                } else if (modeLower === "ctf") {
+                    (document.getElementById("mp-room-panel-ctf-settings") as HTMLElement)!.style.display = "block";
+                    showSettings = true;
+                } else if (modeLower === "battle_royale") {
+                    (document.getElementById("mp-room-panel-br-settings") as HTMLElement)!.style.display = "block";
+                    showSettings = true;
+                } else if (modeLower === "control_point") {
+                    (document.getElementById("mp-room-panel-cp-settings") as HTMLElement)!.style.display = "block";
+                    showSettings = true;
+                } else if (modeLower === "escort") {
+                    (document.getElementById("mp-room-panel-escort-settings") as HTMLElement)!.style.display = "block";
+                    showSettings = true;
+                } else if (modeLower === "survival") {
+                    (document.getElementById("mp-room-panel-survival-settings") as HTMLElement)!.style.display = "block";
+                    showSettings = true;
+                } else if (modeLower === "raid") {
+                    (document.getElementById("mp-room-panel-raid-settings") as HTMLElement)!.style.display = "block";
+                    showSettings = true;
+                }
+
+                modeSpecificSettings.style.display = showSettings ? "block" : "none";
             }
         }
 
@@ -9696,11 +9883,123 @@ transition: all 0.2s;
             };
         }
 
+        // Обработчики для режим-специфичных слайдеров
+        const initModeSpecificSliders = () => {
+            // FFA
+            const ffaKillLimitSlider = document.getElementById("mp-room-panel-ffa-kill-limit") as HTMLInputElement;
+            const ffaKillLimitValue = document.getElementById("mp-room-panel-ffa-kill-limit-value");
+            if (ffaKillLimitSlider && ffaKillLimitValue) {
+                ffaKillLimitSlider.oninput = () => {
+                    ffaKillLimitValue.textContent = ffaKillLimitSlider.value;
+                };
+            }
+
+            // TDM
+            const tdmKillLimitSlider = document.getElementById("mp-room-panel-tdm-kill-limit") as HTMLInputElement;
+            const tdmKillLimitValue = document.getElementById("mp-room-panel-tdm-kill-limit-value");
+            if (tdmKillLimitSlider && tdmKillLimitValue) {
+                tdmKillLimitSlider.oninput = () => {
+                    tdmKillLimitValue.textContent = tdmKillLimitSlider.value;
+                };
+            }
+
+            // CTF
+            const ctfFlagsSlider = document.getElementById("mp-room-panel-ctf-flags-to-win") as HTMLInputElement;
+            const ctfFlagsValue = document.getElementById("mp-room-panel-ctf-flags-to-win-value");
+            if (ctfFlagsSlider && ctfFlagsValue) {
+                ctfFlagsSlider.oninput = () => {
+                    ctfFlagsValue.textContent = ctfFlagsSlider.value;
+                };
+            }
+
+            // Battle Royale
+            const brShrinkTimeSlider = document.getElementById("mp-room-panel-br-zone-shrink-time") as HTMLInputElement;
+            const brShrinkTimeValue = document.getElementById("mp-room-panel-br-zone-shrink-time-value");
+            if (brShrinkTimeSlider && brShrinkTimeValue) {
+                brShrinkTimeSlider.oninput = () => {
+                    brShrinkTimeValue.textContent = brShrinkTimeSlider.value;
+                };
+            }
+            const brDamageSlider = document.getElementById("mp-room-panel-br-zone-damage") as HTMLInputElement;
+            const brDamageValue = document.getElementById("mp-room-panel-br-zone-damage-value");
+            if (brDamageSlider && brDamageValue) {
+                brDamageSlider.oninput = () => {
+                    brDamageValue.textContent = brDamageSlider.value;
+                };
+            }
+
+            // Control Point
+            const cpPointsSlider = document.getElementById("mp-room-panel-cp-points-count") as HTMLInputElement;
+            const cpPointsValue = document.getElementById("mp-room-panel-cp-points-count-value");
+            if (cpPointsSlider && cpPointsValue) {
+                cpPointsSlider.oninput = () => {
+                    cpPointsValue.textContent = cpPointsSlider.value;
+                };
+            }
+            const cpCaptureSpeedSlider = document.getElementById("mp-room-panel-cp-capture-speed") as HTMLInputElement;
+            const cpCaptureSpeedValue = document.getElementById("mp-room-panel-cp-capture-speed-value");
+            if (cpCaptureSpeedSlider && cpCaptureSpeedValue) {
+                cpCaptureSpeedSlider.oninput = () => {
+                    cpCaptureSpeedValue.textContent = cpCaptureSpeedSlider.value;
+                };
+            }
+            const cpMaxScoreSlider = document.getElementById("mp-room-panel-cp-max-score") as HTMLInputElement;
+            const cpMaxScoreValue = document.getElementById("mp-room-panel-cp-max-score-value");
+            if (cpMaxScoreSlider && cpMaxScoreValue) {
+                cpMaxScoreSlider.oninput = () => {
+                    cpMaxScoreValue.textContent = cpMaxScoreSlider.value;
+                };
+            }
+
+            // Escort
+            const escortHealthSlider = document.getElementById("mp-room-panel-escort-payload-health") as HTMLInputElement;
+            const escortHealthValue = document.getElementById("mp-room-panel-escort-payload-health-value");
+            if (escortHealthSlider && escortHealthValue) {
+                escortHealthSlider.oninput = () => {
+                    escortHealthValue.textContent = escortHealthSlider.value;
+                };
+            }
+            const escortSpeedSlider = document.getElementById("mp-room-panel-escort-payload-speed") as HTMLInputElement;
+            const escortSpeedValue = document.getElementById("mp-room-panel-escort-payload-speed-value");
+            if (escortSpeedSlider && escortSpeedValue) {
+                escortSpeedSlider.oninput = () => {
+                    escortSpeedValue.textContent = parseFloat(escortSpeedSlider.value).toFixed(1);
+                };
+            }
+
+            // Survival
+            const survivalMaxWavesSlider = document.getElementById("mp-room-panel-survival-max-waves") as HTMLInputElement;
+            const survivalMaxWavesValue = document.getElementById("mp-room-panel-survival-max-waves-value");
+            if (survivalMaxWavesSlider && survivalMaxWavesValue) {
+                survivalMaxWavesSlider.oninput = () => {
+                    survivalMaxWavesValue.textContent = survivalMaxWavesSlider.value;
+                };
+            }
+            const survivalRestTimeSlider = document.getElementById("mp-room-panel-survival-rest-time") as HTMLInputElement;
+            const survivalRestTimeValue = document.getElementById("mp-room-panel-survival-rest-time-value");
+            if (survivalRestTimeSlider && survivalRestTimeValue) {
+                survivalRestTimeSlider.oninput = () => {
+                    survivalRestTimeValue.textContent = survivalRestTimeSlider.value;
+                };
+            }
+
+            // Raid
+            const raidBossCountSlider = document.getElementById("mp-room-panel-raid-boss-count") as HTMLInputElement;
+            const raidBossCountValue = document.getElementById("mp-room-panel-raid-boss-count-value");
+            if (raidBossCountSlider && raidBossCountValue) {
+                raidBossCountSlider.oninput = () => {
+                    raidBossCountValue.textContent = raidBossCountSlider.value;
+                };
+            }
+        };
+        initModeSpecificSliders();
+
         const saveSettingsBtn = document.getElementById("mp-room-panel-save-settings");
         if (saveSettingsBtn) {
             saveSettingsBtn.onclick = () => {
                 const game = (window as any).gameInstance;
-                if (game?.multiplayerManager) {
+                const mm = game?.multiplayerManager;
+                if (mm) {
                     const allowLight = (document.getElementById("mp-room-panel-allow-light") as HTMLInputElement)?.checked ?? true;
                     const allowMedium = (document.getElementById("mp-room-panel-allow-medium") as HTMLInputElement)?.checked ?? true;
                     const allowHeavy = (document.getElementById("mp-room-panel-allow-heavy") as HTMLInputElement)?.checked ?? true;
@@ -9710,7 +10009,7 @@ transition: all 0.2s;
                     const allowHeavyGun = (document.getElementById("mp-room-panel-allow-heavy-gun") as HTMLInputElement)?.checked ?? true;
                     const allowSniper = (document.getElementById("mp-room-panel-allow-sniper") as HTMLInputElement)?.checked ?? true;
 
-                    const settings = {
+                    const settings: any = {
                         maxPlayers: parseInt(maxPlayersSlider?.value || "32"),
                         roundTime: parseInt(roundTimeSlider?.value || "10"),
                         killLimit: parseInt(killLimitSlider?.value || "50"),
@@ -9727,9 +10026,55 @@ transition: all 0.2s;
                             sniper: allowSniper
                         }
                     };
+
+                    // Добавляем режим-специфичные настройки
+                    const modeLower = mode.toLowerCase();
+                    if (modeLower === "ffa") {
+                        settings.ffaSettings = {
+                            killLimit: parseInt((document.getElementById("mp-room-panel-ffa-kill-limit") as HTMLInputElement)?.value || "20")
+                        };
+                    } else if (modeLower === "tdm") {
+                        settings.tdmSettings = {
+                            killLimit: parseInt((document.getElementById("mp-room-panel-tdm-kill-limit") as HTMLInputElement)?.value || "50")
+                        };
+                    } else if (modeLower === "ctf") {
+                        settings.ctfSettings = {
+                            flagsToWin: parseInt((document.getElementById("mp-room-panel-ctf-flags-to-win") as HTMLInputElement)?.value || "3")
+                        };
+                    } else if (modeLower === "battle_royale") {
+                        settings.brSettings = {
+                            zoneShrinkTime: parseInt((document.getElementById("mp-room-panel-br-zone-shrink-time") as HTMLInputElement)?.value || "5") * 60, // Конвертируем в секунды
+                            zoneDamage: parseInt((document.getElementById("mp-room-panel-br-zone-damage") as HTMLInputElement)?.value || "5")
+                        };
+                    } else if (modeLower === "control_point") {
+                        settings.cpSettings = {
+                            pointsCount: parseInt((document.getElementById("mp-room-panel-cp-points-count") as HTMLInputElement)?.value || "3"),
+                            captureSpeed: parseInt((document.getElementById("mp-room-panel-cp-capture-speed") as HTMLInputElement)?.value || "25"),
+                            maxScore: parseInt((document.getElementById("mp-room-panel-cp-max-score") as HTMLInputElement)?.value || "1000")
+                        };
+                    } else if (modeLower === "escort") {
+                        settings.escortSettings = {
+                            payloadHealth: parseInt((document.getElementById("mp-room-panel-escort-payload-health") as HTMLInputElement)?.value || "2500"),
+                            payloadSpeed: parseFloat((document.getElementById("mp-room-panel-escort-payload-speed") as HTMLInputElement)?.value || "4")
+                        };
+                    } else if (modeLower === "survival") {
+                        settings.survivalSettings = {
+                            maxWaves: parseInt((document.getElementById("mp-room-panel-survival-max-waves") as HTMLInputElement)?.value || "20"),
+                            restTime: parseInt((document.getElementById("mp-room-panel-survival-rest-time") as HTMLInputElement)?.value || "10") * 1000 // Конвертируем в миллисекунды
+                        };
+                    } else if (modeLower === "raid") {
+                        settings.raidSettings = {
+                            bossCount: parseInt((document.getElementById("mp-room-panel-raid-boss-count") as HTMLInputElement)?.value || "3")
+                        };
+                    }
+
                     debugLog("[Menu] Saving room settings:", settings);
-                    // FIXED: Отправляем настройки через менеджер
-                    game.multiplayerManager.updateRoomSettings(settings);
+                    // Отправляем настройки через реальный API менеджера
+                    if (typeof mm.updateRoomSettings === "function") {
+                        mm.updateRoomSettings(settings);
+                    } else if (typeof mm.changeRoomSettings === "function") {
+                        mm.changeRoomSettings(settings);
+                    }
                 }
             };
         }
@@ -13102,7 +13447,11 @@ line - height: 1.4;
         const progressTextEl = document.getElementById("mp-room-details-progress-text");
 
         if (roomIdEl) roomIdEl.textContent = room.id;
-        if (roomModeEl) roomModeEl.textContent = room.mode.toUpperCase();
+        if (roomModeEl) {
+            // КРИТИЧНО: Используем функцию конвертации для читаемого названия
+            const { getModeDisplayName } = require("./shared/gameModeUtils");
+            roomModeEl.textContent = getModeDisplayName(room.mode);
+        }
         if (roomPlayersEl) roomPlayersEl.textContent = `${room.players}/${room.maxPlayers}`;
 
         // Статус
@@ -13449,7 +13798,7 @@ line - height: 1.4;
     }
 
     /**
-     * Изменение настроек комнаты
+     * Изменение настроек комнаты (через MultiplayerManager.changeRoomSettings)
      */
     private changeRoomSettings(roomId: string, settings: any): void {
         const game = (window as any).gameInstance as any;
@@ -13460,9 +13809,25 @@ line - height: 1.4;
             return;
         }
 
+        if (!multiplayerManager.isRoomCreator || !multiplayerManager.isRoomCreator()) {
+            inGameAlert("Только хост может менять настройки комнаты", "Ошибка").catch(() => { });
+            return;
+        }
+
         // NOTE: изменение настроек — CHANGE_ROOM_SETTINGS на сервере
         debugLog(`[Menu] Изменение настроек комнаты ${roomId}:`, settings);
-        inGameAlert("Функция изменения настроек комнаты будет реализована на сервере", "Уведомление").catch(() => { });
+        try {
+            // Используем существующий API менеджера, который оборачивает CHANGE_ROOM_SETTINGS
+            if (typeof multiplayerManager.changeRoomSettings === "function") {
+                multiplayerManager.changeRoomSettings(settings);
+            } else if (typeof multiplayerManager.updateRoomSettings === "function") {
+                // Fallback для старого API
+                multiplayerManager.updateRoomSettings(settings);
+            }
+        } catch (error) {
+            console.error("[Menu] Ошибка при изменении настроек комнаты:", error);
+            inGameAlert("Ошибка при отправке настроек комнаты", "Ошибка").catch(() => { });
+        }
     }
 
     /**
@@ -15726,6 +16091,16 @@ line - height: 1.4;
     public async showAvatarSelector(): Promise<void> {
         try {
             const { AvatarSelector } = await import("./menu/avatarSelector");
+            
+            // ИСПРАВЛЕНО: Открываем селектор аватарок ВНУТРИ панели прогресса, а не поверх всего
+            // Находим контейнер содержимого панели прогресса (.progress-content) чтобы заголовок и вкладки оставались видимыми
+            const progressPanel = this.progressPanel || document.getElementById("progress-panel");
+            const progressContent = progressPanel?.querySelector(".progress-content") as HTMLElement;
+            
+            if (!progressContent) {
+                logger.warn("[Menu] Progress panel content not found, opening avatar selector as fullscreen overlay");
+            }
+            
             const selector = new AvatarSelector({
                 onAvatarSelected: (avatarId: string) => {
                     localStorage.setItem("selectedAvatar", avatarId);
@@ -15733,8 +16108,15 @@ line - height: 1.4;
                         (this as any).updatePlayerAvatarDisplay();
                     }
                 },
-                onClose: () => this.enforceCanvasPointerEvents()
-            });
+                onClose: () => {
+                    this.enforceCanvasPointerEvents();
+                    // Обновляем отображение аватарки после закрытия
+                    if (this.progressPanelModule) {
+                        this.progressPanelModule.switchTab(this.progressPanelModule.getCurrentTab());
+                    }
+                }
+            }, progressContent || undefined); // Передаём контейнер содержимого панели прогресса
+            
             selector.show();
             this.enforceCanvasPointerEvents();
         } catch (err) {

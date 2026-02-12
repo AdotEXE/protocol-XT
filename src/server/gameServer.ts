@@ -447,6 +447,12 @@ export class GameServer {
                 if (player) this.handleWallSpawn(player, message.data);
                 break;
 
+            case ClientMessageType.VOICE_JOIN:
+                if (player) {
+                    this._handleVoiceJoin(player);
+                }
+                break;
+
             case ClientMessageType.VOICE_OFFER:
             case ClientMessageType.VOICE_ANSWER:
             case ClientMessageType.VOICE_ICE_CANDIDATE:
@@ -456,6 +462,12 @@ export class GameServer {
                     } else {
                         this._handleVoiceSignaling(player, message);
                     }
+                }
+                break;
+
+            case ClientMessageType.VOICE_TALKING:
+                if (player) {
+                    this._handleVoiceTalking(player, message);
                 }
                 break;
 
@@ -583,6 +595,31 @@ export class GameServer {
 
         const room = this.rooms.get(player.roomId);
         if (!room) return;
+
+        // КРИТИЧНО: Обрабатываем DRESS_UPDATE для обновления данных игрока на сервере
+        // Это гарантирует что данные синхронизируются через PLAYER_STATES
+        if (data.event === "DRESS_UPDATE" && data.payload) {
+            const { chassisType, cannonType, trackType, tankColor, turretColor } = data.payload;
+            
+            // Обновляем данные игрока на сервере
+            if (chassisType && typeof chassisType === 'string') {
+                player.chassisType = chassisType;
+            }
+            if (cannonType && typeof cannonType === 'string') {
+                player.cannonType = cannonType;
+            }
+            if (trackType && typeof trackType === 'string') {
+                player.trackType = trackType;
+            }
+            if (tankColor && typeof tankColor === 'string') {
+                player.tankColor = tankColor;
+            }
+            if (turretColor && typeof turretColor === 'string') {
+                player.turretColor = turretColor;
+            }
+
+            serverLogger.log(`[Server] 👕 DRESS_UPDATE for ${player.id}: chassis=${chassisType}, cannon=${cannonType}, track=${trackType}`);
+        }
 
         // Broadcast RPC to all other players in the room
         const rpcMessage = createServerMessage(ServerMessageType.RPC, data);
@@ -720,13 +757,22 @@ export class GameServer {
         if (turretColor) player.turretColor = turretColor;
         if (modules && Array.isArray(modules)) player.modules = modules;
 
+        // КРИТИЧНО: Валидация режима игры
+        const validModes: GameMode[] = ["ffa", "tdm", "coop", "battle_royale", "ctf", "control_point", "escort", "survival", "raid"];
+        let validatedMode: GameMode = mode as GameMode;
+        
+        if (!validModes.includes(validatedMode)) {
+            serverLogger.warn(`[Server] ⚠️ Invalid game mode received: '${mode}', defaulting to 'ffa'`);
+            validatedMode = "ffa";
+        }
+
         // Генерируем простой ID комнаты (0001, 0002, и т.д.)
         this.roomCounter++;
         const roomId = String(this.roomCounter).padStart(4, '0');
         serverLogger.log(`[Server] 🔧 Генерация ID комнаты: roomCounter=${this.roomCounter}, roomId=${roomId}`);
-        serverLogger.log(`[Server] 📋 CREATE_ROOM: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}, enableBots=${enableBots}, botCount=${botCount}`);
+        serverLogger.log(`[Server] 📋 CREATE_ROOM: mode=${mode} (validated: ${validatedMode}), maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}, enableBots=${enableBots}, botCount=${botCount}`);
 
-        const room = new GameRoom(mode, maxPlayers, isPrivate, worldSeed, roomId, mapType);
+        const room = new GameRoom(validatedMode, maxPlayers, isPrivate, worldSeed, roomId, mapType);
         room.settings = settings || {};
 
         // Настройки ботов (по умолчанию отключены)
@@ -917,6 +963,20 @@ export class GameServer {
     }
 
     private handleLeaveRoom(player: ServerPlayer): void {
+        // Уведомляем всех игроков в комнате о выходе из голосового чата
+        if (player.roomId) {
+            const room = this.rooms.get(player.roomId);
+            if (room) {
+                room.players.forEach((otherPlayer) => {
+                    if (otherPlayer.id !== player.id) {
+                        this.send(otherPlayer.socket, createServerMessage(ServerMessageType.VOICE_PLAYER_LEFT, {
+                            playerId: player.id,
+                            playerName: player.name
+                        }));
+                    }
+                });
+            }
+        }
         if (!player.roomId) return;
 
         const room = this.rooms.get(player.roomId);
@@ -1000,11 +1060,132 @@ export class GameServer {
         }));
     }
 
-    private handleChangeRoomSettings(player: ServerPlayer, settings: any): void {
-        if (!player.roomId) return;
+    /**
+     * Валидация режим-специфичных настроек
+     */
+    private validateModeSpecificSettings(mode: GameMode, settings: any): string | null {
+        const modeLower = mode.toLowerCase();
+
+        // FFA Settings
+        if (settings.ffaSettings) {
+            const ffa = settings.ffaSettings;
+            if (ffa.killLimit !== undefined) {
+                if (typeof ffa.killLimit !== "number" || ffa.killLimit < 5 || ffa.killLimit > 100) {
+                    return "FFA killLimit must be between 5 and 100";
+                }
+            }
+        }
+
+        // TDM Settings
+        if (settings.tdmSettings) {
+            const tdm = settings.tdmSettings;
+            if (tdm.killLimit !== undefined) {
+                if (typeof tdm.killLimit !== "number" || tdm.killLimit < 10 || tdm.killLimit > 200) {
+                    return "TDM killLimit must be between 10 and 200";
+                }
+            }
+        }
+
+        // CTF Settings
+        if (settings.ctfSettings) {
+            const ctf = settings.ctfSettings;
+            if (ctf.flagsToWin !== undefined) {
+                if (typeof ctf.flagsToWin !== "number" || ctf.flagsToWin < 1 || ctf.flagsToWin > 10) {
+                    return "CTF flagsToWin must be between 1 and 10";
+                }
+            }
+        }
+
+        // Battle Royale Settings
+        if (settings.brSettings) {
+            const br = settings.brSettings;
+            if (br.zoneShrinkTime !== undefined) {
+                // Updated range: 6-8 minutes recommended (360-480 seconds)
+                if (typeof br.zoneShrinkTime !== "number" || br.zoneShrinkTime < 180 || br.zoneShrinkTime > 900) {
+                    return "BR zoneShrinkTime must be between 180 and 900 seconds (3-15 minutes)";
+                }
+            }
+            if (br.zoneDamage !== undefined) {
+                // Base damage (will scale progressively: 2/5/8/15 HP/sec)
+                if (typeof br.zoneDamage !== "number" || br.zoneDamage < 1 || br.zoneDamage > 20) {
+                    return "BR zoneDamage must be between 1 and 20 HP/sec (base value, scales progressively)";
+                }
+            }
+        }
+
+        // Control Point Settings
+        if (settings.cpSettings) {
+            const cp = settings.cpSettings;
+            if (cp.pointsCount !== undefined) {
+                if (typeof cp.pointsCount !== "number" || cp.pointsCount < 2 || cp.pointsCount > 5) {
+                    return "CP pointsCount must be between 2 and 5";
+                }
+            }
+            if (cp.captureSpeed !== undefined) {
+                if (typeof cp.captureSpeed !== "number" || cp.captureSpeed < 10 || cp.captureSpeed > 50) {
+                    return "CP captureSpeed must be between 10 and 50 %/sec";
+                }
+            }
+            if (cp.maxScore !== undefined) {
+                if (typeof cp.maxScore !== "number" || cp.maxScore < 500 || cp.maxScore > 5000) {
+                    return "CP maxScore must be between 500 and 5000";
+                }
+            }
+        }
+
+        // Escort Settings
+        if (settings.escortSettings) {
+            const escort = settings.escortSettings;
+            if (escort.payloadHealth !== undefined) {
+                if (typeof escort.payloadHealth !== "number" || escort.payloadHealth < 1000 || escort.payloadHealth > 10000) {
+                    return "Escort payloadHealth must be between 1000 and 10000";
+                }
+            }
+            if (escort.payloadSpeed !== undefined) {
+                if (typeof escort.payloadSpeed !== "number" || escort.payloadSpeed < 1 || escort.payloadSpeed > 10) {
+                    return "Escort payloadSpeed must be between 1 and 10";
+                }
+            }
+        }
+
+        // Survival Settings
+        if (settings.survivalSettings) {
+            const survival = settings.survivalSettings;
+            if (survival.maxWaves !== undefined) {
+                if (typeof survival.maxWaves !== "number" || survival.maxWaves < 5 || survival.maxWaves > 50) {
+                    return "Survival maxWaves must be between 5 and 50";
+                }
+            }
+            if (survival.restTime !== undefined) {
+                // Recommended: 10-15 seconds (10000-15000 ms)
+                if (typeof survival.restTime !== "number" || survival.restTime < 5000 || survival.restTime > 60000) {
+                    return "Survival restTime must be between 5000 and 60000 ms (5-60 seconds)";
+                }
+            }
+        }
+
+        // Raid Settings
+        if (settings.raidSettings) {
+            const raid = settings.raidSettings;
+            if (raid.bossCount !== undefined) {
+                if (typeof raid.bossCount !== "number" || raid.bossCount < 1 || raid.bossCount > 10) {
+                    return "Raid bossCount must be between 1 and 10";
+                }
+            }
+        }
+
+        return null; // Validation passed
+    }
+
+    private handleChangeRoomSettings(player: ServerPlayer, data: any): void {
+        if (!player.roomId) {
+            return;
+        }
 
         const room = this.rooms.get(player.roomId);
-        if (!room) return;
+        if (!room) {
+            return;
+        }
 
         // Only host can change settings
         // If room has no creator (orphaned), anyone can change? No, secure it.
@@ -1013,8 +1194,39 @@ export class GameServer {
             return;
         }
 
-        serverLogger.log(`[Server] Player ${player.name} updating room settings for ${room.id}`);
-        room.updateSettings(settings);
+        // CHANGE_ROOM_SETTINGS payload shape (see ChangeRoomSettingsData):
+        // { roomId: string; settings: { ... } }
+        // However, older clients might send plain settings object.
+        const rawSettings = data && typeof data === "object" && "settings" in data
+            ? (data as any).settings
+            : data;
+
+        if (!rawSettings || typeof rawSettings !== "object") {
+            serverLogger.warn(
+                `[Server] handleChangeRoomSettings: invalid settings payload from ${player.id}`,
+                data
+            );
+            this.sendError(player.socket, "INVALID_SETTINGS", "Invalid room settings payload");
+            return;
+        }
+
+        // Валидация режим-специфичных настроек
+        const validationError = this.validateModeSpecificSettings(room.mode, rawSettings);
+        if (validationError) {
+            serverLogger.warn(
+                `[Server] handleChangeRoomSettings: validation failed for ${player.id}:`,
+                validationError
+            );
+            this.sendError(player.socket, "INVALID_SETTINGS", validationError);
+            return;
+        }
+
+        serverLogger.log(
+            `[Server] Player ${player.name} updating room settings for ${room.id}:`,
+            rawSettings
+        );
+
+        room.updateSettings(rawSettings);
     }
 
     private handleQuickPlay(player: ServerPlayer, data: any): void {
@@ -1766,6 +1978,36 @@ export class GameServer {
     }
 
     /**
+     * Обработка присоединения игрока к голосовому чату
+     * Уведомляет всех игроков в комнате о новом участнике голосового чата
+     */
+    private _handleVoiceJoin(player: ServerPlayer): void {
+        if (!player.roomId) return;
+
+        const room = this.rooms.get(player.roomId);
+        if (!room) return;
+
+        serverLogger.log(`[Server] 🎤 Игрок ${player.id} (${player.name}) присоединился к голосовому чату в комнате ${room.id}`);
+
+        // Уведомляем всех игроков в комнате о новом участнике голосового чата
+        room.players.forEach((otherPlayer) => {
+            if (otherPlayer.id !== player.id) {
+                // Отправляем уведомление существующим игрокам о новом участнике
+                this.send(otherPlayer.socket, createServerMessage(ServerMessageType.VOICE_PLAYER_JOINED, {
+                    playerId: player.id,
+                    playerName: player.name
+                }));
+
+                // Отправляем новому игроку информацию о существующих участниках голосового чата
+                this.send(player.socket, createServerMessage(ServerMessageType.VOICE_PLAYER_JOINED, {
+                    playerId: otherPlayer.id,
+                    playerName: otherPlayer.name
+                }));
+            }
+        });
+    }
+
+    /**
      * Обработка события о том, что игрок говорит по радио
      * Рассылает уведомление всем игрокам в комнате
      */
@@ -2369,6 +2611,44 @@ export class GameServer {
                     if (captureEvent) {
                         globalBatchMessages.push(createServerMessage(ServerMessageType.CTF_FLAG_CAPTURE, captureEvent));
                         (room as any).lastCTFCaptureEvent = null;
+                    }
+                }
+
+                // Broadcast Control Point updates
+                if (room.mode === "control_point") {
+                    const cpData = room.getControlPointsData();
+                    const scores = room.getControlPointScores();
+                    if (cpData && cpData.length > 0) {
+                        globalBatchMessages.push(createServerMessage(ServerMessageType.CONTROL_POINT_UPDATE, {
+                            points: cpData,
+                            team0Score: scores?.team0Score || 0,
+                            team1Score: scores?.team1Score || 0,
+                            maxScore: scores?.maxScore || 1000
+                        }));
+                    }
+                }
+
+                // Broadcast Escort payload updates
+                if (room.mode === "escort") {
+                    const escortData = room.getEscortPayloadData();
+                    if (escortData) {
+                        globalBatchMessages.push(createServerMessage(ServerMessageType.ESCORT_PAYLOAD_UPDATE, escortData));
+                    }
+                }
+
+                // Broadcast Survival wave updates
+                if (room.mode === "survival") {
+                    const survivalData = room.getSurvivalWaveData();
+                    if (survivalData) {
+                        globalBatchMessages.push(createServerMessage(ServerMessageType.SURVIVAL_WAVE_UPDATE, survivalData));
+                    }
+                }
+
+                // Broadcast Raid boss updates
+                if (room.mode === "raid") {
+                    const raidData = room.getRaidBossData();
+                    if (raidData) {
+                        globalBatchMessages.push(createServerMessage(ServerMessageType.RAID_BOSS_UPDATE, raidData));
                     }
                 }
 

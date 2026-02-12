@@ -213,7 +213,7 @@ export class TankMovementModule {
         // Check if current chassis is "plane"
         // (isPlane is already defined above)
 
-        // Initialize aircraft physics subsystem if needed
+        // ИСПРАВЛЕНО: Initialize aircraft physics subsystem if needed
         // Reverting to single check to fix Syntax/Build Error
         if (isPlane && !this.aircraftPhysics && this.tank.physicsBody && this.tank.chassis) {
             tankLogger.log("[TankMovement] Initializing AircraftPhysics for Plane");
@@ -235,10 +235,16 @@ export class TankMovementModule {
                     );
                     // Phase 1.3: Регистрируем update ПОСЛЕ physics step
                     this.registerPhysicsObserver();
+                    tankLogger.log("[TankMovement] AircraftPhysics initialized and observer registered");
                 }
             } catch (e) {
                 tankLogger.error("[TankMovement] Failed to init AircraftPhysics:", e);
             }
+        }
+        
+        // ИСПРАВЛЕНО: Проверяем что AircraftPhysics существует для самолёта
+        if (isPlane && !this.aircraftPhysics) {
+            tankLogger.warn("[TankMovement] Plane detected but AircraftPhysics not initialized yet");
         }
 
         // Removed cleanup logic for now to restore boot

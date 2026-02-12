@@ -163,6 +163,10 @@ interface HUDWithMethods {
     hide?: () => void;
     forceUpdate?: () => void;
     setMissionSystem?: (missionSystem: MissionSystem) => void;
+    invalidateModulesCache?: () => void;
+    hideDeathScreen?: () => void;
+    updatePlayerAvatarDisplay?: () => void;
+    showAvatarSelector?: () => Promise<void>;
 }
 
 interface DebugDashboardWithProps {
@@ -385,6 +389,8 @@ export class Game {
 
     battleRoyaleVisualizer: BattleRoyaleVisualizer | undefined; // Lazy loaded from "./battleRoyale"
     ctfVisualizer: CTFVisualizer | undefined; // Lazy loaded from "./ctfVisualizer"
+    controlPointVisualizer: any | undefined; // ControlPointVisualizer - lazy loaded
+    escortVisualizer: any | undefined; // EscortVisualizer - lazy loaded
 
     // Pending custom map data received from multiplayer
     public pendingCustomMapData: MapData | null = null;
@@ -1987,6 +1993,21 @@ export class Game {
                                     // Используем GameUpdate для обновления
                                     this.gameUpdate.update();
 
+                                    // Update visualizers animations
+                                    const deltaTimeMs = this.engine.getDeltaTime();
+                                    if (this.battleRoyaleVisualizer && typeof this.battleRoyaleVisualizer.update === "function") {
+                                        this.battleRoyaleVisualizer.update(deltaTimeMs);
+                                    }
+                                    if (this.ctfVisualizer && typeof this.ctfVisualizer.update === "function") {
+                                        this.ctfVisualizer.update(deltaTimeMs);
+                                    }
+                                    if (this.controlPointVisualizer && typeof this.controlPointVisualizer.update === "function") {
+                                        this.controlPointVisualizer.update(deltaTimeMs);
+                                    }
+                                    if (this.escortVisualizer && typeof this.escortVisualizer.update === "function") {
+                                        this.escortVisualizer.update(deltaTimeMs);
+                                    }
+
                                     // Update HUD effects (Damage indicators, etc)
                                     if (this.hud && this.camera) {
                                         // Получаем позицию и направление игрока для индикатора урона
@@ -2821,11 +2842,13 @@ export class Game {
                     const requiredXP = xpProgress.required;
 
                     logger.log(`[Game] Force updating HUD with progression: Level ${currentLevel}, XP ${currentXP}/${requiredXP}`);
-                    (this.hud as any).updateCentralXp?.(currentXP, requiredXP, currentLevel);
+                    if ('updateCentralXp' in this.hud && typeof this.hud.updateCentralXp === 'function') {
+                        this.hud.updateCentralXp(currentXP, requiredXP, currentLevel);
+                    }
 
                     // Если есть метод updatePlayerStats, вызываем и его
-                    if (typeof (this.hud as any).updatePlayerStats === 'function') {
-                        (this.hud as any).updatePlayerStats(currentLevel, currentXP, requiredXP);
+                    if ('updatePlayerStats' in this.hud && typeof this.hud.updatePlayerStats === 'function') {
+                        this.hud.updatePlayerStats(currentLevel, currentXP, requiredXP);
                     }
                 }
             }
@@ -3593,6 +3616,8 @@ export class Game {
                 gameEnemies: this.gameEnemies, // Передаем GameEnemies для создания синхронизированных ботов
                 battleRoyaleVisualizer: this.battleRoyaleVisualizer,
                 ctfVisualizer: this.ctfVisualizer,
+                controlPointVisualizer: this.controlPointVisualizer,
+                escortVisualizer: this.escortVisualizer,
                 replayRecorder: this.replayRecorder,
                 realtimeStatsTracker: this.realtimeStatsTracker,
                 getIsMultiplayer: () => this.isMultiplayer,
@@ -3602,6 +3627,8 @@ export class Game {
                 },
                 setBattleRoyaleVisualizer: (v) => { this.battleRoyaleVisualizer = v; },
                 setCTFVisualizer: (v) => { this.ctfVisualizer = v; },
+                setControlPointVisualizer: (v) => { this.controlPointVisualizer = v; },
+                setEscortVisualizer: (v) => { this.escortVisualizer = v; },
                 setRealtimeStatsTracker: (v) => { this.realtimeStatsTracker = v; },
                 setReplayRecorder: (v) => { this.replayRecorder = v; },
                 setMapType: (mapType: string) => {
@@ -4218,7 +4245,8 @@ export class Game {
         }
 
         // Последний fallback: минимальная безопасная высота
-        logger.warn(`[Game] getGroundHeight: All methods failed at (${x.toFixed(1)}, ${z.toFixed(1)}), using safe default 2.0`);
+        // ИСПРАВЛЕНО: Изменено с warn на debug чтобы не спамить консоль (это нормальная ситуация для не загруженных чанков)
+        logger.debug(`[Game] getGroundHeight: All methods failed at (${x.toFixed(1)}, ${z.toFixed(1)}), using safe default 2.0`);
         vector3Pool.release(rayStart);
         return 2.0; // Минимальная безопасная высота вместо 0
     }
@@ -4425,7 +4453,8 @@ export class Game {
                 });
 
                 if (hit && hit.hit && hit.distance < checkRadius) {
-                    logger.warn(`[Game] validateSpawnPosition: Obstacle detected at distance ${hit.distance.toFixed(2)}m in direction (${dir.x}, ${dir.z})`);
+                    // ИСПРАВЛЕНО: Изменено с warn на debug чтобы не спамить консоль (это нормальная ситуация при поиске свободного места для спавна)
+                    logger.debug(`[Game] validateSpawnPosition: Obstacle detected at distance ${hit.distance.toFixed(2)}m in direction (${dir.x}, ${dir.z})`);
                     // Освобождаем векторы перед return
                     vector3Pool.release(rayStart);
                     directions.forEach(d => vector3Pool.release(d));
@@ -4577,13 +4606,15 @@ export class Game {
         if (downHit?.hit && downHit.distance < tankHeight * 0.5) {
             isInsideGeometry = true;
             needsVerticalEject = true;
-            logger.warn(`[Game] ⚠️ Tank stuck below geometry! Distance: ${downHit.distance.toFixed(2)}m`);
+            // ИСПРАВЛЕНО: Изменено с warn на debug чтобы не спамить консоль (это нормальная ситуация при корректировке позиции)
+            logger.debug(`[Game] ⚠️ Tank stuck below geometry! Distance: ${downHit.distance.toFixed(2)}m`);
         }
 
         if (upHit?.hit && upHit.distance < tankHeight * 0.5) {
             isInsideGeometry = true;
             needsVerticalEject = true;
-            logger.warn(`[Game] ⚠️ Tank stuck above geometry! Distance: ${upHit.distance.toFixed(2)}m`);
+            // ИСПРАВЛЕНО: Изменено с warn на debug чтобы не спамить консоль (это нормальная ситуация при корректировке позиции)
+            logger.debug(`[Game] ⚠️ Tank stuck above geometry! Distance: ${upHit.distance.toFixed(2)}m`);
         }
 
         // Проверяем горизонтальные коллизии

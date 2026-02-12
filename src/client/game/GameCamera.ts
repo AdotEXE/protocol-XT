@@ -406,6 +406,26 @@ export class GameCamera {
                 if (this.isAiming) {
                     this.handleAimingMouseMove(movementX, movementY);
                 } else if (!this.isFreeLook && this.tank?.turret && this.tank?.chassis) {
+                    // ИСПРАВЛЕНО: Обработка вертикального движения мыши для танка в обычном режиме
+                    const chassisType = this.tank?.chassisType;
+                    const isPlane = typeof chassisType === 'object' && (
+                        (chassisType as any)?.id === "plane" ||
+                        (chassisType as any)?.id?.includes?.("plane")
+                    );
+                    
+                    // Для танка (не самолёта) обрабатываем вертикальное движение мыши
+                    if (!isPlane) {
+                        const verticalSensitivity = this.mouseSensitivity * 0.5; // Меньшая чувствительность для вертикали
+                        const betaDelta = -movementY * verticalSensitivity;
+                        let newBeta = this.cameraBeta + betaDelta;
+                        
+                        // Ограничиваем угол beta (вертикальный наклон камеры)
+                        // Beta в Babylon: 0 = сверху, PI = снизу
+                        // Ограничиваем от 0.2 (немного сверху) до 1.5 (немного снизу)
+                        newBeta = Math.max(0.2, Math.min(1.5, newBeta));
+                        this.cameraBeta = newBeta;
+                    }
+                    
                     // Not aiming and not free look - clear virtual target
                     this.virtualTurretTarget = null;
                     this.lastMouseControlTime = 0;
@@ -923,8 +943,8 @@ export class GameCamera {
             const projectileSpeed = this.tank.projectileSpeed;
             const range = this.gameProjectile?.calculateProjectileRange(this.aimPitch, projectileSpeed, barrelHeight) ?? 0;
             // HUD updateAimRange method is optional
-            if (typeof (this.hud as any).updateAimRange === 'function') {
-                (this.hud as any).updateAimRange(range);
+            if (this.hud && 'updateAimRange' in this.hud && typeof this.hud.updateAimRange === 'function') {
+                this.hud.updateAimRange(range);
             }
         }
 

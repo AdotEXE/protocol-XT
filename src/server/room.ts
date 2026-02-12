@@ -146,13 +146,46 @@ export class GameRoom {
         // Get game mode rules
         this.gameModeRules = getGameModeRules(mode);
 
-        // Initialize default settings
+        // Initialize default settings with balanced values
+        // Scale killLimit based on maxPlayers for better balance
+        const scaledKillLimit = maxPlayers <= 4 ? 20 : maxPlayers <= 8 ? 30 : maxPlayers <= 16 ? 50 : 75;
+        
         this.settings = {
             maxPlayers: maxPlayers,
             roundTime: 10, // Default 10 min
-            killLimit: 50,
+            killLimit: scaledKillLimit, // Scaled by player count
             allowedChassis: { light: true, medium: true, heavy: true, assault: true },
-            allowedWeapons: { standard: true, rapid: true, heavy: true, sniper: true }
+            allowedWeapons: { standard: true, rapid: true, heavy: true, sniper: true },
+            // Mode-specific defaults (will be overridden by mode-specific settings if provided)
+            ffaSettings: {
+                killLimit: maxPlayers <= 4 ? 15 : maxPlayers <= 8 ? 20 : maxPlayers <= 16 ? 30 : 50
+            },
+            tdmSettings: {
+                killLimit: maxPlayers <= 4 ? 30 : maxPlayers <= 8 ? 50 : maxPlayers <= 16 ? 100 : 150
+            },
+            ctfSettings: {
+                flagsToWin: maxPlayers <= 8 ? 3 : maxPlayers <= 16 ? 5 : 7
+            },
+            brSettings: {
+                zoneShrinkTime: maxPlayers <= 16 ? 360 : 480, // 6-8 minutes
+                zoneDamage: 5 // Base damage, will scale progressively
+            },
+            cpSettings: {
+                pointsCount: 3, // Can be 3-5 based on map size
+                captureSpeed: 25, // % per second
+                maxScore: 1000 // Standard game
+            },
+            escortSettings: {
+                payloadHealth: 3000, // Balanced for standard games
+                payloadSpeed: 4 // units per second
+            },
+            survivalSettings: {
+                maxWaves: 20, // Standard difficulty
+                restTime: 10000 // 10 seconds between waves
+            },
+            raidSettings: {
+                bossCount: 3 // Standard raid
+            }
         };
     }
 
@@ -292,6 +325,83 @@ export class GameRoom {
             return this.ctfSystem.getFlags();
         }
         return [];
+    }
+
+    getControlPointsData(): any {
+        if (this.mode === "control_point") {
+            const cpMode = this.gameModeRules as any;
+            if (cpMode && typeof cpMode.getControlPointsData === "function") {
+                return cpMode.getControlPointsData();
+            }
+        }
+        return [];
+    }
+
+    getControlPointScores(): { team0Score: number; team1Score: number; maxScore: number } | null {
+        if (this.mode === "control_point") {
+            const cpMode = this.gameModeRules as any;
+            if (cpMode && typeof cpMode.getTeamScores === "function") {
+                return cpMode.getTeamScores();
+            }
+        }
+        return null;
+    }
+
+    getEscortPayloadData(): any {
+        if (this.mode === "escort") {
+            const escortMode = this.gameModeRules as any;
+            if (escortMode && typeof escortMode.getEscortPayloadData === "function") {
+                return escortMode.getEscortPayloadData();
+            }
+        }
+        return null;
+    }
+
+    getSurvivalWaveData(): any {
+        if (this.mode === "survival") {
+            const survivalMode = this.gameModeRules as any;
+            if (survivalMode && typeof survivalMode.getSurvivalWaveData === "function") {
+                const data = survivalMode.getSurvivalWaveData();
+                // Add enemies remaining count
+                return {
+                    ...data,
+                    enemiesRemaining: this.enemies.size
+                };
+            }
+        }
+        return null;
+    }
+
+    getRaidBossData(): any {
+        if (this.mode === "raid") {
+            const raidMode = this.gameModeRules as any;
+            if (raidMode && typeof raidMode.getRaidBossData === "function") {
+                const data = raidMode.getRaidBossData();
+                // Find current boss from enemies
+                let mainBoss: any = null;
+                let maxHP = 0;
+                for (const enemy of this.enemies.values()) {
+                    if (enemy.maxHealth > maxHP) {
+                        maxHP = enemy.maxHealth;
+                        mainBoss = enemy;
+                    }
+                }
+                
+                // Update boss data with actual enemy
+                if (mainBoss && data.boss) {
+                    data.boss.health = mainBoss.health;
+                    data.boss.maxHealth = mainBoss.maxHealth;
+                    data.boss.position = { x: mainBoss.position.x, y: mainBoss.position.y, z: mainBoss.position.z };
+                }
+                
+                // Count minions (enemies that aren't the boss)
+                const minions = Array.from(this.enemies.values()).filter(e => e.maxHealth < maxHP).length;
+                data.minions = minions;
+                
+                return data;
+            }
+        }
+        return null;
     }
 
     spawnEnemies(): void {

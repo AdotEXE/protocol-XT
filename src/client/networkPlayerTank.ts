@@ -266,77 +266,258 @@ export class NetworkPlayerTank {
         // Resolve new types
         const newChassisType = getChassisById(this.networkPlayer.chassisType || "medium");
         const newCannonType = getCannonById(this.networkPlayer.cannonType || "standard");
+        const newTrackType = getTrackById(this.networkPlayer.trackType || "standard");
 
         // Check if full recreation is needed
         const chassisChanged = newChassisType.id !== this.chassisType.id;
         const cannonChanged = newCannonType.id !== this.cannonType.id;
+        const trackChanged = newTrackType.id !== this.trackType.id;
         // Also recreate if colors changed significantly (simplest way to apply new materials)
         const colorsChanged = !!data.tankColor || !!data.turretColor;
 
-        if (chassisChanged || colorsChanged) {
-            this.chassisType = newChassisType;
+        // Определяем какие части изменились для анимации
+        const applied = {
+            chassis: chassisChanged,
+            cannon: cannonChanged,
+            track: trackChanged,
+            skin: colorsChanged
+        };
 
-            // Эффект переодевания корпуса: голубое свечение корпуса
+        // Если изменились части - пересоздаём танк и запускаем анимацию
+        if (chassisChanged || cannonChanged || trackChanged || colorsChanged) {
+            // Обновляем типы
+            if (chassisChanged) this.chassisType = newChassisType;
+            if (cannonChanged) this.cannonType = newCannonType;
+            if (trackChanged) this.trackType = newTrackType;
+
+            // Эффекты переодевания
             if (this.effectsManager && this.chassis) {
-                const effectPos = this.chassis.position.clone();
-                effectPos.y += this.chassisType.height * 0.5; // Центр корпуса
-                // Создаём эффект телепорта (голубое свечение)
-                this.effectsManager.createTeleportEffect(effectPos);
+                if (chassisChanged || colorsChanged) {
+                    const effectPos = this.chassis.position.clone();
+                    effectPos.y += this.chassisType.height * 0.5;
+                    this.effectsManager.createTeleportEffect(effectPos);
+                }
+                if (cannonChanged && this.barrel) {
+                    const effectPos = this.barrel.position.clone();
+                    this.effectsManager.createTeleportEffect(effectPos);
+                }
+                if (trackChanged) {
+                    const leftPos = this.chassis.position.clone();
+                    leftPos.x -= this.chassisType.width * 0.55;
+                    const rightPos = this.chassis.position.clone();
+                    rightPos.x += this.chassisType.width * 0.55;
+                    this.effectsManager.createExplosion(leftPos, 0.3);
+                    this.effectsManager.createExplosion(rightPos, 0.3);
+                }
             }
 
-            // Dispose old chassis parts (tracks etc are children usually, but we keep refs)
-            if (this.leftTrack) this.leftTrack.dispose();
-            if (this.rightTrack) this.rightTrack.dispose();
+            // Сохраняем позиции и вращения старых частей для анимации
+            const oldTurretPos = this.turret ? this.turret.position.clone() : null;
+            const oldTurretRot = this.turret ? this.turret.rotation.clone() : null;
+            const oldBarrelPos = this.barrel ? this.barrel.position.clone() : null;
+            const oldBarrelRot = this.barrel ? this.barrel.rotation.clone() : null;
+            const oldLeftTrackPos = this.leftTrack ? this.leftTrack.position.clone() : null;
+            const oldLeftTrackRot = this.leftTrack ? this.leftTrack.rotation.clone() : null;
+            const oldRightTrackPos = this.rightTrack ? this.rightTrack.position.clone() : null;
+            const oldRightTrackRot = this.rightTrack ? this.rightTrack.rotation.clone() : null;
 
             // Store current transform
             const pos = this.chassis.position.clone();
             const rot = this.chassis.rotationQuaternion ? this.chassis.rotationQuaternion.clone() : null;
             const rotEuler = this.chassis.rotation.clone();
+            const turretRot = this.turret ? this.turret.rotation.y : 0;
+            const barrelRot = this.barrel ? this.barrel.rotation.x : 0;
 
-            // Recreate chassis
-            // Note: This is complex because we need to dispose the ROOT mesh which destroys everything attached (turret, etc)
-            // So we really need to rebuild the whole tank.
+            // Dispose old parts
+            if (this.leftTrack) this.leftTrack.dispose();
+            if (this.rightTrack) this.rightTrack.dispose();
 
+            // Rebuild tank
             this.rebuildTank();
-            return;
-        }
 
-        if (cannonChanged) {
-            this.cannonType = newCannonType;
-
-            // Эффект переодевания пушки: золотистое свечение ствола
-            if (this.effectsManager && this.barrel) {
-                const effectPos = this.barrel.position.clone();
-                // Эффект телепорта для золотистого свечения ствола
-                this.effectsManager.createTeleportEffect(effectPos);
+            // Восстанавливаем позицию и вращение
+            this.chassis.position.copyFrom(pos);
+            if (rot) {
+                this.chassis.rotationQuaternion = rot;
+            } else {
+                this.chassis.rotation.copyFrom(rotEuler);
+            }
+            if (this.turret) {
+                this.turret.rotation.y = turretRot;
+            }
+            if (this.barrel) {
+                this.barrel.rotation.x = barrelRot;
             }
 
-            // If only cannon changed, we could try to just replace the barrel, 
-            // but 'createDetailedBarrel' assumes it attaches to 'this.turret'.
-            // Safest to just rebuild turret + barrel or the whole tank.
-            this.rebuildTank();
-            return;
-        }
-
-        // Check track type change (if supported in future)
-        const newTrackType = getTrackById(this.networkPlayer.trackType || "standard");
-        if (newTrackType.id !== this.trackType.id) {
-            this.trackType = newTrackType;
-
-            // Эффект переодевания гусениц: искры от гусениц
-            if (this.effectsManager && this.chassis) {
-                const leftPos = this.chassis.position.clone();
-                leftPos.x -= this.chassisType.width * 0.55;
-                const rightPos = this.chassis.position.clone();
-                rightPos.x += this.chassisType.width * 0.55;
-                // Искры от гусениц (используем эффект взрыва с маленьким радиусом)
-                this.effectsManager.createExplosion(leftPos, 0.3);
-                this.effectsManager.createExplosion(rightPos, 0.3);
+            // Запускаем анимацию переодевания с новыми частями
+            if ((applied.cannon || applied.track) && this.turret && this.barrel) {
+                this.playPartChangeAnimation(
+                    applied,
+                    this.turret,
+                    this.barrel,
+                    this.leftTrack,
+                    this.rightTrack,
+                    oldTurretPos,
+                    oldTurretRot,
+                    oldBarrelPos,
+                    oldBarrelRot,
+                    oldLeftTrackPos,
+                    oldLeftTrackRot,
+                    oldRightTrackPos,
+                    oldRightTrackRot
+                );
             }
-
-            this.rebuildTank();
-            return;
         }
+    }
+
+    /**
+     * Анимация механической смены частей танка для сетевого игрока
+     * Новые части "прилетают" на место с анимацией
+     */
+    private playPartChangeAnimation(
+        applied: { chassis: boolean; cannon: boolean; track: boolean; skin: boolean },
+        newTurret: Mesh,
+        newBarrel: Mesh,
+        newLeftTrack: Mesh | null,
+        newRightTrack: Mesh | null,
+        oldTurretPos: Vector3 | null,
+        oldTurretRot: Vector3 | null,
+        oldBarrelPos: Vector3 | null,
+        oldBarrelRot: Vector3 | null,
+        oldLeftTrackPos: Vector3 | null,
+        oldLeftTrackRot: Vector3 | null,
+        oldRightTrackPos: Vector3 | null,
+        oldRightTrackRot: Vector3 | null
+    ): void {
+        const hasChanges = applied.cannon || applied.track;
+        if (!hasChanges) {
+            return; // Только скин изменился - не нужна механическая анимация
+        }
+
+        const animationDuration = 1500; // 1.5 секунды
+        const mountPhase = 900; // Фаза монтажа
+
+        // Сохраняем текущие позиции новых частей (они уже на месте)
+        const partsToAnimate: Array<{
+            mesh: Mesh;
+            targetPos: Vector3;
+            targetRot: Vector3;
+            startPos: Vector3;
+            startRot: Vector3;
+            type: 'turret' | 'barrel' | 'track';
+        }> = [];
+
+        // Собираем новые части для анимации (они "прилетают" сверху)
+        if (applied.cannon) {
+            if (newTurret && !newTurret.isDisposed() && oldTurretPos && oldTurretRot) {
+                const currentPos = newTurret.position.clone();
+                const currentRot = newTurret.rotation.clone();
+                // Начинаем с позиции старой части + высота
+                newTurret.position.copyFrom(oldTurretPos);
+                newTurret.position.y += 3; // Начинаем сверху
+                newTurret.rotation.copyFrom(oldTurretRot);
+                partsToAnimate.push({
+                    mesh: newTurret,
+                    targetPos: currentPos,
+                    targetRot: currentRot,
+                    startPos: newTurret.position.clone(),
+                    startRot: newTurret.rotation.clone(),
+                    type: 'turret'
+                });
+            }
+            if (newBarrel && !newBarrel.isDisposed() && oldBarrelPos && oldBarrelRot) {
+                const currentPos = newBarrel.position.clone();
+                const currentRot = newBarrel.rotation.clone();
+                newBarrel.position.copyFrom(oldBarrelPos);
+                newBarrel.position.y += 3;
+                newBarrel.rotation.copyFrom(oldBarrelRot);
+                partsToAnimate.push({
+                    mesh: newBarrel,
+                    targetPos: currentPos,
+                    targetRot: currentRot,
+                    startPos: newBarrel.position.clone(),
+                    startRot: newBarrel.rotation.clone(),
+                    type: 'barrel'
+                });
+            }
+        }
+
+        if (applied.track) {
+            if (newLeftTrack && !newLeftTrack.isDisposed() && oldLeftTrackPos && oldLeftTrackRot) {
+                const currentPos = newLeftTrack.position.clone();
+                const currentRot = newLeftTrack.rotation.clone();
+                newLeftTrack.position.copyFrom(oldLeftTrackPos);
+                newLeftTrack.position.y += 3;
+                newLeftTrack.rotation.copyFrom(oldLeftTrackRot);
+                partsToAnimate.push({
+                    mesh: newLeftTrack,
+                    targetPos: currentPos,
+                    targetRot: currentRot,
+                    startPos: newLeftTrack.position.clone(),
+                    startRot: newLeftTrack.rotation.clone(),
+                    type: 'track'
+                });
+            }
+            if (newRightTrack && !newRightTrack.isDisposed() && oldRightTrackPos && oldRightTrackRot) {
+                const currentPos = newRightTrack.position.clone();
+                const currentRot = newRightTrack.rotation.clone();
+                newRightTrack.position.copyFrom(oldRightTrackPos);
+                newRightTrack.position.y += 3;
+                newRightTrack.rotation.copyFrom(oldRightTrackRot);
+                partsToAnimate.push({
+                    mesh: newRightTrack,
+                    targetPos: currentPos,
+                    targetRot: currentRot,
+                    startPos: newRightTrack.position.clone(),
+                    startRot: newRightTrack.rotation.clone(),
+                    type: 'track'
+                });
+            }
+        }
+
+        if (partsToAnimate.length === 0) {
+            return; // Нет частей для анимации
+        }
+
+        const startTime = Date.now();
+
+        // Анимация через requestAnimationFrame
+        const animate = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / animationDuration, 1);
+
+            if (progress < 1) {
+                partsToAnimate.forEach(part => {
+                    if (part.mesh && !part.mesh.isDisposed()) {
+                        // Фаза монтажа: новые части прилетают на место
+                        const phaseProgress = progress;
+                        const easeIn = Math.pow(phaseProgress, 2); // Quadratic ease in
+                        const liftHeight = 3 * (1 - easeIn);
+                        
+                        // Интерполируем позицию
+                        part.mesh.position.x = part.startPos.x + (part.targetPos.x - part.startPos.x) * easeIn;
+                        part.mesh.position.y = part.startPos.y - liftHeight; // Опускаемся вниз
+                        part.mesh.position.z = part.startPos.z + (part.targetPos.z - part.startPos.z) * easeIn;
+                        
+                        // Интерполируем вращение
+                        part.mesh.rotation.x = part.startRot.x + (part.targetRot.x - part.startRot.x) * easeIn;
+                        part.mesh.rotation.y = part.startRot.y + (part.targetRot.y - part.startRot.y) * easeIn;
+                        part.mesh.rotation.z = part.startRot.z + (part.targetRot.z - part.startRot.z) * easeIn;
+                    }
+                });
+                requestAnimationFrame(animate);
+            } else {
+                // Анимация завершена - устанавливаем финальные позиции
+                partsToAnimate.forEach(part => {
+                    if (part.mesh && !part.mesh.isDisposed()) {
+                        part.mesh.position.copyFrom(part.targetPos);
+                        part.mesh.rotation.copyFrom(part.targetRot);
+                    }
+                });
+            }
+        };
+
+        requestAnimationFrame(animate);
     }
 
     private rebuildTank(): void {

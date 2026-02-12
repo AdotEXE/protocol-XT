@@ -25,7 +25,21 @@ export type POIType =
     | "spawn"
     | "danger"
     | "quest"
-    | "custom";
+    | "custom"
+    // Game mode specific POI types
+    | "safe_zone"
+    | "danger_zone"
+    | "next_zone"
+    | "control_point"
+    | "team_base"
+    | "escort_payload"
+    | "escort_start"
+    | "escort_end"
+    | "wave_indicator"
+    | "boss_location"
+    | "boss_area"
+    | "flag_base"
+    | "flag_carried";
 
 export interface POIData {
     id: string;
@@ -82,7 +96,21 @@ export const DEFAULT_POI_CONFIG: POIMarkerConfig = {
         spawn: "#00ff00",
         danger: "#ff0000",
         quest: "#ffd700",
-        custom: "#888888"
+        custom: "#888888",
+        // Game mode specific colors
+        safe_zone: "#00ff00",
+        danger_zone: "#ff0000",
+        next_zone: "#ffff00",
+        control_point: "#00ffff",
+        team_base: "#0088ff",
+        escort_payload: "#ff8800",
+        escort_start: "#00ff00",
+        escort_end: "#ff0000",
+        wave_indicator: "#ff00ff",
+        boss_location: "#ff0000",
+        boss_area: "#880000",
+        flag_base: "#ffffff",
+        flag_carried: "#ffff00"
     },
     
     // Иконки
@@ -96,7 +124,21 @@ export const DEFAULT_POI_CONFIG: POIMarkerConfig = {
         spawn: "📍",
         danger: "⚠️",
         quest: "❗",
-        custom: "📌"
+        custom: "📌",
+        // Game mode specific icons
+        safe_zone: "🛡️",
+        danger_zone: "☠️",
+        next_zone: "➡️",
+        control_point: "🎯",
+        team_base: "🏰",
+        escort_payload: "🚚",
+        escort_start: "🏁",
+        escort_end: "🏆",
+        wave_indicator: "🌊",
+        boss_location: "👹",
+        boss_area: "💀",
+        flag_base: "🏴",
+        flag_carried: "🚩"
     },
     
     // Поведение
@@ -169,7 +211,21 @@ export function getPOITypeName(type: POIType): string {
         spawn: "Точка возрождения",
         danger: "Опасность",
         quest: "Задание",
-        custom: "Метка"
+        custom: "Метка",
+        // Game mode specific names
+        safe_zone: "Безопасная зона",
+        danger_zone: "Опасная зона",
+        next_zone: "Следующая зона",
+        control_point: "Контрольная точка",
+        team_base: "База команды",
+        escort_payload: "Конвой",
+        escort_start: "Старт конвоя",
+        escort_end: "Финиш конвоя",
+        wave_indicator: "Волна",
+        boss_location: "Босс",
+        boss_area: "Зона босса",
+        flag_base: "База флага",
+        flag_carried: "Флаг несется"
     };
     return names[type] || "Неизвестно";
 }

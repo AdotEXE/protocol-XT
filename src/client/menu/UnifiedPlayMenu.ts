@@ -217,6 +217,12 @@ const UNIFIED_PLAY_STYLES = `
     color: rgba(0, 255, 0, 0.6);
 }
 
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+
 /* Map Grid */
 .upm-map-grid {
     display: grid;
@@ -495,7 +501,7 @@ export class UnifiedPlayMenu {
         const modes = [
             { id: "ffa", icon: "⚔️", name: "Free-for-All", desc: "Каждый сам за себя" },
             { id: "tdm", icon: "👥", name: "Team Deathmatch", desc: "Команда против команды" },
-            { id: "battle_royale", icon: "👑", name: "Battle Royale", desc: "Последний выживший" },
+            { id: "battle_royale", icon: "👑", name: "Battle Royale", desc: "Последний выживший", underConstruction: true },
             { id: "ctf", icon: "🚩", name: "Capture the Flag", desc: "Захват флага противника" },
             { id: "control_point", icon: "📍", name: "Control Point", desc: "Захват точек" },
             { id: "escort", icon: "🚛", name: "Escort", desc: "Сопровождение конвоя" },
@@ -509,14 +515,18 @@ export class UnifiedPlayMenu {
         for (const m of modes) {
             const selected = this.selectedMode === m.id ? "selected" : "";
             const isMP = (m as any).isMultiplayer;
+            const underConstruction = (m as any).underConstruction;
             const mpStyle = isMP ? 'style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-color: #9b59b6;"' : '';
+            const constructionStyle = underConstruction ? 'style="opacity: 0.6; position: relative; cursor: not-allowed;"' : '';
+            const constructionOverlay = underConstruction ? '<div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); display: flex; align-items: center; justify-content: center; font-size: 8px; color: #ffaa00; text-transform: uppercase; font-weight: bold; pointer-events: none;">🚧 В РАЗРАБОТКЕ</div>' : '';
             html += `
-                <div class="upm-mode-item ${selected}" data-mode="${m.id}" ${mpStyle}>
+                <div class="upm-mode-item ${selected}" data-mode="${m.id}" ${mpStyle} ${constructionStyle} title="${underConstruction ? 'Режим в разработке' : ''}">
                     <div class="icon">${m.icon}</div>
                     <div class="info">
                         <div class="name">${m.name}</div>
                         <div class="desc">${m.desc}</div>
                     </div>
+                    ${constructionOverlay}
                 </div>
             `;
         }
@@ -526,6 +536,18 @@ export class UnifiedPlayMenu {
         content.querySelectorAll(".upm-mode-item").forEach(item => {
             item.addEventListener("click", () => {
                 const mode = (item as HTMLElement).dataset.mode || "ffa";
+                const underConstruction = (item as HTMLElement).querySelector('[style*="В РАЗРАБОТКЕ"]') !== null;
+                
+                // Блокируем выбор режимов в разработке
+                if (underConstruction) {
+                    // Показываем анимацию при наведении
+                    item.style.animation = "shake 0.5s";
+                    setTimeout(() => {
+                        item.style.animation = "";
+                    }, 500);
+                    return;
+                }
+                
                 this.selectedMode = mode;
                 safeLocalStorage.set("selectedGameMode", this.selectedMode);
                 content.querySelectorAll(".upm-mode-item").forEach(i => i.classList.remove("selected"));
@@ -536,6 +558,26 @@ export class UnifiedPlayMenu {
                     this.startGame();
                 }
             });
+            
+            // Анимация при наведении на режимы в разработке
+            const underConstruction = (item as HTMLElement).querySelector('[style*="В РАЗРАБОТКЕ"]') !== null;
+            if (underConstruction) {
+                item.addEventListener("mouseenter", () => {
+                    const overlay = item.querySelector('[style*="В РАЗРАБОТКЕ"]') as HTMLElement;
+                    if (overlay) {
+                        overlay.style.background = "rgba(255, 170, 0, 0.9)";
+                        overlay.style.fontSize = "9px";
+                        overlay.style.transition = "all 0.3s";
+                    }
+                });
+                item.addEventListener("mouseleave", () => {
+                    const overlay = item.querySelector('[style*="В РАЗРАБОТКЕ"]') as HTMLElement;
+                    if (overlay) {
+                        overlay.style.background = "rgba(0, 0, 0, 0.7)";
+                        overlay.style.fontSize = "8px";
+                    }
+                });
+            }
         });
     }
 
@@ -697,6 +739,43 @@ export class UnifiedPlayMenu {
     }
 
     private startGame(): void {
+        // КРИТИЧНО: Блокируем запуск режимов в разработке
+        const modesUnderConstruction = ["battle_royale", "multiplayer_br"];
+        if (modesUnderConstruction.includes(this.selectedMode)) {
+            // Показываем уведомление
+            const notification = document.createElement("div");
+            notification.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: rgba(0, 0, 0, 0.95);
+                border: 3px solid #ffaa00;
+                padding: 30px 50px;
+                z-index: 100010;
+                text-align: center;
+                font-family: 'Press Start 2P', monospace;
+                color: #ffaa00;
+                font-size: 14px;
+                box-shadow: 0 0 30px rgba(255, 170, 0, 0.5);
+            `;
+            notification.innerHTML = `
+                <div style="font-size: 48px; margin-bottom: 20px;">🚧</div>
+                <div style="margin-bottom: 15px;">РЕЖИМ В РАЗРАБОТКЕ</div>
+                <div style="font-size: 10px; color: rgba(255, 170, 0, 0.7); margin-top: 10px;">
+                    Этот режим пока недоступен.<br>
+                    Следите за обновлениями!
+                </div>
+            `;
+            document.body.appendChild(notification);
+            setTimeout(() => {
+                notification.style.opacity = "0";
+                notification.style.transition = "opacity 0.5s";
+                setTimeout(() => notification.remove(), 500);
+            }, 3000);
+            return;
+        }
+        
         let mapType: MapType;
         if (this.selectedMap === "random") {
             const mapTypes: MapType[] = ["sand", "sandbox", "arena", "brest"]; // [Opus 4.5] Fixed to valid MapType values

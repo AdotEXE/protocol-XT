@@ -135,7 +135,8 @@ export const GAME_MODES: GameMode[] = [
         maxPlayers: 50,
         teamBased: false,
         ranked: true,
-        available: true
+        available: false, // КРИТИЧНО: Режим в разработке
+        comingSoon: true
     },
     {
         id: "multiplayer_control",

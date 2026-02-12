@@ -111,3 +111,31 @@ export type { LowHealthVignetteConfig } from './LowHealthVignette';
 // Aircraft HUD (Mouse-Aim ретикли)
 export { AircraftHUD, DEFAULT_AIRCRAFT_HUD_CONFIG } from './AircraftHUD';
 export type { AircraftHUDConfig } from './AircraftHUD';
+
+// Game Mode Specific HUD Components
+export { BattleRoyaleHUD, DEFAULT_CONFIG as DEFAULT_BR_HUD_CONFIG } from './BattleRoyaleHUD';
+export type { BattleRoyaleHUDConfig } from './BattleRoyaleHUD';
+
+export { ControlPointHUD, DEFAULT_CONFIG as DEFAULT_CP_HUD_CONFIG } from './ControlPointHUD';
+export type { ControlPointHUDConfig, ControlPointData } from './ControlPointHUD';
+
+export { EscortHUD, DEFAULT_CONFIG as DEFAULT_ESCORT_HUD_CONFIG } from './EscortHUD';
+export type { EscortHUDConfig, EscortPayloadData } from './EscortHUD';
+
+export { SurvivalHUD, DEFAULT_CONFIG as DEFAULT_SURVIVAL_HUD_CONFIG } from './SurvivalHUD';
+export type { SurvivalHUDConfig, SurvivalWaveData } from './SurvivalHUD';
+
+export { RaidHUD, DEFAULT_CONFIG as DEFAULT_RAID_HUD_CONFIG } from './RaidHUD';
+export type { RaidHUDConfig, RaidBossData } from './RaidHUD';
+
+export { FFAHUD, DEFAULT_CONFIG as DEFAULT_FFA_HUD_CONFIG } from './FFAHUD';
+export type { FFAHUDConfig } from './FFAHUD';
+
+export { TDMHUD, DEFAULT_CONFIG as DEFAULT_TDM_HUD_CONFIG } from './TDMHUD';
+export type { TDMHUDConfig } from './TDMHUD';
+
+export { CTFHUD, DEFAULT_CONFIG as DEFAULT_CTF_HUD_CONFIG } from './CTFHUD';
+export type { CTFHUDConfig, CTFFlagData } from './CTFHUD';
+
+export { CoopHUD, DEFAULT_CONFIG as DEFAULT_COOP_HUD_CONFIG } from './CoopHUD';
+export type { CoopHUDConfig } from './CoopHUD';

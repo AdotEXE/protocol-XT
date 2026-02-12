@@ -36,10 +36,10 @@ interface PreviewSoundManager {
 
 export interface PreviewTank {
     chassis: Mesh;
-    turret: Mesh;
-    barrel: Mesh;
-    leftTrack?: Mesh;
-    rightTrack?: Mesh;
+    turret: Mesh | null;
+    barrel: Mesh | null;
+    leftTrack?: Mesh | null;
+    rightTrack?: Mesh | null;
 }
 
 export interface PreviewScene {
@@ -449,14 +449,28 @@ export function createPreviewTank(
     // Получаем фактические размеры корпуса (они могут отличаться от chassisType для уникальных моделей)
     const actualChassisSize = getActualChassisSize(chassisType);
     const chassis = createUniqueChassisPreview(chassisType, scene);
-    const turret = createTurretPreview(chassisType, actualChassisSize, scene);
-    const barrel = createUniqueCannonPreview(cannonType, scene);
-
-    barrel.parent = turret;
-    turret.parent = chassis;
-
-    // Create tracks
-    const tracks = createPreviewTracks(chassis, chassisType, trackType, scene);
+    
+    // Для самолёта не создаём башню и гусеницы
+    const isPlane = chassisType.id === "plane";
+    
+    let turret: Mesh | null = null;
+    let barrel: Mesh | null = null;
+    let tracks: { left: Mesh | null, right: Mesh | null } = { left: null, right: null };
+    
+    if (isPlane) {
+        // ИСПРАВЛЕНО: Для самолёта НЕ показываем пушку в превью гаража (она выглядит как лишний конус)
+        // Пушка будет видна только в игре, где она правильно интегрирована в модель самолёта
+        barrel = null; // Не создаём пушку для самолёта в гараже
+    } else {
+        // Для танков: создаём башню и гусеницы как обычно
+        turret = createTurretPreview(chassisType, actualChassisSize, scene);
+        barrel = createUniqueCannonPreview(cannonType, scene);
+        barrel.parent = turret;
+        turret.parent = chassis;
+        
+        // Create tracks только для наземных корпусов
+        tracks = createPreviewTracks(chassis, chassisType, trackType, scene);
+    }
 
     logger.log("[Garage Preview] Tank created:", chassisId, cannonId, trackId);
 
@@ -476,8 +490,8 @@ export function updatePreviewTank(
     // Cleanup old tank
     if (previewTank) {
         previewTank.chassis.dispose();
-        previewTank.turret.dispose();
-        previewTank.barrel.dispose();
+        if (previewTank.turret) previewTank.turret.dispose();
+        if (previewTank.barrel) previewTank.barrel.dispose();
         if (previewTank.leftTrack) previewTank.leftTrack.dispose();
         if (previewTank.rightTrack) previewTank.rightTrack.dispose();
     }
@@ -601,16 +615,13 @@ function createUniqueChassisPreview(chassisType: ChassisType, scene: Scene): Mes
             chassis = MeshBuilder.CreateBox("previewChassis", { width: w * 1.1, height: h * 1.2, depth: d * 1.1 }, scene);
             break;
         case "plane":
-            // Фюзеляж самолета (МиГ-15 стиль - сигара)
-            chassis = MeshBuilder.CreateCylinder("previewChassis", {
-                height: d * 1.0, // Чуть короче для "пухлости"
-                diameterTop: w * 0.5, // Нос (сужается)
-                diameterBottom: w * 0.35, // Хвост (сильнее сужается)
-                tessellation: 24
-            }, scene);
-            chassis.rotation.x = Math.PI / 2; // Поворот горизонтально
-            // Смещаем немного вперед, чтобы центр вращения был ближе к крыльям
-            chassis.bakeCurrentTransformIntoVertices();
+            // ИСПРАВЛЕНО: Для самолёта создаём минимальный контейнер-родитель
+            // Вся модель строится ТОЛЬКО из JSON данных через addPlaneDetails
+            // Базовый цилиндр НЕ создаём - это "фейковая" модель, которая не нужна
+            // ВАЖНО: НЕ используем setEnabled(false) - это скрывает все дочерние элементы!
+            // Вместо этого делаем контейнер прозрачным через материал (alpha=0)
+            chassis = MeshBuilder.CreateBox("previewChassis", { width: 0.01, height: 0.01, depth: 0.01 }, scene);
+            // Контейнер остаётся включённым, но будет прозрачным - детали из JSON будут видны
             break;
         default:
             chassis = MeshBuilder.CreateBox("previewChassis", { width: w, height: h, depth: d }, scene);
@@ -630,6 +641,14 @@ function createUniqueChassisPreview(chassisType: ChassisType, scene: Scene): Mes
     const mat = new StandardMaterial("previewChassisMat", scene);
     mat.diffuseColor = color;
     mat.specularColor = Color3.Black();
+    
+    // ИСПРАВЛЕНО: Для самолёта делаем базовый контейнер полностью прозрачным
+    // Модель строится ТОЛЬКО из JSON данных, базовый меш не должен быть виден
+    if (chassisType.id === "plane") {
+        mat.alpha = 0; // Полностью прозрачный
+        mat.disableDepthWrite = true; // Не пишем в depth buffer
+    }
+    
     chassis.material = mat;
 
     // Add visual details
@@ -716,8 +735,9 @@ function createTurretPreview(chassisType: ChassisType, actualSize: { width: numb
  * Добавляет детализированные элементы к корпусу танка
  */
 function addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene, baseColor: Color3): void {
-    // ФИЛЬТР: Детали только для light, medium, racer, scout
-    const detailedChassis = ["light", "medium", "racer", "scout"];
+    // ФИЛЬТР: Детали только для корпусов, для которых есть генераторы
+    // Важно: добавляем сюда "plane", иначе детализированная модель Warhawk не создаётся
+    const detailedChassis = ["light", "medium", "racer", "scout", "plane"];
     if (!detailedChassis.includes(chassisType.id)) {
         return; // Нет деталей для других корпусов
     }
@@ -2887,12 +2907,16 @@ function addChassisDetailsPreview(chassis: Mesh, chassisType: any, scene: Scene,
             }
             break;
         case "plane":
-            // Use specific generator for "Warhawk" plane model
+            // ИСПРАВЛЕНО: Модель самолёта строится ТОЛЬКО из JSON данных
+            // Базовый контейнер полностью прозрачен (alpha=0), видимы только детали из PLANE_MODEL_DATA
+            // ВАЖНО: Контейнер должен быть включён (setEnabled не вызываем), иначе дочерние элементы невидимы
             ChassisDetailsGenerator.addPlaneDetails(
                 scene, chassis,
                 chassisType.width, chassisType.height, chassisType.depth,
                 baseColor, "preview"
             );
+            // Убеждаемся что контейнер включён для отображения дочерних элементов
+            chassis.setEnabled(true);
             break;
     }
 }

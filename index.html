@@ -51,7 +51,8 @@
   <!-- HavokPhysics.wasm загружается при старте игры, не нужен preload -->
 
   <!-- КРИТИЧНО: Предзагрузка шрифта Press Start 2P (woff2 для быстрой загрузки) -->
-  <link rel="preload" href="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2" as="font" type="font/woff2" crossorigin>
+  <!-- ИСПРАВЛЕНО: Добавлен crossorigin="anonymous" чтобы убрать предупреждение браузера -->
+  <link rel="preload" href="https://fonts.gstatic.com/s/pressstart2p/v15/e3t4euO8T-267oIAQAu6jDQyK3nVivM.woff2" as="font" type="font/woff2" crossorigin="anonymous">
   
   <!-- Google Fonts с font-display: block - текст НЕ показывается пока шрифт не загрузится -->
   <link rel="preload" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=block" as="style"

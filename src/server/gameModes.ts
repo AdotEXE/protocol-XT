@@ -12,7 +12,10 @@ export interface GameModeRules {
 }
 
 export class FFAMode implements GameModeRules {
+    private room: GameRoom | null = null;
+
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
+        this.room = room;
         // Spawn in a circle around center
         // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (5.0м)
         // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
@@ -29,8 +32,16 @@ export class FFAMode implements GameModeRules {
     }
 
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
-        // FFA: First to X kills wins
-        const maxKills = 20;
+        this.room = room;
+        // FFA: First to X kills wins (scaled by player count)
+        const playerCount = room.getAllPlayers().length;
+        let defaultKillLimit = 20;
+        if (playerCount <= 4) defaultKillLimit = 15;
+        else if (playerCount <= 8) defaultKillLimit = 20;
+        else if (playerCount <= 16) defaultKillLimit = 30;
+        else defaultKillLimit = 50;
+        
+        const maxKills = (room.settings?.ffaSettings?.killLimit) ?? (room.settings?.killLimit) ?? defaultKillLimit;
         for (const player of room.getAllPlayers()) {
             if (player.kills >= maxKills) {
                 return { winner: player.id, reason: `Reached ${maxKills} kills` };
@@ -40,7 +51,18 @@ export class FFAMode implements GameModeRules {
     }
 
     getMaxScore(): number {
-        return 20; // First to 20 kills
+        // Scale by player count if room is available
+        if (this.room) {
+            const playerCount = this.room.getAllPlayers().length;
+            let defaultKillLimit = 20;
+            if (playerCount <= 4) defaultKillLimit = 15;
+            else if (playerCount <= 8) defaultKillLimit = 20;
+            else if (playerCount <= 16) defaultKillLimit = 30;
+            else defaultKillLimit = 50;
+            
+            return (this.room?.settings?.ffaSettings?.killLimit) ?? (this.room?.settings?.killLimit) ?? defaultKillLimit;
+        }
+        return (this.room?.settings?.ffaSettings?.killLimit) ?? (this.room?.settings?.killLimit) ?? 20; // First to X kills
     }
 
     getRespawnDelay(): number {
@@ -49,7 +71,10 @@ export class FFAMode implements GameModeRules {
 }
 
 export class TDMMode implements GameModeRules {
+    private room: GameRoom | null = null;
+
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
+        this.room = room;
         // Spawn on team side
         // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (5.0м)
         // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
@@ -65,7 +90,8 @@ export class TDMMode implements GameModeRules {
     }
 
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
-        // TDM: Team with most kills wins
+        this.room = room;
+        // TDM: Team with most kills wins (scaled by player count)
         const team0Kills = room.getAllPlayers()
             .filter(p => (p.team || 0) === 0)
             .reduce((sum, p) => sum + p.kills, 0);
@@ -73,7 +99,14 @@ export class TDMMode implements GameModeRules {
             .filter(p => (p.team || 0) === 1)
             .reduce((sum, p) => sum + p.kills, 0);
 
-        const maxKills = 50;
+        const playerCount = room.getAllPlayers().length;
+        let defaultKillLimit = 50;
+        if (playerCount <= 4) defaultKillLimit = 30;
+        else if (playerCount <= 8) defaultKillLimit = 50;
+        else if (playerCount <= 16) defaultKillLimit = 100;
+        else defaultKillLimit = 150;
+        
+        const maxKills = (room.settings?.tdmSettings?.killLimit) ?? (room.settings?.killLimit) ?? defaultKillLimit;
         if (team0Kills >= maxKills) {
             return { winner: "team0", reason: `Team 0 reached ${maxKills} kills` };
         }
@@ -84,7 +117,18 @@ export class TDMMode implements GameModeRules {
     }
 
     getMaxScore(): number {
-        return 50; // Team total kills
+        // Scale by player count if room is available
+        if (this.room) {
+            const playerCount = this.room.getAllPlayers().length;
+            let defaultKillLimit = 50;
+            if (playerCount <= 4) defaultKillLimit = 30;
+            else if (playerCount <= 8) defaultKillLimit = 50;
+            else if (playerCount <= 16) defaultKillLimit = 100;
+            else defaultKillLimit = 150;
+            
+            return (this.room?.settings?.tdmSettings?.killLimit) ?? (this.room?.settings?.killLimit) ?? defaultKillLimit;
+        }
+        return (this.room?.settings?.tdmSettings?.killLimit) ?? (this.room?.settings?.killLimit) ?? 50; // Team total kills
     }
 
     getRespawnDelay(): number {
@@ -142,6 +186,7 @@ export class BattleRoyaleMode implements GameModeRules {
     private nextZoneCenter: Vector3 = new Vector3(0, 0, 0);
     private damagePerSecond: number = 5; // Damage outside safe zone
     private lastDamageTime: Map<string, number> = new Map();
+    private room: GameRoom | null = null;
 
     getSpawnPosition(_player: ServerPlayer, _room: GameRoom): Vector3 {
         // Random spawn in safe zone (but not too close to center)
@@ -183,13 +228,30 @@ export class BattleRoyaleMode implements GameModeRules {
     }
 
     updateSafeZone(gameTime: number, room: GameRoom): void {
+        this.room = room;
         // Shrink safe zone over time
-        const totalShrinkTime = 300; // 5 minutes total
+        const totalShrinkTime = (room.settings?.brSettings?.zoneShrinkTime) ?? 360; // Default 6 minutes (360 seconds)
         const minRadius = 30; // Minimum safe zone radius
 
         // Calculate current radius based on game time
         const shrinkProgress = Math.min(1, gameTime / totalShrinkTime);
         this.safeZoneRadius = 200 - (200 - minRadius) * shrinkProgress;
+
+        // Progressive damage scaling based on game phase
+        // Phase 1 (0-25%): 2 HP/sec
+        // Phase 2 (25-50%): 5 HP/sec
+        // Phase 3 (50-75%): 8 HP/sec
+        // Phase 4 (75-100%): 15 HP/sec
+        let baseDamage = (room.settings?.brSettings?.zoneDamage) ?? 5;
+        if (shrinkProgress < 0.25) {
+            this.damagePerSecond = 2; // Early game - low damage
+        } else if (shrinkProgress < 0.5) {
+            this.damagePerSecond = 5; // Mid game - moderate damage
+        } else if (shrinkProgress < 0.75) {
+            this.damagePerSecond = 8; // Late game - high damage
+        } else {
+            this.damagePerSecond = 15; // Final phase - very high damage
+        }
 
         // Move center towards a random point (simplified - could be more complex)
         if (shrinkProgress > 0.5) {
@@ -229,7 +291,7 @@ export class BattleRoyaleMode implements GameModeRules {
         damagePerSecond: number;
     } {
         // Calculate time until next shrink phase (simplified - assumes constant shrink rate)
-        const totalShrinkTime = 300; // 5 minutes total
+        const totalShrinkTime = (this.room?.settings?.brSettings?.zoneShrinkTime) ?? 360; // Default 6 minutes
         const currentProgress = Math.min(1, (200 - this.safeZoneRadius) / (200 - 30));
         const timeUntilShrink = Math.max(0, (1 - currentProgress) * totalShrinkTime);
 
@@ -244,10 +306,14 @@ export class BattleRoyaleMode implements GameModeRules {
         };
     }
 
-    initialize(_room: GameRoom): void {
+    initialize(room: GameRoom): void {
+        this.room = room;
         // Set initial safe zone
         this.safeZoneRadius = 200;
         this.safeZoneCenter = new Vector3(0, 0, 0);
+
+        // Start with low damage (will scale progressively)
+        this.damagePerSecond = 2; // Early game damage
 
         // Choose random next zone center (within reasonable bounds)
         const nextAngle = Math.random() * Math.PI * 2;
@@ -262,7 +328,10 @@ export class BattleRoyaleMode implements GameModeRules {
 }
 
 export class CTFMode implements GameModeRules {
-    getSpawnPosition(player: ServerPlayer, _room: GameRoom): Vector3 {
+    private room: GameRoom | null = null;
+
+    getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
+        this.room = room;
         // Spawn at team base
         // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (1.0м)
         // На клиенте высота будет пересчитана через findSafeSpawnPositionAt() для нахождения верхней поверхности
@@ -272,14 +341,25 @@ export class CTFMode implements GameModeRules {
         return new Vector3(baseX, 1.0, 0); // Безопасная высота (будет пересчитана на клиенте)
     }
 
-    checkWinCondition(_room: GameRoom): { winner: string | null; reason: string } | null {
+    checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
+        this.room = room;
         // CTF: First team to capture X flags
         // This will be handled by flag system
         return null;
     }
 
     getMaxScore(): number {
-        return 3; // Flags to capture
+        // Используем настройки комнаты, если доступны (scaled by player count)
+        if (this.room) {
+            const playerCount = this.room.getAllPlayers().length;
+            let defaultFlags = 3;
+            if (playerCount <= 8) defaultFlags = 3;
+            else if (playerCount <= 16) defaultFlags = 5;
+            else defaultFlags = 7;
+            
+            return (this.room?.settings?.ctfSettings?.flagsToWin) ?? defaultFlags;
+        }
+        return (this.room?.settings?.ctfSettings?.flagsToWin) ?? 3; // Flags to capture
     }
 
     getRespawnDelay(): number {
@@ -290,6 +370,7 @@ export class CTFMode implements GameModeRules {
 // Control Point Mode - захват контрольных точек
 export class ControlPointMode implements GameModeRules {
     private controlPoints: Array<{ id: string; position: Vector3; team: number | null; captureProgress: number }> = [];
+    private room: GameRoom | null = null;
 
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (1.0м)
@@ -312,8 +393,8 @@ export class ControlPointMode implements GameModeRules {
             this.initializeControlPoints(room);
         }
 
-        // Win Condition: First to 1000 points
-        const MAX_SCORE = 1000;
+        // Win Condition: First to X points
+        const MAX_SCORE = (room.settings?.cpSettings?.maxScore) ?? 1000;
 
         if (this.team0Score >= MAX_SCORE) {
             return { winner: "team0", reason: `Team 0 reached ${MAX_SCORE} points` };
@@ -330,13 +411,17 @@ export class ControlPointMode implements GameModeRules {
     private team1Score: number = 0;
     private lastScoreTick: number = 0;
 
+    // Track contested status per point
+    private contestedPoints: Map<string, boolean> = new Map();
+
     update(deltaTime: number, room: GameRoom): void {
+        this.room = room;
         if (this.controlPoints.length === 0) {
             this.initializeControlPoints(room);
         }
 
         const captureRadius = 15;
-        const captureSpeed = 25; // % per second (faster capture)
+        const captureSpeed = (room.settings?.cpSettings?.captureSpeed) ?? 25; // % per second (faster capture)
         const dtSeconds = deltaTime / 1000;
         const now = Date.now();
 
@@ -355,6 +440,7 @@ export class ControlPointMode implements GameModeRules {
 
             // Determine state
             const isContested = team0Count > 0 && team1Count > 0;
+            this.contestedPoints.set(point.id, isContested);
             let capturingTeam: number | null = null;
 
             if (!isContested) {
@@ -414,7 +500,7 @@ export class ControlPointMode implements GameModeRules {
     }
 
     getMaxScore(): number {
-        return 3; // Control points count
+        return (this.room?.settings?.cpSettings?.pointsCount) ?? 3; // Control points count
     }
 
     getRespawnDelay(): number {
@@ -422,12 +508,42 @@ export class ControlPointMode implements GameModeRules {
     }
 
     private initializeControlPoints(room: GameRoom): void {
-        // Create 3 control points in neutral positions
-        this.controlPoints = [
-            { id: "cp1", position: new Vector3(0, 5, -30), team: null, captureProgress: 0 },
-            { id: "cp2", position: new Vector3(0, 5, 0), team: null, captureProgress: 0 },
-            { id: "cp3", position: new Vector3(0, 5, 30), team: null, captureProgress: 0 }
-        ];
+        this.room = room;
+        // Create control points in neutral positions (based on settings)
+        const pointsCount = (room.settings?.cpSettings?.pointsCount) ?? 3;
+        this.controlPoints = [];
+        
+        for (let i = 0; i < pointsCount; i++) {
+            const angle = (i / pointsCount) * Math.PI * 2;
+            const radius = 30 + (i % 2) * 10; // Vary positions slightly
+            this.controlPoints.push({
+                id: `cp${i + 1}`,
+                position: new Vector3(Math.cos(angle) * radius, 5, Math.sin(angle) * radius),
+                team: null,
+                captureProgress: 0
+            });
+        }
+    }
+
+    getControlPointsData(): Array<{ id: string; position: { x: number; y: number; z: number }; team: number | null; captureProgress: number; isContested: boolean }> {
+        if (this.controlPoints.length === 0) return [];
+        
+        return this.controlPoints.map(point => ({
+            id: point.id,
+            position: { x: point.position.x, y: point.position.y, z: point.position.z },
+            team: point.team,
+            captureProgress: point.captureProgress,
+            isContested: this.contestedPoints.get(point.id) || false
+        }));
+    }
+
+    getTeamScores(): { team0Score: number; team1Score: number; maxScore: number } {
+        const maxScore = (this.room?.settings?.cpSettings?.maxScore) ?? 1000;
+        return {
+            team0Score: this.team0Score,
+            team1Score: this.team1Score,
+            maxScore
+        };
     }
 }
 
@@ -436,6 +552,7 @@ export class EscortMode implements GameModeRules {
     private escortTarget: { position: Vector3; health: number; maxHealth: number; progress: number } | null = null;
     private escortStart: Vector3 = new Vector3(-100, 5, 0);
     private escortEnd: Vector3 = new Vector3(100, 5, 0);
+    private room: GameRoom | null = null;
 
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // ПРИМЕЧАНИЕ: На сервере нет информации о геометрии карты, поэтому используется безопасная высота (5.0м)
@@ -473,20 +590,22 @@ export class EscortMode implements GameModeRules {
     }
 
     private initializeEscort() {
+        const maxHealth = (this.room?.settings?.escortSettings?.payloadHealth) ?? 3000; // Balanced default
         this.escortTarget = {
             position: this.escortStart.clone(),
-            health: 2500, // Increased HP
-            maxHealth: 2500,
+            health: maxHealth,
+            maxHealth: maxHealth,
             progress: 0
         };
     }
 
     update(deltaTime: number, room: GameRoom): void {
+        this.room = room;
         if (!this.escortTarget) this.initializeEscort();
         const target = this.escortTarget!;
 
         const pushRadius = 15;
-        const maxSpeed = 4;
+        const maxSpeed = (room.settings?.escortSettings?.payloadSpeed) ?? 4; // Balanced default
         const dtSeconds = deltaTime / 1000;
 
         let attackers = 0;
@@ -539,6 +658,22 @@ export class EscortMode implements GameModeRules {
     getRespawnDelay(): number {
         return 5000; // 5 seconds
     }
+
+    getEscortPayloadData(): { position: { x: number; y: number; z: number }; health: number; maxHealth: number; progress: number; route: Array<{ x: number; y: number; z: number }>; team: number } | null {
+        if (!this.escortTarget) return null;
+        
+        return {
+            position: { x: this.escortTarget.position.x, y: this.escortTarget.position.y, z: this.escortTarget.position.z },
+            health: this.escortTarget.health,
+            maxHealth: this.escortTarget.maxHealth,
+            progress: this.escortTarget.progress * 100, // Convert to percentage
+            route: [
+                { x: this.escortStart.x, y: this.escortStart.y, z: this.escortStart.z },
+                { x: this.escortEnd.x, y: this.escortEnd.y, z: this.escortEnd.z }
+            ],
+            team: 0 // Attacking team
+        };
+    }
 }
 
 // Survival Mode - волны врагов (PvE кооператив)
@@ -548,6 +683,7 @@ export class SurvivalMode implements GameModeRules {
     private waveState: "FIGHTING" | "RESTING" = "RESTING";
     private restTimer: number = 10000; // 10 sec prep time
     private waveStartTime: number = 0;
+    private room: GameRoom | null = null;
 
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // All players spawn together in safe zone
@@ -565,13 +701,17 @@ export class SurvivalMode implements GameModeRules {
     }
 
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
+        this.room = room;
         const alivePlayers = room.getAllPlayers().filter(p => p.status === "alive");
         if (alivePlayers.length === 0) return { winner: null, reason: "Team eliminated" };
-        if (this.currentWave > 20) return { winner: "players", reason: "Survived 20 waves!" };
+        const maxWaves = (room.settings?.survivalSettings?.maxWaves) ?? 20;
+        if (this.currentWave > maxWaves) return { winner: "players", reason: `Survived ${maxWaves} waves!` };
         return null;
     }
 
-    getMaxScore(): number { return 20; }
+    getMaxScore(): number {
+        return (this.room?.settings?.survivalSettings?.maxWaves) ?? 20;
+    }
     getRespawnDelay(): number { return 999999; } // One life per wave? Or just long delay?
 
     update(deltaTime: number, room: GameRoom): void {
@@ -581,7 +721,10 @@ export class SurvivalMode implements GameModeRules {
             // Wave Clear Condition
             if (activeEnemies === 0) {
                 this.waveState = "RESTING";
-                this.restTimer = 10000; // 10s rest
+                // Progressive rest time: longer for early waves, shorter for later waves
+                const baseRestTime = (room.settings?.survivalSettings?.restTime) ?? 10000; // Default 10s
+                const restTimeMultiplier = this.currentWave <= 5 ? 1.5 : this.currentWave <= 10 ? 1.0 : 0.8;
+                this.restTimer = baseRestTime * restTimeMultiplier;
 
                 // REWARD: Heal all players
                 room.getAllPlayers().forEach(p => {
@@ -596,8 +739,11 @@ export class SurvivalMode implements GameModeRules {
                 this.waveState = "FIGHTING";
                 this.currentWave++;
 
-                // Scaling: +2 enemies per wave, +10% HP every round, +5% Dmg
-                this.enemiesPerWave = 5 + (this.currentWave * 2);
+                // Scaling: +2 enemies per wave, +10% HP every round
+                // Scale initial enemies by player count
+                const playerCount = room.getAllPlayers().length;
+                const baseEnemies = playerCount <= 1 ? 5 : playerCount <= 2 ? 7 : 10;
+                this.enemiesPerWave = baseEnemies + ((this.currentWave - 1) * 2);
 
                 // Elite Wave every 5th round
                 const isElite = this.currentWave % 5 === 0;
@@ -621,9 +767,11 @@ export class SurvivalMode implements GameModeRules {
         room.spawnEnemies();
 
 
-        // Apply Stats Multipliers
-        const hpMult = 1.0 + (this.currentWave * 0.1);
-        const dmgMult = 1.0 + (this.currentWave * 0.05);
+        // Apply Stats Multipliers (balanced scaling)
+        // HP: +10% per wave (was +10%, keeping it)
+        // For elite waves: +200% HP (was +300%, reducing to +200%)
+        const hpMult = 1.0 + ((this.currentWave - 1) * 0.1); // Start at wave 1 with no multiplier
+        const dmgMult = 1.0 + ((this.currentWave - 1) * 0.05);
 
         for (const enemy of room.enemies.values()) {
             enemy.maxHealth *= hpMult;
@@ -631,12 +779,24 @@ export class SurvivalMode implements GameModeRules {
             // enemy.damage *= dmgMult; // If enemy has damage prop exposed
 
             if (isElite) {
-                enemy.maxHealth *= 3;
+                enemy.maxHealth *= 2.0; // Reduced from 3.0 to 2.0 for better balance
                 enemy.health = enemy.maxHealth;
                 // Visual indicator? Scale?
                 // enemy.scale *= 1.5; // If visual scale supported
             }
         }
+    }
+
+    getSurvivalWaveData(): { currentWave: number; enemiesRemaining: number; enemiesTotal: number; timeUntilNextWave: number; waveState: "FIGHTING" | "RESTING"; isEliteWave: boolean } {
+        const isEliteWave = this.currentWave % 5 === 0;
+        return {
+            currentWave: this.currentWave,
+            enemiesRemaining: 0, // Will be set by room
+            enemiesTotal: this.enemiesPerWave,
+            timeUntilNextWave: Math.max(0, this.restTimer),
+            waveState: this.waveState,
+            isEliteWave
+        };
     }
 }
 
@@ -646,6 +806,7 @@ export class RaidMode implements GameModeRules {
     private currentBoss: { id: string; health: number; maxHealth: number } | null = null;
     private bossesDefeated: number = 0;
     private totalBosses: number = 3;
+    private room: GameRoom | null = null;
 
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3 {
         // All players spawn together
@@ -663,6 +824,10 @@ export class RaidMode implements GameModeRules {
     }
 
     checkWinCondition(room: GameRoom): { winner: string | null; reason: string } | null {
+        this.room = room;
+        const totalBosses = (room.settings?.raidSettings?.bossCount) ?? 3;
+        this.totalBosses = totalBosses; // Update total bosses from settings
+        
         // Raid: Players win if they defeat all bosses
         // Players lose if all are dead
         const alivePlayers = room.getAllPlayers().filter(p => p.status === "alive");
@@ -687,6 +852,10 @@ export class RaidMode implements GameModeRules {
     }
 
     update(deltaTime: number, room: GameRoom): void {
+        this.room = room;
+        const totalBosses = (room.settings?.raidSettings?.bossCount) ?? 3;
+        this.totalBosses = totalBosses; // Update total bosses from settings
+        
         const bosses = Array.from(room.enemies.values());
 
         // 1. Check Win/Phase State
@@ -718,8 +887,9 @@ export class RaidMode implements GameModeRules {
             if (hpPercent < 0.5 && !this.enragedBosses.has(mainBoss.id)) {
                 this.enragedBosses.add(mainBoss.id);
 
-                // Spawn Minions
-                room.botCount = 3 + this.bossesDefeated; // More minions for later bosses
+                // Spawn Minions (balanced count)
+                const minionCount = Math.min(5, 2 + this.bossesDefeated); // 2-5 minions
+                room.botCount = minionCount;
                 room.spawnEnemies(); // This ADDS enemies, doesn't clear if we don't clear map
                 // Wait, room.spawnEnemies usually adds to the map.
                 // But check room.ts: `this.enemies.set(enemy.id, enemy);` - it adds.
@@ -730,10 +900,50 @@ export class RaidMode implements GameModeRules {
 
     private enragedBosses: Set<string> = new Set();
 
+    getRaidBossData(): { boss: { id: string; health: number; maxHealth: number; position: { x: number; y: number; z: number } } | null; bossesDefeated: number; totalBosses: number; minions: number } {
+        // Update totalBosses from settings if available
+        if (this.room?.settings?.raidSettings?.bossCount !== undefined) {
+            this.totalBosses = this.room.settings.raidSettings.bossCount;
+        }
+        // Find current boss (highest max health enemy)
+        let mainBoss: any = null;
+        let maxHP = 0;
+        
+        // This will be called from room, so we need room reference
+        // For now, return basic structure - room will fill in boss data
+        
+        return {
+            boss: this.currentBoss ? {
+                id: this.currentBoss.id,
+                health: this.currentBoss.health,
+                maxHealth: this.currentBoss.maxHealth,
+                position: { x: 0, y: 5, z: 0 } // Will be updated from room
+            } : null,
+            bossesDefeated: this.bossesDefeated,
+            totalBosses: this.totalBosses,
+            minions: 0 // Will be calculated from room.enemies
+        };
+    }
+
     private spawnBoss(room: GameRoom, level: number) {
         // Cleanup existing (remove old minions/corpses)
         room.enemies.clear();
         this.enragedBosses.clear(); // Reset for new boss
+        
+        // Scale boss HP by player count for better balance
+        const playerCount = room.getAllPlayers().length;
+        const playerMultiplier = Math.max(1.0, 1.0 + (playerCount - 1) * 0.3); // +30% per extra player
+        
+        // Base HP calculation: 5000 * 2^(level-1) * playerMultiplier
+        const baseHP = 5000 * Math.pow(2, level - 1);
+        const scaledHP = baseHP * playerMultiplier;
+        
+        // Update current boss
+        this.currentBoss = {
+            id: `boss_${level}`,
+            health: scaledHP,
+            maxHealth: scaledHP
+        };
 
         // Spawn ONE big enemy
         room.botCount = 1;
@@ -742,8 +952,7 @@ export class RaidMode implements GameModeRules {
         // Buff the boss
         const boss = room.enemies.values().next().value;
         if (boss) {
-            // Scale HP significantly: 5000 * 2^(level-1) -> 5k, 10k, 20k...
-            boss.maxHealth = 5000 * Math.pow(2, level - 1);
+            boss.maxHealth = scaledHP;
             boss.health = boss.maxHealth;
             boss.difficulty = "hard";
         }

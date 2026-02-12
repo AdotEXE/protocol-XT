@@ -4,7 +4,11 @@ import path from "path";
 export default defineConfig({
     test: {
         environment: "node",
-        include: ["src/shared/**/*.spec.ts", "src/client/game/**/*.spec.ts"],
+        include: [
+            "src/shared/**/*.spec.ts",
+            "src/client/game/**/*.spec.ts",
+            "src/**/__tests__/**/*.test.ts"
+        ],
         exclude: ["**/node_modules/**", "**/dist/**"],
         globals: false,
     },

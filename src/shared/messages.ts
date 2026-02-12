@@ -148,6 +148,18 @@ export enum ServerMessageType {
     CTF_FLAG_CAPTURE = "ctf_flag_capture",
     CTF_FLAG_RETURN = "ctf_flag_return",
 
+    // Control Point
+    CONTROL_POINT_UPDATE = "control_point_update",
+
+    // Escort
+    ESCORT_PAYLOAD_UPDATE = "escort_payload_update",
+
+    // Survival
+    SURVIVAL_WAVE_UPDATE = "survival_wave_update",
+
+    // Raid
+    RAID_BOSS_UPDATE = "raid_boss_update",
+
     // Monitoring
     MONITORING_STATS = "monitoring_stats",
 

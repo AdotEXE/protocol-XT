@@ -32,10 +32,12 @@ export class AvatarSelector {
     private overlay: HTMLDivElement | null = null;
     private currentAvatar: string = 'tank';
     private callbacks: AvatarSelectorCallbacks;
+    private parentContainer: HTMLElement | null = null; // Контейнер родителя (панель прогресса)
 
-    constructor(callbacks: AvatarSelectorCallbacks = {}) {
+    constructor(callbacks: AvatarSelectorCallbacks = {}, parentContainer?: HTMLElement) {
         this.callbacks = callbacks;
         this.currentAvatar = localStorage.getItem('selectedAvatar') || 'tank';
+        this.parentContainer = parentContainer || null;
     }
 
     /**
@@ -63,13 +65,18 @@ export class AvatarSelector {
 
         this.overlay = document.createElement('div');
         this.overlay.className = 'avatar-selector-overlay';
+        
+        // Если есть родительский контейнер (панель прогресса), открываемся внутри него
+        // Иначе открываемся как полноэкранный overlay
+        const isInsidePanel = this.parentContainer !== null;
+        
         this.overlay.style.cssText = `
-            position: fixed;
-            inset: 0;
+            position: ${isInsidePanel ? 'absolute' : 'fixed'};
+            ${isInsidePanel ? 'inset: 0;' : 'inset: 0;'}
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.95);
-            z-index: 20000;
+            background: rgba(0, 0, 0, ${isInsidePanel ? '0.95' : '0.95'});
+            z-index: ${isInsidePanel ? '100010' : '200500'} !important; /* Внутри панели прогресса: выше её содержимого */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -77,6 +84,7 @@ export class AvatarSelector {
             padding: 12px;
             box-sizing: border-box;
             pointer-events: auto;
+            backdrop-filter: blur(2px); /* Лёгкое размытие фона для лучшей видимости */
         `;
 
         const container = document.createElement('div');
@@ -224,7 +232,17 @@ export class AvatarSelector {
         switchTab('preset'); // Инициализируем первую вкладку
 
         this.overlay.appendChild(container);
-        document.body.appendChild(this.overlay);
+        // Добавляем overlay в родительский контейнер (панель прогресса) или в body
+        if (this.parentContainer) {
+            // Устанавливаем position: relative для родителя если его нет
+            const parentStyle = window.getComputedStyle(this.parentContainer);
+            if (parentStyle.position === 'static') {
+                this.parentContainer.style.position = 'relative';
+            }
+            this.parentContainer.appendChild(this.overlay);
+        } else {
+            document.body.appendChild(this.overlay);
+        }
 
         // Обработка ESC
         const escHandler = (e: KeyboardEvent) => {

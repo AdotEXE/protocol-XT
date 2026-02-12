@@ -174,8 +174,8 @@ export class GameUI {
      * Установить систему миссий
      */
     setMissionSystem(missionSystem: any): void {
-        if (this.hud && typeof (this.hud as any).setMissionSystem === "function") {
-            (this.hud as any).setMissionSystem(missionSystem);
+        if (this.hud && 'setMissionSystem' in this.hud && typeof this.hud.setMissionSystem === "function") {
+            this.hud.setMissionSystem(missionSystem);
         }
     }
 

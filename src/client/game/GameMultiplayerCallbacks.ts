@@ -50,12 +50,16 @@ export interface MultiplayerCallbacksDependencies {
     gameEnemies?: any; // GameEnemies для создания синхронизированных ботов
     battleRoyaleVisualizer?: BattleRoyaleVisualizer;
     ctfVisualizer?: CTFVisualizer;
+    controlPointVisualizer?: any; // ControlPointVisualizer
+    escortVisualizer?: any; // EscortVisualizer
     replayRecorder?: any;
     realtimeStatsTracker?: RealtimeStatsTracker;
     getIsMultiplayer: () => boolean; // Геттер для актуального значения isMultiplayer
     setIsMultiplayer: (value: boolean) => void;
     setBattleRoyaleVisualizer: (viz: BattleRoyaleVisualizer) => void;
     setCTFVisualizer: (viz: CTFVisualizer) => void;
+    setControlPointVisualizer: (viz: any) => void;
+    setEscortVisualizer: (viz: any) => void;
     setRealtimeStatsTracker: (tracker: RealtimeStatsTracker) => void;
     setReplayRecorder: (recorder: any) => void;
     startGame?: () => Promise<void> | void;
@@ -112,6 +116,8 @@ export class GameMultiplayerCallbacks {
             setIsMultiplayer: () => { },
             setBattleRoyaleVisualizer: () => { },
             setCTFVisualizer: () => { },
+            setControlPointVisualizer: () => { },
+            setEscortVisualizer: () => { },
             setRealtimeStatsTracker: () => { },
             setReplayRecorder: () => { }
         };
@@ -685,7 +691,31 @@ export class GameMultiplayerCallbacks {
             let tanksCreated = 0;
             let tanksSkipped = 0;
 
+            // Вычисляем статистику для режим-специфичных HUD
+            const gameMode = mm?.getGameMode();
+            const localPlayer = players.find(p => p.id === localPlayerId);
+            let team0Kills = 0;
+            let team1Kills = 0;
+            let playersAlive = 0;
+            let playersTotal = players.length;
+            let enemiesRemaining = 0;
+            
+            // Получаем позицию локального игрока для POI
+            const localPlayerPos = this.deps.tank?.chassis?.getAbsolutePosition();
+
             for (const playerData of players) {
+                // Подсчет убийств команд
+                if (playerData.team === 0) {
+                    team0Kills += playerData.kills || 0;
+                } else if (playerData.team === 1) {
+                    team1Kills += playerData.kills || 0;
+                }
+
+                // Подсчет живых игроков
+                if (playerData.status === "alive") {
+                    playersAlive++;
+                }
+
                 // Пропускаем локального игрока - только точное сравнение
                 if (localPlayerId && playerData.id === localPlayerId) {
                     tanksSkipped++;
@@ -703,6 +733,234 @@ export class GameMultiplayerCallbacks {
                     // Танк не существует - создаем через очередь
                     this.queueNetworkPlayerForCreation(playerData);
                     tanksCreated++;
+                }
+            }
+
+            // Обновляем режим-специфичные HUD компоненты и POI
+            if (this.deps.hud && gameMode) {
+                const gameTime = (this.deps.multiplayerManager as any)?.getGameTime?.() || 0;
+                const roomSettings = (this.deps.multiplayerManager as any)?.getRoomSettings?.() || {};
+
+                if (gameMode === "ffa") {
+                    const killLimit = roomSettings.ffaSettings?.killLimit || roomSettings.killLimit || 20;
+                    const playerKills = localPlayer?.kills || 0;
+                    const leaderboard = players
+                        .map(p => ({ name: p.name || p.id, kills: p.kills || 0 }))
+                        .sort((a, b) => b.kills - a.kills)
+                        .slice(0, 3);
+                    
+                    this.deps.hud.updateFFAHUD?.({
+                        playerKills,
+                        killLimit,
+                        gameTime: Math.floor(gameTime / 1000),
+                        leaderboard
+                    });
+
+                    // Генерируем POI для FFA: точки спавна и лидеры
+                    if (localPlayerPos && this.deps.hud.updateMinimapPOIs) {
+                        const pois: Array<{ id: string; type: string; worldPosition: { x: number; z: number }; ownerId: string | null; captureProgress: number }> = [];
+                        
+                        // Точки спавна (круговой спавн, радиус 30)
+                        const spawnRadius = 30;
+                        const spawnCount = Math.min(playersTotal, 8); // Максимум 8 точек спавна
+                        for (let i = 0; i < spawnCount; i++) {
+                            const angle = (i / spawnCount) * Math.PI * 2;
+                            const x = Math.cos(angle) * spawnRadius;
+                            const z = Math.sin(angle) * spawnRadius;
+                            pois.push({
+                                id: `ffa_spawn_${i}`,
+                                type: "spawn",
+                                worldPosition: { x, z },
+                                ownerId: null,
+                                captureProgress: 0
+                            });
+                        }
+
+                        // Лидеры (топ-3 игрока)
+                        leaderboard.forEach((leader, index) => {
+                            const leaderPlayer = players.find(p => (p.name || p.id) === leader.name);
+                            if (leaderPlayer && leaderPlayer.position) {
+                                pois.push({
+                                    id: `ffa_leader_${index}`,
+                                    type: "objective",
+                                    worldPosition: { x: leaderPlayer.position.x, z: leaderPlayer.position.z },
+                                    ownerId: leaderPlayer.id === localPlayerId ? "player" : "enemy",
+                                    captureProgress: leader.kills
+                                });
+                            }
+                        });
+
+                        // Обновляем миникарту
+                        this.deps.hud.updateMinimapPOIs(
+                            pois,
+                            { x: localPlayerPos.x, z: localPlayerPos.z },
+                            this.deps.tank?.chassis?.rotation.y || 0
+                        );
+
+                        // Обновляем полную карту
+                        if (typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
+                            (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                                id: p.id,
+                                type: p.type,
+                                position: p.worldPosition,
+                                progress: p.captureProgress
+                            })));
+                        }
+                    }
+                } else if (gameMode === "tdm") {
+                    const killLimit = roomSettings.tdmSettings?.killLimit || roomSettings.killLimit || 50;
+                    const playerTeam = localPlayer?.team;
+                    
+                    this.deps.hud.updateTDMHUD?.({
+                        team0Kills,
+                        team1Kills,
+                        killLimit,
+                        gameTime: Math.floor(gameTime / 1000),
+                        playerTeam
+                    });
+
+                    // Генерируем POI для TDM: базы команд
+                    if (localPlayerPos && this.deps.hud.updateMinimapPOIs) {
+                        const pois: Array<{ id: string; type: string; worldPosition: { x: number; z: number }; ownerId: string | null; captureProgress: number }> = [];
+                        
+                        // База команды 0 (слева, X = -40)
+                        pois.push({
+                            id: "tdm_base_team0",
+                            type: "team_base",
+                            worldPosition: { x: -40, z: 0 },
+                            ownerId: playerTeam === 0 ? "player" : "enemy",
+                            captureProgress: 100
+                        });
+
+                        // База команды 1 (справа, X = 40)
+                        pois.push({
+                            id: "tdm_base_team1",
+                            type: "team_base",
+                            worldPosition: { x: 40, z: 0 },
+                            ownerId: playerTeam === 1 ? "player" : "enemy",
+                            captureProgress: 100
+                        });
+
+                        // Союзники и враги
+                        players.forEach(player => {
+                            if (player.position && player.status === "alive") {
+                                const isAlly = playerTeam !== undefined && player.team === playerTeam;
+                                const isLocal = player.id === localPlayerId;
+                                
+                                if (!isLocal) {
+                                    pois.push({
+                                        id: `tdm_player_${player.id}`,
+                                        type: isAlly ? "checkpoint" : "danger",
+                                        worldPosition: { x: player.position.x, z: player.position.z },
+                                        ownerId: isAlly ? "player" : "enemy",
+                                        captureProgress: 0
+                                    });
+                                }
+                            }
+                        });
+
+                        // Обновляем миникарту
+                        this.deps.hud.updateMinimapPOIs(
+                            pois,
+                            { x: localPlayerPos.x, z: localPlayerPos.z },
+                            this.deps.tank?.chassis?.rotation.y || 0
+                        );
+
+                        // Обновляем полную карту
+                        if (typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
+                            (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                                id: p.id,
+                                type: p.type,
+                                position: p.worldPosition,
+                                team: p.ownerId === "player" ? (playerTeam || 0) : (playerTeam === 0 ? 1 : 0)
+                            })));
+                        }
+                    }
+                } else if (gameMode === "coop" || gameMode === "coop_pve") {
+                    // Для Co-op считаем врагов из enemies
+                    if (this.deps.gameEnemies) {
+                        enemiesRemaining = (this.deps.gameEnemies as any).enemies?.size || 0;
+                    }
+                    
+                    this.deps.hud.updateCoopHUD?.({
+                        enemiesRemaining,
+                        enemiesTotal: enemiesRemaining, // TODO: получить из настроек комнаты
+                        playersAlive,
+                        playersTotal,
+                        gameTime: Math.floor(gameTime / 1000)
+                    });
+
+                    // Генерируем POI для Co-op: точки спавна врагов и союзники
+                    if (localPlayerPos && this.deps.hud.updateMinimapPOIs) {
+                        const pois: Array<{ id: string; type: string; worldPosition: { x: number; z: number }; ownerId: string | null; captureProgress: number }> = [];
+                        
+                        // Точки спавна врагов (круговой спавн вокруг центра, радиус 40-60)
+                        // Фиксированные позиции для стабильности (не меняются каждый кадр)
+                        const spawnRadiusMin = 40;
+                        const spawnRadiusMax = 60;
+                        const spawnCount = 6; // 6 точек спавна врагов
+                        const fixedRadiuses = [45, 50, 55, 48, 52, 47]; // Фиксированные радиусы для каждой точки
+                        for (let i = 0; i < spawnCount; i++) {
+                            const angle = (i / spawnCount) * Math.PI * 2;
+                            const radius = fixedRadiuses[i] || (spawnRadiusMin + (spawnRadiusMax - spawnRadiusMin) * (i / spawnCount));
+                            const x = Math.cos(angle) * radius;
+                            const z = Math.sin(angle) * radius;
+                            pois.push({
+                                id: `coop_enemy_spawn_${i}`,
+                                type: "danger",
+                                worldPosition: { x, z },
+                                ownerId: "enemy",
+                                captureProgress: 0
+                            });
+                        }
+
+                        // Союзники (другие игроки)
+                        players.forEach(player => {
+                            if (player.position && player.status === "alive" && player.id !== localPlayerId) {
+                                pois.push({
+                                    id: `coop_ally_${player.id}`,
+                                    type: "checkpoint",
+                                    worldPosition: { x: player.position.x, z: player.position.z },
+                                    ownerId: "player",
+                                    captureProgress: 0
+                                });
+                            }
+                        });
+
+                        // Враги (если есть доступ к gameEnemies)
+                        if (this.deps.gameEnemies) {
+                            const enemies = (this.deps.gameEnemies as any).enemies;
+                            if (enemies && enemies.forEach) {
+                                enemies.forEach((enemy: any, enemyId: string) => {
+                                    if (enemy && enemy.position) {
+                                        pois.push({
+                                            id: `coop_enemy_${enemyId}`,
+                                            type: "danger",
+                                            worldPosition: { x: enemy.position.x, z: enemy.position.z },
+                                            ownerId: "enemy",
+                                            captureProgress: 0
+                                        });
+                                    }
+                                });
+                            }
+                        }
+
+                        // Обновляем миникарту
+                        this.deps.hud.updateMinimapPOIs(
+                            pois,
+                            { x: localPlayerPos.x, z: localPlayerPos.z },
+                            this.deps.tank?.chassis?.rotation.y || 0
+                        );
+
+                        // Обновляем полную карту
+                        if (typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
+                            (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                                id: p.id,
+                                type: p.type,
+                                position: p.worldPosition
+                            })));
+                        }
+                    }
                 }
             }
 
@@ -1377,7 +1635,8 @@ export class GameMultiplayerCallbacks {
                         aimPitch: playerData.aimPitch
                     },
                     positionDiff: data.positionDiff,
-                    unconfirmedInputs: data.unconfirmedInputs
+                    unconfirmedInputs: data.unconfirmedInputs,
+                    isFullState: data.isFullState || false
                 });
             }
         });
@@ -1582,6 +1841,8 @@ export class GameMultiplayerCallbacks {
         positionDiff?: number;
         /** Неподтверждённые вводы для возможного re-apply после телепортации к серверу (server-reconciliation) */
         unconfirmedInputs?: PlayerInput[];
+        /** Полная синхронизация (раз в N пакетов) - принудительно применяем все значения */
+        isFullState?: boolean;
     }): void {
         if (!data || !data.serverState) {
             return; // Невалидные данные - игнорируем
@@ -1624,6 +1885,22 @@ export class GameMultiplayerCallbacks {
         this._localPlayerServerTurretRotation = data.serverState.turretRotation || 0;
         this._localPlayerServerAimPitch = data.serverState.aimPitch || 0;
         this._hasLocalPlayerServerTarget = true;
+
+        // =========================================================================
+        // ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ TURRET/AIM_PITCH ПРИ ПОЛНОЙ СИНХРОНИЗАЦИИ
+        // =========================================================================
+        // При полной синхронизации (раз в N пакетов) принудительно применяем turret/aimPitch
+        // для предотвращения накопления ошибок квантования
+        if (data.isFullState && this.deps.tank) {
+            const tank = this.deps.tank;
+            if (tank.turret && this._localPlayerServerTurretRotation !== undefined) {
+                tank.turret.rotation.y = this._localPlayerServerTurretRotation;
+            }
+            if (tank.barrel && this._localPlayerServerAimPitch !== undefined) {
+                tank.barrel.rotation.x = -(this._localPlayerServerAimPitch || 0);
+                tank.aimPitch = this._localPlayerServerAimPitch;
+            }
+        }
 
         // =========================================================================
         // ТРЁХУРОВНЕВАЯ ОБРАБОТКА РАСХОЖДЕНИЙ (Phase 2)
@@ -1869,7 +2146,8 @@ export class GameMultiplayerCallbacks {
             try {
                 const voiceManager = getVoiceChatManager();
                 (window as any).voiceChatManager = voiceManager;
-                voiceManager.initialize(serverUrl, roomId);
+                // КРИТИЧНО: initialize принимает (roomId, playerId), а не (serverUrl, roomId)
+                voiceManager.initialize(roomId, playerId);
             } catch (error) {
                 logger.error("[Game] Failed to initialize voice chat:", error);
             }
@@ -1982,6 +2260,11 @@ export class GameMultiplayerCallbacks {
             logger.warn(`[Game] ⚠️ No players data in GAME_START! data.players=`, data.players, `mm=`, !!mm);
         }
 
+        // КРИТИЧНО: Устанавливаем игровой режим в HUD
+        if (this.deps.hud && gameMode) {
+            this.deps.hud.setGameMode(gameMode);
+        }
+
         // Initialize Battle Royale visualizer
         if (data.mode === "battle_royale" && !this.deps.battleRoyaleVisualizer && this.deps.scene) {
             import("../battleRoyale").then(({ BattleRoyaleVisualizer }) => {
@@ -1999,6 +2282,26 @@ export class GameMultiplayerCallbacks {
                 this.deps.setCTFVisualizer(viz);
             }).catch(error => {
                 logger.error("[Game] Failed to load CTF visualizer:", error);
+            });
+        }
+
+        // Initialize Control Point visualizer
+        if ((data.mode === "control_point" || data.mode === "multiplayer_control") && !this.deps.controlPointVisualizer && this.deps.scene) {
+            import("../controlPointVisualizer").then(({ ControlPointVisualizer }) => {
+                const viz = new ControlPointVisualizer(this.deps.scene!);
+                this.deps.setControlPointVisualizer(viz);
+            }).catch(error => {
+                logger.error("[Game] Failed to load Control Point visualizer:", error);
+            });
+        }
+
+        // Initialize Escort visualizer
+        if ((data.mode === "escort" || data.mode === "multiplayer_escort") && !this.deps.escortVisualizer && this.deps.scene) {
+            import("../escortVisualizer").then(({ EscortVisualizer }) => {
+                const viz = new EscortVisualizer(this.deps.scene!);
+                this.deps.setEscortVisualizer(viz);
+            }).catch(error => {
+                logger.error("[Game] Failed to load Escort visualizer:", error);
             });
         }
 
@@ -2382,8 +2685,8 @@ export class GameMultiplayerCallbacks {
                 case "DRESS_UPDATE":
                     // Update player visual appearance
                     const tank = this.deps.networkPlayerTanks.get(data.sourceId);
-                    if (tank && (tank as any).updateParts) {
-                        (tank as any).updateParts({
+                    if (tank && 'updateParts' in tank && typeof tank.updateParts === 'function') {
+                        tank.updateParts({
                             chassisType: data.payload.chassisType,
                             cannonType: data.payload.cannonType,
                             trackType: data.payload.trackType,
@@ -2506,7 +2809,7 @@ export class GameMultiplayerCallbacks {
     }
 
     private handleSafeZoneUpdate(data: any): void {
-        if (!this.deps.battleRoyaleVisualizer || !data) return;
+        if (!data) return;
 
         const zoneData = {
             center: new Vector3(data.center.x, data.center.y || 0, data.center.z),
@@ -2517,17 +2820,261 @@ export class GameMultiplayerCallbacks {
                 data.nextCenter?.z || data.center.z
             ),
             nextRadius: data.nextRadius || data.radius,
-            shrinkProgress: data.shrinkProgress || 0
+            shrinkProgress: data.shrinkProgress || 0,
+            playersAlive: data.playersAlive || 0,
+            timeUntilShrink: data.timeUntilShrink || 0
         };
-        this.deps.battleRoyaleVisualizer.updateSafeZone(zoneData);
+
+        // Update visualizer
+        if (this.deps.battleRoyaleVisualizer) {
+            this.deps.battleRoyaleVisualizer.updateSafeZone(zoneData);
+        }
+
+        // Update HUD (initial update, will be refined below with actual zone status)
+        if (this.deps.hud && this.deps.tank?.chassis) {
+            const playerPos = this.deps.tank.chassis.getAbsolutePosition();
+            this.deps.hud.updateBattleRoyaleHUD({
+                playersAlive: zoneData.playersAlive,
+                zoneRadius: zoneData.radius,
+                nextZoneRadius: zoneData.nextRadius,
+                timeUntilShrink: zoneData.timeUntilShrink,
+                shrinkProgress: zoneData.shrinkProgress,
+                isInZone: true, // Will be updated below
+                playerPosition: { x: playerPos.x, y: playerPos.y, z: playerPos.z }
+            });
+        }
 
         if (this.deps.tank?.chassis) {
             const playerPos = this.deps.tank.chassis.getAbsolutePosition();
-            const isInZone = this.deps.battleRoyaleVisualizer.isPlayerInSafeZone(playerPos);
-            const distance = this.deps.battleRoyaleVisualizer.getDistanceToSafeZone(playerPos);
+            const isInZone = this.deps.battleRoyaleVisualizer?.isPlayerInSafeZone(playerPos) ?? true;
+            const distance = this.deps.battleRoyaleVisualizer?.getDistanceToSafeZone(playerPos) ?? 0;
+
+            // Update HUD with actual zone status
+            if (this.deps.hud && this.deps.tank?.chassis) {
+                const playerPos = this.deps.tank.chassis.getAbsolutePosition();
+                this.deps.hud.updateBattleRoyaleHUD({
+                    playersAlive: zoneData.playersAlive,
+                    zoneRadius: zoneData.radius,
+                    nextZoneRadius: zoneData.nextRadius,
+                    timeUntilShrink: zoneData.timeUntilShrink,
+                    shrinkProgress: zoneData.shrinkProgress,
+                    isInZone,
+                    playerPosition: { x: playerPos.x, y: playerPos.y, z: playerPos.z }
+                });
+            }
 
             if (!isInZone) {
                 this.deps.hud?.showNotification?.(`⚠️ Вне безопасной зоны! ${distance.toFixed(0)}м`, "warning");
+            }
+        }
+    }
+
+    private handleControlPointUpdate(data: any): void {
+        if (!data || !this.deps.hud) return;
+
+        // Update HUD
+        this.deps.hud.updateControlPointHUD({
+            points: data.points || [],
+            team0Score: data.team0Score || 0,
+            team1Score: data.team1Score || 0,
+            maxScore: data.maxScore || 1000
+        });
+
+        // Update visualizer if exists
+        if (this.deps.controlPointVisualizer && data.points) {
+            const points = data.points.map((p: any) => ({
+                id: p.id,
+                position: new Vector3(p.position.x, p.position.y, p.position.z),
+                team: p.team,
+                captureProgress: p.captureProgress,
+                isContested: p.isContested
+            }));
+            this.deps.controlPointVisualizer.updatePoints(points);
+        }
+
+        // Update POI markers for control points
+        if (this.deps.hud && data.points && this.deps.tank?.chassis) {
+            const playerPos = this.deps.tank.chassis.getAbsolutePosition();
+            const pois = data.points.map((p: any) => ({
+                id: p.id,
+                type: "control_point",
+                worldPosition: { x: p.position.x, z: p.position.z },
+                ownerId: p.team === 0 ? "player" : p.team === 1 ? "enemy" : null,
+                captureProgress: p.captureProgress
+            }));
+            
+            // Get tank rotation for minimap
+            let tankRotationY = 0;
+            if (this.deps.tank.chassis.rotationQuaternion) {
+                tankRotationY = this.deps.tank.chassis.rotationQuaternion.toEulerAngles().y;
+            } else {
+                tankRotationY = this.deps.tank.chassis.rotation.y;
+            }
+            
+            this.deps.hud.updateMinimapPOIs(pois, { x: playerPos.x, z: playerPos.z }, tankRotationY);
+            
+            // Update full map markers
+            if (this.deps.hud && typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
+                (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                    id: p.id,
+                    type: p.type,
+                    position: p.worldPosition,
+                    team: p.ownerId === "player" ? 0 : p.ownerId === "enemy" ? 1 : undefined,
+                    progress: p.captureProgress
+                })));
+            }
+        }
+    }
+
+    private handleEscortPayloadUpdate(data: any): void {
+        if (!data || !this.deps.hud) return;
+
+        // Get player team
+        const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
+        const playerTeam = localPlayerId ? this.deps.networkPlayerTanks.get(localPlayerId)?.team ?? null : null;
+
+        // Update HUD
+        this.deps.hud.updateEscortHUD({
+            payload: {
+                health: data.health,
+                maxHealth: data.maxHealth,
+                progress: data.progress
+            },
+            playerTeam
+        });
+
+        // Update visualizer if exists
+        if (this.deps.escortVisualizer) {
+            const route = (data.route || []).map((r: any) => new Vector3(r.x, r.y, r.z));
+            this.deps.escortVisualizer.updatePayload({
+                position: new Vector3(data.position.x, data.position.y, data.position.z),
+                health: data.health,
+                maxHealth: data.maxHealth,
+                progress: data.progress,
+                route,
+                team: data.team || 0
+            });
+        }
+
+        // Update POI markers for escort mode
+        if (this.deps.hud && this.deps.tank?.chassis && data.route && data.route.length > 0) {
+            const playerPos = this.deps.tank.chassis.getAbsolutePosition();
+            const pois = [];
+            
+            // Add escort start
+            if (data.route[0]) {
+                pois.push({
+                    id: "escort_start",
+                    type: "escort_start",
+                    worldPosition: { x: data.route[0].x, z: data.route[0].z },
+                    ownerId: null,
+                    captureProgress: 0
+                });
+            }
+            
+            // Add escort payload
+            pois.push({
+                id: "escort_payload",
+                type: "escort_payload",
+                worldPosition: { x: data.position.x, z: data.position.z },
+                ownerId: data.team === 0 ? "player" : data.team === 1 ? "enemy" : null,
+                captureProgress: data.progress
+            });
+            
+            // Add escort end
+            if (data.route.length > 1) {
+                const endPos = data.route[data.route.length - 1];
+                pois.push({
+                    id: "escort_end",
+                    type: "escort_end",
+                    worldPosition: { x: endPos.x, z: endPos.z },
+                    ownerId: null,
+                    captureProgress: 0
+                });
+            }
+            
+            // Get tank rotation for minimap
+            let tankRotationY = 0;
+            if (this.deps.tank.chassis.rotationQuaternion) {
+                tankRotationY = this.deps.tank.chassis.rotationQuaternion.toEulerAngles().y;
+            } else {
+                tankRotationY = this.deps.tank.chassis.rotation.y;
+            }
+            
+            this.deps.hud.updateMinimapPOIs(pois, { x: playerPos.x, z: playerPos.z }, tankRotationY);
+            
+            // Update full map markers
+            if (this.deps.hud && typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
+                (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                    id: p.id,
+                    type: p.type,
+                    position: p.worldPosition,
+                    team: p.ownerId === "player" ? 0 : p.ownerId === "enemy" ? 1 : undefined,
+                    progress: p.captureProgress
+                })));
+            }
+        }
+    }
+
+    private handleSurvivalWaveUpdate(data: any): void {
+        if (!data || !this.deps.hud) return;
+
+        // Update HUD
+        this.deps.hud.updateSurvivalHUD({
+            currentWave: data.currentWave || 1,
+            enemiesRemaining: data.enemiesRemaining || 0,
+            enemiesTotal: data.enemiesTotal || 0,
+            timeUntilNextWave: data.timeUntilNextWave || 0,
+            waveState: data.waveState || "FIGHTING",
+            isEliteWave: data.isEliteWave || false
+        });
+    }
+
+    private handleRaidBossUpdate(data: any): void {
+        if (!data || !this.deps.hud) return;
+
+        // Update HUD
+        this.deps.hud.updateRaidHUD({
+            boss: data.boss ? {
+                id: data.boss.id,
+                health: data.boss.health,
+                maxHealth: data.boss.maxHealth,
+                position: data.boss.position
+            } : null,
+            bossesDefeated: data.bossesDefeated || 0,
+            totalBosses: data.totalBosses || 3
+        });
+
+        // Update POI markers for Raid mode
+        if (this.deps.hud && this.deps.tank?.chassis && data.boss) {
+            const playerPos = this.deps.tank.chassis.getAbsolutePosition();
+            const pois = [{
+                id: `boss_${data.boss.id}`,
+                type: "boss_location",
+                worldPosition: { x: data.boss.position.x, z: data.boss.position.z },
+                ownerId: null,
+                captureProgress: 0
+            }];
+            
+            // Get tank rotation for minimap
+            let tankRotationY = 0;
+            if (this.deps.tank.chassis.rotationQuaternion) {
+                tankRotationY = this.deps.tank.chassis.rotationQuaternion.toEulerAngles().y;
+            } else {
+                tankRotationY = this.deps.tank.chassis.rotation.y;
+            }
+            
+            this.deps.hud.updateMinimapPOIs(pois, { x: playerPos.x, z: playerPos.z }, tankRotationY);
+            
+            // Update full map markers
+            if (this.deps.hud && typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
+                (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                    id: p.id,
+                    type: p.type,
+                    position: p.worldPosition,
+                    team: undefined,
+                    progress: undefined
+                })));
             }
         }
     }
@@ -2607,10 +3154,65 @@ export class GameMultiplayerCallbacks {
             }
         });
 
-        mm.onCTFFlagUpdate((data: any) => {
-            if (!this.deps.ctfVisualizer || !data.flags) return;
+        mm.onControlPointUpdate((data: any) => {
+            this.handleControlPointUpdate(data);
+        });
 
-            this.deps.ctfVisualizer.updateFlags(data.flags);
+        mm.onEscortPayloadUpdate((data: any) => {
+            this.handleEscortPayloadUpdate(data);
+        });
+
+        mm.onSurvivalWaveUpdate((data: any) => {
+            this.handleSurvivalWaveUpdate(data);
+        });
+
+        mm.onRaidBossUpdate((data: any) => {
+            this.handleRaidBossUpdate(data);
+        });
+
+        mm.onCTFFlagUpdate((data: any) => {
+            if (!data.flags) return;
+
+            // Обновляем визуализатор флагов
+            if (this.deps.ctfVisualizer) {
+                this.deps.ctfVisualizer.updateFlags(data.flags);
+            }
+
+            // Обновляем CTF HUD
+            if (this.deps.hud && typeof (this.deps.hud as any).updateCTFHUD === "function") {
+                const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
+                const localPlayer = this.deps.multiplayerManager?.getNetworkPlayer(localPlayerId || "");
+                const playerTeam = (localPlayer as any)?.team;
+                const gameTime = (this.deps.multiplayerManager as any)?.getGameTime?.() || 0;
+                const roomSettings = (this.deps.multiplayerManager as any)?.getRoomSettings?.() || {};
+                const maxScore = roomSettings.ctfSettings?.flagsToWin || 3;
+
+                // Находим флаги команд
+                const team0Flag = data.flags.find((f: any) => f.team === 0) || { team: 0, status: "base" };
+                const team1Flag = data.flags.find((f: any) => f.team === 1) || { team: 1, status: "base" };
+
+                // Вычисляем счет команд (количество захваченных флагов)
+                const team0Score = data.team0Score || 0;
+                const team1Score = data.team1Score || 0;
+
+                (this.deps.hud as any).updateCTFHUD({
+                    team0Score,
+                    team1Score,
+                    maxScore,
+                    team0Flag: {
+                        team: team0Flag.team,
+                        status: team0Flag.status || "base",
+                        carrierName: team0Flag.carrierName
+                    },
+                    team1Flag: {
+                        team: team1Flag.team,
+                        status: team1Flag.status || "base",
+                        carrierName: team1Flag.carrierName
+                    },
+                    gameTime: Math.floor(gameTime / 1000),
+                    playerTeam
+                });
+            }
 
             if (this.deps.hud && this.deps.tank?.chassis) {
                 const playerPos = this.deps.tank.chassis.getAbsolutePosition();
@@ -2636,6 +3238,52 @@ export class GameMultiplayerCallbacks {
                         playerPosition: playerPos,
                         playerTeam
                     });
+
+                    // Update POI markers for CTF mode
+                    const pois = [];
+                    for (const flag of data.flags) {
+                        if (flag.isCarried) {
+                            // Flag is being carried - show on carrier position
+                            const carrierPos = flag.position || playerPos;
+                            pois.push({
+                                id: `flag_${flag.team}_carried`,
+                                type: "flag_carried",
+                                worldPosition: { x: carrierPos.x, z: carrierPos.z },
+                                ownerId: flag.team === playerTeam ? "player" : "enemy",
+                                captureProgress: 0
+                            });
+                        } else {
+                            // Flag is at base
+                            pois.push({
+                                id: `flag_${flag.team}_base`,
+                                type: "flag_base",
+                                worldPosition: { x: flag.position.x, z: flag.position.z },
+                                ownerId: flag.team === playerTeam ? "player" : "enemy",
+                                captureProgress: 0
+                            });
+                        }
+                    }
+                    
+                    // Get tank rotation for minimap
+                    let tankRotationY = 0;
+                    if (this.deps.tank.chassis.rotationQuaternion) {
+                        tankRotationY = this.deps.tank.chassis.rotationQuaternion.toEulerAngles().y;
+                    } else {
+                        tankRotationY = this.deps.tank.chassis.rotation.y;
+                    }
+                    
+                    this.deps.hud.updateMinimapPOIs(pois, { x: playerPos.x, z: playerPos.z }, tankRotationY);
+                    
+                    // Update full map markers
+                    if (this.deps.hud && typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
+                        (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                            id: p.id,
+                            type: p.type,
+                            position: p.worldPosition,
+                            team: p.ownerId === "player" ? playerTeam : p.ownerId === "enemy" ? (playerTeam === 0 ? 1 : 0) : undefined,
+                            progress: p.captureProgress
+                        })));
+                    }
                 }
             }
         });

@@ -11,6 +11,7 @@ import { firebaseService } from "./firebaseService";
 import { getVoiceChatManager } from "./voiceChat";
 import { timerManager } from "./optimization/TimerManager";
 import { vector3Pool } from "./optimization/Vector3Pool";
+import { getGameInstance } from "./utils/gameInstance";
 
 /**
  * Safely convert any position object to Vector3
@@ -578,6 +579,10 @@ export class MultiplayerManager {
     private onEnemyUpdateCallback: ((data: EnemyUpdateData) => void) | null = null;
     private onSafeZoneUpdateCallback: ((data: SafeZoneUpdateData) => void) | null = null;
     private onCTFFlagUpdateCallback: ((data: CTFFlagUpdateData) => void) | null = null;
+    private onControlPointUpdateCallback: ((data: any) => void) | null = null;
+    private onEscortPayloadUpdateCallback: ((data: any) => void) | null = null;
+    private onSurvivalWaveUpdateCallback: ((data: any) => void) | null = null;
+    private onRaidBossUpdateCallback: ((data: any) => void) | null = null;
     private onPlayerKilledCallback: ((data: PlayerKilledData) => void) | null = null;
     private onPlayerDiedCallback: ((data: PlayerDiedData) => void) | null = null;
     private onPlayerRespawnedCallback: ((data: PlayerRespawnedData) => void) | null = null;
@@ -587,7 +592,7 @@ export class MultiplayerManager {
     private onQueueUpdateCallback: ((data: QueueUpdateData) => void) | null = null;
     private onMatchFoundCallback: ((data: MatchFoundData) => void) | null = null;
     private onGameInviteCallback: ((data: { fromPlayerId: string; fromPlayerName: string; roomId?: string; gameMode?: string; worldSeed?: number }) => void) | null = null;
-    private onReconciliationCallback: ((data: { serverState?: PlayerData; predictedState?: PredictedState; unconfirmedStates?: PredictedState[]; unconfirmedInputs?: PlayerInput[]; positionDiff?: number; rotationDiff?: number; needsReapplication?: boolean }) => void) | null = null;
+    private onReconciliationCallback: ((data: { serverState?: PlayerData; predictedState?: PredictedState; unconfirmedStates?: PredictedState[]; unconfirmedInputs?: PlayerInput[]; positionDiff?: number; rotationDiff?: number; needsReapplication?: boolean; isFullState?: boolean }) => void) | null = null;
     private onRoomCreatedCallback: ((data: RoomCreatedData) => void) | null = null;
     private onRoomJoinedCallback: ((data: RoomJoinedData) => void) | null = null;
     private pendingRoomJoinedData: RoomJoinedData | null = null; // Буфер для ROOM_JOINED если callback еще не установлен
@@ -970,6 +975,10 @@ export class MultiplayerManager {
         this.onEnemyUpdateCallback = null;
         this.onSafeZoneUpdateCallback = null;
         this.onCTFFlagUpdateCallback = null;
+        this.onControlPointUpdateCallback = null;
+        this.onEscortPayloadUpdateCallback = null;
+        this.onSurvivalWaveUpdateCallback = null;
+        this.onRaidBossUpdateCallback = null;
         this.onPlayerKilledCallback = null;
         this.onPlayerDiedCallback = null;
         this.onPlayerDamagedCallback = null;
@@ -1239,6 +1248,22 @@ export class MultiplayerManager {
 
                 case ServerMessageType.CTF_FLAG_UPDATE:
                     this.handleCTFFlagUpdate(message.data);
+                    break;
+
+                case ServerMessageType.CONTROL_POINT_UPDATE:
+                    this.handleControlPointUpdate(message.data);
+                    break;
+
+                case ServerMessageType.ESCORT_PAYLOAD_UPDATE:
+                    this.handleEscortPayloadUpdate(message.data);
+                    break;
+
+                case ServerMessageType.SURVIVAL_WAVE_UPDATE:
+                    this.handleSurvivalWaveUpdate(message.data);
+                    break;
+
+                case ServerMessageType.RAID_BOSS_UPDATE:
+                    this.handleRaidBossUpdate(message.data);
                     break;
 
                 case ServerMessageType.PLAYER_KILLED:
@@ -2203,6 +2228,22 @@ export class MultiplayerManager {
                         this.handleCTFFlagUpdate(update.data);
                         break;
 
+                    case ServerMessageType.CONTROL_POINT_UPDATE:
+                        this.handleControlPointUpdate(update.data);
+                        break;
+
+                    case ServerMessageType.ESCORT_PAYLOAD_UPDATE:
+                        this.handleEscortPayloadUpdate(update.data);
+                        break;
+
+                    case ServerMessageType.SURVIVAL_WAVE_UPDATE:
+                        this.handleSurvivalWaveUpdate(update.data);
+                        break;
+
+                    case ServerMessageType.RAID_BOSS_UPDATE:
+                        this.handleRaidBossUpdate(update.data);
+                        break;
+
                     case ServerMessageType.CTF_FLAG_PICKUP:
                         this.handleCTFFlagPickup(update.data);
                         break;
@@ -2682,7 +2723,7 @@ export class MultiplayerManager {
                 localPlayerData = playerData;
                 // Perform reconciliation if we have server sequence
                 if (serverSequence !== undefined) {
-                    this.reconcileServerState(serverSequence, localPlayerData);
+                    this.reconcileServerState(serverSequence, localPlayerData, isFullState);
                 }
                 // КРИТИЧНО: НЕ добавляем локального игрока в networkPlayers
             } else {
@@ -2763,6 +2804,30 @@ export class MultiplayerManager {
     private handleCTFFlagUpdate(data: CTFFlagUpdateData): void {
         if (this.onCTFFlagUpdateCallback) {
             this.onCTFFlagUpdateCallback(data);
+        }
+    }
+
+    private handleControlPointUpdate(data: any): void {
+        if (this.onControlPointUpdateCallback) {
+            this.onControlPointUpdateCallback(data);
+        }
+    }
+
+    private handleEscortPayloadUpdate(data: any): void {
+        if (this.onEscortPayloadUpdateCallback) {
+            this.onEscortPayloadUpdateCallback(data);
+        }
+    }
+
+    private handleSurvivalWaveUpdate(data: any): void {
+        if (this.onSurvivalWaveUpdateCallback) {
+            this.onSurvivalWaveUpdateCallback(data);
+        }
+    }
+
+    private handleRaidBossUpdate(data: any): void {
+        if (this.onRaidBossUpdateCallback) {
+            this.onRaidBossUpdateCallback(data);
         }
     }
 
@@ -3171,10 +3236,10 @@ export class MultiplayerManager {
 
         // КРИТИЧНО: Обновляем визуальную модель танка если части изменились
         if (partsChanged) {
-            const game = (window as any).gameInstance;
-            if (game && game.networkPlayerTanks) {
+            const game = getGameInstance();
+            if (game && 'networkPlayerTanks' in game && game.networkPlayerTanks) {
                 const tank = game.networkPlayerTanks.get(playerData.id);
-                if (tank && typeof tank.updateParts === 'function') {
+                if (tank && 'updateParts' in tank && typeof tank.updateParts === 'function') {
                     logger.log(`[Multiplayer] 🛠️ Updating tank parts for ${playerData.id}:`, partsUpdateData);
                     tank.updateParts(partsUpdateData);
                 }
@@ -3478,7 +3543,7 @@ export class MultiplayerManager {
      * УПРОЩЁННАЯ reconciliation: просто обновляем серверную целевую позицию
      * Клиент будет плавно интерполировать к ней в GameMultiplayerCallbacks
      */
-    private reconcileServerState(serverSequence: number | undefined, serverPlayerData: PlayerData | null): void {
+    private reconcileServerState(serverSequence: number | undefined, serverPlayerData: PlayerData | null, isFullState: boolean = false): void {
         if (!serverPlayerData || !serverPlayerData.position) {
             return;
         }
@@ -3540,7 +3605,8 @@ export class MultiplayerManager {
                 unconfirmedInputs: unconfirmedInputs.length > 0 ? unconfirmedInputs : undefined,
                 positionDiff,
                 rotationDiff: 0,
-                needsReapplication: true
+                needsReapplication: true,
+                isFullState
             });
         }
     }
@@ -3751,7 +3817,7 @@ export class MultiplayerManager {
      * @param customMapData - Optional custom map JSON data
      * @returns True if room creation request was sent, false if not connected
      */
-    createRoom(mode: GameMode, maxPlayers: number = 32, isPrivate: boolean = false, mapType?: string, enableBots: boolean = false, botCount: number = 0, customMapData?: any): boolean {
+    createRoom(mode: GameMode | string, maxPlayers: number = 32, isPrivate: boolean = false, mapType?: string, enableBots: boolean = false, botCount: number = 0, customMapData?: any): boolean {
         // Log mapType to debug why it might be missing/wrong
         logger.log(`[Multiplayer] createRoom called with mapType: '${mapType}', enableBots=${enableBots}, botCount=${botCount}, hasCustomMapData=${!!customMapData}`);
 
@@ -3760,7 +3826,11 @@ export class MultiplayerManager {
             return false;
         }
 
-        logger.log(`[Multiplayer] Creating room: mode=${mode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}, enableBots=${enableBots}, botCount=${botCount}`);
+        // КРИТИЧНО: Конвертируем клиентский формат режима в серверный
+        const { convertClientModeToServerMode } = require("../shared/gameModeUtils");
+        const serverMode = convertClientModeToServerMode(mode as string);
+
+        logger.log(`[Multiplayer] Creating room: clientMode=${mode}, serverMode=${serverMode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}, enableBots=${enableBots}, botCount=${botCount}`);
         // ВАЖНО: Убеждаемся, что комната публичная (isPrivate=false), чтобы её видели другие игроки
         // Получаем настройки кастомизации из localStorage
         const chassisType = localStorage.getItem("selectedChassis") || "medium";
@@ -3785,7 +3855,7 @@ export class MultiplayerManager {
         }
 
         this.send(createClientMessage(ClientMessageType.CREATE_ROOM, {
-            mode,
+            mode: serverMode, // КРИТИЧНО: Используем конвертированный серверный режим
             maxPlayers,
             isPrivate: false, // Всегда создаем публичные комнаты для видимости
             mapType: mapType || "normal", // Передаем тип карты
@@ -4171,6 +4241,22 @@ export class MultiplayerManager {
         this.onCTFFlagUpdateCallback = callback;
     }
 
+    onControlPointUpdate(callback: (data: any) => void): void {
+        this.onControlPointUpdateCallback = callback;
+    }
+
+    onEscortPayloadUpdate(callback: (data: any) => void): void {
+        this.onEscortPayloadUpdateCallback = callback;
+    }
+
+    onSurvivalWaveUpdate(callback: (data: any) => void): void {
+        this.onSurvivalWaveUpdateCallback = callback;
+    }
+
+    onRaidBossUpdate(callback: (data: any) => void): void {
+        this.onRaidBossUpdateCallback = callback;
+    }
+
     onPlayerKilled(callback: (data: PlayerKilledData) => void): void {
         this.onPlayerKilledCallback = callback;
     }
@@ -4245,15 +4331,32 @@ export class MultiplayerManager {
 
     // === MENU INTEGRATION METHODS ===
 
+    /**
+     * Update extended room settings from in-game room panel (host only).
+     * This wraps CHANGE_ROOM_SETTINGS and merges custom settings on the server.
+     */
     public updateRoomSettings(settings: any): void {
-        logger.log("[Multiplayer] Sending UPDATE_ROOM_SETTINGS...", settings);
-        // In a real implementation:
-        // this.send({ type: ClientMessageType.UPDATE_ROOM_SETTINGS, data: settings });
+        try {
+            if (!this.connected || !this.roomId) {
+                logger.warn("[Multiplayer] Cannot update room settings: not connected or not in room");
+                return;
+            }
 
-        // For now, just simulate success for UI feedback
-        this.dispatchToast("Настройки комнаты обновлены (симуляция)", "success");
+            logger.log("[Multiplayer] Updating room settings (panel):", settings);
+
+            this.send(
+                createClientMessage(ClientMessageType.CHANGE_ROOM_SETTINGS, {
+                    roomId: this.roomId,
+                    settings
+                })
+            );
+
+            this.dispatchToast("Настройки комнаты отправлены на сервер", "success");
+        } catch (error) {
+            logger.error("[Multiplayer] Error in updateRoomSettings:", error);
+            this.dispatchToast("Не удалось обновить настройки комнаты", "error");
+        }
     }
-
 
     public sendInvite(friendId: string): void {
         if (!friendId?.trim()) return;

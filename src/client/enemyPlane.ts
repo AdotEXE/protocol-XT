@@ -18,6 +18,7 @@ import { EffectsManager } from "./effects";
 import { logger } from "./utils/logger";
 import { CHASSIS_TYPES, CANNON_TYPES, getCannonById } from "./tankTypes";
 import { MaterialFactory } from "./garage/materials";
+import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 
 /**
  * Состояния AI самолёта
@@ -154,70 +155,99 @@ export class EnemyPlane extends EnemyTank {
             config
         );
 
-        // Устанавливаем начальный газ
+        // ИСПРАВЛЕНО: Устанавливаем начальный газ и начальную скорость вперёд
+        // Это предотвращает падение самолёта на землю сразу после спавна
         this.setThrottle(0.7);
+        
+        // Устанавливаем начальную скорость вперёд (чтобы самолёт сразу начал лететь)
+        // Направление вперёд по оси Z (локальная система координат самолёта)
+        const forward = this.chassis.forward || new Vector3(0, 0, 1);
+        const initialSpeed = 30; // Начальная скорость для предотвращения падения
+        this.physicsBody.setLinearVelocity(forward.scale(initialSpeed));
     }
 
     // === VISUAL OVERRIDES ===
 
     protected createChassis(position: Vector3): Mesh {
-        const length = 4.0;
-        const wingSpan = 5.0;
+        // ИСПРАВЛЕНО: Используем детализированную модель Warhawk как у игрока
+        // Создаём базовый контейнер (невидимый) и добавляем детали из JSON
+        const w = this.chassisType.width;
+        const h = this.chassisType.height;
+        const d = this.chassisType.depth;
 
-        // Fuselage (tessellation reduced from 8 to 4 for performance)
-        const fuselage = MeshBuilder.CreateCylinder(`planeFuselage_${this.id}`, {
-            height: length,
-            diameterTop: 0.5,
-            diameterBottom: 1.0,
-            tessellation: 4
+        // Базовый контейнер (невидимый, используется только для физики и как родитель деталей)
+        const chassis = MeshBuilder.CreateBox(`enemyPlane_${this.id}`, {
+            width: w,
+            height: h,
+            depth: d
         }, this.scene);
-        fuselage.rotation.x = Math.PI / 2;
+        chassis.position.copyFrom(position);
+        chassis.rotationQuaternion = Quaternion.Identity();
 
-        // Wings
-        const wings = MeshBuilder.CreateBox(`planeWings_${this.id}`, {
-            width: wingSpan,
-            height: 0.1,
-            depth: 1.2
-        }, this.scene);
-        wings.parent = fuselage;
-        wings.position.y = 0.2;
-
-        // Tail
-        const tail = MeshBuilder.CreateBox(`planeTail_${this.id}`, {
-            width: 2.0,
-            height: 0.1,
-            depth: 0.8
-        }, this.scene);
-        tail.parent = fuselage;
-        tail.position.y = 0.2;
-        tail.position.z = -length * 0.45;
-
-        const tailFin = MeshBuilder.CreateBox(`planeTailFin_${this.id}`, {
-            width: 0.1,
-            height: 1.0,
-            depth: 0.8
-        }, this.scene);
-        tailFin.parent = fuselage;
-        tailFin.position.y = 0.5;
-        tailFin.position.z = -length * 0.45;
-
-        fuselage.position.copyFrom(position);
-
-        // Shared material for all enemy planes (performance optimization)
+        // Базовый материал (невидимый, так как показываем только детали)
+        const baseColor = Color3.FromHexString(this.chassisType.color);
         const mat = MaterialFactory.createEnemyPlaneMaterial(this.scene);
-        fuselage.material = mat;
-        wings.material = mat;
-        tail.material = mat;
-        tailFin.material = mat;
+        chassis.material = mat;
+        chassis.isVisible = false; // Скрываем базовый контейнер, показываем только детали
 
-        fuselage.metadata = { type: "enemyPlane", instance: this };
-        fuselage.rotationQuaternion = Quaternion.Identity();
+        // Добавляем детализированную модель Warhawk из JSON данных
+        ChassisDetailsGenerator.addPlaneDetails(
+            this.scene,
+            chassis,
+            w, h, d,
+            baseColor,
+            `enemyPlane_${this.id}` // префикс для материалов
+        );
 
-        return fuselage;
+        chassis.metadata = { type: "enemyPlane", instance: this };
+
+        return chassis;
     }
 
     protected createTracks(): void {
         // No tracks for planes
+    }
+
+    // ИСПРАВЛЕНО: Переопределяем создание башни - для самолёта не нужна отдельная башня
+    // Стрельба происходит из носа самолёта (ствол интегрирован в модель)
+    protected createTurret(): Mesh | null {
+        // Для самолёта не создаём отдельную башню - стрельба из носа
+        // Создаём минимальный невидимый меш для совместимости с кодом EnemyTank
+        const turret = MeshBuilder.CreateBox(`enemyPlaneTurret_${this.id}`, {
+            width: 0.01,
+            height: 0.01,
+            depth: 0.01
+        }, this.scene);
+        turret.parent = this.chassis;
+        // Башня в центре корпуса (для совместимости с кодом стрельбы)
+        turret.position = Vector3.Zero();
+        turret.isVisible = false; // Невидимая башня для совместимости
+        turret.metadata = { type: "enemyPlane", instance: this };
+        return turret;
+    }
+
+    // ИСПРАВЛЕНО: Переопределяем создание ствола - для самолёта ствол интегрирован в модель
+    protected createBarrel(): Mesh | null {
+        // Для самолёта не создаём отдельный ствол - он уже есть в модели Warhawk
+        // Создаём минимальный невидимый меш для совместимости с кодом EnemyTank
+        // ВАЖНО: Позиционируем ствол в носу самолёта (вперёд по оси Z)
+        const barrel = MeshBuilder.CreateBox(`enemyPlaneBarrel_${this.id}`, {
+            width: 0.01,
+            height: 0.01,
+            depth: 0.01
+        }, this.scene);
+        if (this.turret) {
+            barrel.parent = this.turret;
+        } else {
+            barrel.parent = this.chassis;
+        }
+        // ИСПРАВЛЕНО: Позиционируем ствол в носу самолёта (вперёд по локальной оси Z)
+        // Для самолёта нос находится в положительном направлении Z
+        const d = this.chassisType.depth;
+        barrel.position = new Vector3(0, 0, d * 0.5); // В носу корпуса
+        barrel.isVisible = false; // Невидимый ствол для совместимости
+        barrel.metadata = { type: "enemyPlane", instance: this };
+        return barrel;
     }
 
     // === THROTTLE CONTROL ===
@@ -685,6 +715,22 @@ export class EnemyPlane extends EnemyTank {
     }
 
     // === SHOOTING ===
+
+    // ИСПРАВЛЕНО: Переопределяем проверку наведения для самолёта
+    // Для самолёта проверяем направление корпуса, а не башни (башня невидима и всегда вперёд)
+    private isAimedAtTarget(): boolean {
+        if (!this.target?.chassis || !this.chassis) return false;
+
+        const myPos = this.chassis.absolutePosition;
+        const targetPos = this.target.chassis.absolutePosition;
+        const toTarget = targetPos.subtract(myPos).normalize();
+        const forward = this.chassis.forward;
+
+        const dot = Vector3.Dot(forward, toTarget);
+        // Для самолёта используем более мягкий допуск (0.92 = ~23°)
+        // так как самолёт движется быстро и сложнее точно навестись
+        return dot > 0.92;
+    }
 
     private updateShooting(): void {
         if (!this.target?.isAlive || !this.target.chassis || !this.chassis) return;

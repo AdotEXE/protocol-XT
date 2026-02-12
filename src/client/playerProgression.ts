@@ -30,13 +30,49 @@ export interface PlayerStats {
     prestigeLevel: number;
     prestigeMultiplier: number;
 
-    // Навыки (очки вложенные)
+    // Навыки (очки вложенные) - ПОЛНОЕ ДРЕВО НАВЫКОВ
     skills: {
-        tankMastery: number;      // Бонус ко всем характеристикам танка
-        combatExpert: number;     // Бонус к урону и точности
-        survivalInstinct: number; // Бонус к здоровью и регенерации
-        resourcefulness: number;  // Бонус к опыту и кредитам
-        tacticalGenius: number;   // Бонус к скорости башни и перезарядке
+        // Корневые хабы
+        tankMastery: number;
+        survivalInstinct: number;
+        resourcefulness: number;
+        tacticalGenius: number;
+        
+        // Ветка боя
+        combatExpert: number;
+        damageBoost: number;
+        accuracy: number;
+        criticalStrike: number;
+        fireRate: number;
+        armorPenetration: number;
+        destroyer: number;
+        
+        // Ветка выживания
+        armor: number;
+        health: number;
+        regeneration: number;
+        shield: number;
+        vitality: number;
+        invulnerability: number;
+        
+        // Ветка утилит
+        economy: number;
+        experience: number;
+        scavenger: number;
+        trader: number;
+        student: number;
+        sage: number;
+        
+        // Ветка мастерства
+        turretSpeed: number;
+        reloadSpeed: number;
+        lightningTurn: number;
+        preciseAiming: number;
+        fastReload: number;
+        autoReload: number;
+        
+        // Мета-навыки
+        legend: number;
     };
 
     // Достижения
@@ -230,11 +266,47 @@ const DEFAULT_PLAYER_STATS: PlayerStats = {
     prestigeLevel: 0,
     prestigeMultiplier: 1,
     skills: {
+        // Корневые хабы
         tankMastery: 0,
-        combatExpert: 0,
         survivalInstinct: 0,
         resourcefulness: 0,
-        tacticalGenius: 0
+        tacticalGenius: 0,
+        
+        // Ветка боя
+        combatExpert: 0,
+        damageBoost: 0,
+        accuracy: 0,
+        criticalStrike: 0,
+        fireRate: 0,
+        armorPenetration: 0,
+        destroyer: 0,
+        
+        // Ветка выживания
+        armor: 0,
+        health: 0,
+        regeneration: 0,
+        shield: 0,
+        vitality: 0,
+        invulnerability: 0,
+        
+        // Ветка утилит
+        economy: 0,
+        experience: 0,
+        scavenger: 0,
+        trader: 0,
+        student: 0,
+        sage: 0,
+        
+        // Ветка мастерства
+        turretSpeed: 0,
+        reloadSpeed: 0,
+        lightningTurn: 0,
+        preciseAiming: 0,
+        fastReload: 0,
+        autoReload: 0,
+        
+        // Мета-навыки
+        legend: 0
     },
     achievements: [],
     dailyQuests: [],
@@ -469,14 +541,41 @@ export class PlayerProgressionSystem {
         this.saveStats();
 
         if (this.chatSystem) {
+            // Полный список названий навыков для уведомлений
             const skillNames: Record<string, string> = {
-                tankMastery: "Мастерство танка",
-                combatExpert: "Боевой эксперт",
+                tankMastery: "Мастер танка",
                 survivalInstinct: "Инстинкт выживания",
                 resourcefulness: "Находчивость",
-                tacticalGenius: "Тактический гений"
+                tacticalGenius: "Тактический гений",
+                combatExpert: "Боевой эксперт",
+                damageBoost: "Урон",
+                accuracy: "Точность",
+                criticalStrike: "Критический удар",
+                fireRate: "Скорострельность",
+                armorPenetration: "Усиление бронебойности",
+                destroyer: "Разрушитель",
+                armor: "Броня",
+                health: "Здоровье",
+                regeneration: "Регенерация",
+                shield: "Щит",
+                vitality: "Живучесть",
+                invulnerability: "Неуязвимость",
+                economy: "Экономика",
+                experience: "Опыт",
+                scavenger: "Добытчик",
+                trader: "Торговец",
+                student: "Ученик",
+                sage: "Мудрец",
+                turretSpeed: "Скорость башни",
+                reloadSpeed: "Перезарядка",
+                lightningTurn: "Молниеносный поворот",
+                preciseAiming: "Точное наведение",
+                fastReload: "Быстрая перезарядка",
+                autoReload: "Автоматическая перезарядка",
+                legend: "Легенда"
             };
-            this.chatSystem.success(`⬆️ ${skillNames[skillName]} улучшен до ${this.stats.skills[skillName]}`);
+            const displayName = skillNames[skillName] || skillName;
+            this.chatSystem.success(`⬆️ ${displayName} улучшен до ${this.stats.skills[skillName]}`);
         }
 
         return true;
@@ -491,17 +590,51 @@ export class PlayerProgressionSystem {
         creditBonus: number;
         turretSpeedBonus: number;
         armorBonus: number;
+        accuracyBonus: number;
+        critChanceBonus: number;
+        armorPenetrationBonus: number;
+        structureDamageBonus: number;
+        regenerationBonus: number;
+        damageResistanceBonus: number;
     } {
-        // Улучшенные бонусы навыков (более значимые)
+        const s = this.stats.skills;
+        
+        // Базовые бонусы от корневых навыков
+        const baseDamage = (s.combatExpert || 0) * 4 + (s.damageBoost || 0) * 6;
+        const baseHealth = (s.survivalInstinct || 0) * 15 + (s.health || 0) * 20 + (s.vitality || 0) * 25;
+        const baseSpeed = (s.tankMastery || 0) * 0.5;
+        const baseReload = (s.tacticalGenius || 0) * 75 + (s.fireRate || 0) * 50 + (s.reloadSpeed || 0) * 100 + (s.fastReload || 0) * 120 + (s.autoReload || 0) * 150;
+        const baseExp = (s.resourcefulness || 0) * 0.08 + (s.experience || 0) * 0.10 + (s.student || 0) * 0.12 + (s.sage || 0) * 0.15;
+        const baseCredits = (s.resourcefulness || 0) * 0.08 + (s.economy || 0) * 0.10 + (s.scavenger || 0) * 0.15;
+        const baseTurretSpeed = (s.tacticalGenius || 0) * 0.15 + (s.turretSpeed || 0) * 0.20 + (s.lightningTurn || 0) * 0.25 + (s.preciseAiming || 0) * 0.15;
+        const baseArmor = (s.survivalInstinct || 0) * 0.02 + (s.armor || 0) * 0.03;
+        
+        // Дополнительные бонусы
+        const accuracyBonus = (s.accuracy || 0) * 0.05 + (s.preciseAiming || 0) * 0.10;
+        const critChanceBonus = (s.criticalStrike || 0) * 0.03;
+        const armorPenetrationBonus = (s.armorPenetration || 0) * 0.02;
+        const structureDamageBonus = (s.destroyer || 0) * 0.10;
+        const regenerationBonus = (s.regeneration || 0) * 1.0; // HP/сек
+        const damageResistanceBonus = (s.shield || 0) * 0.05 + (s.invulnerability || 0) * 0.02;
+        
+        // Мета-навык "Легенда" даёт +5% ко всему
+        const legendMultiplier = 1 + (s.legend || 0) * 0.05;
+        
         return {
-            damageBonus: this.stats.skills.combatExpert * 4,           // +4 урона за уровень (было 3)
-            healthBonus: this.stats.skills.survivalInstinct * 15,      // +15 HP за уровень (было 10)
-            speedBonus: this.stats.skills.tankMastery * 0.5,           // +0.5 скорости за уровень (было 0.3)
-            reloadBonus: this.stats.skills.tacticalGenius * 75,         // +75 мс перезарядки за уровень (было 50)
-            expBonus: this.stats.skills.resourcefulness * 0.08,        // +8% опыта за уровень (было 5%)
-            creditBonus: this.stats.skills.resourcefulness * 0.08,     // +8% кредитов за уровень (было 5%)
-            turretSpeedBonus: this.stats.skills.tacticalGenius * 0.15, // +15% скорости башни за уровень (было 10%)
-            armorBonus: this.stats.skills.survivalInstinct * 0.02      // +2% брони за уровень
+            damageBonus: (baseDamage + (s.autoReload || 0) * 5) * legendMultiplier,
+            healthBonus: baseHealth * legendMultiplier,
+            speedBonus: baseSpeed * legendMultiplier,
+            reloadBonus: baseReload * legendMultiplier,
+            expBonus: baseExp * legendMultiplier,
+            creditBonus: baseCredits * legendMultiplier,
+            turretSpeedBonus: baseTurretSpeed * legendMultiplier,
+            armorBonus: baseArmor * legendMultiplier,
+            accuracyBonus: accuracyBonus * legendMultiplier,
+            critChanceBonus: critChanceBonus * legendMultiplier,
+            armorPenetrationBonus: armorPenetrationBonus * legendMultiplier,
+            structureDamageBonus: structureDamageBonus * legendMultiplier,
+            regenerationBonus: regenerationBonus * legendMultiplier,
+            damageResistanceBonus: damageResistanceBonus * legendMultiplier
         };
     }
 

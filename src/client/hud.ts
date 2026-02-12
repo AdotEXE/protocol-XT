@@ -59,7 +59,41 @@ import {
     DEFAULT_DAMAGE_CONFIG,
     LowHealthVignette,
     AircraftHUD,
-    DEFAULT_AIRCRAFT_HUD_CONFIG
+    DEFAULT_AIRCRAFT_HUD_CONFIG,
+    // Game Mode Specific HUD Components
+    BattleRoyaleHUD,
+    DEFAULT_BR_HUD_CONFIG,
+    ControlPointHUD,
+    DEFAULT_CP_HUD_CONFIG,
+    EscortHUD,
+    DEFAULT_ESCORT_HUD_CONFIG,
+    SurvivalHUD,
+    DEFAULT_SURVIVAL_HUD_CONFIG,
+    RaidHUD,
+    DEFAULT_RAID_HUD_CONFIG,
+    FFAHUD,
+    DEFAULT_FFA_HUD_CONFIG,
+    TDMHUD,
+    DEFAULT_TDM_HUD_CONFIG,
+    CTFHUD,
+    DEFAULT_CTF_HUD_CONFIG,
+    CoopHUD,
+    DEFAULT_COOP_HUD_CONFIG,
+    DEFAULT_CP_HUD_CONFIG,
+    EscortHUD,
+    DEFAULT_ESCORT_HUD_CONFIG,
+    SurvivalHUD,
+    DEFAULT_SURVIVAL_HUD_CONFIG,
+    RaidHUD,
+    DEFAULT_RAID_HUD_CONFIG,
+    FFAHUD,
+    DEFAULT_FFA_HUD_CONFIG,
+    TDMHUD,
+    DEFAULT_TDM_HUD_CONFIG,
+    CTFHUD,
+    DEFAULT_CTF_HUD_CONFIG,
+    CoopHUD,
+    DEFAULT_COOP_HUD_CONFIG
 } from "./hud/components";
 import type { TouchInputState } from "./hud/components";
 import { MobileControlsManager, type MobileInputState } from "./mobile";
@@ -459,6 +493,18 @@ export class HUD {
     private arsenalBarComponent: ArsenalBar | null = null;
     private damageIndicatorComponent: DamageIndicator | null = null;
 
+    // Game Mode Specific HUD Components
+    private battleRoyaleHUD: BattleRoyaleHUD | null = null;
+    private controlPointHUD: ControlPointHUD | null = null;
+    private escortHUD: EscortHUD | null = null;
+    private survivalHUD: SurvivalHUD | null = null;
+    private raidHUD: RaidHUD | null = null;
+    private ffaHUD: FFAHUD | null = null;
+    private tdmHUD: TDMHUD | null = null;
+    private ctfHUD: CTFHUD | null = null;
+    private coopHUD: CoopHUD | null = null;
+    private currentGameMode: string | null = null;
+
     // Values
     public maxHealth = 100;
     public currentHealth = 100;
@@ -522,6 +568,9 @@ export class HUD {
 
         // Aircraft HUD (Mouse-Aim ретикли для самолёта)
         this.aircraftHUD = new AircraftHUD(this.guiTexture, DEFAULT_AIRCRAFT_HUD_CONFIG);
+
+        // Game Mode Specific HUD Components (инициализируются при смене режима)
+        // Они будут созданы динамически в setGameMode()
 
         // Экранное управление (джойстик для сенсорных устройств)
         // По умолчанию включено, но будет управляться через настройки
@@ -3008,6 +3057,11 @@ export class HUD {
     private fullMapBuildingMarkers: Rectangle[] = [];
     private fullMapBuildingMarkerPool: Rectangle[] = [];
     private lastFullMapBuildingsUpdate = 0;
+
+    // Режим-специфичные маркеры на полной карте
+    private fullMapModeMarkers: Rectangle[] = [];
+    private fullMapModeMarkerPool: Rectangle[] = [];
+    private fullMapModeMarkersData: Map<string, { type: string; position: { x: number; z: number }; team?: number; progress?: number }> = new Map();
 
     private createMinimap() {
         // === ВОЕННО-ТАКТИЧЕСКИЙ ДИЗАЙН РАДАРА (ЗЕЛЁНАЯ СХЕМА) ===
@@ -7601,6 +7655,9 @@ export class HUD {
             this.lastFullMapBuildingsUpdate = now;
         }
 
+        // Обновляем режим-специфичные маркеры на полной карте
+        this.updateFullMapModeMarkers(playerPos, mapArea);
+
         // Валидация входных данных
         if (!enemies || enemies.length === 0) {
             // Скрываем все маркеры если врагов нет
@@ -7992,6 +8049,153 @@ export class HUD {
             marker.isVisible = true;
 
             this.fullMapProjectileMarkers.push(marker);
+        }
+    }
+
+    /**
+     * Обновить режим-специфичные маркеры на полной карте
+     */
+    private updateFullMapModeMarkers(playerPos: Vector3, mapArea: Rectangle): void {
+        if (!this.currentGameMode) return;
+
+        // Скрываем старые маркеры
+        for (const marker of this.fullMapModeMarkers) {
+            marker.isVisible = false;
+            this.fullMapModeMarkerPool.push(marker);
+        }
+        this.fullMapModeMarkers = [];
+
+        const scale = 0.5;
+        const maxDist = 600;
+
+        // Обновляем маркеры в зависимости от режима
+        for (const [id, data] of this.fullMapModeMarkersData.entries()) {
+            const dist = Math.sqrt((data.position.x - playerPos.x) ** 2 + (data.position.z - playerPos.z) ** 2);
+            if (dist > maxDist) continue;
+
+            const mapX = data.position.x * scale;
+            const mapZ = -data.position.z * scale;
+
+            // Получаем или создаём маркер
+            let marker: Rectangle;
+            if (this.fullMapModeMarkerPool.length > 0) {
+                marker = this.fullMapModeMarkerPool.pop()!;
+            } else {
+                marker = new Rectangle(`fullMapModeMarker${this.fullMapModeMarkers.length}`);
+                marker.width = "12px";
+                marker.height = "12px";
+                marker.thickness = 2;
+                marker.zIndex = 100;
+                marker.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+                marker.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+                mapArea.addControl(marker);
+            }
+
+            // Устанавливаем цвет и стиль в зависимости от типа
+            let color = "#ffffff";
+            let bgColor = "rgba(255, 255, 255, 0.8)";
+            
+            switch (data.type) {
+                case "safe_zone":
+                    color = "#00ff00";
+                    bgColor = "rgba(0, 255, 0, 0.3)";
+                    marker.width = `${Math.max(20, (data.progress || 100) * scale * 0.1)}px`;
+                    marker.height = `${Math.max(20, (data.progress || 100) * scale * 0.1)}px`;
+                    break;
+                case "danger_zone":
+                    color = "#ff0000";
+                    bgColor = "rgba(255, 0, 0, 0.3)";
+                    marker.width = `${Math.max(20, (data.progress || 100) * scale * 0.1)}px`;
+                    marker.height = `${Math.max(20, (data.progress || 100) * scale * 0.1)}px`;
+                    break;
+                case "next_zone":
+                    color = "#ffff00";
+                    bgColor = "rgba(255, 255, 0, 0.3)";
+                    marker.width = `${Math.max(20, (data.progress || 100) * scale * 0.1)}px`;
+                    marker.height = `${Math.max(20, (data.progress || 100) * scale * 0.1)}px`;
+                    break;
+                case "control_point":
+                    color = data.team === 0 ? "#0088ff" : data.team === 1 ? "#ff0000" : "#888888";
+                    bgColor = data.team === 0 ? "rgba(0, 136, 255, 0.5)" : data.team === 1 ? "rgba(255, 0, 0, 0.5)" : "rgba(136, 136, 136, 0.5)";
+                    break;
+                case "escort_payload":
+                    color = "#ff8800";
+                    bgColor = "rgba(255, 136, 0, 0.7)";
+                    break;
+                case "escort_start":
+                    color = "#00ff00";
+                    bgColor = "rgba(0, 255, 0, 0.5)";
+                    break;
+                case "escort_end":
+                    color = "#ff0000";
+                    bgColor = "rgba(255, 0, 0, 0.5)";
+                    break;
+                case "boss_location":
+                    color = "#ff0000";
+                    bgColor = "rgba(255, 0, 0, 0.8)";
+                    marker.width = "16px";
+                    marker.height = "16px";
+                    break;
+                case "flag_base":
+                    color = data.team === 0 ? "#0088ff" : "#ff0000";
+                    bgColor = data.team === 0 ? "rgba(0, 136, 255, 0.6)" : "rgba(255, 0, 0, 0.6)";
+                    break;
+                case "flag_carried":
+                    color = "#ffff00";
+                    bgColor = "rgba(255, 255, 0, 0.8)";
+                    break;
+                case "spawn":
+                    color = "#00ff00";
+                    bgColor = "rgba(0, 255, 0, 0.4)";
+                    marker.width = "10px";
+                    marker.height = "10px";
+                    break;
+                case "team_base":
+                    color = data.team === 0 ? "#0088ff" : data.team === 1 ? "#ff0000" : "#888888";
+                    bgColor = data.team === 0 ? "rgba(0, 136, 255, 0.6)" : data.team === 1 ? "rgba(255, 0, 0, 0.6)" : "rgba(136, 136, 136, 0.6)";
+                    marker.width = "14px";
+                    marker.height = "14px";
+                    break;
+                case "objective":
+                    // Лидеры FFA
+                    color = "#ffaa00";
+                    bgColor = "rgba(255, 170, 0, 0.7)";
+                    marker.width = "12px";
+                    marker.height = "12px";
+                    break;
+                case "checkpoint":
+                    // Союзники
+                    color = "#00ff00";
+                    bgColor = "rgba(0, 255, 0, 0.5)";
+                    marker.width = "10px";
+                    marker.height = "10px";
+                    break;
+                case "danger":
+                    // Враги / точки спавна врагов
+                    color = "#ff0000";
+                    bgColor = "rgba(255, 0, 0, 0.5)";
+                    marker.width = "10px";
+                    marker.height = "10px";
+                    break;
+            }
+
+            marker.color = color;
+            marker.background = bgColor;
+            marker.left = `${mapX}px`;
+            marker.top = `${mapZ}px`;
+            marker.isVisible = true;
+
+            this.fullMapModeMarkers.push(marker);
+        }
+    }
+
+    /**
+     * Установить данные режим-специфичных маркеров для полной карты
+     */
+    setFullMapModeMarkers(markers: Array<{ id: string; type: string; position: { x: number; z: number }; team?: number; progress?: number }>): void {
+        this.fullMapModeMarkersData.clear();
+        for (const marker of markers) {
+            this.fullMapModeMarkersData.set(marker.id, marker);
         }
     }
 
@@ -9112,6 +9316,54 @@ export class HUD {
                 marker.cornerRadius = 0;
                 marker.rotation = Math.PI / 4;
                 break;
+            case "spawn":
+                marker.cornerRadius = 4;
+                marker.width = "8px";
+                marker.height = "8px";
+                marker.background = "#00ff00";
+                marker.color = "#00ff00";
+                break;
+            case "team_base":
+                marker.cornerRadius = 0;
+                marker.width = "12px";
+                marker.height = "12px";
+                break;
+            case "objective":
+                marker.cornerRadius = 6;
+                marker.width = "10px";
+                marker.height = "10px";
+                marker.background = "#ffaa00";
+                marker.color = "#ffaa00";
+                break;
+            case "checkpoint":
+                marker.cornerRadius = 4;
+                marker.width = "8px";
+                marker.height = "8px";
+                marker.background = "#00ff00";
+                marker.color = "#00ff00";
+                break;
+            case "danger":
+                marker.cornerRadius = 4;
+                marker.width = "8px";
+                marker.height = "8px";
+                marker.background = "#ff0000";
+                marker.color = "#ff0000";
+                break;
+            case "safe_zone":
+            case "danger_zone":
+            case "next_zone":
+            case "control_point":
+            case "escort_payload":
+            case "escort_start":
+            case "escort_end":
+            case "boss_location":
+            case "flag_base":
+            case "flag_carried":
+                // Режим-специфичные типы - используем стандартный стиль
+                marker.cornerRadius = 4;
+                marker.width = "8px";
+                marker.height = "8px";
+                break;
         }
 
         return marker;
@@ -9416,6 +9668,247 @@ export class HUD {
         this.showSyncQuality = show;
         if (this.syncQualityContainer) {
             this.syncQualityContainer.isVisible = show;
+        }
+    }
+
+    /**
+     * Установить игровой режим и инициализировать соответствующие HUD компоненты
+     */
+    setGameMode(mode: string): void {
+        // Скрываем все режим-специфичные HUD компоненты
+        if (this.battleRoyaleHUD) this.battleRoyaleHUD.hide();
+        if (this.controlPointHUD) this.controlPointHUD.hide();
+        if (this.escortHUD) this.escortHUD.hide();
+        if (this.survivalHUD) this.survivalHUD.hide();
+        if (this.raidHUD) this.raidHUD.hide();
+        if (this.ffaHUD) this.ffaHUD.hide();
+        if (this.tdmHUD) this.tdmHUD.hide();
+        if (this.ctfHUD) this.ctfHUD.hide();
+        if (this.coopHUD) this.coopHUD.hide();
+
+        this.currentGameMode = mode;
+
+        // Инициализируем компоненты для текущего режима
+        switch (mode) {
+            case "battle_royale":
+            case "multiplayer_br":
+                if (!this.battleRoyaleHUD) {
+                    this.battleRoyaleHUD = new BattleRoyaleHUD(this.guiTexture, DEFAULT_BR_HUD_CONFIG);
+                }
+                this.battleRoyaleHUD.show();
+                break;
+
+            case "control_point":
+            case "multiplayer_control":
+                if (!this.controlPointHUD) {
+                    this.controlPointHUD = new ControlPointHUD(this.guiTexture, DEFAULT_CP_HUD_CONFIG);
+                }
+                this.controlPointHUD.show();
+                break;
+
+            case "escort":
+            case "multiplayer_escort":
+                if (!this.escortHUD) {
+                    this.escortHUD = new EscortHUD(this.guiTexture, DEFAULT_ESCORT_HUD_CONFIG);
+                }
+                this.escortHUD.show();
+                break;
+
+            case "survival":
+                if (!this.survivalHUD) {
+                    this.survivalHUD = new SurvivalHUD(this.guiTexture, DEFAULT_SURVIVAL_HUD_CONFIG);
+                }
+                this.survivalHUD.show();
+                break;
+
+            case "raid":
+                if (!this.raidHUD) {
+                    this.raidHUD = new RaidHUD(this.guiTexture, DEFAULT_RAID_HUD_CONFIG);
+                }
+                this.raidHUD.show();
+                break;
+
+            case "ffa":
+                if (!this.ffaHUD) {
+                    this.ffaHUD = new FFAHUD(this.guiTexture, DEFAULT_FFA_HUD_CONFIG);
+                }
+                this.ffaHUD.show();
+                break;
+
+            case "tdm":
+                if (!this.tdmHUD) {
+                    this.tdmHUD = new TDMHUD(this.guiTexture, DEFAULT_TDM_HUD_CONFIG);
+                }
+                this.tdmHUD.show();
+                break;
+
+            case "ctf":
+                if (!this.ctfHUD) {
+                    this.ctfHUD = new CTFHUD(this.guiTexture, DEFAULT_CTF_HUD_CONFIG);
+                }
+                this.ctfHUD.show();
+                break;
+
+            case "coop":
+            case "coop_pve":
+                if (!this.coopHUD) {
+                    this.coopHUD = new CoopHUD(this.guiTexture, DEFAULT_COOP_HUD_CONFIG);
+                }
+                this.coopHUD.show();
+                break;
+        }
+    }
+
+    /**
+     * Обновить Battle Royale HUD
+     */
+    updateBattleRoyaleHUD(data: {
+        playersAlive?: number;
+        totalPlayers?: number;
+        zoneData?: any;
+        playerPosition?: { x: number; y: number; z: number };
+        isInZone?: boolean;
+        zoneRadius?: number;
+        nextZoneRadius?: number;
+        timeUntilShrink?: number;
+        shrinkProgress?: number;
+    }): void {
+        if (this.battleRoyaleHUD) {
+            // Get player position from tank if not provided
+            let playerPosition = data.playerPosition || { x: 0, y: 0, z: 0 };
+            // Note: HUD doesn't have direct access to tank, position should be provided from GameMultiplayerCallbacks
+
+            // Build zoneData object
+            const zoneData = data.zoneData || {
+                radius: data.zoneRadius || 0,
+                nextRadius: data.nextZoneRadius || 0,
+                timeUntilShrink: data.timeUntilShrink || 0,
+                shrinkProgress: data.shrinkProgress || 0
+            };
+
+            this.battleRoyaleHUD.update({
+                playersAlive: data.playersAlive || 0,
+                totalPlayers: data.totalPlayers || 0,
+                zoneData: zoneData,
+                playerPosition: playerPosition,
+                isInZone: data.isInZone !== undefined ? data.isInZone : true
+            });
+        }
+    }
+
+    /**
+     * Обновить Control Point HUD
+     */
+    updateControlPointHUD(data: {
+        points: any[];
+        team0Score: number;
+        team1Score: number;
+        maxScore: number;
+    }): void {
+        if (this.controlPointHUD) {
+            this.controlPointHUD.update(data);
+        }
+    }
+
+    /**
+     * Обновить Escort HUD
+     */
+    updateEscortHUD(data: {
+        payload: any;
+        playerTeam: number | null;
+    }): void {
+        if (this.escortHUD) {
+            this.escortHUD.update(data.payload, data.playerTeam);
+        }
+    }
+
+    /**
+     * Обновить Survival HUD
+     */
+    updateSurvivalHUD(data: {
+        currentWave: number;
+        enemiesRemaining: number;
+        enemiesTotal: number;
+        timeUntilNextWave: number;
+        waveState: "FIGHTING" | "RESTING";
+        isEliteWave: boolean;
+    }): void {
+        if (this.survivalHUD) {
+            this.survivalHUD.update(data);
+        }
+    }
+
+    /**
+     * Обновить Raid HUD
+     */
+    updateRaidHUD(data: {
+        boss: any | null;
+        bossesDefeated: number;
+        totalBosses: number;
+    }): void {
+        if (this.raidHUD) {
+            this.raidHUD.update(data);
+        }
+    }
+
+    /**
+     * Обновить FFA HUD
+     */
+    updateFFAHUD(data: {
+        playerKills: number;
+        killLimit: number;
+        gameTime: number;
+        leaderboard?: Array<{ name: string; kills: number }>;
+    }): void {
+        if (this.ffaHUD) {
+            this.ffaHUD.update(data);
+        }
+    }
+
+    /**
+     * Обновить TDM HUD
+     */
+    updateTDMHUD(data: {
+        team0Kills: number;
+        team1Kills: number;
+        killLimit: number;
+        gameTime: number;
+        playerTeam?: number;
+    }): void {
+        if (this.tdmHUD) {
+            this.tdmHUD.update(data);
+        }
+    }
+
+    /**
+     * Обновить CTF HUD
+     */
+    updateCTFHUD(data: {
+        team0Score: number;
+        team1Score: number;
+        maxScore: number;
+        team0Flag: { team: number; status: "base" | "carried" | "dropped"; carrierName?: string };
+        team1Flag: { team: number; status: "base" | "carried" | "dropped"; carrierName?: string };
+        gameTime: number;
+        playerTeam?: number;
+    }): void {
+        if (this.ctfHUD) {
+            this.ctfHUD.update(data);
+        }
+    }
+
+    /**
+     * Обновить Co-op HUD
+     */
+    updateCoopHUD(data: {
+        enemiesRemaining: number;
+        enemiesTotal: number;
+        playersAlive: number;
+        playersTotal: number;
+        gameTime: number;
+    }): void {
+        if (this.coopHUD) {
+            this.coopHUD.update(data);
         }
     }
 
@@ -10733,6 +11226,56 @@ export class HUD {
                 );
             }
         }
+    }
+
+    /**
+     * Очистка режим-специфичных HUD компонентов
+     */
+    dispose(): void {
+        if (this.battleRoyaleHUD) {
+            this.battleRoyaleHUD.dispose();
+            this.battleRoyaleHUD = null;
+        }
+        if (this.controlPointHUD) {
+            this.controlPointHUD.dispose();
+            this.controlPointHUD = null;
+        }
+        if (this.escortHUD) {
+            this.escortHUD.dispose();
+            this.escortHUD = null;
+        }
+        if (this.survivalHUD) {
+            this.survivalHUD.dispose();
+            this.survivalHUD = null;
+        }
+        if (this.raidHUD) {
+            this.raidHUD.dispose();
+            this.raidHUD = null;
+        }
+        if (this.ffaHUD) {
+            this.ffaHUD.dispose();
+            this.ffaHUD = null;
+        }
+        if (this.tdmHUD) {
+            this.tdmHUD.dispose();
+            this.tdmHUD = null;
+        }
+        if (this.ctfHUD) {
+            this.ctfHUD.dispose();
+            this.ctfHUD = null;
+        }
+        if (this.coopHUD) {
+            this.coopHUD.dispose();
+            this.coopHUD = null;
+        }
+
+        // Clear full map mode markers
+        for (const marker of this.fullMapModeMarkers) {
+            marker.dispose();
+        }
+        this.fullMapModeMarkers = [];
+        this.fullMapModeMarkerPool = [];
+        this.fullMapModeMarkersData.clear();
     }
 }
 

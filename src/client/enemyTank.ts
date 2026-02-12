@@ -547,8 +547,10 @@ export class EnemyTank {
         EnemyTank.allEnemies.push(this);
 
         // КРИТИЧНО: Выбираем случайное снаряжение ПЕРЕД применением настроек
-        // Выбираем случайный корпус из ВСЕХ доступных (без фильтрации)
-        this.chassisType = CHASSIS_TYPES[Math.floor(Math.random() * CHASSIS_TYPES.length)]!;
+        // ИСПРАВЛЕНО: Исключаем самолёты из случайного выбора - они создаются только через EnemyPlane
+        // Самолёты требуют специальной физики полёта и не должны создаваться как обычные танки
+        const availableChassis = CHASSIS_TYPES.filter(c => c.id !== "plane");
+        this.chassisType = availableChassis[Math.floor(Math.random() * availableChassis.length)]!;
         // Выбираем случайную пушку из ВСЕХ доступных (без фильтрации)
         this.cannonType = CANNON_TYPES[Math.floor(Math.random() * CANNON_TYPES.length)]!;
         // Выбираем случайные гусеницы из ВСЕХ доступных (без фильтрации)
