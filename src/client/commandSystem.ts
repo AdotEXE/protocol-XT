@@ -20,6 +20,7 @@ export class CommandSystem {
     private history: string[] = [];
     private historyIndex: number = -1;
     private game: any = null;
+    private scheduledTaskNames: Set<string> = new Set();
 
     constructor(game?: any) {
         this.game = game;
@@ -442,10 +443,29 @@ export class CommandSystem {
         this.registerCommand({
             name: 'schedule',
             description: 'Manage scheduled tasks',
-            usage: 'schedule [list|add|remove]',
+            usage: 'schedule [list|add|remove] [name]',
             category: 'system',
-            execute: async (_args) => {
-                return 'Schedule management not implemented yet';
+            execute: async (args) => {
+                const sub = (args[0] || "list").toLowerCase();
+                if (sub === "list") {
+                    const names = Array.from(this.scheduledTaskNames).sort();
+                    if (names.length === 0) return "No scheduled tasks. Use: schedule add <name>";
+                    return `Scheduled tasks (${names.length}):\n${names.map(n => `  - ${n}`).join("\n")}`;
+                }
+                if (sub === "add") {
+                    const name = args[1]?.trim();
+                    if (!name) return "Usage: schedule add <name>";
+                    this.scheduledTaskNames.add(name);
+                    return `Added scheduled task: ${name}`;
+                }
+                if (sub === "remove") {
+                    const name = args[1]?.trim();
+                    if (!name) return "Usage: schedule remove <name>";
+                    const had = this.scheduledTaskNames.has(name);
+                    this.scheduledTaskNames.delete(name);
+                    return had ? `Removed: ${name}` : `No task named "${name}"`;
+                }
+                return `Usage: schedule [list|add|remove] [name]`;
             }
         });
 

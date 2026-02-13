@@ -199,17 +199,17 @@ describe("Reconciliation Tests", () => {
     });
 });
 
-// Интеграционные тесты (требуют полного окружения)
+// Интеграционные тесты (требуют полного окружения: Babylon scene, physics, TankController)
 describe("Reconciliation Integration Tests", () => {
-    // Эти тесты требуют полного окружения с Babylon.js и физикой
-    // Должны запускаться в браузере или с помощью puppeteer
+    // Placeholders for full-environment integration tests (browser/puppeteer with real scene and physics).
+    // Unit-level reconciliation logic is covered above; these would assert smooth sync and no visible jumps.
 
-    it.skip("должен правильно применять reconciliation в реальном времени", () => {
-        // Требует полного окружения
+    it.skip("должен правильно применять reconciliation в реальном времени (requires full env)", () => {
+        expect(true).toBe(true); // Placeholder: run in browser with scene + physics
     });
 
-    it.skip("должен синхронизировать physics body без прыжков", () => {
-        // Требует полного окружения
+    it.skip("должен синхронизировать physics body без прыжков (requires full env)", () => {
+        expect(true).toBe(true); // Placeholder: run in browser with scene + physics
     });
 });
 

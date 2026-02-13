@@ -50,9 +50,11 @@ export class AttachmentMarkers {
     }
     
     private createMarkers(): void {
-        // Красная сфера для turret pivot
-        this.pivotMarker = MeshBuilder.CreateSphere('pivotMarker', {
-            diameter: this.MARKER_SIZE
+        // Красный маркер для turret pivot (box вместо sphere)
+        this.pivotMarker = MeshBuilder.CreateBox('pivotMarker', {
+            width: this.MARKER_SIZE,
+            height: this.MARKER_SIZE,
+            depth: this.MARKER_SIZE
         }, this.scene);
         
         const pivotMat = new StandardMaterial('pivotMarkerMat', this.scene);
@@ -63,9 +65,12 @@ export class AttachmentMarkers {
         this.pivotMarker.renderingGroupId = 2; // Поверх всего
         this.pivotMarker.setEnabled(false);
         
-        // Синяя сфера для barrel mount
-        this.barrelMarker = MeshBuilder.CreateSphere('barrelMarker', {
-            diameter: this.MARKER_SIZE * 0.8
+        // Синий маркер для barrel mount (box вместо sphere)
+        const barrelSize = this.MARKER_SIZE * 0.8;
+        this.barrelMarker = MeshBuilder.CreateBox('barrelMarker', {
+            width: barrelSize,
+            height: barrelSize,
+            depth: barrelSize
         }, this.scene);
         
         const barrelMat = new StandardMaterial('barrelMarkerMat', this.scene);

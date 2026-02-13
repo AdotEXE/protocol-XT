@@ -133,10 +133,10 @@ export class SandGenerator extends BaseMapGenerator {
         const arenaSize = this.config.arenaSize;
 
         // Создаём один большой ground
-        const ground = MeshBuilder.CreateGround("sand_ground", {
+        const ground = MeshBuilder.CreateBox("sand_ground", {
             width: arenaSize,
-            height: arenaSize,
-            subdivisions: 1 // Минимум subdivision = минимум вершин (4 вершины)
+            height: 0.1,
+            depth: arenaSize
         }, scene);
 
         ground.position = new Vector3(0, 0, 0);

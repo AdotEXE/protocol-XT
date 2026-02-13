@@ -12,6 +12,7 @@ import { logger } from "./utils/logger";
 
 import { getChassisById, getCannonById, getTrackById, type ChassisType, type CannonType, type TrackType } from "./tankTypes";
 import { createUniqueCannon, type CannonAnimationElements } from "./tank/tankCannon";
+import { runCannonAnimations, runChassisAnimations } from "./tank/tankAnimations";
 import { ChassisDetailsGenerator } from "./garage/chassisDetails";
 import { MaterialFactory } from "./garage/materials";
 import type { EffectsManager } from "./effects";
@@ -140,6 +141,8 @@ export class NetworkPlayerTank {
 
     // Animation elements for chassis (hover, stealth, etc.)
     private chassisAnimationElements: ChassisAnimationElements = {};
+    // Animation elements for cannon (gatling, tesla, etc.) - populated by createUniqueCannon
+    private cannonAnimationElements: CannonAnimationElements = {};
 
     constructor(scene: Scene, networkPlayer: NetworkPlayer, effectsManager?: EffectsManager) {
         this.scene = scene;
@@ -688,8 +691,8 @@ export class NetworkPlayerTank {
 
         if (module.modelPath === "cylinder_pair") {
             mesh = new Mesh("netMod_" + module.id + "_" + this.uniqueId, this.scene);
-            const pipe1 = MeshBuilder.CreateCylinder("p1", { height: 1, diameter: 0.3 }, this.scene);
-            const pipe2 = MeshBuilder.CreateCylinder("p2", { height: 1, diameter: 0.3 }, this.scene);
+            const pipe1 = MeshBuilder.CreateBox("p1", { width: 0.3, height: 1, depth: 0.3 }, this.scene);
+            const pipe2 = MeshBuilder.CreateBox("p2", { width: 0.3, height: 1, depth: 0.3 }, this.scene);
             pipe1.position.x = 0.3; pipe1.rotation.x = Math.PI / 2;
             pipe2.position.x = -0.3; pipe2.rotation.x = Math.PI / 2;
             pipe1.parent = mesh;
@@ -834,9 +837,9 @@ export class NetworkPlayerTank {
         const barrelWidth = this.cannonType.barrelWidth || 0.15;
         const barrelLength = this.cannonType.barrelLength || 3;
 
-        // Используем реальную функцию создания пушки!
-        // Передаём пустой объект для animationElements (сетевым танкам не нужны анимации)
-        const animationElements: CannonAnimationElements = {};
+        // Используем реальную функцию создания пушки; передаём cannonAnimationElements
+        // чтобы createUniqueCannon заполнил его для анимаций (gatling, tesla и т.д.)
+        this.cannonAnimationElements = {};
 
         // КРИТИЧНО: Используем prefix "netBarrel_" чтобы cleanup код в tankController.ts
         // не удалял стволы сетевых танков (он ищет только "barrel_" префикс)
@@ -845,7 +848,7 @@ export class NetworkPlayerTank {
             this.scene,
             barrelWidth,
             barrelLength,
-            animationElements,
+            this.cannonAnimationElements,
             "netBarrel_"
         );
 
@@ -1410,6 +1413,14 @@ export class NetworkPlayerTank {
             this.updateVisibility();
         }
 
+        // Cannon and chassis animations (same as local player)
+        if (this.cannonAnimationElements && this.barrel && !this.barrel.isDisposed()) {
+            runCannonAnimations(this.cannonAnimationElements, this.barrel, this.cannonType.id, deltaTime);
+        }
+        if (this.chassisAnimationElements && this.chassis && !this.chassis.isDisposed()) {
+            runChassisAnimations(this.chassisAnimationElements, this.chassis, deltaTime);
+        }
+
         // Check for status changes (ANIMATIONS)
         const currentStatus = this.networkPlayer.status || "alive";
         if (currentStatus !== this.prevStatus) {
@@ -1759,10 +1770,10 @@ export class NetworkPlayerTank {
         const barHeight = 0.15;
         const barY = this.chassisType.height + 2.5; // Над танком
 
-        // Фон (серый)
-        this.healthBarBackground = MeshBuilder.CreatePlane(
+        // Фон (серый) (box вместо plane)
+        this.healthBarBackground = MeshBuilder.CreateBox(
             `healthBg_${this.uniqueId}`,
-            { width: barWidth, height: barHeight },
+            { width: barWidth, height: barHeight, depth: 0.01 },
             this.scene
         );
         this.healthBarBackground.position = new Vector3(0, barY, 0);
@@ -1777,10 +1788,10 @@ export class NetworkPlayerTank {
         bgMat.disableLighting = true;
         this.healthBarBackground.material = bgMat;
 
-        // Полоска здоровья (зелёная/жёлтая/красная)
-        this.healthBar = MeshBuilder.CreatePlane(
+        // Полоска здоровья (зелёная/жёлтая/красная) (box вместо plane)
+        this.healthBar = MeshBuilder.CreateBox(
             `healthBar_${this.uniqueId}`,
-            { width: barWidth, height: barHeight },
+            { width: barWidth, height: barHeight, depth: 0.01 },
             this.scene
         );
         this.healthBar.position = new Vector3(0, barY, -0.01); // Чуть впереди фона
@@ -1795,11 +1806,10 @@ export class NetworkPlayerTank {
         barMat.disableLighting = true;
         this.healthBar.material = barMat;
 
-        // Текст дистанции (над полоской)
-        // Плоскость 1.5x0.5, текстура 128x64 (2:1 aspect ratio match)
-        this.distanceTextPlane = MeshBuilder.CreatePlane(
+        // Текст дистанции (над полоской) (box вместо plane)
+        this.distanceTextPlane = MeshBuilder.CreateBox(
             `distText_${this.uniqueId}`,
-            { width: 1.5, height: 0.5 },
+            { width: 1.5, height: 0.5, depth: 0.01 },
             this.scene
         );
         // Позиция: Справа от полоски (barWidth/2 + offset)

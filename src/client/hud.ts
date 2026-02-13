@@ -1268,7 +1268,7 @@ export class HUD {
         winnerText.top = scalePx(-40);
         panel.addControl(winnerText);
 
-        // Stats (Placeholder for now)
+        // Stats (K/D and optional future fields from data.stats)
         if (data.stats) {
             const statsText = new TextBlock("statsInfo");
             // Format stats here if needed
@@ -10718,14 +10718,84 @@ export class HUD {
         this.missionSystem = system;
     }
 
-    private _showComboIncrease(_currentCombo: number, _previousCombo: number): void {
-        // Placeholder для метода показа увеличения комбо
-        // Можно реализовать позже если нужно
+    private _comboPopupText: TextBlock | null = null;
+    private _comboPopupTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    private _showComboIncrease(currentCombo: number, previousCombo: number): void {
+        const delta = currentCombo - previousCombo;
+        if (delta <= 0 || !this.guiTexture) return;
+        if (this._comboPopupTimeout) {
+            clearTimeout(this._comboPopupTimeout);
+            this._comboPopupTimeout = null;
+        }
+        if (this._comboPopupText) {
+            this._comboPopupText.dispose();
+            this._comboPopupText = null;
+        }
+        const popup = new TextBlock("comboPopup", `+${delta}`);
+        popup.color = "#ff0";
+        popup.fontSize = 18;
+        popup.fontWeight = "bold";
+        popup.fontFamily = "'Press Start 2P', monospace";
+        popup.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        popup.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        popup.top = "10px";
+        popup.left = "-160px";
+        popup.outlineWidth = 1;
+        popup.outlineColor = "#000";
+        this.guiTexture.addControl(popup);
+        this._comboPopupText = popup;
+        this._comboPopupTimeout = setTimeout(() => {
+            if (this._comboPopupText) {
+                this._comboPopupText.dispose();
+                this._comboPopupText = null;
+            }
+            this._comboPopupTimeout = null;
+        }, 600);
     }
 
-    private _createComboParticles(_comboCount: number): void {
-        // Placeholder для метода создания частиц комбо
-        // Можно реализовать позже если нужно
+    private _createComboParticles(comboCount: number): void {
+        if (!this.guiTexture) return;
+        const count = 6;
+        const particles: Rectangle[] = [];
+        const colors = ["#ff0", "#f80", "#0ff"];
+        const baseLeft = -150;
+        const baseTop = 20;
+        for (let i = 0; i < count; i++) {
+            const r = new Rectangle(`comboParticle_${Date.now()}_${i}`);
+            r.width = "8px";
+            r.height = "8px";
+            r.background = colors[i % colors.length];
+            r.thickness = 0;
+            r.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+            r.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+            r.left = `${baseLeft + (i - count / 2) * 20}px`;
+            r.top = `${baseTop + (i % 3) * 8}px`;
+            r.alpha = 0.9;
+            this.guiTexture.addControl(r);
+            particles.push(r);
+        }
+        let frame = 0;
+        const animate = () => {
+            frame++;
+            const t = frame / 12;
+            if (t >= 1) {
+                particles.forEach(p => p.dispose());
+                return;
+            }
+            const scale = 1 + t * 1.5;
+            const alpha = 0.9 * (1 - t);
+            particles.forEach((p, i) => {
+                p.scaleX = scale;
+                p.scaleY = scale;
+                p.alpha = alpha;
+                const angle = (i / count) * Math.PI * 2 + t * 2;
+                p.left = `${baseLeft + (i - count / 2) * 20 + Math.cos(angle) * 30}px`;
+                p.top = `${baseTop + (i % 3) * 8 - t * 25}px`;
+            });
+            requestAnimationFrame(animate);
+        };
+        requestAnimationFrame(animate);
     }
 
     // ============================================================

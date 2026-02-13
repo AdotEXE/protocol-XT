@@ -144,6 +144,7 @@ export class EnemyPlane extends EnemyTank {
 
         const config = getAircraftPhysicsConfig("fighter");
 
+        // AI-controlled plane: no player input; AircraftPhysics expects a controller interface
         const mockController = { _inputMap: {} };
 
         this.aircraftPhysics = new AircraftPhysics(

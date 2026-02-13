@@ -461,6 +461,7 @@ export class MultiplayerManager {
     private pingInterval: NodeJS.Timeout | null = null;
     private pingSequence: number = 0;
     private lastPongTime: number = 0;
+    private lastCleanupInactiveTime: number = 0;
 
     // OPTIMIZATION: Adaptive ping interval configuration
     private readonly PING_INTERVAL_MIN = 1000;  // ОПТИМИЗАЦИЯ: 1s (было 0.5s) - снижает сетевую нагрузку
@@ -2107,15 +2108,29 @@ export class MultiplayerManager {
     }
 
     /**
-     * Clean up inactive network players (players not updated recently)
+     * Clean up inactive network players (players not updated recently).
+     * Removes players whose last state update is older than maxAge ms; notifies callbacks so game can dispose tanks.
      */
     private cleanupInactivePlayers(maxAge: number = 10000): void {
         const now = Date.now();
         const playersToRemove: string[] = [];
-
-        // Note: We don't track last update time per player currently
-        // This is a placeholder for future optimization
-        // For now, we rely on server sending PLAYER_LEFT messages
+        for (const [playerId, player] of this.networkPlayers) {
+            if (playerId === this.playerId) continue;
+            const last = (player as any).lastUpdateTime;
+            if (typeof last === "number" && now - last > maxAge) {
+                playersToRemove.push(playerId);
+            }
+        }
+        for (const playerId of playersToRemove) {
+            const removed = this.networkPlayers.delete(playerId);
+            if (removed) {
+                this._roomPlayersCount = Math.max(1, this._roomPlayersCount - 1);
+                logger.log(`[Multiplayer] Cleaned up inactive player: ${playerId}`);
+                this.onPlayerLeftCallbacks.forEach(cb => {
+                    try { cb(playerId); } catch (e) { logger.error("[Multiplayer] Error in onPlayerLeft callback", e); }
+                });
+            }
+        }
     }
 
     /**
@@ -2335,6 +2350,11 @@ export class MultiplayerManager {
         const statesData = data as PlayerStatesData;
         const currentTime = Date.now();
         const serverSequence = statesData.serverSequence ?? -1;
+
+        if (currentTime - this.lastCleanupInactiveTime > 5000) {
+            this.cleanupInactivePlayers(10000);
+            this.lastCleanupInactiveTime = currentTime;
+        }
 
         const playersCount = statesData.players?.length || 0;
         // ОПТИМИЗАЦИЯ: Заменяем filter на обычный цикл для лучшей производительности
@@ -3166,6 +3186,7 @@ export class MultiplayerManager {
         networkPlayer.maxHealth = maxHealth;
         networkPlayer.kills = playerData.kills;
         networkPlayer.deaths = playerData.deaths;
+        networkPlayer.lastUpdateTime = Date.now();
 
         // Update chassis tilt
         if (playerData.chassisPitch !== undefined) networkPlayer.chassisPitch = playerData.chassisPitch;
@@ -3346,8 +3367,7 @@ export class MultiplayerManager {
      * Called by TankController with actual position after applying input locally
      */
     private storePredictedState(sequence: number, input: PlayerInput): void {
-        // Create predicted state with placeholder values
-        // Position/rotation will be updated immediately by updatePredictedState()
+        // Position/rotation from last known local state; updatePredictedState() may refine immediately
         const predictedState: PredictedState = {
             sequence,
             timestamp: input.timestamp,

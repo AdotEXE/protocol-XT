@@ -35,7 +35,7 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
     const capturedObjects: any[] = [];
     const capturedMaterials: Record<string, string> = {}; // name -> hex color
 
-    // Mock Context
+    // Export-only context: generator needs scene/mat/terrain helpers; we provide minimal implementations for capture
     const mockContext = {
         scene: scene,
         getMat: (name: string) => {
@@ -72,7 +72,6 @@ export async function exportGameMap(mapId: string, scene: Scene): Promise<TXMapD
                 rotation: { x: 0, y: 0, z: 0 } // Default
             });
 
-            // Create dummy mesh
             const mesh = new Mesh(name, scene);
             mesh.position = pos.clone();
             mesh.parent = parent;

@@ -53,12 +53,13 @@ export function createTestTargets(
         const targetPos = tankPosition.add(barrelDirection.scale(distance));
         targetPos.y = tankPosition.y; // На той же высоте
         
-        // Создаем меш цели (цилиндр)
-        const target = MeshBuilder.CreateCylinder(
+        // Создаем меш цели (box вместо cylinder)
+        const target = MeshBuilder.CreateBox(
             `testTarget_${index}`,
             {
+                width: 1.5,
                 height: 2,
-                diameter: 1.5
+                depth: 1.5
             },
             scene
         );
@@ -72,13 +73,13 @@ export function createTestTargets(
         material.specularColor = Color3.Black();
         target.material = material;
         
-        // Добавляем кольцо для лучшей видимости
-        const ring = MeshBuilder.CreateTorus(
+        // Добавляем кольцо для лучшей видимости (box вместо torus)
+        const ring = MeshBuilder.CreateBox(
             `testTargetRing_${index}`,
             {
-                diameter: 1.8,
-                thickness: 0.1,
-                tessellation: 16
+                width: 1.8,
+                height: 0.1,
+                depth: 1.8
             },
             scene
         );

@@ -49,6 +49,7 @@ export interface ActiveDrop {
     startY: number;
     targetY: number;
     fallSpeed: number;
+    velocityY: number; // gravity-based fall
     landedTime: number;
     despawnTime: number;
     swayPhase: number;
@@ -82,6 +83,11 @@ export class SupplyDropSystem {
         pickupRadius: 3
     };
 
+    /** Spawn interval in ms */
+    private readonly SPAWN_INTERVAL_MS = 45000;
+    private readonly GRAVITY = 15;
+    private readonly MAX_FALL_SPEED = 28;
+
     constructor(scene: Scene, getGroundHeight: (x: number, z: number) => number) {
         this.scene = scene;
         this.getGroundHeight = getGroundHeight;
@@ -92,18 +98,62 @@ export class SupplyDropSystem {
 
     /**
      * Инициализация системы (для совместимости с Game)
+     * Загружает точки дропа из mapData.placedObjects (type === "drop_point").
+     * Если точек нет — генерирует дефолтные по границам карты.
      * @param mapData Данные карты (опционально)
      */
     public initialize(mapData?: any): void {
         this.clear();
 
-        // Если есть данные карты с точками дропа, можно их загрузить
-        if (mapData && mapData.supplyDropPoints) {
-            // Логика загрузки точек будет добавлена позже при необходимости
-            // Сейчас просто логируем факт инициализации
-            logger.log(`[SupplyDropSystem] Initialized with map data`);
+        const placedObjects = mapData?.placedObjects;
+        if (Array.isArray(placedObjects)) {
+            for (const obj of placedObjects as { id?: string; type?: string; position?: { x: number; y?: number; z: number }; properties?: { consumableTypes?: string[] } }[]) {
+                if (obj.type !== "drop_point") continue;
+                const id = obj.id || `drop_point_${nanoid(6)}`;
+                if (!obj.position || typeof obj.position.x !== "number" || typeof obj.position.z !== "number") continue;
+                const typeIds = obj.properties?.consumableTypes;
+                const types = Array.isArray(typeIds) && typeIds.length > 0
+                    ? typeIds.map(tid => CONSUMABLE_TYPES.find(ct => ct.id === tid)).filter((t): t is ConsumableType => t != null)
+                    : CONSUMABLE_TYPES;
+                if (types.length === 0) continue;
+                const point: DropPoint = {
+                    id,
+                    position: new Vector3(obj.position.x, obj.position.y ?? 0, obj.position.z),
+                    types
+                };
+                this.dropPoints.set(id, point);
+            }
+        }
+
+        if (this.dropPoints.size === 0 && mapData) {
+            const mapSize = (mapData.metadata as { mapSize?: number } | undefined)?.mapSize
+                ?? (mapData as { mapSize?: number }).mapSize ?? 400;
+            const half = mapSize / 2;
+            const step = Math.max(80, mapSize / 5);
+            for (let i = 0; i < 6; i++) {
+                const x = (i % 2 === 0 ? -1 : 1) * (half * 0.4 + (i >> 1) * step * 0.5);
+                const z = (i % 3 === 0 ? -1 : i % 3 === 1 ? 0 : 1) * (half * 0.35);
+                const point: DropPoint = {
+                    id: `default_drop_${i}`,
+                    position: new Vector3(x, 0, z),
+                    types: CONSUMABLE_TYPES
+                };
+                this.dropPoints.set(point.id, point);
+            }
+            logger.log(`[SupplyDropSystem] No drop_point objects on map — created ${this.dropPoints.size} default points`);
+        }
+
+        if (this.dropPoints.size > 0) {
+            this.spawnCheckInterval = setInterval(() => {
+                const points = this.getDropPoints();
+                const empty = points.filter(p => !this.hasActiveDropAtPoint(p.id));
+                if (empty.length === 0) return;
+                const point = empty[Math.floor(Math.random() * empty.length)];
+                this.spawnDrop(point);
+            }, this.SPAWN_INTERVAL_MS);
+            logger.log(`[SupplyDropSystem] Initialized with ${this.dropPoints.size} drop points, spawn every ${this.SPAWN_INTERVAL_MS / 1000}s`);
         } else {
-            logger.log(`[SupplyDropSystem] Initialized (no map data)`);
+            logger.log(`[SupplyDropSystem] Initialized (no drop points)`);
         }
     }
 
@@ -185,7 +235,7 @@ export class SupplyDropSystem {
      * Create a parachute mesh
      */
     private createParachute(dropId: string): Mesh {
-        const chute = MeshBuilder.CreateDisc(`drop_chute_${dropId}`, { radius: 3, tessellation: 8 }, this.scene);
+        const chute = MeshBuilder.CreateBox(`drop_chute_${dropId}`, { width: 6, height: 0.01, depth: 6 }, this.scene);
         chute.rotation.x = Math.PI; // Face downward
 
         if (!this.parachuteMaterial) {
@@ -248,6 +298,7 @@ export class SupplyDropSystem {
             startY,
             targetY: groundY + 1.0, // FIX: Приземляемся точно на поверхность (центр куба высотой 2 = y+1)
             fallSpeed: this.config.fallSpeed,
+            velocityY: 0,
             landedTime: 0,
             despawnTime: this.config.despawnTime,
             swayPhase: Math.random() * Math.PI * 2
@@ -270,21 +321,19 @@ export class SupplyDropSystem {
         for (const [id, drop] of this.activeDrops) {
 
             if (drop.state === "falling") {
-                // Вычисляем дистанцию падения за этот кадр
-                const moveDist = drop.fallSpeed * deltaTime;
+                // Гравитация: ускорение вниз, лимит скорости
+                drop.velocityY += this.GRAVITY * deltaTime;
+                if (drop.velocityY > this.MAX_FALL_SPEED) drop.velocityY = this.MAX_FALL_SPEED;
+                const moveDist = drop.velocityY * deltaTime;
                 let landed = false;
                 let landY = drop.targetY;
 
                 // ОПТИМИЗАЦИЯ: Raycast (CCD) запускаем только если мы близко к земле/цели (ближе 20 метров)
-                // Это значительно снижает нагрузку на процессор при множестве дропов
                 if (drop.position.y < drop.targetY + 20) {
-                    // Continuous Collision Detection (CCD)
-                    // Пускаем луч вниз от текущей позиции
                     const rayOrigin = drop.position.clone();
                     rayOrigin.y += 0.5;
-                    const cursorRay = new Ray(rayOrigin, Vector3.Down(), moveDist + 1.0); // +1.0 запас
+                    const cursorRay = new Ray(rayOrigin, Vector3.Down(), moveDist + 1.0);
 
-                    // Предикат для столкновения
                     const hit = this.scene.pickWithRay(cursorRay, (mesh) => {
                         return mesh.isVisible &&
                             mesh.isEnabled() &&
@@ -295,64 +344,44 @@ export class SupplyDropSystem {
                             !mesh.isAnInstance;
                     });
 
-                    // Если есть попадание и дистанция меньше шага движения - приземляемся
                     if (hit && hit.hit && hit.pickedPoint) {
                         const distToGround = hit.distance;
                         const realDistToGround = distToGround - 0.5;
-
                         if (realDistToGround <= moveDist) {
                             landed = true;
-                            // Приземляемся на точку контакта + 1.0
                             landY = hit.pickedPoint.y + 1.0;
                         }
                     }
                 }
 
-                // FALLBACK & Basic Movement
-                if (!landed) {
-                    // Проверяем по targetY (если CCD не сработал или еще высоко)
-                    if (drop.position.y - moveDist <= drop.targetY) {
-                        landed = true;
-                        landY = drop.targetY;
-                    }
+                if (!landed && drop.position.y - moveDist <= drop.targetY) {
+                    landed = true;
+                    landY = drop.targetY;
                 }
 
                 if (landed) {
                     drop.state = "landed";
                     drop.landedTime = now;
+                    drop.velocityY = 0;
                     drop.position.y = landY;
                     drop.container.position.y = landY;
-                    drop.container.rotation.set(0, 0, 0); // Сброс наклона
+                    drop.container.rotation.set(0, 0, 0);
 
-                    // Удалить парашют
                     if (drop.parachuteMesh) {
                         drop.parachuteMesh.dispose();
                         drop.parachuteMesh = null;
-
-                        // NOTE: при желании можно вызвать effectsManager для эффекта приземления
                     }
 
                     logger.log(`[SupplyDrop] ${drop.type.id} landed at Y=${landY.toFixed(2)}`);
                 } else {
-                    // Продолжаем падать
                     drop.position.y -= moveDist;
                     drop.container.position.y = drop.position.y;
-
-                    // Покачивание (только контейнер)
-                    drop.swayPhase += deltaTime * 2;
-                    const swayX = Math.sin(drop.swayPhase) * 0.5;
-                    const swayZ = Math.cos(drop.swayPhase * 0.7) * 0.3;
-                    drop.container.rotation.x = swayX * 0.1;
-                    drop.container.rotation.z = swayZ * 0.1;
-
-                    // Вращение парашюта отключено
+                    // Дропы не крутятся — rotation не меняем
                 }
 
             } else if (drop.state === "landed") {
-                // Анимация на земле (покачивание)
-                drop.swayPhase += deltaTime * 3;
-                const bobY = Math.sin(drop.swayPhase) * 0.05; // Уменьшена амплитуда бобинга (было 0.1)
-                drop.boxMesh.position.y = bobY;
+                // Статичный ящик на земле — боб убран
+                drop.boxMesh.position.y = 0;
 
                 // Проверка исчезновения
                 if (now - drop.landedTime >= drop.despawnTime) {

@@ -386,7 +386,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             }
             
             if (localRandom.chance(0.3)) {
-                const smoke = MeshBuilder.CreateCylinder("smoke", { diameter: 1.5, height: 4 }, this.scene);
+                const smoke = MeshBuilder.CreateBox("smoke", { width: 1.5, height: 4, depth: 1.5 }, this.scene);
                 smoke.position = new Vector3(x, terrainHeight + hullH + 2, z);
                 const smokeMat = new StandardMaterial("smokeMat", this.scene);
                 smokeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
@@ -651,7 +651,7 @@ export class FrontlineGenerator extends BaseMapGenerator {
             const terrainHeight = this.getTerrainHeight(worldX, worldZ, "wasteland");
             const radius = localRandom.range(3, 6);
             
-            const water = MeshBuilder.CreateCylinder("waterCrater", { diameter: radius * 2, height: 0.1 }, this.scene);
+            const water = MeshBuilder.CreateBox("waterCrater", { width: radius * 2, height: 0.1, depth: radius * 2 }, this.scene);
             water.position = new Vector3(cx, terrainHeight - 0.3, cz);
             water.material = this.getMat("water");
             water.parent = chunkParent;

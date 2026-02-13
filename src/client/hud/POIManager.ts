@@ -8,7 +8,7 @@
  * - Класс менеджера для управления POI
  */
 
-import { Vector3 } from "@babylonjs/core";
+import { Vector3, Matrix } from "@babylonjs/core";
 import { Rectangle, TextBlock, Control, AdvancedDynamicTexture } from "@babylonjs/gui";
 
 // ============================================
@@ -281,14 +281,22 @@ export function calculatePulse(time: number, speed: number, intensity: number): 
  */
 export function worldToScreen(
     worldPos: Vector3,
-    viewMatrix: any,
-    projectionMatrix: any,
+    viewMatrix: Matrix,
+    projectionMatrix: Matrix,
     screenWidth: number,
     screenHeight: number
 ): { x: number; y: number; behind: boolean } | null {
-    // Simplified projection - in real use, use engine.getProjectionMatrix() etc.
-    // This is a placeholder for the actual implementation
-    return null;
+    const viewProj = new Matrix();
+    Matrix.MultiplyToRef(projectionMatrix, viewMatrix, viewProj);
+    const viewPos = Vector3.TransformCoordinates(worldPos, viewMatrix);
+    if (viewPos.z <= 0) {
+        return { x: 0, y: 0, behind: true };
+    }
+    const ndc = Vector3.TransformCoordinates(worldPos, viewProj);
+    const x = (ndc.x + 1) * 0.5 * screenWidth;
+    const y = (1 - ndc.y) * 0.5 * screenHeight;
+    const behind = ndc.z < -1 || ndc.z > 1;
+    return { x, y, behind };
 }
 
 /**

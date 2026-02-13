@@ -98,10 +98,10 @@ export class SimpleMapLoader {
      */
     private createFloor(): void {
         // 1. Чёрный пол для физики
-        this.floor = MeshBuilder.CreateGround("simpleMapFloor", {
+        this.floor = MeshBuilder.CreateBox("simpleMapFloor", {
             width: 2000,
-            height: 2000,
-            subdivisions: 1
+            height: 0.1,
+            depth: 2000
         }, this.scene);
 
         const floorMat = new StandardMaterial("floorMat", this.scene);

@@ -360,11 +360,11 @@ export class CustomMapLoader {
     /**
      * Создать базовую плоскую поверхность для карты
      */
-    public createFloorPlane(size: number = 500, color: string = '#1a1a1a'): GroundMesh {
-        const ground = MeshBuilder.CreateGround("customMapFloor", {
+    public createFloorPlane(size: number = 500, color: string = '#1a1a1a'): Mesh {
+        const ground = MeshBuilder.CreateBox("customMapFloor", {
             width: size,
-            height: size,
-            subdivisions: 4
+            height: 0.1,
+            depth: size
         }, this.scene);
 
         const mat = new StandardMaterial("customFloorMat", this.scene);

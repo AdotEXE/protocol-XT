@@ -297,14 +297,19 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         parent: TransformNode,
         addPhysics: boolean = true
     ): Mesh {
-        const cylinder = MeshBuilder.CreateCylinder(name, options, this.scene);
+        const d = options.diameter ?? (options.diameterTop !== undefined ? (options.diameterTop + (options.diameterBottom ?? options.diameterTop)) / 2 : 1);
+        const cylinder = MeshBuilder.CreateBox(name, {
+            width: d,
+            height: options.height,
+            depth: d
+        }, this.scene);
         cylinder.position = position;
         cylinder.material = typeof material === "string" ? this.getMat(material) : material;
         cylinder.parent = parent;
 
         if (addPhysics && this.hasPhysics()) {
             try {
-                new PhysicsAggregate(cylinder, PhysicsShapeType.CYLINDER, { mass: 0, friction: 0.5 }, this.scene);
+                new PhysicsAggregate(cylinder, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
             } catch (error) {
                 logger.warn("[BaseMapGenerator] Failed to create physics for cylinder:", error);
             }
@@ -325,14 +330,15 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         parent: TransformNode,
         addPhysics: boolean = false
     ): Mesh {
-        const sphere = MeshBuilder.CreateSphere(name, options, this.scene);
+        const d = options.diameter;
+        const sphere = MeshBuilder.CreateBox(name, { width: d, height: d, depth: d }, this.scene);
         sphere.position = position;
         sphere.material = typeof material === "string" ? this.getMat(material) : material;
         sphere.parent = parent;
 
         if (addPhysics && this.hasPhysics()) {
             try {
-                new PhysicsAggregate(sphere, PhysicsShapeType.SPHERE, { mass: 0, friction: 0.5 }, this.scene);
+                new PhysicsAggregate(sphere, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, this.scene);
             } catch (error) {
                 logger.warn("[BaseMapGenerator] Failed to create physics for sphere:", error);
             }
@@ -354,7 +360,11 @@ export abstract class BaseMapGenerator implements IMapGenerator {
         parent: TransformNode,
         addPhysics: boolean = true
     ): Mesh {
-        const ground = MeshBuilder.CreateGround(name, options, this.scene);
+        const ground = MeshBuilder.CreateBox(name, {
+            width: options.width,
+            height: 0.1,
+            depth: options.height
+        }, this.scene);
         ground.position = position;
         ground.material = typeof material === "string" ? this.getMat(material) : material;
         ground.parent = parent;

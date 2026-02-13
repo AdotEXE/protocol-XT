@@ -14639,7 +14639,7 @@ line - height: 1.4;
             // Firebase not available, ignore
         }
 
-        // Default fallback - use "user_id" as placeholder
+        // Fallback when Firebase is unavailable (offline/local)
         const defaultUserId = "user_id";
         localStorage.setItem("userId", defaultUserId);
         return defaultUserId;
@@ -15170,7 +15170,7 @@ line - height: 1.4;
     }
 
     private updateSkillsPanel(): void {
-        // Создаем mock stats если playerProgression не установлен (для отображения дерева до инициализации игры)
+        // Default stats when playerProgression not yet set (e.g. before game init) so skill tree can render
         const stats: PlayerStats = this.playerProgression ? this.playerProgression.getStats() : {
             skillPoints: 0,
             skills: {} as Record<string, number>,
@@ -15828,7 +15828,7 @@ line - height: 1.4;
         return { ...DEFAULT_TANK };
     }
 
-    // Заглушка для владения: читаем из localStorage, иначе дефолт
+    // Владение: читаем из localStorage, иначе дефолт (используется до/без бэкенда)
     private loadOwnedIds(key: string, fallback: string[]): Set<string> {
         const raw = localStorage.getItem(key);
         if (!raw) return new Set(fallback);

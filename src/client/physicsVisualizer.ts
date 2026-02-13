@@ -131,7 +131,7 @@ export class PhysicsVisualizer {
     visualizeCollision(point: Vector3, normal: Vector3): void {
         if (!this.enabled) return;
         
-        const sphere = MeshBuilder.CreateSphere(`collision_${Date.now()}`, { diameter: 0.2, segments: 8 }, this.scene);
+        const sphere = MeshBuilder.CreateBox(`collision_${Date.now()}`, { width: 0.2, height: 0.2, depth: 0.2 }, this.scene);
         sphere.position = point;
         const material = new StandardMaterial(`collision_mat_${Date.now()}`, this.scene);
         material.emissiveColor = Color3.Red();
@@ -209,7 +209,7 @@ export class PhysicsVisualizer {
      * Создание маркера центра масс
      */
     private createCenterOfMassMarker(position: Vector3): Mesh {
-        const sphere = MeshBuilder.CreateSphere(`com_${Date.now()}`, { diameter: 0.2 }, this.scene);
+        const sphere = MeshBuilder.CreateBox(`com_${Date.now()}`, { width: 0.2, height: 0.2, depth: 0.2 }, this.scene);
         sphere.position = position;
         
         const material = new StandardMaterial(`com_mat_${Date.now()}`, this.scene);

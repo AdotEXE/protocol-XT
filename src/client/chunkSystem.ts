@@ -2154,10 +2154,11 @@ export class ChunkSystem {
         trackSegment.renderingGroupId = 0;
         topTools.push(trackSegment);
 
-        // Зубчатое колесо (шестерня) - блестящий металл
-        const gear = MeshBuilder.CreateCylinder(`workbenchGear_${index}`, {
+        // Зубчатое колесо (шестерня) - блестящий металл (box вместо cylinder)
+        const gear = MeshBuilder.CreateBox(`workbenchGear_${index}`, {
+            width: 0.25,
             height: 0.1,
-            diameter: 0.25
+            depth: 0.25
         }, this.scene);
         gear.position = new Vector3(workbenchX - 0.3, topTopY + topThickness / 2 + 0.05, workbenchZ + 0.5);
         gear.material = gearMat; // Блестящий металл
@@ -2180,10 +2181,11 @@ export class ChunkSystem {
         enginePart.renderingGroupId = 0;
         topTools.push(enginePart);
 
-        // Болт/гайка (большая) - хромированный/светлый металл
-        const bolt = MeshBuilder.CreateCylinder(`workbenchBolt_${index}`, {
+        // Болт/гайка (большая) - хромированный/светлый металл (box вместо cylinder)
+        const bolt = MeshBuilder.CreateBox(`workbenchBolt_${index}`, {
+            width: 0.15,
             height: 0.12,
-            diameter: 0.15
+            depth: 0.15
         }, this.scene);
         bolt.position = new Vector3(workbenchX - 0.7, topTopY + topThickness / 2 + 0.06, workbenchZ - 0.8);
         bolt.rotation.x = Math.PI / 2;
@@ -2194,10 +2196,11 @@ export class ChunkSystem {
         topTools.push(bolt);
 
         // ДЕТАЛИ ОТ ТАНКА на нижней столешнице
-        // Опорный каток (колесо) - металл с резиной
-        const roadWheel = MeshBuilder.CreateCylinder(`workbenchRoadWheel_${index}`, {
+        // Опорный каток (колесо) - металл с резиной (box вместо cylinder)
+        const roadWheel = MeshBuilder.CreateBox(`workbenchRoadWheel_${index}`, {
+            width: 0.4,
             height: 0.2,
-            diameter: 0.4
+            depth: 0.4
         }, this.scene);
         roadWheel.position = new Vector3(workbenchX - 0.4, bottomTopY + topThickness / 2 + 0.1, workbenchZ - 0.5);
         roadWheel.rotation.z = Math.PI / 2;
@@ -2207,10 +2210,11 @@ export class ChunkSystem {
         roadWheel.renderingGroupId = 0;
         bottomTools.push(roadWheel);
 
-        // Пружина подвески - металлический
-        const spring = MeshBuilder.CreateCylinder(`workbenchSpring_${index}`, {
+        // Пружина подвески - металлический (box вместо cylinder)
+        const spring = MeshBuilder.CreateBox(`workbenchSpring_${index}`, {
+            width: 0.12,
             height: 0.3,
-            diameter: 0.12
+            depth: 0.12
         }, this.scene);
         spring.position = new Vector3(workbenchX + 0.5, bottomTopY + topThickness / 2 + 0.15, workbenchZ + 0.6);
         spring.material = springMat; // Серый металл
@@ -2233,10 +2237,11 @@ export class ChunkSystem {
         armorPlate.renderingGroupId = 0;
         bottomTools.push(armorPlate);
 
-        // Трубка/шланг - черная резина
-        const hose = MeshBuilder.CreateCylinder(`workbenchHose_${index}`, {
+        // Трубка/шланг - черная резина (box вместо cylinder)
+        const hose = MeshBuilder.CreateBox(`workbenchHose_${index}`, {
+            width: 0.06,
             height: 0.4,
-            diameter: 0.06
+            depth: 0.06
         }, this.scene);
         hose.position = new Vector3(workbenchX - 0.6, bottomTopY + topThickness / 2 + 0.2, workbenchZ + 0.3);
         hose.rotation.z = Math.PI / 4;
@@ -2293,10 +2298,11 @@ export class ChunkSystem {
         latheHeadstock.visibility = 1.0;
         latheHeadstock.renderingGroupId = 0;
 
-        // Патрон (цилиндр) - увеличен в 2 раза
-        const latheChuck = MeshBuilder.CreateCylinder(`latheChuck_${index}`, {
+        // Патрон (box вместо cylinder) - увеличен в 2 раза
+        const latheChuck = MeshBuilder.CreateBox(`latheChuck_${index}`, {
+            width: 0.25 * latheScale,
             height: 0.15 * latheScale,
-            diameter: 0.25 * latheScale
+            depth: 0.25 * latheScale
         }, this.scene);
         latheChuck.position = new Vector3(latheX, baseHeight + latheHeight + 0.5 * latheScale, latheZ - 1.2 * latheScale);
         latheChuck.rotation.z = Math.PI / 2;
@@ -2345,10 +2351,11 @@ export class ChunkSystem {
         latheToolpost.visibility = 1.0;
         latheToolpost.renderingGroupId = 0;
 
-        // Шпиндель (вращающийся вал в передней бабке)
-        const latheSpindle = MeshBuilder.CreateCylinder(`latheSpindle_${index}`, {
+        // Шпиндель (вращающийся вал в передней бабке) (box вместо cylinder)
+        const latheSpindle = MeshBuilder.CreateBox(`latheSpindle_${index}`, {
+            width: 0.12 * latheScale,
             height: 0.3 * latheScale,
-            diameter: 0.12 * latheScale
+            depth: 0.12 * latheScale
         }, this.scene);
         latheSpindle.position = new Vector3(latheX, baseHeight + latheHeight + 0.35 * latheScale, latheZ - 1.2 * latheScale);
         latheSpindle.rotation.z = Math.PI / 2;
@@ -2358,10 +2365,11 @@ export class ChunkSystem {
         latheSpindle.visibility = 1.0;
         latheSpindle.renderingGroupId = 0;
 
-        // Центр задней бабки (конус)
-        const latheCenter = MeshBuilder.CreateCylinder(`latheCenter_${index}`, {
+        // Центр задней бабки (box вместо cylinder)
+        const latheCenter = MeshBuilder.CreateBox(`latheCenter_${index}`, {
+            width: 0.1 * latheScale,
             height: 0.2 * latheScale,
-            diameter: 0.1 * latheScale
+            depth: 0.1 * latheScale
         }, this.scene);
         latheCenter.position = new Vector3(latheX, baseHeight + latheHeight + 0.3 * latheScale, latheZ + 1.2 * latheScale);
         latheCenter.rotation.z = Math.PI / 2;
@@ -2384,10 +2392,11 @@ export class ChunkSystem {
         latheTool.visibility = 1.0;
         latheTool.renderingGroupId = 0;
 
-        // Рукоятки управления (на передней бабке)
-        const latheHandle1 = MeshBuilder.CreateCylinder(`latheHandle1_${index}`, {
+        // Рукоятки управления (на передней бабке) (box вместо cylinder)
+        const latheHandle1 = MeshBuilder.CreateBox(`latheHandle1_${index}`, {
+            width: 0.05 * latheScale,
             height: 0.15 * latheScale,
-            diameter: 0.05 * latheScale
+            depth: 0.05 * latheScale
         }, this.scene);
         latheHandle1.position = new Vector3(latheX - 0.2 * latheScale, baseHeight + latheHeight + 0.4 * latheScale, latheZ - 1.2 * latheScale);
         latheHandle1.rotation.x = Math.PI / 2;
@@ -2396,9 +2405,10 @@ export class ChunkSystem {
         latheHandle1.visibility = 1.0;
         latheHandle1.renderingGroupId = 0;
 
-        const latheHandle2 = MeshBuilder.CreateCylinder(`latheHandle2_${index}`, {
+        const latheHandle2 = MeshBuilder.CreateBox(`latheHandle2_${index}`, {
+            width: 0.05 * latheScale,
             height: 0.15 * latheScale,
-            diameter: 0.05 * latheScale
+            depth: 0.05 * latheScale
         }, this.scene);
         latheHandle2.position = new Vector3(latheX + 0.2 * latheScale, baseHeight + latheHeight + 0.4 * latheScale, latheZ - 1.2 * latheScale);
         latheHandle2.rotation.x = Math.PI / 2;
@@ -2445,10 +2455,11 @@ export class ChunkSystem {
         latheRail2.visibility = 1.0;
         latheRail2.renderingGroupId = 0;
 
-        // Маховик на задней бабке
-        const latheWheel = MeshBuilder.CreateCylinder(`latheWheel_${index}`, {
+        // Маховик на задней бабке (box вместо cylinder)
+        const latheWheel = MeshBuilder.CreateBox(`latheWheel_${index}`, {
+            width: 0.2 * latheScale,
             height: 0.05 * latheScale,
-            diameter: 0.2 * latheScale
+            depth: 0.2 * latheScale
         }, this.scene);
         latheWheel.position = new Vector3(latheX, baseHeight + latheHeight + 0.35 * latheScale, latheZ + 1.4 * latheScale);
         latheWheel.rotation.z = Math.PI / 2;
@@ -2498,10 +2509,11 @@ export class ChunkSystem {
         const cannonZ = garageZ - 3; // Немного ближе к передней части
         const cannonAngle = Math.PI / 6; // Угол 30 градусов
 
-        // Ствол пушки (цилиндр)
-        const cannonBarrel = MeshBuilder.CreateCylinder(`garageCannonBarrel_${index}`, {
+        // Ствол пушки (box вместо cylinder)
+        const cannonBarrel = MeshBuilder.CreateBox(`garageCannonBarrel_${index}`, {
+            width: cannonDiameter,
             height: cannonLength,
-            diameter: cannonDiameter
+            depth: cannonDiameter
         }, this.scene);
         cannonBarrel.position = new Vector3(cannonX, cannonDiameter / 2, cannonZ);
         cannonBarrel.rotation.z = Math.PI / 2; // Поворачиваем горизонтально
@@ -2555,11 +2567,12 @@ export class ChunkSystem {
             ammoBox.material = ammoBoxMat2;
             ammoBox.isPickable = false;
 
-            // Снаряды в ящике (несколько цилиндров)
+            // Снаряды в ящике (box вместо cylinder)
             for (let j = 0; j < 4; j++) {
-                const shell = MeshBuilder.CreateCylinder(`garageShell_${index}_${i}_${j}`, {
+                const shell = MeshBuilder.CreateBox(`garageShell_${index}_${i}_${j}`, {
+                    width: 0.08,
                     height: 0.3,
-                    diameter: 0.08
+                    depth: 0.08
                 }, this.scene);
                 shell.position = new Vector3(
                     ammoBoxX - row * ammoBoxRowOffset + (j % 2 - 0.5) * 0.3,
@@ -3867,68 +3880,18 @@ export class ChunkSystem {
             logger.warn(`[ChunkSystem] createGround: terrainGenerator is null for chunk (${chunkX}, ${chunkZ}), using flat fallback ground`);
         }
 
-        // Если есть terrain generator - создаём heightmap terrain
+        // Если есть terrain generator - создаём ground как плоский бокс (конвенция: только Box)
         if (this.terrainGenerator) {
-            const subdivisions = 12; // 13x13 = 169 вершин на чанк
-
-            // БЕЗ OVERLAP - точное соответствие размеру чанка
-            // Это гарантирует что границы чанков точно совпадают
-            const ground = MeshBuilder.CreateGround(`ground_${chunkX}_${chunkZ}`, {
+            const ground = MeshBuilder.CreateBox(`ground_${chunkX}_${chunkZ}`, {
                 width: chunkSize,
-                height: chunkSize,
-                subdivisions,
-                updatable: true // ВАЖНО: true чтобы можно было обновить высоты вершин
+                height: 0.1,
+                depth: chunkSize
             }, this.scene);
 
-            const positions = ground.getVerticesData(VertexBuffer.PositionKind);
-            if (!positions) {
-                ground.dispose();
-                return;
-            }
-
-            const vertsPerSide = subdivisions + 1;
-
-            // ЕДИНАЯ ФОРМУЛА для всех вершин - ключ к бесшовности
-            // ВАЖНО: В Babylon.js CreateGround порядок вершин по Z ИНВЕРТИРОВАН!
-            // row=0 → z = +height/2 (дальняя сторона), row=max → z = -height/2 (ближняя)
-            // Поэтому формула для worldZ учитывает эту инверсию
-            for (let gz = 0; gz < vertsPerSide; gz++) {
-                for (let gx = 0; gx < vertsPerSide; gx++) {
-                    const idx = (gz * vertsPerSide + gx) * 3;
-
-                    // Мировые координаты вершины
-                    // X: стандартный порядок от cornerX до cornerX + chunkSize
-                    const worldX = cornerX + (gx / subdivisions) * chunkSize;
-                    // Z: ИНВЕРТИРОВАННЫЙ порядок! gz=0 → дальний край, gz=max → ближний край
-                    const worldZ = cornerZ + chunkSize - (gz / subdivisions) * chunkSize;
-
-                    // Единая детерминистическая функция высоты для ВСЕХ вершин
-                    // ВАЖНО: Без параметра biome - высота независима от биома!
-                    const height = this.getWorldHeight(worldX, worldZ);
-
-                    // Устанавливаем высоту (X и Z уже установлены CreateGround)
-                    positions[idx + 1] = height;
-                }
-            }
-
-            // Обновляем вершины
-            ground.updateVerticesData(VertexBuffer.PositionKind, positions);
-            ground.refreshBoundingInfo(true);
-
-            // Позиция: chunkParent в углу, ground центрирован в чанке
             ground.position = new Vector3(chunkSize / 2, 0, chunkSize / 2);
-
-            // Применяем материал с модификацией цвета по высоте
-            const avgHeight = this.calculateAverageHeight(positions, vertsPerSide);
-            const tintedMaterial = this.getHeightTintedMaterial(groundMat, avgHeight);
-            ground.material = tintedMaterial;
-
-            // Добавляем vertex colors с плавными переходами биомов через шум
-            this.applyHeightVertexColors(ground, positions, vertsPerSide, cornerX, cornerZ, chunkSize);
-
+            ground.material = this.getMat(groundMat);
             ground.parent = chunkParent;
 
-            // Рендеринг рёбер террейна (опционально, по умолчанию выключено)
             if (this.config.enableTerrainEdges) {
                 ground.enableEdgesRendering();
                 const edgeColor = this.getContrastEdgeColor(groundMat);
@@ -3943,13 +3906,7 @@ export class ChunkSystem {
             ground.receiveShadows = false;
 
             this.optimizeMesh(ground);
-            new PhysicsAggregate(ground, PhysicsShapeType.MESH, { mass: 0 }, this.scene);
-
-            // Логируем успешное создание ground mesh для отладки
-            // Отключено для снижения спама
-            // if (this.config.mapType === "frontline") {
-            //     logger.log(`[ChunkSystem] Ground mesh created successfully for frontline chunk (${chunkX}, ${chunkZ})`);
-            // }
+            new PhysicsAggregate(ground, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
             return;
         }
 
@@ -5018,22 +4975,22 @@ export class ChunkSystem {
             const fWorldX = chunkX * this.config.chunkSize + fx;
             const fWorldZ = chunkZ * this.config.chunkSize + fz;
             if (!this.isPositionInGarageArea(fWorldX, fWorldZ, 4)) {
-                // Бассейн
-                const pool = MeshBuilder.CreateCylinder("fountainPool", { diameter: 6, height: 0.5 }, this.scene);
+                // Бассейн (box вместо cylinder)
+                const pool = MeshBuilder.CreateBox("fountainPool", { width: 6, height: 0.5, depth: 6 }, this.scene);
                 pool.position = new Vector3(fx, 0.25, fz);
                 pool.material = this.getMat("concrete");
                 pool.parent = chunkParent;
                 pool.freezeWorldMatrix();
 
-                // Вода
-                const water = MeshBuilder.CreateCylinder("fountainWater", { diameter: 5.5, height: 0.3 }, this.scene);
+                // Вода (box вместо cylinder)
+                const water = MeshBuilder.CreateBox("fountainWater", { width: 5.5, height: 0.3, depth: 5.5 }, this.scene);
                 water.position = new Vector3(fx, 0.35, fz);
                 water.material = this.getMat("water");
                 water.parent = chunkParent;
                 water.freezeWorldMatrix();
 
-                // Центральная колонна
-                const column = MeshBuilder.CreateCylinder("fountainColumn", { diameter: 0.8, height: 2 }, this.scene);
+                // Центральная колонна (box вместо cylinder)
+                const column = MeshBuilder.CreateBox("fountainColumn", { width: 0.8, height: 2, depth: 0.8 }, this.scene);
                 column.position = new Vector3(fx, 1.25, fz);
                 column.material = this.getMat("concrete");
                 column.parent = chunkParent;
@@ -5091,7 +5048,7 @@ export class ChunkSystem {
             if (this.isPositionInGarageArea(fWorldX, fWorldZ, 2)) continue;
 
             const bedSize = random.range(2, 4);
-            const bed = MeshBuilder.CreateCylinder("flowerBed", { diameter: bedSize, height: 0.3 }, this.scene);
+            const bed = MeshBuilder.CreateBox("flowerBed", { width: bedSize, height: 0.3, depth: bedSize }, this.scene);
             bed.position = new Vector3(fx, 0.15, fz);
             bed.material = this.getMat("flowerBed"); // ОПТИМИЗАЦИЯ: кэшированный материал
             bed.parent = chunkParent;
@@ -6563,7 +6520,7 @@ export class ChunkSystem {
                 // Несколько горизонтальных цистерн
                 const tankCount = random.int(2, 4);
                 for (let t = 0; t < tankCount; t++) {
-                    const tank = MeshBuilder.CreateCylinder("fuelTank", { diameter: 3, height: 8 }, this.scene);
+                    const tank = MeshBuilder.CreateBox("fuelTank", { width: 3, height: 8, depth: 3 }, this.scene);
                     tank.position = new Vector3(fuelX + t * 4 - tankCount * 2, 1.5, fuelZ);
                     tank.rotation.z = Math.PI / 2;
                     tank.material = this.getMat("grassDark");
@@ -7185,7 +7142,7 @@ export class ChunkSystem {
 
             // Дым / огонь (простой визуальный эффект - вертикальный столб)
             if (random.chance(0.3)) {
-                const smoke = MeshBuilder.CreateCylinder("smoke", { diameter: 1.5, height: 4 }, this.scene);
+                const smoke = MeshBuilder.CreateBox("smoke", { width: 1.5, height: 4, depth: 1.5 }, this.scene);
                 smoke.position = new Vector3(x, hullH + 2, z);
                 smoke.material = this.getMat("smokeGray");
                 smoke.parent = chunkParent;
@@ -7310,7 +7267,7 @@ export class ChunkSystem {
             const radius = random.range(3, 6);
 
             // Затопленная воронка
-            const water = MeshBuilder.CreateCylinder("waterCrater", { diameter: radius * 2, height: 0.1 }, this.scene);
+            const water = MeshBuilder.CreateBox("waterCrater", { width: radius * 2, height: 0.1, depth: radius * 2 }, this.scene);
             water.position = new Vector3(cx, -0.3, cz);
             water.material = this.getMat("water");
             water.parent = chunkParent;
@@ -8993,7 +8950,7 @@ export class ChunkSystem {
             waterfall.freezeWorldMatrix();
 
             // Озерцо у основания
-            const pool = MeshBuilder.CreateCylinder("waterfallPool", { diameter: 8, height: 0.2 }, this.scene);
+            const pool = MeshBuilder.CreateBox("waterfallPool", { width: 8, height: 0.2, depth: 8 }, this.scene);
             pool.position = new Vector3(wx, 0.05, wz + 5);
             pool.material = this.getMat("water");
             pool.parent = chunkParent;
@@ -9159,7 +9116,7 @@ export class ChunkSystem {
 
     private createLake(chunkX: number, chunkZ: number, x: number, z: number, radius: number, random: SeededRandom, chunkParent: TransformNode): void {
         // Озеро - плоский цилиндр с материалом "water"
-        const lake = MeshBuilder.CreateCylinder("lake", { diameter: radius * 2, height: 0.1 }, this.scene);
+        const lake = MeshBuilder.CreateBox("lake", { width: radius * 2, height: 0.1, depth: radius * 2 }, this.scene);
         lake.position = new Vector3(x, -0.05, z);
         lake.material = this.getMat("water");
         lake.parent = chunkParent;
@@ -9436,7 +9393,7 @@ export class ChunkSystem {
             const bWorldZ = chunkZ * this.config.chunkSize + bz;
             if (this.isPositionInGarageArea(bWorldX, bWorldZ, 1)) continue;
 
-            const barrel = MeshBuilder.CreateCylinder("industrialBarrel", { diameter: 0.6, height: 0.9 }, this.scene);
+            const barrel = MeshBuilder.CreateBox("industrialBarrel", { width: 0.6, height: 0.9, depth: 0.6 }, this.scene);
             barrel.position = new Vector3(bx, 0.45, bz);
             barrel.material = random.pick([this.getMat("barrelGreen"), this.getMat("barrelRed"), this.getMat("metal"), this.getMat("yellow")]);
             barrel.parent = chunkParent;
@@ -9589,7 +9546,7 @@ export class ChunkSystem {
             if (!this.isPositionInGarageArea(tWorldX, tWorldZ, 5)) {
                 const radius = random.range(3, 5);
                 const height = random.range(8, 12);
-                const tank = MeshBuilder.CreateCylinder("storage_tank", { diameter: radius * 2, height }, this.scene);
+                const tank = MeshBuilder.CreateBox("storage_tank", { width: radius * 2, height, depth: radius * 2 }, this.scene);
                 tank.position = new Vector3(tx, height / 2, tz);
                 tank.material = this.getMat(random.pick(["metal", "metalRust"]));
                 tank.parent = chunkParent;
@@ -9614,7 +9571,7 @@ export class ChunkSystem {
                 const pipeDiameter = random.range(0.5, 1);
                 const angle = random.range(0, Math.PI * 2);
 
-                const pipe = MeshBuilder.CreateCylinder("pipe", { diameter: pipeDiameter, height: pipeLength }, this.scene);
+                const pipe = MeshBuilder.CreateBox("pipe", { width: pipeDiameter, height: pipeLength, depth: pipeDiameter }, this.scene);
                 pipe.position = new Vector3(px, pipeDiameter / 2, pz);
                 pipe.rotation.z = Math.PI / 2;
                 pipe.rotation.y = angle;
@@ -9797,7 +9754,7 @@ export class ChunkSystem {
                 new PhysicsAggregate(container, PhysicsShapeType.BOX, { mass: 0 }, this.scene);
             } else {
                 // Урна
-                const urn = MeshBuilder.CreateCylinder("urn", { diameter: 0.4, height: 0.6 }, this.scene);
+                const urn = MeshBuilder.CreateBox("urn", { width: 0.4, height: 0.6, depth: 0.4 }, this.scene);
                 urn.position = new Vector3(tx, 0.3, tz);
                 urn.material = this.getMat("metal");
                 urn.parent = chunkParent;
@@ -10258,7 +10215,7 @@ export class ChunkSystem {
 
             if (!this.isPositionInGarageArea(wWorldX, wWorldZ, 5)) {
                 const radius = random.range(3, 8);
-                const lake = MeshBuilder.CreateCylinder("underground_lake", { diameter: radius * 2, height: 0.1 }, this.scene);
+                const lake = MeshBuilder.CreateBox("underground_lake", { width: radius * 2, height: 0.1, depth: radius * 2 }, this.scene);
                 lake.position = new Vector3(wx, -1, wz);
                 lake.material = this.getMat("water");
                 lake.parent = chunkParent;
@@ -10532,7 +10489,7 @@ export class ChunkSystem {
             const bWorldZ = chunkZ * this.config.chunkSize + bz;
             if (this.isPositionInGarageArea(bWorldX, bWorldZ, 1)) continue;
 
-            const buoy = MeshBuilder.CreateCylinder("buoy", { diameter: 0.8, height: 1.2 }, this.scene);
+            const buoy = MeshBuilder.CreateBox("buoy", { width: 0.8, height: 1.2, depth: 0.8 }, this.scene);
             buoy.position = new Vector3(bx, 0.3, bz);
             buoy.material = random.pick([this.getMat("barrelRed"), this.getMat("yellow"), this.getMat("barrelGreen")]);
             buoy.parent = chunkParent;
@@ -10678,7 +10635,7 @@ export class ChunkSystem {
             const harborZ = random.range(20, size - 20);
             const harborSize = random.range(20, 30);
 
-            const harbor = MeshBuilder.CreateCylinder("harbor", { diameter: harborSize * 2, height: 0.1 }, this.scene);
+            const harbor = MeshBuilder.CreateBox("harbor", { width: harborSize * 2, height: 0.1, depth: harborSize * 2 }, this.scene);
             harbor.position = new Vector3(harborX, -0.05, harborZ);
             harbor.material = this.getMat("water");
             harbor.parent = chunkParent;

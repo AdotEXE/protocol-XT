@@ -454,8 +454,6 @@ export class UpgradeUI {
      * Рендер выбранной категории
      */
     private renderSelectedCategory(): string {
-        // Здесь можно получить список элементов для категории
-        // Пока используем заглушку
         const items = this.getItemsForCategory(this.currentCategory);
 
         return `

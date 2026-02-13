@@ -1933,6 +1933,32 @@ export function createUniqueCannon(
             ricochetBreech.parent = barrel;
             ricochetBreech.material = ricochetIndicatorMat;
             break;
+
+        case "aircraft_mg":
+            // Aircraft machine gun - compact twin barrels (nose MG)
+            barrel = MeshBuilder.CreateBox(uniqueBarrelId, {
+                width: barrelWidth * 0.8,
+                height: barrelWidth * 0.5,
+                depth: barrelLength * 0.6
+            }, scene);
+            barrel.rotation.x = 0;
+            barrel.rotation.y = 0;
+            barrel.rotation.z = 0;
+            // Two small barrels side by side
+            const aircraftMgMat = new StandardMaterial("aircraftMgMat", scene);
+            aircraftMgMat.diffuseColor = cannonColor.scale(0.8);
+            aircraftMgMat.specularColor = Color3.Black();
+            for (let i = 0; i < 2; i++) {
+                const smallBarrel = MeshBuilder.CreateBox(`${prefix}aircraftMgBarrel${i}`, {
+                    width: barrelWidth * 0.25,
+                    height: barrelWidth * 0.25,
+                    depth: barrelLength * 0.5
+                }, scene);
+                smallBarrel.position = addZFightingOffset(new Vector3((i === 0 ? -1 : 1) * barrelWidth * 0.3, 0, barrelLength * 0.1), "forward");
+                smallBarrel.parent = barrel;
+                smallBarrel.material = aircraftMgMat;
+            }
+            break;
             
         default: // standard and all other types
             // Standard - Прототип: Т-34-85 / Д-5Т - Классическая советская пушка

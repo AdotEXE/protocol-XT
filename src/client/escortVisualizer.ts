@@ -90,8 +90,10 @@ export class EscortVisualizer {
             const targetPos = data.route[Math.min(progressIndex, data.route.length - 1)];
 
             if (!this.progressMarker) {
-                this.progressMarker = MeshBuilder.CreateSphere("escort_progress", {
-                    diameter: 1.5
+                this.progressMarker = MeshBuilder.CreateBox("escort_progress", {
+                    width: 1.5,
+                    height: 1.5,
+                    depth: 1.5
                 }, this.scene);
                 this.progressMarker.isPickable = false;
 

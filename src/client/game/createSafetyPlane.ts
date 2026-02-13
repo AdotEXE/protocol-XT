@@ -26,10 +26,10 @@ export function createSafetyPlane(scene: Scene): void {
         return;
     }
 
-    const safetyPlaneMesh = MeshBuilder.CreateGround("safetyPlane", {
+    const safetyPlaneMesh = MeshBuilder.CreateBox("safetyPlane", {
         width: 5500,
-        height: 5500,
-        subdivisions: 50
+        height: 0.1,
+        depth: 5500
     }, scene);
 
     safetyPlaneMesh.position = new Vector3(0, -10, -10);

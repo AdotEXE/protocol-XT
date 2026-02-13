@@ -5034,7 +5034,7 @@ export class MapEditor {
                     mesh.material = garageMat;
 
                     // Добавляем метку "G"
-                    const plane = MeshBuilder.CreatePlane(`garageLabel_${obj.id}`, { size: 4 }, this.scene);
+                    const plane = MeshBuilder.CreateBox(`garageLabel_${obj.id}`, { width: 4, height: 4, depth: 0.01 }, this.scene);
                     plane.parent = mesh;
                     plane.position.y = 3;
                     plane.rotation.x = Math.PI / 2;
@@ -5193,7 +5193,7 @@ export class MapEditor {
                     mesh.material = moduleMat;
 
                     // Добавляем иконку сверху
-                    const iconPlane = MeshBuilder.CreatePlane(`moduleIcon_${obj.id}`, { size: 0.6 }, this.scene);
+                    const iconPlane = MeshBuilder.CreateBox(`moduleIcon_${obj.id}`, { width: 0.6, height: 0.6, depth: 0.01 }, this.scene);
                     iconPlane.parent = mesh;
                     iconPlane.position.y = 0.45;
                     iconPlane.rotation.x = -Math.PI / 2;
@@ -5589,10 +5589,12 @@ export class MapEditor {
             this.brushIndicator.dispose();
         }
 
-        // Создаем диск для отображения области кисти
-        const disc = MeshBuilder.CreateDisc("brushIndicator", {
-            radius: this.brushSize,
-            tessellation: 32
+        // Создаем бокс для отображения области кисти (box вместо disc)
+        const r = this.brushSize;
+        const disc = MeshBuilder.CreateBox("brushIndicator", {
+            width: r * 2,
+            height: 0.01,
+            depth: r * 2
         }, this.scene);
 
         disc.rotation.x = Math.PI / 2; // Поворачиваем горизонтально

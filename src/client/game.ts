@@ -3512,6 +3512,9 @@ export class Game {
                     if ((this.isMultiplayer || isConnectedToRoom) && this.multiplayerManager) {
                         this.checkSpectatorMode();
                     }
+                },
+                onUpdateSupplyDrops: (deltaTime: number) => {
+                    this.supplyDropSystem?.update(deltaTime);
                 }
             });
 

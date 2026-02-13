@@ -131,7 +131,7 @@ export function initPreviewScene(
     // Simple ground plane
     // ИСПРАВЛЕНО: Убираем пол, чтобы не было артефактов ("крестик" под моделью)
     /*
-    const ground = MeshBuilder.CreateGround("previewGround", { width: 10, height: 10 }, scene);
+    const ground = MeshBuilder.CreateBox("previewGround", { width: 10, height: 0.1, depth: 10 }, scene);
     const groundMat = new StandardMaterial("previewGroundMat", scene);
     groundMat.diffuseColor = new Color3(0.2, 0.2, 0.25);
     groundMat.specularColor = Color3.Black();
@@ -247,7 +247,7 @@ export function initPreviewScene(
         effectsManager.createMuzzleFlash(muzzlePos, barrel.forward, cannonId);
 
         // 3. Visual Projectile
-        const projectile = MeshBuilder.CreateSphere("previewProjectile", { diameter: 0.3 }, scene);
+        const projectile = MeshBuilder.CreateBox("previewProjectile", { width: 0.3, height: 0.3, depth: 0.3 }, scene);
         projectile.position = muzzlePos.clone();
         const projectileMat = new StandardMaterial("previewProjMat", scene);
         projectileMat.diffuseColor = new Color3(1, 0.8, 0);

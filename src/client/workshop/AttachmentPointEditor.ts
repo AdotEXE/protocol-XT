@@ -107,9 +107,11 @@ export class AttachmentPointEditor {
     private createMarkers(): void {
         if (!this.previewScene) return;
 
-        // Красная сфера для turret pivot
-        this.pivotMarker = MeshBuilder.CreateSphere('pivotMarker', {
-            diameter: 0.3
+        // Красный маркер для turret pivot (box вместо sphere)
+        this.pivotMarker = MeshBuilder.CreateBox('pivotMarker', {
+            width: 0.3,
+            height: 0.3,
+            depth: 0.3
         }, this.previewScene.scene);
 
         const pivotMat = new StandardMaterial('pivotMat', this.previewScene.scene);
@@ -119,9 +121,11 @@ export class AttachmentPointEditor {
         this.pivotMarker.material = pivotMat;
         this.pivotMarker.renderingGroupId = 1; // Поверх всего
 
-        // Синяя сфера для barrel mount
-        this.barrelMarker = MeshBuilder.CreateSphere('barrelMarker', {
-            diameter: 0.25
+        // Синий маркер для barrel mount (box вместо sphere)
+        this.barrelMarker = MeshBuilder.CreateBox('barrelMarker', {
+            width: 0.25,
+            height: 0.25,
+            depth: 0.25
         }, this.previewScene.scene);
 
         const barrelMat = new StandardMaterial('barrelMat', this.previewScene.scene);

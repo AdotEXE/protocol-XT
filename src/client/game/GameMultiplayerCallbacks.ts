@@ -109,6 +109,9 @@ export class GameMultiplayerCallbacks {
     private readonly MAX_NETWORK_PROJECTILES = 200; // Максимальное количество сетевых снарядов
     private projectileTemplate: Mesh | null = null; // Template for cloning
 
+    /** Кэш enemiesTotal из настроек комнаты или последнего SURVIVAL_WAVE_UPDATE (для Co-op HUD). */
+    private _lastCoopEnemiesTotal: number | null = null;
+
     constructor() {
         this.deps = {
             networkPlayerTanks: new Map(), // Временный Map, будет заменен через updateDependencies
@@ -881,10 +884,12 @@ export class GameMultiplayerCallbacks {
                     if (this.deps.gameEnemies) {
                         enemiesRemaining = (this.deps.gameEnemies as any).enemies?.size || 0;
                     }
-                    
+                    const roomSettings = (this.deps.multiplayerManager as any)?.getRoomSettings?.() || {};
+                    const defaultWaveSize = roomSettings.survivalSettings?.waveSize ?? 10;
+                    const enemiesTotal = this._lastCoopEnemiesTotal ?? defaultWaveSize;
                     this.deps.hud.updateCoopHUD?.({
                         enemiesRemaining,
-                        enemiesTotal: enemiesRemaining, // TODO: получить из настроек комнаты
+                        enemiesTotal,
                         playersAlive,
                         playersTotal,
                         gameTime: Math.floor(gameTime / 1000)
@@ -3018,7 +3023,9 @@ export class GameMultiplayerCallbacks {
 
     private handleSurvivalWaveUpdate(data: any): void {
         if (!data || !this.deps.hud) return;
-
+        if (typeof data.enemiesTotal === "number") {
+            this._lastCoopEnemiesTotal = data.enemiesTotal;
+        }
         // Update HUD
         this.deps.hud.updateSurvivalHUD({
             currentWave: data.currentWave || 1,
@@ -3701,14 +3708,14 @@ export class GameMultiplayerCallbacks {
                 break;
         }
 
-        // Создаём меш снаряда (вытянутый цилиндр - трассер)
-        const projectileMesh = MeshBuilder.CreateCylinder(`netProjectile_${data.id || Date.now()}`, {
-            diameter: projectileSize,
+        // Создаём меш снаряда (box вместо cylinder - трассер)
+        const projectileMesh = MeshBuilder.CreateBox(`netProjectile_${data.id || Date.now()}`, {
+            width: projectileSize,
             height: projectileLength,
-            tessellation: 6
+            depth: projectileSize
         }, scene);
 
-        // Поворачиваем цилиндр чтобы он летел концом вперёд
+        // Поворачиваем чтобы летел концом вперёд
         projectileMesh.rotation.x = Math.PI / 2;
 
         // Материал - яркий, светящийся

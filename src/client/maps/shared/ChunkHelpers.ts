@@ -47,24 +47,25 @@ export function createCrater(
 ): Mesh {
     const { scene, parent, getMat } = params;
     
-    // Внешний край кратера
-    const rim = MeshBuilder.CreateTorus("craterRim", {
-        diameter: radius * 2,
-        thickness: radius * 0.3,
-        tessellation: 16
+    // Внешний край кратера (box вместо torus)
+    const rim = MeshBuilder.CreateBox("craterRim", {
+        width: radius * 2,
+        height: radius * 0.3,
+        depth: radius * 2
     }, scene);
     rim.position = new Vector3(x, 0.1, z);
-    rim.rotation.x = Math.PI / 2;
     rim.material = getMat("dirt");
     rim.parent = parent;
     rim.freezeWorldMatrix();
     
-    // Дно кратера
-    const bottom = MeshBuilder.CreateDisc("craterBottom", {
-        radius: radius * 0.8
+    // Дно кратера (box вместо disc)
+    const bottomRad = radius * 0.8;
+    const bottom = MeshBuilder.CreateBox("craterBottom", {
+        width: bottomRad * 2,
+        height: 0.01,
+        depth: bottomRad * 2
     }, scene);
     bottom.position = new Vector3(x, 0.05 - depth * 0.5, z);
-    bottom.rotation.x = Math.PI / 2;
     bottom.material = getMat("dirt");
     bottom.parent = parent;
     bottom.freezeWorldMatrix();
@@ -144,16 +145,15 @@ export function createMountain(
 ): Mesh {
     const { scene, parent, getMat, random } = params;
     
-    const mountain = MeshBuilder.CreateCylinder("mountain", {
-        diameterTop: baseSize * 0.1,
-        diameterBottom: baseSize,
+    const mountain = MeshBuilder.CreateBox("mountain", {
+        width: baseSize,
         height: height,
-        tessellation: 8
+        depth: baseSize
     }, scene);
     mountain.position = new Vector3(x, height / 2, z);
     mountain.material = getMat(random.pick(["rock", "rockDark", "rockLight"]));
     mountain.parent = parent;
-    new PhysicsAggregate(mountain, PhysicsShapeType.MESH, { mass: 0, friction: 0.8 }, scene);
+    new PhysicsAggregate(mountain, PhysicsShapeType.BOX, { mass: 0, friction: 0.8 }, scene);
     mountain.freezeWorldMatrix();
     
     return mountain;
@@ -226,10 +226,10 @@ export function createLake(
 ): Mesh {
     const { scene, parent, getMat } = params;
     
-    const lake = MeshBuilder.CreateCylinder("lake", {
-        diameter: radius * 2,
+    const lake = MeshBuilder.CreateBox("lake", {
+        width: radius * 2,
         height: 0.1,
-        tessellation: 24
+        depth: radius * 2
     }, scene);
     lake.position = new Vector3(x, 0.05, z);
     lake.material = getMat("water");
@@ -456,17 +456,16 @@ export function createTree(
     const { scene, parent, getMat, random } = params;
     const meshes: Mesh[] = [];
     
-    // Ствол
-    const trunk = MeshBuilder.CreateCylinder("treeTrunk", {
-        diameterTop: 0.3,
-        diameterBottom: 0.5,
+    // Ствол (box вместо cylinder)
+    const trunk = MeshBuilder.CreateBox("treeTrunk", {
+        width: 0.4,
         height: height * 0.4,
-        tessellation: 8
+        depth: 0.4
     }, scene);
     trunk.position = new Vector3(x, height * 0.2, z);
     trunk.material = getMat("wood");
     trunk.parent = parent;
-    new PhysicsAggregate(trunk, PhysicsShapeType.CYLINDER, { mass: 0, friction: 0.5 }, scene);
+    new PhysicsAggregate(trunk, PhysicsShapeType.BOX, { mass: 0, friction: 0.5 }, scene);
     trunk.freezeWorldMatrix();
     meshes.push(trunk);
     
@@ -474,12 +473,12 @@ export function createTree(
         // Крона
         const crownHeight = height * 0.7;
         if (type === "pine") {
-            // Коническая крона для сосны
-            const crown = MeshBuilder.CreateCylinder("treeCrown", {
-                diameterTop: 0,
-                diameterBottom: height * 0.5,
+            // Крона сосны (box вместо cylinder)
+            const crownD = height * 0.5;
+            const crown = MeshBuilder.CreateBox("treeCrown", {
+                width: crownD,
                 height: crownHeight,
-                tessellation: 8
+                depth: crownD
             }, scene);
             crown.position = new Vector3(x, height * 0.4 + crownHeight / 2, z);
             crown.material = getMat("leaves");
@@ -487,10 +486,12 @@ export function createTree(
             crown.freezeWorldMatrix();
             meshes.push(crown);
         } else {
-            // Сферическая крона для дуба
-            const crown = MeshBuilder.CreateSphere("treeCrown", {
-                diameter: height * 0.6,
-                segments: 8
+            // Крона дуба (box вместо sphere)
+            const crownD = height * 0.6;
+            const crown = MeshBuilder.CreateBox("treeCrown", {
+                width: crownD,
+                height: crownD,
+                depth: crownD
             }, scene);
             crown.position = new Vector3(x, height * 0.6, z);
             crown.material = getMat("leaves");

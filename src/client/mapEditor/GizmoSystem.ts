@@ -230,40 +230,35 @@ export class GizmoSystem {
     }
     
     private createArrow(name: string, direction: Vector3, material: StandardMaterial): Mesh {
-        // Создаём цилиндр для стрелки
-        const arrow = MeshBuilder.CreateCylinder(`arrow_${name}`, {
+        const arrow = MeshBuilder.CreateBox(`arrow_${name}`, {
+            width: this.ARROW_RADIUS * 2,
             height: this.ARROW_LENGTH,
-            diameter: this.ARROW_RADIUS * 2,
-            tessellation: 8
+            depth: this.ARROW_RADIUS * 2
         }, this.scene);
         
         arrow.material = material;
         arrow.renderingGroupId = 1; // Поверх всего
         
-        // Ориентируем стрелку по направлению
         if (direction.x !== 0) {
             arrow.rotation.z = Math.PI / 2;
         } else if (direction.z !== 0) {
             arrow.rotation.x = Math.PI / 2;
         }
         
-        // Позиционируем
         const offset = direction.scale(this.ARROW_LENGTH / 2);
         arrow.position = offset;
         
-        // Создаём конус для наконечника
-        const cone = MeshBuilder.CreateCylinder(`arrowCone_${name}`, {
+        const coneSize = this.ARROW_RADIUS * 2.5;
+        const cone = MeshBuilder.CreateBox(`arrowCone_${name}`, {
+            width: coneSize,
             height: this.ARROW_RADIUS * 3,
-            diameterTop: 0,
-            diameterBottom: this.ARROW_RADIUS * 2.5,
-            tessellation: 8
+            depth: coneSize
         }, this.scene);
         
         cone.material = material;
         cone.renderingGroupId = 1;
         cone.parent = arrow;
         
-        // Ориентируем конус
         if (direction.x !== 0) {
             cone.rotation.z = Math.PI / 2;
         } else if (direction.z !== 0) {
@@ -299,17 +294,15 @@ export class GizmoSystem {
     }
     
     private createRing(name: string, normal: Vector3, material: StandardMaterial): Mesh {
-        // Создаём тор для кольца
-        const ring = MeshBuilder.CreateTorus(`ring_${name}`, {
-            diameter: this.RING_RADIUS * 2,
-            thickness: this.RING_THICKNESS,
-            tessellation: 64
+        const ring = MeshBuilder.CreateBox(`ring_${name}`, {
+            width: this.RING_RADIUS * 2,
+            height: this.RING_THICKNESS,
+            depth: this.RING_RADIUS * 2
         }, this.scene);
         
         ring.material = material;
         ring.renderingGroupId = 1;
         
-        // Ориентируем кольцо
         if (normal.x !== 0) {
             ring.rotation.z = Math.PI / 2;
         } else if (normal.z !== 0) {
@@ -341,8 +334,11 @@ export class GizmoSystem {
         this.scaleHandles.set("z", zHandle);
         
         // Центральный handle для uniform scale (жёлтый)
-        const centerHandle = MeshBuilder.CreateSphere("scaleCenter", {
-            diameter: this.HANDLE_SIZE * 1.5
+        const d = this.HANDLE_SIZE * 1.5;
+        const centerHandle = MeshBuilder.CreateBox("scaleCenter", {
+            width: d,
+            height: d,
+            depth: d
         }, this.scene);
         centerHandle.material = this.selectedMaterial!;
         centerHandle.renderingGroupId = 1;

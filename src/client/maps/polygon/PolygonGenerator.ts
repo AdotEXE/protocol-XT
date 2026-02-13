@@ -937,7 +937,7 @@ export class PolygonGenerator extends BaseMapGenerator {
             if (this.isPositionInGarageArea(worldX, worldZ, 8)) return;
             const tankCount = localRandom.int(2, 4);
             for (let t = 0; t < tankCount; t++) {
-                const tank = MeshBuilder.CreateCylinder("fuelTank", { diameter: 3, height: 8 }, this.scene);
+                const tank = MeshBuilder.CreateBox("fuelTank", { width: 3, height: 8, depth: 3 }, this.scene);
                 tank.position = new Vector3(fuelX + t * 4 - tankCount * 2, 1.5, fuelZ);
                 tank.rotation.z = Math.PI / 2;
                 const tankMat = new StandardMaterial("tankMat", this.scene);

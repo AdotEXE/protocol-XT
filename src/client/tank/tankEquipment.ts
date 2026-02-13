@@ -235,10 +235,10 @@ export class TankEquipmentModule {
         const scale = module.scale || 1;
 
         if (module.modelPath === "cylinder_pair") {
-            // Special case for Engine: Twin pipes
+            // Special case for Engine: Twin pipes (box вместо cylinder)
             mesh = new Mesh("mod_" + module.id, this.scene);
-            const pipe1 = MeshBuilder.CreateCylinder("p1", { height: 1, diameter: 0.3 }, this.scene);
-            const pipe2 = MeshBuilder.CreateCylinder("p2", { height: 1, diameter: 0.3 }, this.scene);
+            const pipe1 = MeshBuilder.CreateBox("p1", { width: 0.3, height: 1, depth: 0.3 }, this.scene);
+            const pipe2 = MeshBuilder.CreateBox("p2", { width: 0.3, height: 1, depth: 0.3 }, this.scene);
             pipe1.position.x = 0.3; pipe1.rotation.x = Math.PI / 2;
             pipe2.position.x = -0.3; pipe2.rotation.x = Math.PI / 2;
             pipe1.parent = mesh;

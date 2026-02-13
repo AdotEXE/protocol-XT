@@ -408,10 +408,10 @@ export class RealWorldGeneratorV3 {
     private generateGround(): void {
         const groundSize = this.config.radius * 2.5;
 
-        const ground = MeshBuilder.CreateGround("rwg_ground", {
+        const ground = MeshBuilder.CreateBox("rwg_ground", {
             width: groundSize,
-            height: groundSize,
-            subdivisions: 1
+            height: 0.1,
+            depth: groundSize
         }, this.scene);
 
         const groundMat = new StandardMaterial("rwg_ground_mat", this.scene);
@@ -864,14 +864,23 @@ export class RealWorldGeneratorV3 {
         }
 
         try {
-            const ribbon = MeshBuilder.CreateRibbon(`rwg_river_${id}`, {
-                pathArray: [leftPath, rightPath],
-                sideOrientation: Mesh.DOUBLESIDE
-            }, this.scene);
-
-            ribbon.material = this.waterMat;
-            return ribbon;
-
+            // Аппроксимация реки цепочкой боксов (вместо CreateRibbon); возвращаем первый сегмент как Mesh
+            const segCount = Math.max(2, Math.floor(leftPath.length / 4));
+            const segW = width;
+            let first: Mesh | null = null;
+            for (let i = 0; i < segCount; i++) {
+                const i0 = Math.floor((i / segCount) * (leftPath.length - 1));
+                const i1 = Math.min(i0 + 1, leftPath.length - 1);
+                const p0 = leftPath[i0]!;
+                const p1 = leftPath[i1]!;
+                const mid = new Vector3((p0.x + p1.x) / 2, (p0.y + p1.y) / 2, (p0.z + p1.z) / 2);
+                const seg = MeshBuilder.CreateBox(`rwg_river_seg_${id}_${i}`, { width: segW, height: 0.1, depth: 0.5 }, this.scene);
+                seg.position = mid;
+                seg.material = this.waterMat;
+                if (!first) first = seg;
+                else seg.parent = first;
+            }
+            return first;
         } catch (e) {
             return null;
         }

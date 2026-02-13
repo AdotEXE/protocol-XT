@@ -39,9 +39,10 @@ export class CTFVisualizer {
 
             if (!flagMesh) {
                 // Create flag mesh with better shape
-                flagMesh = MeshBuilder.CreatePlane(`ctfFlag_${flag.id}`, {
+                flagMesh = MeshBuilder.CreateBox(`ctfFlag_${flag.id}`, {
                     width: 2.5,
-                    height: 1.8
+                    height: 1.8,
+                    depth: 0.01
                 }, this.scene);
                 flagMesh.billboardMode = Mesh.BILLBOARDMODE_Y;
                 flagMesh.isPickable = false;
@@ -72,9 +73,10 @@ export class CTFVisualizer {
 
             if (!poleMesh) {
                 // Create flag pole
-                poleMesh = MeshBuilder.CreateCylinder(`ctfPole_${flag.id}`, {
+                poleMesh = MeshBuilder.CreateBox(`ctfPole_${flag.id}`, {
+                    width: 0.25,
                     height: 4,
-                    diameter: 0.25
+                    depth: 0.25
                 }, this.scene);
                 poleMesh.isPickable = false;
                 
@@ -88,8 +90,10 @@ export class CTFVisualizer {
 
             if (!beaconMesh) {
                 // Create beacon light on top of pole
-                beaconMesh = MeshBuilder.CreateSphere(`ctfBeacon_${flag.id}`, {
-                    diameter: 1.2
+                beaconMesh = MeshBuilder.CreateBox(`ctfBeacon_${flag.id}`, {
+                    width: 1.2,
+                    height: 1.2,
+                    depth: 1.2
                 }, this.scene);
                 beaconMesh.isPickable = false;
                 

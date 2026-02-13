@@ -155,7 +155,7 @@ export class EnemyTurret {
     private hpBarContainer: Rectangle | null = null;
 
     private createHpBillboardVisuals() {
-        const plane = MeshBuilder.CreatePlane("turretHp", { size: 2.0 }, this.scene);
+        const plane = MeshBuilder.CreateBox("turretHp", { width: 2.0, height: 2.0, depth: 0.01 }, this.scene);
         plane.parent = this.head;
         plane.position = new Vector3(0, 1.3, 0);
         plane.billboardMode = Mesh.BILLBOARDMODE_ALL;
@@ -187,9 +187,9 @@ export class EnemyTurret {
         this.hpBillboard = plane;
 
         // Distance Text Plane
-        this.distanceTextPlane = MeshBuilder.CreatePlane(
+        this.distanceTextPlane = MeshBuilder.CreateBox(
             "turretDistText",
-            { width: 1.5, height: 0.5 },
+            { width: 1.5, height: 0.5, depth: 0.01 },
             this.scene
         );
         this.distanceTextPlane.position = new Vector3(0, 1.6, 0); // Above HP bar

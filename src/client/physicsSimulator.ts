@@ -70,14 +70,14 @@ export class PhysicsSimulator {
             description: 'Два объекта сталкиваются друг с другом',
             setup: async (scene) => {
                 // Объект 1
-                const obj1 = MeshBuilder.CreateSphere('obj1', { diameter: 2 }, scene);
+                const obj1 = MeshBuilder.CreateBox('obj1', { width: 2, height: 2, depth: 2 }, scene);
                 obj1.position = new Vector3(-5, 2, 0);
                 const mat1 = new StandardMaterial('mat1', scene);
                 mat1.diffuseColor = Color3.Red();
                 obj1.material = mat1;
                 
                 // Объект 2
-                const obj2 = MeshBuilder.CreateSphere('obj2', { diameter: 2 }, scene);
+                const obj2 = MeshBuilder.CreateBox('obj2', { width: 2, height: 2, depth: 2 }, scene);
                 obj2.position = new Vector3(5, 2, 0);
                 const mat2 = new StandardMaterial('mat2', scene);
                 mat2.diffuseColor = Color3.Blue();

@@ -1159,7 +1159,7 @@ export class GameGarage {
         }
 
         // Создаём billboard с таймером
-        const billboard = MeshBuilder.CreatePlane("respawnTimer", { size: 2 }, this.scene);
+        const billboard = MeshBuilder.CreateBox("respawnTimer", { width: 2, height: 2, depth: 0.01 }, this.scene);
         billboard.position = new Vector3(garagePos.x, 5, garagePos.z);
         billboard.billboardMode = Mesh.BILLBOARDMODE_ALL;
 

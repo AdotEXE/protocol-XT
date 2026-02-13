@@ -31,9 +31,10 @@ export class ControlPointVisualizer {
             
             if (!pointVisual) {
                 // Create platform (base)
-                const platform = MeshBuilder.CreateCylinder(`cp_platform_${point.id}`, {
+                const platform = MeshBuilder.CreateBox(`cp_platform_${point.id}`, {
+                    width: 8,
                     height: 0.5,
-                    diameter: 8
+                    depth: 8
                 }, this.scene);
                 platform.position = point.position.clone();
                 platform.position.y = 0.25;
@@ -44,10 +45,11 @@ export class ControlPointVisualizer {
                 platformMaterial.emissiveColor = new Color3(0.2, 0.2, 0.2);
                 platform.material = platformMaterial;
 
-                // Create pole (center)
-                const pole = MeshBuilder.CreateCylinder(`cp_pole_${point.id}`, {
+                // Create pole (center) (box вместо cylinder)
+                const pole = MeshBuilder.CreateBox(`cp_pole_${point.id}`, {
+                    width: 0.5,
                     height: 4,
-                    diameter: 0.5
+                    depth: 0.5
                 }, this.scene);
                 pole.position = point.position.clone();
                 pole.position.y = 2;
@@ -58,8 +60,10 @@ export class ControlPointVisualizer {
                 pole.material = poleMaterial;
 
                 // Create indicator sphere (top)
-                const indicator = MeshBuilder.CreateSphere(`cp_indicator_${point.id}`, {
-                    diameter: 2
+                const indicator = MeshBuilder.CreateBox(`cp_indicator_${point.id}`, {
+                    width: 2,
+                    height: 2,
+                    depth: 2
                 }, this.scene);
                 indicator.position = point.position.clone();
                 indicator.position.y = 4;
@@ -70,10 +74,10 @@ export class ControlPointVisualizer {
                 indicator.material = indicatorMaterial;
 
                 // Create progress ring (around platform)
-                const progressRing = MeshBuilder.CreateTorus(`cp_progress_${point.id}`, {
-                    diameter: 10,
-                    thickness: 0.3,
-                    tessellation: 32
+                const progressRing = MeshBuilder.CreateBox(`cp_progress_${point.id}`, {
+                    width: 10,
+                    height: 0.3,
+                    depth: 10
                 }, this.scene);
                 progressRing.position = point.position.clone();
                 progressRing.position.y = 0.5;

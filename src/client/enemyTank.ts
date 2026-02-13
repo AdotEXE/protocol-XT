@@ -30,7 +30,9 @@ import { TRACK_TYPES, TrackType } from "./trackTypes";
 import { MODULE_PRESETS, ModuleType } from "./tank/modules/ModuleTypes";
 import { timeProvider } from "./optimization/TimeProvider";
 import { createUniqueCannon, CannonAnimationElements } from "./tank/tankCannon";
-import { CHASSIS_SIZE_MULTIPLIERS } from "./tank/tankChassis";
+import { runCannonAnimations, runChassisAnimations } from "./tank/tankAnimations";
+import { createUniqueChassis, CHASSIS_SIZE_MULTIPLIERS, type ChassisAnimationElements } from "./tank/tankChassis";
+import { createVisualTracks } from "./tank/tankTracks";
 import { getAttachmentOffset } from "./tank/tankEquipment";
 import type { AICoordinator } from "./ai/AICoordinator";
 import { getMapBoundsFromConfig } from "./maps/MapConstants";
@@ -57,6 +59,7 @@ export class EnemyTank {
     barrel: Mesh;
     private wheels: Mesh[] = [];
     private cannonAnimationElements: CannonAnimationElements = {};
+    private chassisAnimationElements: ChassisAnimationElements = {};
 
     // Wall mesh cache — STATIC: shared across all EnemyTank instances (one filter call per TTL for ALL enemies)
     private static _sharedCachedWalls: AbstractMesh[] = [];
@@ -986,8 +989,8 @@ export class EnemyTank {
 
             if (module.modelPath === "cylinder_pair") {
                 mesh = new Mesh("mod_" + module.id, this.scene);
-                const pipe1 = MeshBuilder.CreateCylinder("p1", { height: 1, diameter: 0.3 }, this.scene);
-                const pipe2 = MeshBuilder.CreateCylinder("p2", { height: 1, diameter: 0.3 }, this.scene);
+                const pipe1 = MeshBuilder.CreateBox("p1", { width: 0.3, height: 1, depth: 0.3 }, this.scene);
+                const pipe2 = MeshBuilder.CreateBox("p2", { width: 0.3, height: 1, depth: 0.3 }, this.scene);
                 pipe1.position.x = 0.3; pipe1.rotation.x = Math.PI / 2;
                 pipe2.position.x = -0.3; pipe2.rotation.x = Math.PI / 2;
                 pipe1.parent = mesh; pipe2.parent = mesh;
@@ -1016,87 +1019,57 @@ export class EnemyTank {
 
     // === VISUALS (same as player) ===
 
-    // [Opus 4.6] protected for EnemyPlane override
+    // [Opus 4.6] protected for EnemyPlane override. Используем те же модели что у игрока (createUniqueChassis + детали).
     protected createChassis(position: Vector3): Mesh {
-        // КРИТИЧНО: Используем размеры из выбранного корпуса
-        const width = this.chassisType.width;
-        const height = this.chassisType.height;
-        const depth = this.chassisType.depth;
+        this.chassisAnimationElements = {};
+        const chassis = createUniqueChassis(
+            this.chassisType,
+            this.scene,
+            position,
+            this.chassisAnimationElements,
+            this.chassisType.color,
+            `enemyTankHull_${this.id}`
+        );
+        chassis.metadata = { type: "enemyTank", instance: this };
 
-        const chassis = MeshBuilder.CreateBox(`enemyTank_${this.id}`, {
-            width, height, depth
-        }, this.scene);
-        // КРИТИЧНО: Используем позицию как есть (уже с правильной высотой террейна + 2.0)
-        // НЕ добавляем 0.5, так как позиция уже правильная
-        chassis.position.copyFrom(position);
-        // КРИТИЧНО: Выравниваем танк ПЕРПЕНДИКУЛЯРНО поверхности используя нормаль
-        // Нормаль поверхности становится "up" вектором танка
+        // Выравниваем корпус по нормали поверхности (как раньше)
         const up = this.spawnGroundNormal.clone().normalize();
         const defaultUp = Vector3.Up();
-
-        // Если нормаль почти вертикальна (parallel to defaultUp), используем стандартную ориентацию
         const dot = Vector3.Dot(up, defaultUp);
         if (Math.abs(dot) > 0.99) {
             chassis.rotationQuaternion = Quaternion.Identity();
         } else {
-            // Вычисляем ось и угол поворота для выравнивания up вектора с нормалью поверхности
             const axis = Vector3.Cross(defaultUp, up);
-            if (axis.length() < 0.001) {
-                // Векторы противоположны, используем любую перпендикулярную ось
-                axis.copyFromFloats(1, 0, 0);
-            }
+            if (axis.length() < 0.001) axis.copyFromFloats(1, 0, 0);
             axis.normalize();
-
             const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-            // Создаём кватернион поворота вокруг вычисленной оси
-            const spawnRotation = Quaternion.RotationAxis(axis, angle);
-            chassis.rotationQuaternion = spawnRotation;
-        }
-
-        // КРИТИЧНО: Используем цвет из выбранного корпуса (shared via MaterialFactory)
-        const colorHex = this.chassisType.color;
-        chassis.material = MaterialFactory.createEnemyChassisMaterial(this.scene, colorHex);
-        chassis.metadata = { type: "enemyTank", instance: this };
-
-        // Add visual details for heavy chassis types
-        if (this.chassisType.id === "heavy" || this.chassisType.id === "siege") {
-            const armorMat = MaterialFactory.createEnemyArmorMaterial(this.scene);
-
-            const leftPlate = MeshBuilder.CreateBox(`armorL_${this.id}`, {
-                width: 0.12, height: height * 0.8, depth: depth * 0.5
-            }, this.scene);
-            leftPlate.position = new Vector3(-width * 0.55, 0, 0);
-            leftPlate.parent = chassis;
-            leftPlate.material = armorMat;
-
-            const rightPlate = MeshBuilder.CreateBox(`armorR_${this.id}`, {
-                width: 0.12, height: height * 0.8, depth: depth * 0.5
-            }, this.scene);
-            rightPlate.position = new Vector3(width * 0.55, 0, 0);
-            rightPlate.parent = chassis;
-            rightPlate.material = armorMat;
+            chassis.rotationQuaternion = Quaternion.RotationAxis(axis, angle);
         }
 
         return chassis;
     }
 
-    // [Opus 4.6] protected for EnemyPlane override
+    // [Opus 4.6] protected for EnemyPlane override. Пропорции башни из chassisType (как у игрока и сетевого).
     protected createTurret(): Mesh {
-        // Same as player turret!
+        const w = this.chassisType.width;
+        const h = this.chassisType.height;
+        const d = this.chassisType.depth;
+        const turretWidth = w * 0.65;
+        const turretHeight = h * 0.75;
+        const turretDepth = d * 0.6;
+
         const turret = MeshBuilder.CreateBox(`enemyTurret_${this.id}`, {
-            width: 1.4,
-            height: 0.6,
-            depth: 2.0
+            width: turretWidth,
+            height: turretHeight,
+            depth: turretDepth
         }, this.scene);
         turret.parent = this.chassis;
 
-        // Для самолёта перемещаем башню в нос
         const isPlane = this.chassisType?.id === "plane";
-        if (isPlane && this.chassisType) {
-            const d = this.chassisType.depth;
-            turret.position = new Vector3(0, 0.7, d * 0.6);
+        if (isPlane) {
+            turret.position = new Vector3(0, h / 2 + turretHeight / 2, d * 0.6);
         } else {
-            turret.position = new Vector3(0, 0.7, 0);
+            turret.position = new Vector3(0, h / 2 + turretHeight / 2, 0);
         }
 
         turret.material = MaterialFactory.createEnemyTurretMaterial(this.scene);
@@ -1141,26 +1114,26 @@ export class EnemyTank {
     }
 
     protected createTracks(): void {
-        const trackMat = MaterialFactory.createEnemyTrackMaterial(this.scene);
+        if (this.chassisType.id === "plane") return;
 
-        // Left track (same as player)
-        // Гусеницы уменьшены для избежания глитчей
-        const leftTrack = MeshBuilder.CreateBox(`eTrackL_${this.id}`, {
-            width: 0.4, height: 0.5, depth: 3.4
-        }, this.scene);
-        leftTrack.position = new Vector3(-1.1, -0.2, 0); // Ближе к корпусу
-        leftTrack.parent = this.chassis;
-        leftTrack.material = trackMat;
-        this.wheels.push(leftTrack);
+        const mult = CHASSIS_SIZE_MULTIPLIERS[this.chassisType.id] || CHASSIS_SIZE_MULTIPLIERS["medium"] || { width: 1, height: 1, depth: 1 };
+        const cw = this.chassisType.width * (typeof mult.width === "number" ? mult.width : 1);
+        const ch = this.chassisType.height * (typeof mult.height === "number" ? mult.height : 1);
 
-        // Right track - уменьшен для избежания глитчей
-        const rightTrack = MeshBuilder.CreateBox(`eTrackR_${this.id}`, {
-            width: 0.4, height: 0.5, depth: 3.4
-        }, this.scene);
-        rightTrack.position = new Vector3(1.1, -0.2, 0); // Ближе к корпусу
-        rightTrack.parent = this.chassis;
-        rightTrack.material = trackMat;
-        this.wheels.push(rightTrack);
+        const { left, right } = createVisualTracks(
+            this.scene,
+            this.chassis,
+            this.trackType.width,
+            this.trackType.height,
+            this.trackType.depth,
+            this.trackType.color,
+            cw,
+            ch,
+            `enemyTrack_${this.id}_`
+        );
+        left.material = MaterialFactory.createEnemyTrackMaterial(this.scene);
+        right.material = MaterialFactory.createEnemyTrackMaterial(this.scene);
+        this.wheels.push(left, right);
     }
 
     isPartOf(mesh: AbstractMesh): boolean {
@@ -1383,10 +1356,10 @@ export class EnemyTank {
         const barHeight = 0.15;
         const barY = this.chassisType.height + 2.5;
 
-        // Фон
-        this.healthBarBackground = MeshBuilder.CreatePlane(
+        // Фон (box вместо plane)
+        this.healthBarBackground = MeshBuilder.CreateBox(
             `healthBg_${Date.now()}`,
-            { width: barWidth, height: barHeight },
+            { width: barWidth, height: barHeight, depth: 0.01 },
             this.scene
         );
         this.healthBarBackground.position = new Vector3(0, barY, 0);
@@ -1396,10 +1369,10 @@ export class EnemyTank {
 
         this.healthBarBackground.material = MaterialFactory.createEnemyHealthBarBgMaterial(this.scene);
 
-        // Полоска
-        this.healthBar = MeshBuilder.CreatePlane(
+        // Полоска (box вместо plane)
+        this.healthBar = MeshBuilder.CreateBox(
             `healthBar_${Date.now()}`,
-            { width: barWidth, height: barHeight },
+            { width: barWidth, height: barHeight, depth: 0.01 },
             this.scene
         );
         this.healthBar.position = new Vector3(0, barY, -0.01);
@@ -1409,10 +1382,10 @@ export class EnemyTank {
 
         this.healthBar.material = MaterialFactory.createEnemyHealthBarGreenMaterial(this.scene);
 
-        // Текст дистанции
-        this.distanceTextPlane = MeshBuilder.CreatePlane(
+        // Текст дистанции (box вместо plane)
+        this.distanceTextPlane = MeshBuilder.CreateBox(
             `distText_${Date.now()}`,
-            { width: 1.5, height: 0.5 },
+            { width: 1.5, height: 0.5, depth: 0.01 },
             this.scene
         );
         this.distanceTextPlane.position = new Vector3(barWidth / 2 + 0.9, barY, 0);
@@ -1598,6 +1571,16 @@ export class EnemyTank {
 
         // Башня ВСЕГДА обновляется каждый кадр (дёшевая операция)
         this.updateTurret();
+
+        // Cannon animations (LOD: only when close to player to save CPU)
+        const cannonAnimDistanceSq = 3600; // 60m
+        const deltaTime = this.scene.getEngine().getDeltaTime() / 1000;
+        if (this.distanceToTargetSq < cannonAnimDistanceSq && this.cannonAnimationElements && this.barrel && !this.barrel.isDisposed()) {
+            runCannonAnimations(this.cannonAnimationElements, this.barrel, this.cannonType.id, deltaTime);
+        }
+        if (this.chassisAnimationElements && this.chassis && !this.chassis.isDisposed()) {
+            runChassisAnimations(this.chassisAnimationElements, this.chassis, deltaTime);
+        }
 
         // Активное наведение на игрока
         // NIGHTMARE: Наведение на любом расстоянии в пределах detectRange!

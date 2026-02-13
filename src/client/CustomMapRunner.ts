@@ -209,10 +209,10 @@ export class CustomMapRunner {
         }
 
         // Создаём чёрный пол
-        this.floor = MeshBuilder.CreateGround("customMapFloor", {
+        this.floor = MeshBuilder.CreateBox("customMapFloor", {
             width: 1000,
-            height: 1000,
-            subdivisions: 1
+            height: 0.1,
+            depth: 1000
         }, this.scene);
 
         const floorMat = new StandardMaterial("customFloorMat", this.scene);
@@ -583,7 +583,7 @@ export class CustomMapRunner {
 
             // Label "G"
             // Use DynamicTexture
-            const plane = MeshBuilder.CreatePlane(`garageLabel_${obj.id}`, { size: 4 }, this.scene);
+            const plane = MeshBuilder.CreateBox(`garageLabel_${obj.id}`, { width: 4, height: 4, depth: 0.01 }, this.scene);
             plane.parent = mesh;
             plane.position.y = 3;
             plane.position.x = 0;

@@ -113,6 +113,7 @@ export class GameUpdate {
     protected onUpdateEnemyTurretsVisibility: (() => void) | null = null;
     protected onCheckConsumablePickups: (() => void) | null = null;
     protected onCheckSpectatorMode: (() => void) | null = null;
+    protected onUpdateSupplyDrops: ((deltaTime: number) => void) | null = null;
 
     // Флаги состояния
     protected gameStarted = false;
@@ -335,6 +336,11 @@ export class GameUpdate {
         // Проверка подбора расходников (адаптивный интервал)
         if (this._updateTick % this._adaptiveIntervals.consumables === 0 && this.onCheckConsumablePickups) {
             this.onCheckConsumablePickups();
+        }
+
+        // Обновление дропов с неба (падение, приземление, деспавн)
+        if (this.onUpdateSupplyDrops) {
+            this.onUpdateSupplyDrops(deltaTime);
         }
 
         // Проверка режима наблюдателя (каждые 2 кадра)
@@ -837,6 +843,7 @@ export class GameUpdate {
         onCheckConsumablePickups?: () => void;
         onCheckSpectatorMode?: () => void;
         onUpdateCompass?: () => void;
+        onUpdateSupplyDrops?: (deltaTime: number) => void;
     }): void {
         if (callbacks.onUpdateCamera !== undefined) this.onUpdateCamera = callbacks.onUpdateCamera;
         if (callbacks.onUpdateHUD !== undefined) this.onUpdateHUD = callbacks.onUpdateHUD;
@@ -849,6 +856,7 @@ export class GameUpdate {
         if (callbacks.onUpdateEnemyTurretsVisibility !== undefined) this.onUpdateEnemyTurretsVisibility = callbacks.onUpdateEnemyTurretsVisibility;
         if (callbacks.onCheckConsumablePickups !== undefined) this.onCheckConsumablePickups = callbacks.onCheckConsumablePickups;
         if (callbacks.onCheckSpectatorMode !== undefined) this.onCheckSpectatorMode = callbacks.onCheckSpectatorMode;
+        if (callbacks.onUpdateSupplyDrops !== undefined) this.onUpdateSupplyDrops = callbacks.onUpdateSupplyDrops;
         if (callbacks.onUpdateCompass !== undefined) this.onUpdateCompass = callbacks.onUpdateCompass;
     }
 
@@ -1094,6 +1102,7 @@ export class GameUpdate {
         this.onUpdateEnemyTurretsVisibility = null;
         this.onCheckConsumablePickups = null;
         this.onCheckSpectatorMode = null;
+        this.onUpdateSupplyDrops = null;
 
         // Очищаем кэш позиций врагов
         this._enemyPositionsCache.clear();
