@@ -76,7 +76,7 @@ export function getAllLocalIPs(): string[] {
 }
 
 // Если запущен напрямую, выводим IP
-if (require.main === module) {
+if (typeof require !== 'undefined' && require.main === module) {
   const ip = getLocalIP();
   if (ip) {
     console.log(ip);
