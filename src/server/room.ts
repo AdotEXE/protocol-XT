@@ -5,7 +5,7 @@ import { ServerPlayer } from "./player";
 import { ServerProjectile } from "./projectile";
 import { ServerWall } from "./wall";
 import { ServerEnemy } from "./enemy";
-import type { GameModeRules } from "./gameModes";
+import { getGameModeRules, type GameModeRules } from "./gameModes";
 import { CTFSystem } from "./ctf";
 import { InputValidator } from "./validation";
 import { logger, LogLevel, loggingSettings } from "../client/utils/logger";
@@ -143,8 +143,7 @@ export class GameRoom {
         }
         serverLogger.log(`[Room] Комната создана с mapType: ${this.mapType}, worldSeed: ${this.worldSeed}`);
 
-        // Get game mode rules (lazy require to break circular dependency with gameModes.ts)
-        const { getGameModeRules } = require("./gameModes") as typeof import("./gameModes");
+        // Get game mode rules
         this.gameModeRules = getGameModeRules(mode);
 
         // Initialize default settings
