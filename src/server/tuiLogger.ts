@@ -7,7 +7,7 @@
 import blessed from 'blessed';
 // @ts-ignore - blessed-contrib is CommonJS
 import contrib from 'blessed-contrib';
-import { GameServer } from './gameServer';
+import type { GameServer } from './gameServer';
 
 interface LogEntry {
     timestamp: string;
