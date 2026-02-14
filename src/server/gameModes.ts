@@ -1,7 +1,7 @@
 import { Vector3 } from "@babylonjs/core";
 import type { GameMode } from "../shared/types";
-import { ServerPlayer } from "./player";
-import { GameRoom } from "./room";
+import type { ServerPlayer } from "./player";
+import type { GameRoom } from "./room";
 
 export interface GameModeRules {
     getSpawnPosition(player: ServerPlayer, room: GameRoom): Vector3;

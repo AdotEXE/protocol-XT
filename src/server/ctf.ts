@@ -1,7 +1,7 @@
 import { Vector3 } from "@babylonjs/core";
 import { nanoid } from "nanoid";
-import { ServerPlayer } from "./player";
-import { GameRoom } from "./room";
+import type { ServerPlayer } from "./player";
+import type { GameRoom } from "./room";
 import { logger, LogLevel, loggingSettings } from "../client/utils/logger";
 
 export interface FlagData {
