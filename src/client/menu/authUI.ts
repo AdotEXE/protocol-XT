@@ -3,6 +3,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { firebaseService } from "../firebaseService";
+import { generatePixelAvatar, type PixelAvatarOptions } from "./pixelAvatarGenerator";
 
 export type AuthFormType = "login" | "register" | "reset" | "profile" | null;
 
@@ -10,6 +11,7 @@ export interface AuthUICallbacks {
     onAuthSuccess?: () => void;
     onAuthError?: (error: string) => void;
     onClose?: () => void;
+    onAvatarClick?: () => void;
 }
 
 export class AuthUI {
@@ -719,6 +721,47 @@ export class AuthUI {
                 </div>
                 <div class="auth-content">
                     <div class="user-profile">
+                        <div id="profile-avatar-container" style="
+                            display: flex;
+                            justify-content: center;
+                            margin-bottom: 20px;
+                        ">
+                            <div id="profile-avatar-clickable" style="
+                                width: 96px;
+                                height: 96px;
+                                border: 3px solid #0f0;
+                                border-radius: 8px;
+                                cursor: pointer;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                background: rgba(0, 20, 0, 0.4);
+                                transition: all 0.2s;
+                                position: relative;
+                                overflow: hidden;
+                            " title="Нажмите, чтобы сменить аватар">
+                                <div id="profile-avatar-canvas" style="
+                                    width: 100%;
+                                    height: 100%;
+                                    display: flex;
+                                    align-items: center;
+                                    justify-content: center;
+                                    image-rendering: pixelated;
+                                "></div>
+                                <div style="
+                                    position: absolute;
+                                    bottom: 0;
+                                    left: 0;
+                                    right: 0;
+                                    background: rgba(0, 0, 0, 0.7);
+                                    color: #0f0;
+                                    font-size: 8px;
+                                    text-align: center;
+                                    padding: 2px 0;
+                                    font-family: 'Press Start 2P', monospace;
+                                ">СМЕНИТЬ</div>
+                            </div>
+                        </div>
                         <div class="profile-field">
                             <label>Имя пользователя</label>
                             <div class="profile-value">${username || "Не установлено"}</div>
@@ -1040,6 +1083,52 @@ export class AuthUI {
         const signOutBtn = document.getElementById("auth-signout");
         const resendBtn = document.getElementById("resend-verification");
         const closeBtn = document.getElementById("auth-close");
+
+        // Render the pixel avatar into the profile
+        const avatarContainer = document.getElementById("profile-avatar-canvas");
+        if (avatarContainer) {
+            const savedAvatar = localStorage.getItem("selectedAvatar") || "tank";
+            const variantMap: { [key: string]: PixelAvatarOptions["variant"] } = {
+                tank: "tank",
+                soldier: "soldier",
+                robot: "cyborg",
+                skull: "knight",
+                commander: "commander",
+                pilot: "pilot",
+                sniper: "sniper",
+                engineer: "engineer",
+                medic: "medic",
+                spy: "spy",
+                cyborg: "cyborg",
+                ninja: "ninja",
+                viking: "viking",
+                knight: "knight",
+            };
+            const variant = variantMap[savedAvatar] || "tank";
+            const avatarCanvas = generatePixelAvatar({ variant });
+            avatarCanvas.style.width = "100%";
+            avatarCanvas.style.height = "100%";
+            avatarCanvas.style.imageRendering = "pixelated";
+            avatarContainer.appendChild(avatarCanvas);
+        }
+
+        // Avatar click handler - opens avatar selector
+        const avatarClickable = document.getElementById("profile-avatar-clickable");
+        if (avatarClickable) {
+            avatarClickable.addEventListener("mouseenter", () => {
+                avatarClickable.style.borderColor = "#4f4";
+                avatarClickable.style.boxShadow = "0 0 15px rgba(0, 255, 0, 0.4)";
+            });
+            avatarClickable.addEventListener("mouseleave", () => {
+                avatarClickable.style.borderColor = "#0f0";
+                avatarClickable.style.boxShadow = "none";
+            });
+            avatarClickable.addEventListener("click", () => {
+                if (this.callbacks.onAvatarClick) {
+                    this.callbacks.onAvatarClick();
+                }
+            });
+        }
 
         signOutBtn?.addEventListener("click", async () => {
             await firebaseService.signOut();

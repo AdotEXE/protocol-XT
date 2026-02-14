@@ -264,6 +264,19 @@ function validateWebSocketUrl(url: string): boolean {
     }
 }
 
+/**
+ * Check if hostname is a private/LAN IP address (RFC 1918)
+ */
+function isPrivateIP(hostname: string): boolean {
+    // 10.0.0.0 – 10.255.255.255
+    if (/^10\./.test(hostname)) return true;
+    // 172.16.0.0 – 172.31.255.255
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(hostname)) return true;
+    // 192.168.0.0 – 192.168.255.255
+    if (/^192\.168\./.test(hostname)) return true;
+    return false;
+}
+
 function getWebSocketUrl(defaultPort: number = 8000): string {
     // Проверяем переменную окружения (приоритет)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -282,13 +295,20 @@ function getWebSocketUrl(defaultPort: number = 8000): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
     // Локальная разработка — используем порт (отдельный сервер)
-    // Продакшен (Vercel и т.д.) — без порта, используем дефолтный 80/443
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
         const url = `ws://localhost:${defaultPort}`;
         logger.log(`[Multiplayer] Auto-detected WebSocket URL (localhost): ${url}`);
         return url;
     }
 
+    // LAN / private IP — также используем порт (отдельный сервер в локальной сети)
+    if (isPrivateIP(hostname)) {
+        const url = `${protocol}//${hostname}:${defaultPort}`;
+        logger.log(`[Multiplayer] Auto-detected WebSocket URL (LAN ${hostname}): ${url}`);
+        return url;
+    }
+
+    // Продакшен (Vercel и т.д.) — без порта, используем дефолтный 80/443
     const url = `${protocol}//${hostname}`;
     logger.log(`[Multiplayer] Auto-detected WebSocket URL (from hostname ${hostname}): ${url}`);
     return url;

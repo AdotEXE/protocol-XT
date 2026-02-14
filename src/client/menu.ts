@@ -7876,7 +7876,7 @@ transition: all 0.2s;
                         modePanel.classList.remove("visible");
                     }
                     // Показываем только основное мультиплеер меню
-                    this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
+                    this.showPlayWindow("play-window-multiplayer", 1, 1);
                 } else if (step === 2 && action === "back") {
                     // Панель выбора карты для создания комнаты - возврат к выбору режима
                     // Сбрасываем выбранную карту и кнопку "В БОЙ!"
@@ -7897,7 +7897,7 @@ transition: all 0.2s;
                     // Закрытие панелей создания комнаты - возвращаемся к меню мультиплеера
                     if (step === 1 || step === 2) {
                         this.hideAllPlayWindows();
-                        this.showPlayWindow("play-window-multiplayer", 0, 0);
+                        this.showPlayWindow("play-window-multiplayer", 1, 1);
                     } else {
                         this.hidePlayMenu();
                     }
@@ -8129,7 +8129,7 @@ transition: all 0.2s;
                 modePanel.classList.remove("visible");
             }
             // Показываем только основное мультиплеер меню
-            this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
+            this.showPlayWindow("play-window-multiplayer", 1, 1);
             this.initMultiplayerMenu();
         } else {
             // Показываем следующий шаг - выбор режима игры
@@ -9632,7 +9632,7 @@ transition: all 0.2s;
                     debugLog("[Menu] Leaving room:", roomId);
                     game.multiplayerManager.leaveRoom();
                     this.hideAllPlayWindows();
-                    this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
+                    this.showPlayWindow("play-window-multiplayer", 1, 1);
                 }
             };
         }
@@ -13868,35 +13868,16 @@ line - height: 1.4;
                     this.selectedGameMode = "multiplayer";
                     localStorage.setItem("selectedGameMode", "multiplayer");
 
-                    // Открываем главное меню, если оно закрыто
-                    if (!this.playMenuPanel || !this.playMenuPanel.classList.contains("visible")) {
-                        this.showPlayMenu();
-                    }
+                    // Открываем мультиплеер лобби напрямую
+                    this.showMultiplayerLobby();
 
-                    // Скрываем все окна и показываем нужные
-                    this.hideAllPlayWindows();
-
-                    // Показываем окно выбора типа игры (single/multiplayer) - автоматически выберем multiplayer
-                    this.showPlayWindow("play-window-mode", 0, 0);
-
-                    // Выбираем тип игры "multiplayer" программно
+                    // Выбираем режим из приглашения, если указан
                     setTimeout(() => {
-                        this.selectGameType("multiplayer");
-                    }, 50);
-
-                    // Показываем окно мультиплеера с выбором режима
-                    setTimeout(() => {
-                        this.showPlayWindow("play-window-multiplayer", 0.5, 0.5);
-                        this.initMultiplayerMenu();
-
-                        // Выбираем режим из приглашения, если указан
                         if (data.gameMode) {
-                            setTimeout(() => {
-                                const modeBtn = document.querySelector(`[data-mp-mode="${data.gameMode}"]`) as HTMLElement;
-                                if (modeBtn) {
-                                    modeBtn.click();
-                                }
-                            }, 100);
+                            const modeBtn = document.querySelector(`[data-mp-mode="${data.gameMode}"]`) as HTMLElement;
+                            if (modeBtn) {
+                                modeBtn.click();
+                            }
                         }
                     }, 150);
 
@@ -14320,8 +14301,8 @@ line - height: 1.4;
         debugLog(`[Menu] showPlayWindow: Showing window "${id}" with order ${order}`);
         el.style.display = "block";
         el.classList.add("visible");
-        el.style.zIndex = (100002 + order).toString();
-        el.style.transform = `translate(${order * 12}px, ${order * 12}px)`;
+        el.style.zIndex = Math.floor(100002 + order).toString();
+        el.style.transform = `translate(${Math.floor(order * 12)}px, ${Math.floor(order * 12)}px)`;
 
         // Автоматически подстраиваем высоту под контент
         // Сбрасываем любые фиксированные высоты
@@ -14531,6 +14512,7 @@ line - height: 1.4;
                     this.hidePlayMenu();
                     this.showGarage();
                 },
+                onMultiplayer: () => this.showMultiplayerLobby(),
                 onStartGame: (mode, mapType, chassisId, cannonId) => {
                     // Save selections
                     localStorage.setItem("selectedGameMode", mode);
@@ -14582,6 +14564,108 @@ line - height: 1.4;
         }
 
         this.unifiedPlayMenu.show();
+        this.enforceCanvasPointerEvents();
+    }
+
+    /** Flag to ensure old play panel is only initialized once */
+    private _oldPlayPanelCreated = false;
+    /** Flag to ensure initMultiplayerMenu is only called once */
+    private _mpMenuInitialized = false;
+
+    /**
+     * Lazily create the old play panel DOM elements needed for multiplayer lobby.
+     * Only called once; subsequent calls are no-ops.
+     */
+    private ensureMultiplayerPanelCreated(): void {
+        if (this._oldPlayPanelCreated) return;
+        this._oldPlayPanelCreated = true;
+
+        // Create the old play menu panel which contains multiplayer HTML
+        this._createPlayMenuPanel_OLD();
+
+        // Immediately hide it - we only show it explicitly via showMultiplayerLobby
+        if (this.playMenuPanel) {
+            this.playMenuPanel.style.display = "none";
+
+            // Override the "back" button on multiplayer window (step=0.5)
+            // to return to UnifiedPlayMenu instead of play-window-mode
+            const backBtn = this.playMenuPanel.querySelector('.window-btn[data-nav="back"][data-step="0.5"]') as HTMLElement | null;
+            if (backBtn) {
+                const newBack = backBtn.cloneNode(true) as HTMLElement;
+                backBtn.parentNode?.replaceChild(newBack, backBtn);
+                newBack.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    this.hideMultiplayerLobby();
+                    this.showPlayMenu();
+                });
+            }
+
+            // Override the "close" button on multiplayer window (step=0.5)
+            const closeBtn = this.playMenuPanel.querySelector('.window-btn[data-nav="close"][data-step="0.5"]') as HTMLElement | null;
+            if (closeBtn) {
+                const newClose = closeBtn.cloneNode(true) as HTMLElement;
+                closeBtn.parentNode?.replaceChild(newClose, closeBtn);
+                newClose.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    this.hideMultiplayerLobby();
+                });
+            }
+        }
+    }
+
+    /**
+     * Show the multiplayer lobby UI (quick play, create room, join room).
+     * Hides UnifiedPlayMenu and shows the dedicated multiplayer panel.
+     */
+    private showMultiplayerLobby(): void {
+        debugLog("[Menu] showMultiplayerLobby() called");
+
+        // Ensure multiplayer DOM elements exist
+        this.ensureMultiplayerPanelCreated();
+
+        // Hide UnifiedPlayMenu
+        if (this.unifiedPlayMenu) {
+            this.unifiedPlayMenu.hide();
+        }
+
+        // Show playMenuPanel as a full-screen transparent overlay container
+        if (this.playMenuPanel) {
+            this.playMenuPanel.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 100003;
+                display: block;
+                pointer-events: auto;
+                background: transparent;
+                overflow: auto;
+            `;
+        }
+
+        // Hide all sub-windows first, then show multiplayer lobby
+        this.hideAllPlayWindows();
+        this.showPlayWindow("play-window-multiplayer", 1, 1);
+
+        // Initialize multiplayer menu handlers (once)
+        if (!this._mpMenuInitialized) {
+            this._mpMenuInitialized = true;
+            this.initMultiplayerMenu();
+        }
+
+        this.enforceCanvasPointerEvents();
+    }
+
+    /**
+     * Hide the multiplayer lobby and return to main menu.
+     */
+    private hideMultiplayerLobby(): void {
+        debugLog("[Menu] hideMultiplayerLobby() called");
+        this.hideAllPlayWindows();
+        if (this.playMenuPanel) {
+            this.playMenuPanel.style.display = "none";
+        }
         this.enforceCanvasPointerEvents();
     }
 
@@ -15630,30 +15714,13 @@ line - height: 1.4;
     }
 
     private async showProfile(): Promise<void> {
-        try {
-            // Импортируем AvatarSelector динамически
-            const { AvatarSelector } = await import("./menu/avatarSelector");
-            const selector = new AvatarSelector({
-                onAvatarSelected: (avatarId: string) => {
-                    localStorage.setItem('selectedAvatar', avatarId);
-                    if (typeof (this as any).updatePlayerAvatarDisplay === 'function') {
-                        (this as any).updatePlayerAvatarDisplay();
-                    }
-                },
-                onClose: () => {
-                    this.enforceCanvasPointerEvents();
-                }
-            });
-            selector.show();
-            this.enforceCanvasPointerEvents();
-        } catch (error) {
-            console.error("[Menu] Failed to load AvatarSelector:", error);
-            authUI.showUserProfile({
-                onAuthSuccess: () => this.updateAuthUI(),
-                onClose: () => this.enforceCanvasPointerEvents()
-            });
-            this.enforceCanvasPointerEvents();
-        }
+        // Show the actual user profile (not avatar selector)
+        authUI.showUserProfile({
+            onAuthSuccess: () => this.updateAuthUI(),
+            onClose: () => this.enforceCanvasPointerEvents(),
+            onAvatarClick: () => this.showAvatarSelector()
+        });
+        this.enforceCanvasPointerEvents();
     }
 
     /** Открывает только меню выбора аватарок (кнопка «АВАТАРКИ»). Не подменяет профилем при ошибке. */
@@ -17321,7 +17388,7 @@ line - height: 1.4;
 
         // Открываем панель выбора карты
         (menu as any).hideAllPlayWindows();
-        (menu as any).showPlayWindow("mp-create-room-map", 0.5, 0.5);
+        (menu as any).showPlayWindow("mp-create-room-map", 2, 2);
     } else {
         console.error("[Menu] Game or mainMenu not found");
     }

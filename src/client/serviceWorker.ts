@@ -15,7 +15,7 @@ export function registerServiceWorker(): void {
   if (isDev) {
     // Service Worker disabled in development mode - silent
     // Отключаем существующие ServiceWorker в dev режиме
-    if ('serviceWorker' in navigator) {
+    if ('serviceWorker' in navigator && navigator.serviceWorker) {
       navigator.serviceWorker.getRegistrations().then((registrations) => {
         registrations.forEach((registration) => {
           registration.unregister();
@@ -25,7 +25,7 @@ export function registerServiceWorker(): void {
     return;
   }
   
-  if ('serviceWorker' in navigator) {
+  if ('serviceWorker' in navigator && navigator.serviceWorker) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register(SW_PATH, {
         scope: '/',

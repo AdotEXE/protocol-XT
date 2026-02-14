@@ -60,7 +60,7 @@ export class AvatarSelector {
             width: 100%;
             height: 100%;
             background: rgba(0, 0, 0, 0.95);
-            z-index: 20000;
+            z-index: 200000;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -966,7 +966,7 @@ export class AvatarSelector {
                 background: rgba(5, 15, 5, 0.98);
                 border: 2px solid #0f0;
                 padding: 20px;
-                z-index: 20001;
+                z-index: 200001;
                 min-width: 300px;
             `;
 

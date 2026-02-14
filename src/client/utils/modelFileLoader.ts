@@ -11,6 +11,16 @@ import { migrateModel } from './modelMigration';
 // Версия игры
 const GAME_VERSION = '0.4.20553'; // TODO: получать из package.json динамически
 
+/**
+ * Check if hostname is a private/LAN IP address (RFC 1918)
+ */
+function isPrivateIP(hostname: string): boolean {
+    if (/^10\./.test(hostname)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(hostname)) return true;
+    if (/^192\.168\./.test(hostname)) return true;
+    return false;
+}
+
 // URL сервера
 const getServerURL = (): string => {
     // Если установлен глобальный SERVER_URL, используем его
@@ -23,6 +33,11 @@ const getServerURL = (): string => {
 
         // Локальная разработка — используем порт 7001 (отдельный сервер)
         if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return `${protocol}//${hostname}:7001`;
+        }
+
+        // LAN / private IP — также используем порт 7001 (отдельный сервер в локальной сети)
+        if (isPrivateIP(hostname)) {
             return `${protocol}//${hostname}:7001`;
         }
 

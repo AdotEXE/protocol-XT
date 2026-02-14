@@ -137,12 +137,7 @@ tsc_*.txt
 # Files with non-standard names (command outputs, etc.)
 # Files starting with dash or special characters
 -*
-# Files with command-like names
-*tree*
-*tat*
-*findstr*
-*Select-String*
-*ion generation*
 
 # Version file (each developer has their own version)
 .version.json
+.cursor

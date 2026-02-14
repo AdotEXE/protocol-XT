@@ -43,13 +43,13 @@ export class InGameDialogs {
     async alert(message: string, title: string = "Уведомление"): Promise<void> {
         // Пытаемся получить GUI texture из игры, если не инициализирован
         if (!this.guiTexture) {
-            console.log("[InGameDialogs] GUI texture not initialized, trying to get from game...");
+            console.debug("[InGameDialogs] GUI texture not initialized, trying to get from game...");
             const game = (window as any).gameInstance;
             if (game && game.hud && typeof game.hud.getGuiTexture === 'function') {
                 const guiTexture = game.hud.getGuiTexture();
                 if (guiTexture) {
                     this.guiTexture = guiTexture;
-                    console.log("[InGameDialogs] GUI texture obtained from game HUD");
+                    console.debug("[InGameDialogs] GUI texture obtained from game HUD");
                 }
             }
         }
@@ -71,13 +71,13 @@ export class InGameDialogs {
     async confirm(message: string, title: string = "Подтверждение"): Promise<boolean> {
         // Пытаемся получить GUI texture из игры, если не инициализирован
         if (!this.guiTexture) {
-            console.log("[InGameDialogs] GUI texture not initialized, trying to get from game...");
+            console.debug("[InGameDialogs] GUI texture not initialized, trying to get from game...");
             const game = (window as any).gameInstance;
             if (game && game.hud && typeof game.hud.getGuiTexture === 'function') {
                 const guiTexture = game.hud.getGuiTexture();
                 if (guiTexture) {
                     this.guiTexture = guiTexture;
-                    console.log("[InGameDialogs] GUI texture obtained from game HUD");
+                    console.debug("[InGameDialogs] GUI texture obtained from game HUD");
                 }
             }
         }
@@ -99,13 +99,13 @@ export class InGameDialogs {
     async prompt(message: string, defaultValue: string = "", title: string = "Ввод"): Promise<string | null> {
         // Пытаемся получить GUI texture из игры, если не инициализирован
         if (!this.guiTexture) {
-            console.log("[InGameDialogs] GUI texture not initialized, trying to get from game...");
+            console.debug("[InGameDialogs] GUI texture not initialized, trying to get from game...");
             const game = (window as any).gameInstance;
             if (game && game.hud && typeof game.hud.getGuiTexture === 'function') {
                 const guiTexture = game.hud.getGuiTexture();
                 if (guiTexture) {
                     this.guiTexture = guiTexture;
-                    console.log("[InGameDialogs] GUI texture obtained from game HUD");
+                    console.debug("[InGameDialogs] GUI texture obtained from game HUD");
                 }
             }
         }

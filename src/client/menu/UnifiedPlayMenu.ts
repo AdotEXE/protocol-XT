@@ -347,6 +347,7 @@ const UNIFIED_PLAY_STYLES = `
 export interface UnifiedPlayMenuCallbacks {
     onClose: () => void;
     onGarage: () => void;
+    onMultiplayer: () => void;
     onStartGame: (mode: string, mapType: MapType, chassisId: string, cannonId: string) => void;
     getOwnedChassisIds: () => Set<string>;
     getOwnedCannonIds: () => Set<string>;
@@ -525,7 +526,15 @@ export class UnifiedPlayMenu {
 
         content.querySelectorAll(".upm-mode-item").forEach(item => {
             item.addEventListener("click", () => {
-                this.selectedMode = (item as HTMLElement).dataset.mode || "ffa";
+                const mode = (item as HTMLElement).dataset.mode || "ffa";
+
+                // Multiplayer mode opens dedicated lobby UI
+                if (mode === "multiplayer") {
+                    this.callbacks.onMultiplayer();
+                    return;
+                }
+
+                this.selectedMode = mode;
                 safeLocalStorage.set("selectedGameMode", this.selectedMode);
                 content.querySelectorAll(".upm-mode-item").forEach(i => i.classList.remove("selected"));
                 item.classList.add("selected");
