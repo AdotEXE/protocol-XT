@@ -340,7 +340,7 @@ export class NetworkPlayerTank {
     }
 
     private rebuildTank(): void {
-        console.log(`[NetworkPlayerTank] 🔄 Rebuilding tank visual for ${this.playerId}`);
+        logger.log(`[NetworkPlayerTank] 🔄 Rebuilding tank visual for ${this.playerId}`);
 
         // Update unique ID to ensure fresh mesh names (prevents caching issues)
         this.uniqueId = `net_${this.playerId}_${Date.now()}`;
@@ -550,7 +550,7 @@ export class NetworkPlayerTank {
         this.chassisAnimationElements = {};
 
         // КРИТИЧНО: Логируем цвета для отладки
-        console.log(`[NetworkPlayerTank] 🎨 Creating chassis for ${this.playerId}: tankColor="${this.networkPlayer.tankColor}", turretColor="${this.networkPlayer.turretColor}"`);
+        logger.log(`[NetworkPlayerTank] 🎨 Creating chassis for ${this.playerId}: tankColor="${this.networkPlayer.tankColor}", turretColor="${this.networkPlayer.turretColor}"`);
 
         // createUniqueChassis возвращает готовый mesh с примененными материалами и деталями
         const chassis = createUniqueChassis(

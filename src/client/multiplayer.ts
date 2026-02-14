@@ -326,7 +326,7 @@ export function getLocallyEquippedModules(): string[] {
             return Object.values(config).filter(id => typeof id === 'string' && id.length > 0) as string[];
         }
     } catch (e) {
-        console.error("Failed to load modules for multiplayer", e);
+        logger.error("Failed to load modules for multiplayer", e);
     }
     return [];
 }
@@ -355,7 +355,7 @@ function getOrCreatePlayerId(): string {
         return newId;
     } catch (error) {
         // Если localStorage недоступен (например, в приватном режиме) - создаем временный ID
-        console.error(`[Multiplayer] ❌ Ошибка localStorage:`, error);
+        logger.error(`[Multiplayer] ❌ Ошибка localStorage:`, error);
         logger.warn("[Multiplayer] Не удалось использовать localStorage, создаем временный ID", error);
         return nanoid();
     }
@@ -641,7 +641,7 @@ export class MultiplayerManager {
             else if (type === 'warning') logger.warn(`${logPrefix} ${message}`);
             else logger.log(`${logPrefix} ${message}`);
         } catch (e) {
-            console.error("Failed to dispatch toast:", e);
+            logger.error("Failed to dispatch toast:", e);
         }
     }
 
@@ -1334,7 +1334,7 @@ export class MultiplayerManager {
             if (!this._lastErrorLogTime || now - this._lastErrorLogTime > 10000) {
                 logger.error("[Multiplayer] Error handling message:", error instanceof Error ? error.message : error);
                 if (error instanceof Error && error.stack) {
-                    console.error("[Multiplayer] Stack:", error.stack);
+                    logger.error("[Multiplayer] Stack:", error.stack);
                 }
                 this._lastErrorLogTime = now;
             }
@@ -1900,7 +1900,7 @@ export class MultiplayerManager {
             this.onRoomJoinedCallback(data);
             this.pendingRoomJoinedData = null; // Clear buffer after successful call
         } else {
-            console.log("[Multiplayer] Room joined but no callback set, saving data");
+            logger.log("[Multiplayer] Room joined but no callback set, saving data");
             this.pendingRoomJoinedData = data; // Keep data in buffer for later
             logger.log(`[Multiplayer] ⏳ onRoomJoinedCallback еще не установлен, сохраняем данные для последующего вызова (roomId=${this.roomId}, players=${data.players?.length || 0})`);
         }
@@ -2288,9 +2288,9 @@ export class MultiplayerManager {
                             z: playerData.position.z
                         };
                         // КРИТИЧНЫЙ ЛОГ: Показываем что позиция спавна установлена
-                        console.log(`%c[Multiplayer] 📍 SPAWN POSITION SET: (${playerData.position.x.toFixed(1)}, ${playerData.position.y.toFixed(1)}, ${playerData.position.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold; font-size: 14px;');
+                        logger.log(`%c[Multiplayer] 📍 SPAWN POSITION SET: (${playerData.position.x.toFixed(1)}, ${playerData.position.y.toFixed(1)}, ${playerData.position.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold; font-size: 14px;');
                     } else {
-                        console.warn(`%c[Multiplayer] ⚠️ LOCAL PLAYER HAS NO POSITION IN GAME_START!`, 'color: #ef4444; font-weight: bold; font-size: 14px;', playerData);
+                        logger.warn(`%c[Multiplayer] ⚠️ LOCAL PLAYER HAS NO POSITION IN GAME_START!`, 'color: #ef4444; font-weight: bold; font-size: 14px;', playerData);
                     }
                 }
             }
@@ -2679,7 +2679,7 @@ export class MultiplayerManager {
         const currentNetworkPlayersSize = this.networkPlayers.size;
 
         // Убрано для уменьшения спама в логах
-        // console.log(`%c[Multiplayer] 🔍 applyPlayerStates: Обработка игроков`, 'color: #3b82f6; font-weight: bold;', {
+        // logger.log(`%c[Multiplayer] 🔍 applyPlayerStates: Обработка игроков`, 'color: #3b82f6; font-weight: bold;', {
         //     totalPlayers: players.length,
         //     localPlayer: localPlayerInList ? `${localPlayerInList.name || localPlayerInList.id}(${localPlayerInList.id})` : 'NOT FOUND',
         //     networkPlayersInList: networkPlayersInList.map(p => `${p.name || p.id}(${p.id})`),
@@ -2739,7 +2739,7 @@ export class MultiplayerManager {
             try {
                 this.onPlayerStatesCallback(players, statesData.isFullState);
             } catch (error) {
-                console.error(`[Multiplayer] ❌ ОШИБКА в onPlayerStatesCallback:`, error);
+                logger.error(`[Multiplayer] ❌ ОШИБКА в onPlayerStatesCallback:`, error);
             }
         }
     }
@@ -2827,7 +2827,7 @@ export class MultiplayerManager {
         const isLocalPlayer = this.playerId && playerData.id === this.playerId;
         if (isLocalPlayer) {
             logger.warn(`[Multiplayer] ❌ Attempted to add local player to networkPlayers! playerData.id=${playerData.id}, this.playerId=${this.playerId}`);
-            console.warn(`%c[Multiplayer] ❌ BLOCKED: Попытка добавить локального игрока в networkPlayers!`, 'color: #ef4444; font-weight: bold;');
+            logger.warn(`%c[Multiplayer] ❌ BLOCKED: Попытка добавить локального игрока в networkPlayers!`, 'color: #ef4444; font-weight: bold;');
             return;
         }
 
@@ -2964,7 +2964,7 @@ export class MultiplayerManager {
             if (distance > 0.01 || !existingPlayer._updateCount) {
                 if (!existingPlayer._updateCount) existingPlayer._updateCount = 0;
                 if (existingPlayer._updateCount < 3 || existingPlayer._updateCount % 60 === 0) {
-                    console.log(`[Multiplayer] ${playerData.id} position update: (${x.toFixed(1)}, ${z.toFixed(1)}) from (${oldX.toFixed(1)}, ${oldZ.toFixed(1)}), distance=${distance.toFixed(2)}, valid=${hadValidPosition}`);
+                    logger.log(`[Multiplayer] ${playerData.id} position update: (${x.toFixed(1)}, ${z.toFixed(1)}) from (${oldX.toFixed(1)}, ${oldZ.toFixed(1)}), distance=${distance.toFixed(2)}, valid=${hadValidPosition}`);
                 }
                 existingPlayer._updateCount++;
             }
@@ -3127,7 +3127,7 @@ export class MultiplayerManager {
         networkPlayer._rotDebugCounter++;
         /*
         if (networkPlayer._rotDebugCounter % 60 === 0) {
-            console.log(`[MP] 🔄 Player ${playerData.id.substring(0, 8)} rotation:`, {
+            logger.log(`[MP] 🔄 Player ${playerData.id.substring(0, 8)} rotation:`, {
                 rotation: rotation.toFixed(3),
                 chassisPitch: (playerData.chassisPitch || 0).toFixed(3),
                 chassisRoll: (playerData.chassisRoll || 0).toFixed(3),
@@ -3190,7 +3190,7 @@ export class MultiplayerManager {
             if (game && game.networkPlayerTanks) {
                 const tank = game.networkPlayerTanks.get(playerData.id);
                 if (tank && typeof tank.updateParts === 'function') {
-                    console.log(`[Multiplayer] 🛠️ Updating tank parts for ${playerData.id}:`, partsUpdateData);
+                    logger.log(`[Multiplayer] 🛠️ Updating tank parts for ${playerData.id}:`, partsUpdateData);
                     tank.updateParts(partsUpdateData);
                 }
             }

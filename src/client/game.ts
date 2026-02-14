@@ -4109,7 +4109,7 @@ export class Game {
                 }
                 logger.log("[Game] Garage systems connected");
             } else {
-                console.error("[Game] !!! CRITICAL PATCH: ATTEMPTING TO LOAD GARAGE !!!");
+                logger.error("[Game] !!! CRITICAL PATCH: ATTEMPTING TO LOAD GARAGE !!!");
                 // alert("DEBUG: Game code updated. If you see this, the patch is active.");
                 logger.warn("[Game] Garage not found! Loading it now...");
                 await this.loadGarage();

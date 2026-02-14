@@ -238,14 +238,14 @@ export class GameMultiplayerCallbacks {
                     const now = Date.now();
                     const lastLogTime = (this as any)._lastRoomListLogTime || 0;
                     if (now - lastLogTime > 2000) {
-                        console.log(`[GameMultiplayerCallbacks] 📋 Получен список комнат через callback: ${rooms.length} комнат`);
+                        logger.log(`[GameMultiplayerCallbacks] 📋 Получен список комнат через callback: ${rooms.length} комнат`);
                         (this as any)._lastRoomListLogTime = now;
                     }
                     if (this.deps.mainMenu && typeof this.deps.mainMenu.updateRoomList === "function") {
                         this.deps.mainMenu.updateRoomList(rooms);
                     }
                 });
-                console.log(`[GameMultiplayerCallbacks] ✅ Callback для списка комнат настроен`);
+                logger.log(`[GameMultiplayerCallbacks] ✅ Callback для списка комнат настроен`);
 
                 // Настраиваем callback для списка игроков
                 mm.onOnlinePlayersList((data: any) => {
@@ -256,7 +256,7 @@ export class GameMultiplayerCallbacks {
                 });
                 logger.log(`[GameMultiplayerCallbacks] ✅ Callback для списка игроков настроен`);
             } else {
-                console.warn(`[GameMultiplayerCallbacks] ⚠️ mainMenu не доступен для настройки callback`);
+                logger.warn(`[GameMultiplayerCallbacks] ⚠️ mainMenu не доступен для настройки callback`);
             }
 
             if (this.deps.mainMenu && typeof this.deps.mainMenu.updateMultiplayerStatus === "function") {
@@ -275,7 +275,7 @@ export class GameMultiplayerCallbacks {
             const tanksCount = this.deps.networkPlayerTanks.size;
 
             if (networkPlayersCount > 0 || tanksCount > 0) {
-                console.warn(`[Game] ⚠️ Отключение от сервера. ${networkPlayersCount} networkPlayers, ${tanksCount} tanks. Танки НЕ удаляются - ждём reconnect или onPlayerLeft.`);
+                logger.warn(`[Game] ⚠️ Отключение от сервера. ${networkPlayersCount} networkPlayers, ${tanksCount} tanks. Танки НЕ удаляются - ждём reconnect или onPlayerLeft.`);
                 logger.warn(`[Game] ⚠️ Отключение от сервера. ${networkPlayersCount} networkPlayers, ${tanksCount} tanks. Танки НЕ удаляются.`);
                 // НЕ сбрасываем isMultiplayer - пусть автореконнект сработает
             } else {
@@ -406,13 +406,13 @@ export class GameMultiplayerCallbacks {
         });
 
         mm.onPlayerRespawned((data) => {
-            console.log(`[Game] ♻️ PLAYER_RESPAWNED received for ${data.playerId} at ${JSON.stringify(data.position)}`);
+            logger.log(`[Game] ♻️ PLAYER_RESPAWNED received for ${data.playerId} at ${JSON.stringify(data.position)}`);
 
             // КРИТИЧНО: Обновляем статус networkPlayer на "alive" ПЕРЕД обновлением танка
             // Иначе updateVisibility() будет скрывать танк каждый кадр, так как статус останется "dead"
             const networkPlayer = this.deps.multiplayerManager?.getNetworkPlayer(data.playerId);
             if (networkPlayer) {
-                console.log(`[Game] ♻️ Setting networkPlayer.status to 'alive' for ${data.playerId}`);
+                logger.log(`[Game] ♻️ Setting networkPlayer.status to 'alive' for ${data.playerId}`);
                 networkPlayer.status = "alive";
                 networkPlayer.health = data.health || 100;
                 networkPlayer.maxHealth = data.maxHealth || 100;
@@ -434,7 +434,7 @@ export class GameMultiplayerCallbacks {
                 const spawnPos = vector3Pool.acquire(data.position.x, data.position.y, data.position.z);
 
                 // Clear any death effects or states
-                console.log(`[Game] ♻️ Restoring tank ${data.playerId}...`);
+                logger.log(`[Game] ♻️ Restoring tank ${data.playerId}...`);
 
                 // Force alive state
                 tank.setAlive(spawnPos);
@@ -447,7 +447,7 @@ export class GameMultiplayerCallbacks {
                 // [FIX] Локальный игрок!
                 // Если tank не найден в networkPlayerTanks, значит это мы (локальный игрок)
                 // У TankController методы называются иначе чем у NetworkPlayerTank
-                console.log(`[Game] ♻️ Respawning LOCAL PLAYER tank at ${JSON.stringify(data.position)}`);
+                logger.log(`[Game] ♻️ Respawning LOCAL PLAYER tank at ${JSON.stringify(data.position)}`);
                 // ОПТИМИЗАЦИЯ: Используем vector3Pool
                 const spawnPos = vector3Pool.acquire(data.position.x, data.position.y, data.position.z);
 
@@ -470,10 +470,10 @@ export class GameMultiplayerCallbacks {
                         }
                     }
                 } else {
-                    console.error(`[Game] ❌ Local tank controller is missing during respawn!`);
+                    logger.error(`[Game] ❌ Local tank controller is missing during respawn!`);
                 }
             } else {
-                console.warn(`[Game] ⚠️ Respawned player ${data.playerId} tank NOT FOUND in networkPlayerTanks`);
+                logger.warn(`[Game] ⚠️ Respawned player ${data.playerId} tank NOT FOUND in networkPlayerTanks`);
 
                 // Optional: Force immediate recreating of tank if it's missing but should exist
                 // This might be needed if the tank was cleaned up during death
@@ -485,14 +485,14 @@ export class GameMultiplayerCallbacks {
         // КРИТИЧНО: Обработка получения урона для сетевых игроков
         // =========================================================================
         mm.onPlayerDamaged((data) => {
-            console.log(`[Game] 💥 PLAYER_DAMAGED received: player=${data.playerId}, damage=${data.damage}, health=${data.health}/${data.maxHealth}`);
+            logger.log(`[Game] 💥 PLAYER_DAMAGED received: player=${data.playerId}, damage=${data.damage}, health=${data.health}/${data.maxHealth}`);
 
             // Если это урон для локального игрока - обрабатываем через tankController
             const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
             if (data.playerId === localPlayerId) {
                 // Локальный игрок получает урон от сервера
                 if (this.deps.tank) {
-                    console.log(`[Game] 💥 Local player taking ${data.damage} damage from server`);
+                    logger.log(`[Game] 💥 Local player taking ${data.damage} damage from server`);
                     this.deps.tank.setHealth(data.health ?? 100);
                     // Показываем индикатор получения урона
                     if (this.deps.hud) {
@@ -505,7 +505,7 @@ export class GameMultiplayerCallbacks {
             // Для сетевых игроков - обновляем NetworkPlayerTank
             const tank = this.deps.networkPlayerTanks.get(data.playerId);
             if (tank) {
-                console.log(`[Game] 💥 Updating network player ${data.playerId} health to ${data.health}/${data.maxHealth}`);
+                logger.log(`[Game] 💥 Updating network player ${data.playerId} health to ${data.health}/${data.maxHealth}`);
                 tank.setHealth(data.health ?? 100, data.maxHealth ?? 100);
 
                 // Опционально: визуальный эффект получения урона
@@ -513,7 +513,7 @@ export class GameMultiplayerCallbacks {
                     // Можно добавить искры или небольшой эффект удара
                 }
             } else {
-                console.warn(`[Game] ⚠️ PLAYER_DAMAGED: tank for player ${data.playerId} not found in networkPlayerTanks`);
+                logger.warn(`[Game] ⚠️ PLAYER_DAMAGED: tank for player ${data.playerId} not found in networkPlayerTanks`);
             }
         });
 
@@ -521,12 +521,12 @@ export class GameMultiplayerCallbacks {
         // КРИТИЧНО: Обработка смерти для сетевых игроков
         // =========================================================================
         mm.onPlayerDied((data) => {
-            console.log(`[Game] 💀 PLAYER_DIED received: playerId=${data.playerId}`);
+            logger.log(`[Game] 💀 PLAYER_DIED received: playerId=${data.playerId}`);
 
             // Если это смерть локального игрока
             const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
             if (data.playerId === localPlayerId) {
-                console.log(`[Game] 💀 Local player died from server notification`);
+                logger.log(`[Game] 💀 Local player died from server notification`);
                 // Локальный игрок обрабатывает смерть через tankController.die()
                 // Обычно это уже сделано локально, но на случай если сервер первый
                 if (this.deps.tank) {
@@ -538,14 +538,14 @@ export class GameMultiplayerCallbacks {
             // Для сетевых игроков - обновляем NetworkPlayerTank
             const tank = this.deps.networkPlayerTanks.get(data.playerId);
             if (tank) {
-                console.log(`[Game] 💀 Setting network player ${data.playerId} to DEAD state`);
+                logger.log(`[Game] 💀 Setting network player ${data.playerId} to DEAD state`);
                 // Устанавливаем мёртвое состояние (скрываем танк, показываем эффект взрыва)
                 tank.setDead();
 
                 // Показываем эффект взрыва
                 (tank as any).playDeathEffect?.();
             } else {
-                console.warn(`[Game] ⚠️ PLAYER_DIED: tank for player ${data.playerId} not found in networkPlayerTanks`);
+                logger.warn(`[Game] ⚠️ PLAYER_DIED: tank for player ${data.playerId} not found in networkPlayerTanks`);
             }
         });
 
@@ -553,7 +553,7 @@ export class GameMultiplayerCallbacks {
         // КРИТИЧНО: Обработка события убийства (для килфида и статистики)
         // =========================================================================
         mm.onPlayerKilled((data) => {
-            console.log(`[Game] ⚔️ PLAYER_KILLED received: killer=${data.killerName || data.killerId}, victim=${data.victimName || data.victimId}`);
+            logger.log(`[Game] ⚔️ PLAYER_KILLED received: killer=${data.killerName || data.killerId}, victim=${data.victimName || data.victimId}`);
 
             // Показываем сообщение в HUD/чате
             if (this.deps.hud) {
@@ -597,13 +597,13 @@ export class GameMultiplayerCallbacks {
             const roomId = this.deps.multiplayerManager?.getRoomId();
 
             // Убрано для уменьшения спама в логах (оставлены только предупреждения)
-            // console.log(`[Game] 📡 PLAYER_STATES получены: всего игроков=${players.length}, других игроков=${otherPlayers.length}, комната=${roomId}`);
+            // logger.log(`[Game] 📡 PLAYER_STATES получены: всего игроков=${players.length}, других игроков=${otherPlayers.length}, комната=${roomId}`);
             if (otherPlayers.length > 0) {
-                // console.log(`[Game] 📡 Другие игроки в PLAYER_STATES:`, otherPlayers.map(p => `${p.name || p.id}(${p.id})`).join(', '));
+                // logger.log(`[Game] 📡 Другие игроки в PLAYER_STATES:`, otherPlayers.map(p => `${p.name || p.id}(${p.id})`).join(', '));
             } else {
                 // Оставляем предупреждения только при реальных проблемах (можно раскомментировать при необходимости)
-                // console.warn(`%c[Game] ⚠️ PLAYER_STATES: НЕТ других игроков! Возможно, игроки в разных комнатах или сервер не отправляет данные.`, 'color: #ff6600; font-weight: bold; font-size: 14px;');
-                // console.warn(`[Game] 📊 Состояние: roomId=${roomId}, localPlayerId=${localPlayerId}, players.length=${players.length}`);
+                // logger.warn(`%c[Game] ⚠️ PLAYER_STATES: НЕТ других игроков! Возможно, игроки в разных комнатах или сервер не отправляет данные.`, 'color: #ff6600; font-weight: bold; font-size: 14px;');
+                // logger.warn(`[Game] 📊 Состояние: roomId=${roomId}, localPlayerId=${localPlayerId}, players.length=${players.length}`);
             }
 
 
@@ -637,7 +637,7 @@ export class GameMultiplayerCallbacks {
                     // (они будут удалены когда игрок реально покинет комнату)
                     // Strict AOI: Если isFullState=true, то orphan танки удаляем, так как их нет в AOI
                     if (isLocalTank || (isFullState && isOrphanTank)) {
-                        console.warn(`[Game] 🗑️ Removing tank: ${tankPlayerId} (local=${isLocalTank}, orphan=${isOrphanTank}, fullState=${isFullState})`);
+                        logger.warn(`[Game] 🗑️ Removing tank: ${tankPlayerId} (local=${isLocalTank}, orphan=${isOrphanTank}, fullState=${isFullState})`);
                         tank.dispose();
                         this.deps.networkPlayerTanks.delete(tankPlayerId);
                     }
@@ -646,16 +646,16 @@ export class GameMultiplayerCallbacks {
                 // Создаём недостающие танки
                 const playersWithoutTanks = otherPlayers.filter(p => !this.deps.networkPlayerTanks.has(p.id));
                 if (playersWithoutTanks.length > 0) {
-                    console.log(`[Game] 🔨 [PLAYER_STATES] Создаем ${playersWithoutTanks.length} недостающих танков:`, playersWithoutTanks.map(p => p.name || p.id).join(', '));
+                    logger.log(`[Game] 🔨 [PLAYER_STATES] Создаем ${playersWithoutTanks.length} недостающих танков:`, playersWithoutTanks.map(p => p.name || p.id).join(', '));
                 }
                 for (const playerData of playersWithoutTanks) {
                     if (!playerData.status) playerData.status = "alive";
                     const networkPlayer = this.deps.multiplayerManager?.getNetworkPlayer(playerData.id);
                     if (networkPlayer) {
-                        // console.log(`[Game] 🔨 [PLAYER_STATES] Создаем танк для ${playerData.name || playerData.id} (${playerData.id}) через createNetworkPlayerTankInternal`);
+                        // logger.log(`[Game] 🔨 [PLAYER_STATES] Создаем танк для ${playerData.name || playerData.id} (${playerData.id}) через createNetworkPlayerTankInternal`);
                         this.createNetworkPlayerTankInternal(playerData, networkPlayer);
                     } else {
-                        console.warn(`[Game] ⚠️ [PLAYER_STATES] networkPlayer не найден для ${playerData.id}, добавляем в очередь`);
+                        logger.warn(`[Game] ⚠️ [PLAYER_STATES] networkPlayer не найден для ${playerData.id}, добавляем в очередь`);
                         this.queueNetworkPlayerForCreation(playerData);
                     }
                 }
@@ -735,7 +735,7 @@ export class GameMultiplayerCallbacks {
                                     team: np.team
                                 }, np);
                             } catch (error) {
-                                console.error(`[Game] ❌ Ошибка принудительного создания танка для ${playerId}:`, error);
+                                logger.error(`[Game] ❌ Ошибка принудительного создания танка для ${playerId}:`, error);
                                 // Fallback: добавляем в очередь
                                 const playerData = players.find(p => p.id === playerId);
                                 if (playerData) {
@@ -855,7 +855,7 @@ export class GameMultiplayerCallbacks {
                 // Примечание: addKill/addDeath могут требовать ID, нужно проверить API
                 // Предполагаем что RealtimeStatsTracker обновляется через updatePlayerStats или аналогично
                 // Но пока просто логируем
-                console.log(`[Game] Stats update: ${data.killerName} kills ++, ${data.victimName} deaths ++`);
+                logger.log(`[Game] Stats update: ${data.killerName} kills ++, ${data.victimName} deaths ++`);
 
                 // Если есть методы для прямого обновления:
                 /* 
@@ -1213,15 +1213,15 @@ export class GameMultiplayerCallbacks {
             if (!this.deps.realtimeStatsTracker) {
                 const tracker = new RealtimeStatsTracker();
                 this.deps.setRealtimeStatsTracker(tracker);
-                console.log(`[Game] ✅ RealtimeStatsTracker создан при входе в комнату`);
+                logger.log(`[Game] ✅ RealtimeStatsTracker создан при входе в комнату`);
 
                 // Если localPlayerId уже есть, запускаем матч сразу
                 if (localPlayerId) {
                     const roomId = this.deps.multiplayerManager?.getRoomId?.() || null; // ИСПРАВЛЕНО: Получаем roomId
                     tracker.startMatch(localPlayerId, roomId || undefined);
-                    console.log(`[Game] ✅ RealtimeStatsTracker.startMatch вызван с localPlayerId=${localPlayerId}, roomId=${roomId || 'N/A'}`);
+                    logger.log(`[Game] ✅ RealtimeStatsTracker.startMatch вызван с localPlayerId=${localPlayerId}, roomId=${roomId || 'N/A'}`);
                 } else {
-                    console.warn(`[Game] ⚠️ RealtimeStatsTracker создан, но localPlayerId еще не получен. startMatch будет вызван позже.`);
+                    logger.warn(`[Game] ⚠️ RealtimeStatsTracker создан, но localPlayerId еще не получен. startMatch будет вызван позже.`);
                 }
             } else {
                 // Если tracker уже существует, но матч не запущен - запускаем его
@@ -1230,7 +1230,7 @@ export class GameMultiplayerCallbacks {
                 if (localPlayerId && (!tracker.isTracking || !tracker.localPlayerId)) {
                     const roomId = this.deps.multiplayerManager?.getRoomId?.() || null; // ИСПРАВЛЕНО: Получаем roomId
                     this.deps.realtimeStatsTracker.startMatch(localPlayerId, roomId || undefined);
-                    console.log(`[Game] ✅ RealtimeStatsTracker.startMatch вызван (повторно) с localPlayerId=${localPlayerId}, roomId=${roomId || 'N/A'}`);
+                    logger.log(`[Game] ✅ RealtimeStatsTracker.startMatch вызван (повторно) с localPlayerId=${localPlayerId}, roomId=${roomId || 'N/A'}`);
                 }
             }
 
@@ -1253,7 +1253,7 @@ export class GameMultiplayerCallbacks {
             const worldSeed = data.worldSeed || mm?.getWorldSeed();
             const mapType = data.mapType || mm?.getMapType();
 
-            console.log(`%c[Game] 📥 [onRoomJoined] Синхронизация комнаты`, 'color: #3b82f6; font-weight: bold;', {
+            logger.log(`%c[Game] 📥 [onRoomJoined] Синхронизация комнаты`, 'color: #3b82f6; font-weight: bold;', {
                 roomId: roomId,
                 worldSeed: worldSeed,
                 mapType: mapType,
@@ -1266,7 +1266,7 @@ export class GameMultiplayerCallbacks {
             // Это нужно для корректного отображения мультиплеерного режима в TAB меню
             this.deps.setIsMultiplayer(true);
             const verifiedRoomId = this.deps.multiplayerManager?.getRoomId();
-            console.log(`%c[Game] ✅ onRoomJoined: isMultiplayer установлен`, 'color: #22c55e; font-weight: bold;', {
+            logger.log(`%c[Game] ✅ onRoomJoined: isMultiplayer установлен`, 'color: #22c55e; font-weight: bold;', {
                 roomId: verifiedRoomId,
                 dataRoomId: data.roomId,
                 isMultiplayer: this.deps.getIsMultiplayer(),
@@ -1439,9 +1439,9 @@ export class GameMultiplayerCallbacks {
                         tank.physicsBody.disablePreStep = true;
                     }
                 }, 0);
-                console.log(`%c[Multiplayer] Initial spawn at (${targetPos.x.toFixed(1)}, ${targetPos.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
+                logger.log(`%c[Multiplayer] Initial spawn at (${targetPos.x.toFixed(1)}, ${targetPos.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
             } catch (e) {
-                console.error("[updateLocalPlayerToServer] Spawn teleport error:", e);
+                logger.error("[updateLocalPlayerToServer] Spawn teleport error:", e);
             }
 
             // Башня и ствол при спавне
@@ -1517,7 +1517,7 @@ export class GameMultiplayerCallbacks {
         this._reconciliationLogCounter++;
         /*
         if (this._reconciliationLogCounter % 60 === 0) {
-            console.log(`%c[Reconciliation] Server target: (${this._localPlayerServerTarget.x.toFixed(1)}, ${this._localPlayerServerTarget.y.toFixed(1)}, ${this._localPlayerServerTarget.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
+            logger.log(`%c[Reconciliation] Server target: (${this._localPlayerServerTarget.x.toFixed(1)}, ${this._localPlayerServerTarget.y.toFixed(1)}, ${this._localPlayerServerTarget.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
         }
         */
 
@@ -1609,8 +1609,8 @@ export class GameMultiplayerCallbacks {
         const playersCount = data.players?.length || 0;
         const isActive = data.isActive !== undefined ? data.isActive : true; // По умолчанию true для GAME_START
 
-        console.log(`[Game] 🎮 GAME_START: комната=${roomId}, режим=${gameMode}, игроков=${playersCount}, worldSeed=${worldSeed}, mapType=${data.mapType || 'N/A'}`);
-        console.log(`[Game] 🎮 GAME_START data:`, data); // ДИАГНОСТИКА: полные данные
+        logger.log(`[Game] 🎮 GAME_START: комната=${roomId}, режим=${gameMode}, игроков=${playersCount}, worldSeed=${worldSeed}, mapType=${data.mapType || 'N/A'}`);
+        logger.log(`[Game] 🎮 GAME_START data:`, data); // ДИАГНОСТИКА: полные данные
 
         // КРИТИЧНО: Проверяем синхронизацию roomId, worldSeed и mapType
         const currentRoomId = mm?.getRoomId();
@@ -1628,28 +1628,28 @@ export class GameMultiplayerCallbacks {
         }
 
         if (roomId && currentRoomId && roomId !== currentRoomId) {
-            console.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: roomId не совпадает! GAME_START: ${roomId}, текущий: ${currentRoomId}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
+            logger.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: roomId не совпадает! GAME_START: ${roomId}, текущий: ${currentRoomId}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
             logger.error(`[Game] ❌ RoomId mismatch! GAME_START: ${roomId}, current: ${currentRoomId}`);
         }
 
         if (worldSeed && currentWorldSeed && worldSeed !== currentWorldSeed) {
-            console.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: worldSeed не совпадает! GAME_START: ${worldSeed}, текущий: ${currentWorldSeed}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
+            logger.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: worldSeed не совпадает! GAME_START: ${worldSeed}, текущий: ${currentWorldSeed}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
             logger.error(`[Game] ❌ WorldSeed mismatch! GAME_START: ${worldSeed}, current: ${currentWorldSeed}`);
         }
 
         if (data.mapType && currentMapType && data.mapType !== currentMapType) {
-            console.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: mapType не совпадает! GAME_START: ${data.mapType}, текущий: ${currentMapType}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
+            logger.error(`%c[Game] ❌ КРИТИЧЕСКАЯ ОШИБКА: mapType не совпадает! GAME_START: ${data.mapType}, текущий: ${currentMapType}`, 'color: #ef4444; font-weight: bold; font-size: 14px;');
             logger.error(`[Game] ❌ MapType mismatch! GAME_START: ${data.mapType}, current: ${currentMapType}`);
         }
 
         // Логируем успешную синхронизацию
         if (roomId && worldSeed && data.mapType) {
-            console.log(`%c[Game] ✅ Синхронизация: roomId=${roomId}, worldSeed=${worldSeed}, mapType=${data.mapType}`, 'color: #22c55e; font-weight: bold;');
+            logger.log(`%c[Game] ✅ Синхронизация: roomId=${roomId}, worldSeed=${worldSeed}, mapType=${data.mapType}`, 'color: #22c55e; font-weight: bold;');
         }
 
         // КРИТИЧНО: Проверяем, что все игроки получают одинаковые данные
         if (data.players && data.players.length > 0) {
-            console.log(`[Game] 🎮 Игроки в GAME_START:`, data.players.map((p: any) => `${p.name || p.id}(${p.id})`).join(', '));
+            logger.log(`[Game] 🎮 Игроки в GAME_START:`, data.players.map((p: any) => `${p.name || p.id}(${p.id})`).join(', '));
         }
 
         // Устанавливаем isMultiplayer
@@ -1677,7 +1677,7 @@ export class GameMultiplayerCallbacks {
         // КРИТИЧНО: Применяем тип карты из данных сервера
         // Это ГЛАВНОЕ место синхронизации карты - GAME_START гарантированно приходит с правильным mapType
         if (data.mapType) {
-            console.log(`%c[Game] 🗺️ GAME_START: Получен mapType от сервера: ${data.mapType}`, 'color: #22c55e; font-weight: bold; font-size: 14px;');
+            logger.log(`%c[Game] 🗺️ GAME_START: Получен mapType от сервера: ${data.mapType}`, 'color: #22c55e; font-weight: bold; font-size: 14px;');
 
             const gameInstance = (window as any).gameInstance;
 
@@ -1686,10 +1686,10 @@ export class GameMultiplayerCallbacks {
                 const currentMap = gameInstance.currentMapType;
 
                 // Логируем состояние для диагностики
-                console.log(`[Game] 🗺️ Текущая карта: ${currentMap}, Серверная карта: ${data.mapType}`);
+                logger.log(`[Game] 🗺️ Текущая карта: ${currentMap}, Серверная карта: ${data.mapType}`);
 
                 if (currentMap !== data.mapType) {
-                    console.log(`%c[Game] ❌ КРИТИЧЕСКОЕ НЕСОВПАДЕНИЕ КАРТЫ! Текущая: ${currentMap}, Сервер: ${data.mapType}`,
+                    logger.log(`%c[Game] ❌ КРИТИЧЕСКОЕ НЕСОВПАДЕНИЕ КАРТЫ! Текущая: ${currentMap}, Сервер: ${data.mapType}`,
                         'color: #ef4444; font-weight: bold; font-size: 16px;');
 
                     // ПРИНУДИТЕЛЬНО устанавливаем правильный mapType
@@ -1699,16 +1699,16 @@ export class GameMultiplayerCallbacks {
                     if (gameInstance.chunkSystem) {
                         const chunkMapType = (gameInstance.chunkSystem as any).mapType;
                         if (chunkMapType !== data.mapType) {
-                            console.log(`[Game] 🔄 ChunkSystem имеет mapType: ${chunkMapType}, перезагружаем на: ${data.mapType}`);
+                            logger.log(`[Game] 🔄 ChunkSystem имеет mapType: ${chunkMapType}, перезагружаем на: ${data.mapType}`);
                             gameInstance.reloadMap(data.mapType).then(() => {
-                                console.log(`%c[Game] ✅ Карта успешно синхронизирована: ${data.mapType}`, 'color: #22c55e; font-weight: bold;');
+                                logger.log(`%c[Game] ✅ Карта успешно синхронизирована: ${data.mapType}`, 'color: #22c55e; font-weight: bold;');
                             }).catch((err: any) => {
-                                console.error(`[Game] ❌ Ошибка синхронизации карты:`, err);
+                                logger.error(`[Game] ❌ Ошибка синхронизации карты:`, err);
                             });
                         }
                     }
                 } else {
-                    console.log(`[Game] ✅ Карта уже синхронизирована: ${data.mapType}`);
+                    logger.log(`[Game] ✅ Карта уже синхронизирована: ${data.mapType}`);
                 }
             }
 
@@ -1722,11 +1722,11 @@ export class GameMultiplayerCallbacks {
             }
             (window as any).currentMapType = data.mapType;
         } else {
-            console.warn(`%c[Game] ⚠️ GAME_START: mapType ОТСУТСТВУЕТ в данных!`, 'color: #f59e0b; font-weight: bold; font-size: 14px;', data);
+            logger.warn(`%c[Game] ⚠️ GAME_START: mapType ОТСУТСТВУЕТ в данных!`, 'color: #f59e0b; font-weight: bold; font-size: 14px;', data);
             // Пытаемся использовать pendingMapType из MultiplayerManager как fallback
             const pendingMapType = mm?.getMapType();
             if (pendingMapType) {
-                console.log(`[Game] 🗺️ Используем pendingMapType как fallback: ${pendingMapType}`);
+                logger.log(`[Game] 🗺️ Используем pendingMapType как fallback: ${pendingMapType}`);
                 const gameInstance = (window as any).gameInstance;
                 if (gameInstance) {
                     gameInstance.currentMapType = pendingMapType;
@@ -1758,7 +1758,7 @@ export class GameMultiplayerCallbacks {
             const localPlayerId = mm.getPlayerId();
             const otherPlayers = data.players.filter((p: any) => p.id !== localPlayerId);
 
-            console.log(`[Game] 🎮 [GAME_START] Обрабатываем ${otherPlayers.length} других игроков из GAME_START`);
+            logger.log(`[Game] 🎮 [GAME_START] Обрабатываем ${otherPlayers.length} других игроков из GAME_START`);
 
             // НЕ очищаем pendingNetworkPlayers сразу - сначала добавим всех игроков
             // Очистим только после того, как убедимся, что они обработаны
@@ -1766,7 +1766,7 @@ export class GameMultiplayerCallbacks {
 
             for (const playerData of otherPlayers) {
                 if (!playerData.status) playerData.status = "alive";
-                console.log(`[Game] 🎮 Добавляем игрока ${playerData.name || playerData.id} (${playerData.id}) в очередь`);
+                logger.log(`[Game] 🎮 Добавляем игрока ${playerData.name || playerData.id} (${playerData.id}) в очередь`);
                 this.queueNetworkPlayerForCreation(playerData);
             }
 
@@ -1775,10 +1775,10 @@ export class GameMultiplayerCallbacks {
             const newPlayerIds = new Set(otherPlayers.map((p: any) => p.id));
             this.pendingNetworkPlayers = this.pendingNetworkPlayers.filter(p => newPlayerIds.has(p.id));
 
-            console.log(`[Game] 🎮 [GAME_START] После добавления: pendingNetworkPlayers=${this.pendingNetworkPlayers.length} (было ${oldPendingCount})`);
+            logger.log(`[Game] 🎮 [GAME_START] После добавления: pendingNetworkPlayers=${this.pendingNetworkPlayers.length} (было ${oldPendingCount})`);
         } else {
             logger.warn(`[Game] ⚠️ No players data in GAME_START or multiplayerManager not available`);
-            console.warn(`[Game] ⚠️ No players data in GAME_START! data.players=`, data.players, `mm=`, !!mm);
+            logger.warn(`[Game] ⚠️ No players data in GAME_START! data.players=`, data.players, `mm=`, !!mm);
         }
 
         // Initialize Battle Royale visualizer
@@ -1813,7 +1813,7 @@ export class GameMultiplayerCallbacks {
         }
 
         // Сохраняем данные о синхронизированных ботах
-        console.log(`[Game] 🔍 Проверка enemies в GAME_START:`, {
+        logger.log(`[Game] 🔍 Проверка enemies в GAME_START:`, {
             hasEnemies: !!data.enemies,
             isArray: Array.isArray(data.enemies),
             length: data.enemies?.length,
@@ -1823,17 +1823,17 @@ export class GameMultiplayerCallbacks {
         if (data.enemies && Array.isArray(data.enemies) && data.enemies.length > 0) {
             this.pendingEnemies = data.enemies;
             logger.log(`[Game] ✅ GAME_START: сохранено ${data.enemies.length} ботов в pendingEnemies`);
-            console.log(`[Game] ✅ GAME_START: сохранено ${data.enemies.length} ботов в pendingEnemies`);
+            logger.log(`[Game] ✅ GAME_START: сохранено ${data.enemies.length} ботов в pendingEnemies`);
         } else {
             logger.warn(`[Game] ⚠️ GAME_START: enemies отсутствуют или пусты! data.enemies=`, data.enemies);
-            console.warn(`[Game] ⚠️ GAME_START: enemies отсутствуют или пусты!`, data.enemies);
+            logger.warn(`[Game] ⚠️ GAME_START: enemies отсутствуют или пусты!`, data.enemies);
         }
 
         // КРИТИЧНО: Обрабатываем pending игроков и ботов, если Scene готова
         // Это гарантирует создание танков даже если игра уже запущена
         if (this.deps.scene && (this.pendingNetworkPlayers.length > 0 || this.pendingEnemies.length > 0)) {
             logger.log(`[Game] 🔄 [GAME_START] Обрабатываем pending: игроков=${this.pendingNetworkPlayers.length}, ботов=${this.pendingEnemies.length}`);
-            console.log(`[Game] 🔄 [GAME_START] Обрабатываем pending: игроков=${this.pendingNetworkPlayers.length}, ботов=${this.pendingEnemies.length}`);
+            logger.log(`[Game] 🔄 [GAME_START] Обрабатываем pending: игроков=${this.pendingNetworkPlayers.length}, ботов=${this.pendingEnemies.length}`);
             setTimeout(() => this.processPendingNetworkPlayers(true), 100);
         } else if (this.pendingNetworkPlayers.length > 0 || this.pendingEnemies.length > 0) {
             logger.warn(`[Game] ⚠️ [GAME_START] Есть pending (игроков=${this.pendingNetworkPlayers.length}, ботов=${this.pendingEnemies.length}), но Scene не готова. Обработка произойдет позже.`);
@@ -2071,9 +2071,9 @@ export class GameMultiplayerCallbacks {
                     try {
                         // Получаем точную позицию конца ствола
                         pos = networkTank.getBarrelMuzzlePosition();
-                        // console.log(`[Game] Projectile origin corrected to barrel for ${data.ownerId}`);
+                        // logger.log(`[Game] Projectile origin corrected to barrel for ${data.ownerId}`);
                     } catch (e) {
-                        console.warn("[Game] Failed to get muzzle position for network tank:", e);
+                        logger.warn("[Game] Failed to get muzzle position for network tank:", e);
                     }
                 }
 
@@ -2196,7 +2196,7 @@ export class GameMultiplayerCallbacks {
                     // Синхронизация модулей сетевого игрока (#9)
                     const moduleTank = this.deps.networkPlayerTanks.get(data.sourceId);
                     if (moduleTank && data.payload?.modules) {
-                        console.log(`[Game] 🔧 MODULES_UPDATE for ${data.sourceId}:`, data.payload.modules);
+                        logger.log(`[Game] 🔧 MODULES_UPDATE for ${data.sourceId}:`, data.payload.modules);
                         moduleTank.syncModules(data.payload.modules);
                     }
                     break;
@@ -2249,12 +2249,12 @@ export class GameMultiplayerCallbacks {
     private handleEnemySpawn(data: any): void {
         if (!data) return;
 
-        console.log(`[Game] 🤖 ENEMY_SPAWN received:`, data);
+        logger.log(`[Game] 🤖 ENEMY_SPAWN received:`, data);
 
         // Получаем GameEnemies для создания бота
         const gameEnemies = this.deps.gameEnemies || (window as any).gameInstance?.gameEnemies;
         if (!gameEnemies) {
-            console.warn(`[Game] ⚠️ ENEMY_SPAWN: gameEnemies not available, queueing for later`);
+            logger.warn(`[Game] ⚠️ ENEMY_SPAWN: gameEnemies not available, queueing for later`);
             this.pendingEnemies.push(data);
             return;
         }
@@ -2269,7 +2269,7 @@ export class GameMultiplayerCallbacks {
                 : Vector3.Zero();
             gameEnemies.spawnEnemy(data.type || "basic", position, data.id);
         } else {
-            console.warn(`[Game] ⚠️ ENEMY_SPAWN: no spawn method available on gameEnemies`);
+            logger.warn(`[Game] ⚠️ ENEMY_SPAWN: no spawn method available on gameEnemies`);
         }
     }
 
@@ -2280,12 +2280,12 @@ export class GameMultiplayerCallbacks {
     private handleEnemyDeath(data: any): void {
         if (!data || !data.id) return;
 
-        console.log(`[Game] 💀 ENEMY_DEATH received: ${data.id}`);
+        logger.log(`[Game] 💀 ENEMY_DEATH received: ${data.id}`);
 
         // Получаем GameEnemies для удаления бота
         const gameEnemies = this.deps.gameEnemies || (window as any).gameInstance?.gameEnemies;
         if (!gameEnemies) {
-            console.warn(`[Game] ⚠️ ENEMY_DEATH: gameEnemies not available`);
+            logger.warn(`[Game] ⚠️ ENEMY_DEATH: gameEnemies not available`);
             return;
         }
 
@@ -2474,13 +2474,13 @@ export class GameMultiplayerCallbacks {
 
         // Логируем только если есть pending players
         if (this.pendingNetworkPlayers.length > 0) {
-            console.log(`[Game] 🔄 Processing ${this.pendingNetworkPlayers.length} pending players, scene=${!!this.deps.scene}`);
+            logger.log(`[Game] 🔄 Processing ${this.pendingNetworkPlayers.length} pending players, scene=${!!this.deps.scene}`);
         }
 
         if (!this.deps.scene) {
             // Retry if scene not ready
             if (this.pendingNetworkPlayers.length > 0) {
-                console.warn(`[Game] ⚠️ Scene не готова, повтор через 500ms. pendingNetworkPlayers=${this.pendingNetworkPlayers.length}`);
+                logger.warn(`[Game] ⚠️ Scene не готова, повтор через 500ms. pendingNetworkPlayers=${this.pendingNetworkPlayers.length}`);
                 setTimeout(() => {
                     if (this.deps.scene) {
                         this.processPendingNetworkPlayers();
@@ -2513,32 +2513,32 @@ export class GameMultiplayerCallbacks {
             const playersToCreate = [...this.pendingNetworkPlayers];
             this.pendingNetworkPlayers = [];
 
-            console.log(`[Game] 🔨 Создаем ${playersToCreate.length} танков для pending игроков:`, playersToCreate.map(p => p.name || p.id).join(', '));
+            logger.log(`[Game] 🔨 Создаем ${playersToCreate.length} танков для pending игроков:`, playersToCreate.map(p => p.name || p.id).join(', '));
 
             for (const playerData of playersToCreate) {
                 let networkPlayer = this.deps.multiplayerManager?.getNetworkPlayer(playerData.id);
                 if (!networkPlayer) {
-                    console.log(`[Game] 🔨 Игрок ${playerData.id} не в networkPlayers, добавляем...`);
+                    logger.log(`[Game] 🔨 Игрок ${playerData.id} не в networkPlayers, добавляем...`);
                     (this.deps.multiplayerManager as any).addNetworkPlayer(playerData);
                     networkPlayer = this.deps.multiplayerManager?.getNetworkPlayer(playerData.id);
                 }
 
                 if (networkPlayer) {
                     try {
-                        console.log(`[Game] 🔨 Создаем танк для ${playerData.name || playerData.id} (${playerData.id})...`);
+                        logger.log(`[Game] 🔨 Создаем танк для ${playerData.name || playerData.id} (${playerData.id})...`);
                         this.createNetworkPlayerTankInternal(playerData, networkPlayer);
                     } catch (error) {
                         logger.error(`[Game] Error creating tank for ${playerData.id}:`, error);
-                        console.error(`[Game] ❌ Ошибка создания танка для ${playerData.id}:`, error);
+                        logger.error(`[Game] ❌ Ошибка создания танка для ${playerData.id}:`, error);
                         this.queueNetworkPlayerForCreation(playerData);
                     }
                 } else {
-                    console.warn(`[Game] ⚠️ Не удалось получить networkPlayer для ${playerData.id}, добавляем в очередь снова`);
+                    logger.warn(`[Game] ⚠️ Не удалось получить networkPlayer для ${playerData.id}, добавляем в очередь снова`);
                     this.queueNetworkPlayerForCreation(playerData);
                 }
             }
 
-            console.log(`[Game] ✅ После создания танков: networkPlayerTanks.size=${this.deps.networkPlayerTanks.size}`);
+            logger.log(`[Game] ✅ После создания танков: networkPlayerTanks.size=${this.deps.networkPlayerTanks.size}`);
 
             // Ensure all tanks are in scene and visible
             this.deps.networkPlayerTanks.forEach((tank, playerId) => {
@@ -2596,7 +2596,7 @@ export class GameMultiplayerCallbacks {
 
         // КРИТИЧНО: Проверка на локального игрока - только точное сравнение
         if (localPlayerId && playerData.id === localPlayerId) {
-            console.warn(`[Game] ⛔ BLOCKED: Attempted to create NetworkPlayerTank for LOCAL player! playerData.id=${playerData.id}, localPlayerId=${localPlayerId}`);
+            logger.warn(`[Game] ⛔ BLOCKED: Attempted to create NetworkPlayerTank for LOCAL player! playerData.id=${playerData.id}, localPlayerId=${localPlayerId}`);
             return;
         }
 
@@ -2639,7 +2639,7 @@ export class GameMultiplayerCallbacks {
         // КРИТИЧНО: Проверка на локального игрока - только точное сравнение
         const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
         if (localPlayerId && playerData.id === localPlayerId) {
-            console.error(`[Game] ❌ CRITICAL: Tried to create tank for LOCAL player in createNetworkPlayerTankInternal! ID=${playerData.id}`);
+            logger.error(`[Game] ❌ CRITICAL: Tried to create tank for LOCAL player in createNetworkPlayerTankInternal! ID=${playerData.id}`);
             return;
         }
 
@@ -2667,7 +2667,7 @@ export class GameMultiplayerCallbacks {
             const mapType = mm?.getMapType() || 'N/A';
 
             // Логирование уменьшено - только один лог при создании танка
-            console.log(`[Game] 🔨 NetworkPlayerTank: ${playerData.name || playerData.id} at (${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)}), room=${roomId}`);
+            logger.log(`[Game] 🔨 NetworkPlayerTank: ${playerData.name || playerData.id} at (${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)}), room=${roomId}`);
 
             logger.log(`[Game] 🔨 Creating NetworkPlayerTank for ${playerData.id}: roomId=${roomId}, worldSeed=${worldSeed}, mapType=${mapType}, position=(${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)})`);
 
@@ -2696,17 +2696,17 @@ export class GameMultiplayerCallbacks {
                 // Принудительно добавляем в сцену
                 if (!wasInScene) {
                     this.deps.scene.addMesh(tank.chassis);
-                    console.log(`[Game] ✅ Танк ${playerData.name || playerData.id} ДОБАВЛЕН в сцену`);
+                    logger.log(`[Game] ✅ Танк ${playerData.name || playerData.id} ДОБАВЛЕН в сцену`);
                 }
 
                 // Принудительно делаем видимым
                 if (!tank.chassis.isVisible) {
                     tank.chassis.isVisible = true;
-                    console.log(`[Game] ✅ Танк ${playerData.name || playerData.id} сделан ВИДИМЫМ`);
+                    logger.log(`[Game] ✅ Танк ${playerData.name || playerData.id} сделан ВИДИМЫМ`);
                 }
                 if (!tank.chassis.isEnabled()) {
                     tank.chassis.setEnabled(true);
-                    console.log(`[Game] ✅ Танк ${playerData.name || playerData.id} ВКЛЮЧЕН`);
+                    logger.log(`[Game] ✅ Танк ${playerData.name || playerData.id} ВКЛЮЧЕН`);
                 }
 
                 // Добавляем дочерние меши
@@ -2727,17 +2727,17 @@ export class GameMultiplayerCallbacks {
                 const inScene = this.deps.scene.meshes.includes(tank.chassis);
 
                 if (!visible || !enabled || !inScene) {
-                    console.error(`[Game] ❌ Танк ${playerData.id} НЕ ВИДЕН! visible=${visible}, enabled=${enabled}, inScene=${inScene}`);
+                    logger.error(`[Game] ❌ Танк ${playerData.id} НЕ ВИДЕН! visible=${visible}, enabled=${enabled}, inScene=${inScene}`);
                 } else {
-                    console.log(`[Game] ✅ Tank created: ${playerData.name || playerData.id} (total: ${this.deps.networkPlayerTanks.size})`);
+                    logger.log(`[Game] ✅ Tank created: ${playerData.name || playerData.id} (total: ${this.deps.networkPlayerTanks.size})`);
                 }
             } else {
-                console.error(`[Game] ❌ КРИТИЧНО: Не удалось добавить танк ${playerData.id} в сцену! chassis=${!!tank.chassis}, scene=${!!this.deps.scene}`);
+                logger.error(`[Game] ❌ КРИТИЧНО: Не удалось добавить танк ${playerData.id} в сцену! chassis=${!!tank.chassis}, scene=${!!this.deps.scene}`);
             }
 
         } catch (error) {
             logger.error(`[Game] Error creating network player tank for ${playerData.id}:`, error);
-            console.error(`[Game] Ошибка создания сетевого игрока:`, error);
+            logger.error(`[Game] Ошибка создания сетевого игрока:`, error);
         }
     }
 
