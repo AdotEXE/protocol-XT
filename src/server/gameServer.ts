@@ -258,6 +258,7 @@ export class GameServer {
                         return;
                     } catch (binaryError) {
                         // Not binary format, try JSON fallback
+                        // serverLogger.warn("[Server] Not binary format:", binaryError);
                     }
 
                     // Fallback: try to parse as JSON (for monitoring messages)
@@ -274,7 +275,13 @@ export class GameServer {
                     } catch (jsonError) {
                         // Neither binary nor JSON
                         if (!this.monitoringClients.has(ws)) {
-                            serverLogger.error("[Server] Error parsing message - not binary or JSON");
+                            serverLogger.error(`[Server] Error parsing message - not binary or JSON. Buffer size: ${data instanceof Buffer ? data.length : 'unknown'}`);
+                            
+                            // Debug: print first few bytes
+                            if (data instanceof Buffer && data.length > 0) {
+                                serverLogger.error(`[Server] First 10 bytes: ${Array.from(data.slice(0, 10)).join(', ')}`);
+                            }
+                            
                             this.sendError(ws, "INVALID_MESSAGE", "Failed to parse message");
                         }
                     }

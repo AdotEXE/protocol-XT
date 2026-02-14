@@ -687,6 +687,12 @@ export function serializeMessage(message: ClientMessage | ServerMessage): string
         const writer = binaryWriterPool.acquire();
 
         try {
+            // CRITICAL FIX: Force JSON for CREATE_ROOM to avoid binary serialization issues with complex map data
+            if (message.type === ClientMessageType.CREATE_ROOM) {
+                 const plainObj = messageToPlainObject(message);
+                 return JSON.stringify(plainObj);
+            }
+
             if (message.type === ClientMessageType.PLAYER_INPUT) {
                 writer.writeUint8(PacketType.PLAYER_INPUT);
                 serializePlayerInput(writer, message.data);
