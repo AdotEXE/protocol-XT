@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import fs from 'fs';
 import path from 'path';
 
+<<<<<<< HEAD
 /**
  * Finds the json_models directory with multiple fallback strategies
  * for Vercel's serverless environment
@@ -45,6 +46,41 @@ function findModelsDirectory(): { found: boolean; path: string; cwdContents?: st
         path: modelsDir,
         cwdContents
     };
+=======
+function resolveModelsDir(): { dir: string | null; checked: string[] } {
+    const checked: string[] = [];
+    const candidates: string[] = [];
+    const cwd = process.cwd();
+
+    // Most common locations on Vercel and local dev
+    candidates.push(path.join(cwd, 'json_models'));
+    candidates.push(path.join(cwd, 'api', 'json_models'));
+    candidates.push('/var/task/json_models');
+
+    // Walk up from cwd to handle nested runtime directories
+    let cursor = cwd;
+    for (let i = 0; i < 8; i++) {
+        candidates.push(path.join(cursor, 'json_models'));
+        const parent = path.dirname(cursor);
+        if (parent === cursor) break;
+        cursor = parent;
+    }
+
+    for (const candidate of candidates) {
+        const normalized = path.normalize(candidate);
+        if (checked.includes(normalized)) continue;
+        checked.push(normalized);
+        try {
+            if (fs.existsSync(normalized) && fs.statSync(normalized).isDirectory()) {
+                return { dir: normalized, checked };
+            }
+        } catch {
+            // Keep scanning candidates.
+        }
+    }
+
+    return { dir: null, checked };
+>>>>>>> 367fb4f (fix: harden models API path resolution and ws parsing)
 }
 
 export default function handler(req: VercelRequest, res: VercelResponse) {
@@ -54,6 +90,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'Missing category or filename' });
     }
 
+<<<<<<< HEAD
     // Find models directory with comprehensive fallback strategy
     const modelsLocation = findModelsDirectory();
 
@@ -65,6 +102,23 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
                 attemptedPath: modelsLocation.path,
                 cwdContents: modelsLocation.cwdContents
             }
+=======
+    const { dir: modelsDir, checked } = resolveModelsDir();
+    if (!modelsDir) {
+        // List directories in CWD to help debugging
+        let cwdList: string[] = [];
+        try {
+            cwdList = fs.readdirSync(process.cwd());
+        } catch (e) {
+            cwdList = ['Error reading CWD'];
+        }
+
+        return res.status(500).json({ 
+            error: 'Models directory not found',
+            debugSum: `CWD: ${process.cwd()}`,
+            checkedPaths: checked,
+            cwdContents: cwdList,
+>>>>>>> 367fb4f (fix: harden models API path resolution and ws parsing)
         });
     }
 
