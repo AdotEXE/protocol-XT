@@ -5,6 +5,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const VERSION_FILE = path.resolve(__dirname, '../.version.json');
 const MENU_TS = path.resolve(__dirname, '../src/client/menu.ts');
@@ -109,7 +112,8 @@ export function setVersion(major: number, minor: number, build: number): void {
 }
 
 // Если скрипт запущен напрямую
-if (require.main === module) {
+const isMain = process.argv[1] && path.resolve(process.argv[1]).startsWith(path.resolve(__dirname));
+if (isMain) {
   const args = process.argv.slice(2);
 
   if (args[0] === 'set' && args.length === 4) {
