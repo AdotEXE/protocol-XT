@@ -246,42 +246,61 @@ export class GameServer {
         this.wss.on("connection", (ws: WebSocket, req: any) => {
             // serverLogger.log("[Server] New client connected from:", req.socket.remoteAddress || "unknown");
 
-            ws.on("message", (data: Buffer) => {
+            ws.on("message", (rawData: Buffer | ArrayBuffer | Buffer[] | string, isBinary: boolean) => {
                 try {
                     let message: any;
 
-                    // Try to deserialize binary data first (for game messages)
-                    // Buffer in Node.js extends Uint8Array, so we can pass it directly
-                    try {
-                        message = deserializeMessage<ClientMessage>(data);
-                        this.handleMessage(ws, message);
-                        return;
-                    } catch (binaryError) {
-                        // Not binary format, try JSON fallback
-                        // serverLogger.warn("[Server] Not binary format:", binaryError);
-                    }
+                    // Normalize raw WebSocket payload for robust parsing
+                    const dataBuffer = typeof rawData === "string"
+                        ? Buffer.from(rawData, "utf-8")
+                        : Array.isArray(rawData)
+                            ? Buffer.concat(rawData)
+                            : rawData instanceof ArrayBuffer
+                                ? Buffer.from(rawData)
+                                : rawData;
 
-                    // Fallback: try to parse as JSON (for monitoring messages)
-                    const dataStr = data.toString();
-                    try {
-                        message = JSON.parse(dataStr);
-                        // Check if it's a monitoring message
-                        if (message.type === "monitoring_connect" || message.type === "monitoring_disconnect") {
+                    // Text frame: parse as JSON first
+                    if (!isBinary) {
+                        try {
+                            const dataStr = typeof rawData === "string" ? rawData : dataBuffer.toString("utf-8");
+                            message = JSON.parse(dataStr);
                             this.handleMessage(ws, message);
                             return;
+                        } catch {
+                            // Continue to generic parser fallback below
                         }
-                        // Also handle regular JSON messages for backward compatibility
+                    }
+
+                    // Binary frame (or fallback): try protocol deserialization first
+                    try {
+                        message = deserializeMessage<ClientMessage>(dataBuffer);
                         this.handleMessage(ws, message);
-                    } catch (jsonError) {
-                        // Neither binary nor JSON
+                        return;
+                    } catch {
+                        // Not valid protocol binary, try UTF-8 JSON fallback
+                    }
+
+                    // Final fallback: parse raw bytes as UTF-8 JSON
+                    try {
+                        const dataStr = dataBuffer.toString("utf-8");
+                        message = JSON.parse(dataStr);
+                        this.handleMessage(ws, message);
+                    } catch (error) {
                         if (!this.monitoringClients.has(ws)) {
-                            serverLogger.error(`[Server] Error parsing message - not binary or JSON. Buffer size: ${data instanceof Buffer ? data.length : 'unknown'}`);
-                            
-                            // Debug: print first few bytes
-                            if (data instanceof Buffer && data.length > 0) {
-                                serverLogger.error(`[Server] First 10 bytes: ${Array.from(data.slice(0, 10)).join(', ')}`);
+                            serverLogger.error(`[Server] Error parsing message - unsupported payload. isBinary=${isBinary}, size=${dataBuffer.length}`, error);
+                            if (dataBuffer.length > 0) {
+                                // Log full payload for debugging if size < 2000
+                                if (dataBuffer.length < 2000) {
+                                     try {
+                                        const str = dataBuffer.toString('utf8');
+                                        serverLogger.error(`[Server] Raw Data (utf8): ${str}`);
+                                     } catch {
+                                        serverLogger.error(`[Server] Raw Data (hex): ${dataBuffer.toString('hex')}`);
+                                     }
+                                } else {
+                                    serverLogger.error(`[Server] First 100 bytes (hex): ${dataBuffer.slice(0, 100).toString('hex')}`);
+                                }
                             }
-                            
                             this.sendError(ws, "INVALID_MESSAGE", "Failed to parse message");
                         }
                     }
@@ -308,6 +327,7 @@ export class GameServer {
     // private voiceClients: Set<WebSocket> = new Set();
 
     private handleMessage(ws: WebSocket, message: ClientMessage | any): void {
+        try {
         // Check for monitoring messages first (before parsing as ClientMessage)
         if (message && typeof message === 'object' && message.type) {
             if (message.type === "monitoring_connect") {
@@ -451,6 +471,9 @@ export class GameServer {
 
             default:
                 serverLogger.warn(`[Server] Unknown message type: ${message.type}`);
+        }
+        } catch (error) {
+            serverLogger.error(`[Server] ❌ CRITICAL ERROR in handleMessage type=${message?.type}:`, error);
         }
     }
 
@@ -683,6 +706,7 @@ export class GameServer {
     }
 
     private handleCreateRoom(player: ServerPlayer, data: any): void {
+        try {
         const { mode, maxPlayers, isPrivate, settings, worldSeed, mapType, enableBots, botCount, customMapData } = data;
 
         const { chassisType, cannonType, trackType, tankColor, turretColor, playerName, modules } = data; // Extract customization
@@ -770,6 +794,10 @@ export class GameServer {
         } else {
             serverLogger.error(`[Server] Ошибка создания комнаты: не удалось добавить игрока ${player.id}`);
             this.sendError(player.socket, "ROOM_CREATE_FAILED", "Failed to create room");
+        }
+        } catch (error) {
+            serverLogger.error(`[Server] ❌ CRITICAL ERROR in handleCreateRoom:`, error);
+            this.sendError(player.socket, "ROOM_CREATE_FAILED", "Internal server error during room creation");
         }
     }
 
@@ -2381,35 +2409,39 @@ export class GameServer {
     }
 
     private broadcastRoomListToAll(): void {
-        // Получаем список всех доступных комнат (не приватных)
-        const allRooms = Array.from(this.rooms.values());
-        const publicRooms = allRooms.filter(room => !room.isPrivate);
+        try {
+            // Получаем список всех доступных комнат (не приватных)
+            const allRooms = Array.from(this.rooms.values());
+            const publicRooms = allRooms.filter(room => !room.isPrivate);
 
-        const roomsList = publicRooms.map(room => ({
-            id: room.id,
-            mode: room.mode,
-            players: room.players.size,
-            maxPlayers: room.maxPlayers,
-            isActive: room.isActive,
-            gameTime: room.gameTime
-        }));
+            const roomsList = publicRooms.map(room => ({
+                id: room.id,
+                mode: room.mode,
+                players: room.players.size,
+                maxPlayers: room.maxPlayers,
+                isActive: room.isActive,
+                gameTime: room.gameTime
+            }));
 
-        serverLogger.log(`[Server] 📢 Отправка списка комнат всем подключенным клиентам: ${roomsList.length} публичных комнат, всего подключено ${this.players.size} игроков`);
+            serverLogger.log(`[Server] 📢 Отправка списка комнат всем подключенным клиентам: ${roomsList.length} публичных комнат, всего подключено ${this.players.size} игроков`);
 
-        const message = createServerMessage(ServerMessageType.ROOM_LIST, {
-            rooms: roomsList
-        });
-        const serialized = serializeMessage(message);
+            const message = createServerMessage(ServerMessageType.ROOM_LIST, {
+                rooms: roomsList
+            });
+            const serialized = serializeMessage(message);
 
-        // Отправляем всем подключенным игрокам
-        let sentCount = 0;
-        for (const player of this.players.values()) {
-            if (player.socket.readyState === WebSocket.OPEN) {
-                player.socket.send(serialized);
-                sentCount++;
+            // Отправляем всем подключенным игрокам
+            let sentCount = 0;
+            for (const player of this.players.values()) {
+                if (player.socket.readyState === WebSocket.OPEN) {
+                    player.socket.send(serialized);
+                    sentCount++;
+                }
             }
+            serverLogger.log(`[Server] ✅ Список комнат отправлен ${sentCount} клиентам`);
+        } catch (error) {
+            serverLogger.error(`[Server] ❌ CRITICAL ERROR in broadcastRoomListToAll:`, error);
         }
-        serverLogger.log(`[Server] ✅ Список комнат отправлен ${sentCount} клиентам`);
     }
 
     private send(ws: WebSocket, message: ServerMessage): void {

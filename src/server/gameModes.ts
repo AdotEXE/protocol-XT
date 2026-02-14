@@ -515,7 +515,7 @@ export class EscortMode implements GameModeRules {
                 for (const player of room.getAllPlayers()) {
                     if (player.team === 0 && player.status === "alive" && Vector3.Distance(player.position, target.position) < pushRadius) {
                         player.health = Math.min(player.maxHealth, player.health + 10);
-                        // No easy way to sync HP update purely from here without room broadcasting full state, 
+                        // No easy way to sync HP update purely from here without room broadcasting full state,
                         // but player.health is authoritative on server. Update will naturally sync on next tick.
                     }
                 }
