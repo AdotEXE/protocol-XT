@@ -8,7 +8,7 @@ import { logger } from "../utils/logger";
 import { vector3Pool } from "../optimization/Vector3Pool";
 import { createClientMessage } from "../../shared/protocol";
 import { ClientMessageType, ServerMessageType, PlayerDamagedData, PlayerHitData } from "../../shared/messages";
-import { CONSUMABLE_TYPES } from "../consumables";
+import { CONSUMABLE_TYPES, ConsumablePickup } from "../consumables";
 import { RealtimeStatsTracker } from "../realtimeStats";
 import { NetworkPlayerTank } from "../networkPlayerTank";
 import { SyncMetrics } from "../syncMetrics";
@@ -31,6 +31,17 @@ import type { GamePersistence } from "./GamePersistence";
 import { getVoiceChatManager } from "../voiceChat";
 import type { GameUI } from "./GameUI";
 import type { NetworkMenu } from "../networkMenu";
+import { getGameInstance } from "../utils/gameInstance";
+
+/** Опциональные методы HUD, используемые в мультиплеере (могут отсутствовать). */
+interface HUDMultiplayerOptional {
+    showDamageIndicator?(damage: number): void;
+    addKillFeed?(killer: string, victim: string, weapon: string): void;
+    flashDamage?(): void;
+    setFullMapModeMarkers?(markers: Array<{ id: string; type: string; position: { x: number; z: number }; team?: number; progress?: number }>): void;
+    updateCTFHUD?(data: unknown): void;
+    hideDeathScreen?(): void;
+}
 
 export interface MultiplayerCallbacksDependencies {
     multiplayerManager?: MultiplayerManager;
@@ -105,12 +116,16 @@ export class GameMultiplayerCallbacks {
     private _replayInputQueue: PlayerInput[] = [];
 
     // Сетевые снаряды
-    private networkProjectiles: Map<string, NetworkProjectile> = new Map(); // Changed type to NetworkProjectile
-    private readonly MAX_NETWORK_PROJECTILES = 200; // Максимальное количество сетевых снарядов
-    private projectileTemplate: Mesh | null = null; // Template for cloning
+    private networkProjectiles: Map<string, NetworkProjectile> = new Map();
+    private readonly MAX_NETWORK_PROJECTILES = 200;
+    private projectileTemplate: Mesh | null = null;
+
+    /** Сетевые припасы (тот же ConsumablePickup, что и локальные — физика и анимация). */
+    private networkConsumablePickups: ConsumablePickup[] = [];
 
     /** Кэш enemiesTotal из настроек комнаты или последнего SURVIVAL_WAVE_UPDATE (для Co-op HUD). */
     private _lastCoopEnemiesTotal: number | null = null;
+    private _lastRoomListLogTime: number = 0;
 
     constructor() {
         this.deps = {
@@ -156,7 +171,7 @@ export class GameMultiplayerCallbacks {
                 this.deps.tank.setOnShootCallback((data) => {
                     // Только если мультиплеер активен
                     // if (this.deps.getIsMultiplayer()) {
-                    (this.deps.multiplayerManager as any)?.send(createClientMessage(ClientMessageType.PLAYER_SHOOT, data));
+                    this.deps.multiplayerManager?.sendClientMessage(createClientMessage(ClientMessageType.PLAYER_SHOOT, data));
                     // }
                 });
 
@@ -211,7 +226,8 @@ export class GameMultiplayerCallbacks {
                 // Format: [Name]: Message
                 // Using different color for different senders?
                 // data has: id, senderId, senderName, content, timestamp
-                const text = `[${(data as any).senderName}]: ${(data as any).content}`;
+                const d = data as { senderName?: string; content?: string };
+                const text = `[${d.senderName ?? "?"}]: ${d.content ?? ""}`;
 
                 // Determine message type/color logic if needed. Default to "info" or "log".
                 // If it's a team chat, might differ. Assuming global chat for now.
@@ -229,10 +245,7 @@ export class GameMultiplayerCallbacks {
         if (this.deps.chatSystem) {
             this.deps.chatSystem.onMessageSent = (content: string) => {
                 // Send to server
-                (mm as any).send(createClientMessage(ClientMessageType.CHAT_MESSAGE, {
-                    content: content
-                    // roomId is handled by server session
-                }));
+                mm.sendClientMessage(createClientMessage(ClientMessageType.CHAT_MESSAGE, { content }));
             };
         }
     }
@@ -248,10 +261,10 @@ export class GameMultiplayerCallbacks {
                 mm.onRoomList((rooms: any[]) => {
                     // Throttling: логируем только раз в 2 секунды
                     const now = Date.now();
-                    const lastLogTime = (this as any)._lastRoomListLogTime || 0;
+                    const lastLogTime = this._lastRoomListLogTime || 0;
                     if (now - lastLogTime > 2000) {
                         logger.log(`[GameMultiplayerCallbacks] 📋 Получен список комнат через callback: ${rooms.length} комнат`);
-                        (this as any)._lastRoomListLogTime = now;
+                        this._lastRoomListLogTime = now;
                     }
                     if (this.deps.mainMenu && typeof this.deps.mainMenu.updateRoomList === "function") {
                         this.deps.mainMenu.updateRoomList(rooms);
@@ -331,7 +344,7 @@ export class GameMultiplayerCallbacks {
                     // Сцена готова - создаём танк напрямую
                     let networkPlayer = mm.getNetworkPlayer(playerData.id);
                     if (!networkPlayer) {
-                        (mm as any).addNetworkPlayer(playerData);
+                        mm.addNetworkPlayer(playerData);
                         networkPlayer = mm.getNetworkPlayer(playerData.id);
                     }
                     if (networkPlayer && !this.deps.networkPlayerTanks.has(playerData.id)) {
@@ -362,7 +375,7 @@ export class GameMultiplayerCallbacks {
         mm.onPlayerLeft((playerId) => {
             logger.log(`[Game] Player left: ${playerId}`);
             const tank = this.deps.networkPlayerTanks.get(playerId);
-            const playerName = tank ? (tank as any).playerName || 'Игрок' : 'Игрок';
+            const playerName = tank ? (tank.playerName ?? 'Игрок') : 'Игрок';
             if (tank) {
                 tank.dispose();
                 this.deps.networkPlayerTanks.delete(playerId);
@@ -435,7 +448,7 @@ export class GameMultiplayerCallbacks {
                         networkPlayer.position.set(data.position.x, data.position.y, data.position.z);
                     } else {
                         // ОПТИМИЗАЦИЯ: Используем vector3Pool
-                        (networkPlayer.position as any) = vector3Pool.acquire(data.position.x, data.position.y, data.position.z);
+                        (networkPlayer as { position: Vector3 }).position = vector3Pool.acquire(data.position.x, data.position.y, data.position.z);
                     }
                 }
             }
@@ -455,7 +468,7 @@ export class GameMultiplayerCallbacks {
                 if (data.health && data.maxHealth) {
                     tank.setHealth(data.health, data.maxHealth);
                 }
-            } else if (data.playerId === (this.deps.multiplayerManager as any).socket?.id) {
+            } else if (data.playerId === this.deps.multiplayerManager.socket?.id) {
                 // [FIX] Локальный игрок!
                 // Если tank не найден в networkPlayerTanks, значит это мы (локальный игрок)
                 // У TankController методы называются иначе чем у NetworkPlayerTank
@@ -508,7 +521,7 @@ export class GameMultiplayerCallbacks {
                     this.deps.tank.setHealth(data.health ?? 100);
                     // Показываем индикатор получения урона
                     if (this.deps.hud) {
-                        (this.deps.hud as any).showDamageIndicator?.(data.damage);
+                        (this.deps.hud as HUD & HUDMultiplayerOptional).showDamageIndicator?.(data.damage);
                     }
                 }
                 return;
@@ -521,7 +534,7 @@ export class GameMultiplayerCallbacks {
                 tank.setHealth(data.health ?? 100, data.maxHealth ?? 100);
 
                 // Опционально: визуальный эффект получения урона
-                if (this.deps.effectsManager && (tank as any).getPosition) {
+                if (this.deps.effectsManager && typeof (tank as { getPosition?: () => Vector3 }).getPosition === "function") {
                     // Можно добавить искры или небольшой эффект удара
                 }
             } else {
@@ -555,7 +568,7 @@ export class GameMultiplayerCallbacks {
                 tank.setDead();
 
                 // Показываем эффект взрыва
-                (tank as any).playDeathEffect?.();
+                (tank as { playDeathEffect?: () => void }).playDeathEffect?.();
             } else {
                 logger.warn(`[Game] ⚠️ PLAYER_DIED: tank for player ${data.playerId} not found in networkPlayerTanks`);
             }
@@ -685,7 +698,7 @@ export class GameMultiplayerCallbacks {
 
                 const networkPlayer = this.deps.multiplayerManager?.getNetworkPlayer(playerData.id);
                 if (!networkPlayer) {
-                    (this.deps.multiplayerManager as any).addNetworkPlayer(playerData);
+                    this.deps.multiplayerManager.addNetworkPlayer(playerData);
                 }
             }
 
@@ -741,8 +754,8 @@ export class GameMultiplayerCallbacks {
 
             // Обновляем режим-специфичные HUD компоненты и POI
             if (this.deps.hud && gameMode) {
-                const gameTime = (this.deps.multiplayerManager as any)?.getGameTime?.() || 0;
-                const roomSettings = (this.deps.multiplayerManager as any)?.getRoomSettings?.() || {};
+                const gameTime = this.deps.multiplayerManager?.getGameTime?.() || 0;
+                const roomSettings = this.deps.multiplayerManager?.getRoomSettings?.() || {};
 
                 if (gameMode === "ffa") {
                     const killLimit = roomSettings.ffaSettings?.killLimit || roomSettings.killLimit || 20;
@@ -801,8 +814,8 @@ export class GameMultiplayerCallbacks {
                         );
 
                         // Обновляем полную карту
-                        if (typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
-                            (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                        if (typeof (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers === "function") {
+                            (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers(pois.map(p => ({
                                 id: p.id,
                                 type: p.type,
                                 position: p.worldPosition,
@@ -870,8 +883,8 @@ export class GameMultiplayerCallbacks {
                         );
 
                         // Обновляем полную карту
-                        if (typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
-                            (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                        if (typeof (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers === "function") {
+                            (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers(pois.map(p => ({
                                 id: p.id,
                                 type: p.type,
                                 position: p.worldPosition,
@@ -882,9 +895,9 @@ export class GameMultiplayerCallbacks {
                 } else if (gameMode === "coop" || gameMode === "coop_pve") {
                     // Для Co-op считаем врагов из enemies
                     if (this.deps.gameEnemies) {
-                        enemiesRemaining = (this.deps.gameEnemies as any).enemies?.size || 0;
+                        enemiesRemaining = (this.deps.gameEnemies as { enemies?: Map<unknown, unknown> } | undefined)?.enemies?.size || 0;
                     }
-                    const roomSettings = (this.deps.multiplayerManager as any)?.getRoomSettings?.() || {};
+                    const roomSettings = this.deps.multiplayerManager?.getRoomSettings?.() || {};
                     const defaultWaveSize = roomSettings.survivalSettings?.waveSize ?? 10;
                     const enemiesTotal = this._lastCoopEnemiesTotal ?? defaultWaveSize;
                     this.deps.hud.updateCoopHUD?.({
@@ -934,7 +947,7 @@ export class GameMultiplayerCallbacks {
 
                         // Враги (если есть доступ к gameEnemies)
                         if (this.deps.gameEnemies) {
-                            const enemies = (this.deps.gameEnemies as any).enemies;
+                            const enemies = (this.deps.gameEnemies as { enemies?: Map<unknown, unknown> } | undefined)?.enemies;
                             if (enemies && enemies.forEach) {
                                 enemies.forEach((enemy: any, enemyId: string) => {
                                     if (enemy && enemy.position) {
@@ -958,8 +971,8 @@ export class GameMultiplayerCallbacks {
                         );
 
                         // Обновляем полную карту
-                        if (typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
-                            (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                        if (typeof (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers === "function") {
+                            (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers(pois.map(p => ({
                                 id: p.id,
                                 type: p.type,
                                 position: p.worldPosition
@@ -1055,15 +1068,14 @@ export class GameMultiplayerCallbacks {
                 });
 
                 if (missingTanks > 0 && this.deps.scene) {
-                    // Дополнительная проверка через processPendingNetworkPlayers
-                    setTimeout(() => this.processPendingNetworkPlayers(true), 100);
+                    requestAnimationFrame(() => this.processPendingNetworkPlayers(true));
                 }
             }
         });
 
         // Обработка смерти игрока
         mm.onPlayerDied((data) => {
-            logger.log(`[Game] Player died: ${(data as any).playerName} (${data.playerId})`);
+            logger.log(`[Game] Player died: ${(data as { playerName?: string }).playerName ?? data.playerId} (${data.playerId})`);
 
             const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
 
@@ -1090,7 +1102,7 @@ export class GameMultiplayerCallbacks {
                 const tank = this.deps.networkPlayerTanks.get(data.playerId);
                 if (tank) {
                     tank.setDead();
-                    logger.log(`[Game] Network player ${(data as any).playerName} died - tank hidden`);
+                    logger.log(`[Game] Network player ${(data as { playerName?: string }).playerName ?? data.playerId} died - tank hidden`);
 
                     // Эффект взрыва
                     if (this.deps.effectsManager) {
@@ -1103,7 +1115,7 @@ export class GameMultiplayerCallbacks {
             }
 
             // Показываем уведомление
-            this.showPlayerNotification(`💀 ${(data as any).playerName || 'Unknown'} погиб!`, "#ef4444");
+            this.showPlayerNotification(`💀 ${(data as { playerName?: string }).playerName || 'Unknown'} погиб!`, "#ef4444");
         });
 
         // Обработка события убийства (для Kill Feed и статистики)
@@ -1111,8 +1123,8 @@ export class GameMultiplayerCallbacks {
             logger.log(`[Game] Kill: ${data.killerName} killed ${data.victimName}`);
 
             // 1. Обновляем Kill Feed в HUD
-            if (this.deps.hud && typeof (this.deps.hud as any).addKillFeed === 'function') {
-                (this.deps.hud as any).addKillFeed(data.killerName || "Неизвестный", data.victimName || "Неизвестный", data.weapon || "cannon");
+            if (this.deps.hud && typeof (this.deps.hud as HUD & HUDMultiplayerOptional).addKillFeed === 'function') {
+                (this.deps.hud as HUD & HUDMultiplayerOptional).addKillFeed(data.killerName || "Неизвестный", data.victimName || "Неизвестный", data.weapon || "cannon");
             }
 
             // 2. Обновляем статистику матча
@@ -1180,8 +1192,8 @@ export class GameMultiplayerCallbacks {
                         }
 
                         // Скрываем экран смерти после анимации
-                        if (this.deps.hud && typeof (this.deps.hud as any).hideDeathScreen === 'function') {
-                            (this.deps.hud as any).hideDeathScreen();
+                        if (this.deps.hud && typeof (this.deps.hud as HUD & HUDMultiplayerOptional).hideDeathScreen === 'function') {
+                            (this.deps.hud as HUD & HUDMultiplayerOptional).hideDeathScreen();
                         }
                     }, 2000); // 2 секунды на анимацию респавна
                 }
@@ -1226,7 +1238,7 @@ export class GameMultiplayerCallbacks {
 
                     // Обновляем HUD и показываем эффект урона
                     if (this.deps.hud) {
-                        (this.deps.hud as any).flashDamage?.();
+                        (this.deps.hud as HUD & HUDMultiplayerOptional).flashDamage?.();
                     }
 
                     // Тряска камеры при получении урона
@@ -1238,7 +1250,7 @@ export class GameMultiplayerCallbacks {
                     if (this.deps.soundManager) {
                         // ОПТИМИЗАЦИЯ: Используем vector3Pool
                         const hitPos = data.hitPosition ?
-                            vector3Pool.acquire((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z) :
+                            vector3Pool.acquire((data.hitPosition as { x: number; y: number; z: number }).x, (data.hitPosition as { x: number; y: number; z: number }).y, (data.hitPosition as { x: number; y: number; z: number }).z) :
                             this.deps.tank.chassis.position;
                         this.deps.soundManager.playHit("armor", hitPos); // или "player_hit"
                         // ОПТИМИЗАЦИЯ: Освобождаем вектор если создали новый
@@ -1256,7 +1268,7 @@ export class GameMultiplayerCallbacks {
                     // Визуальный эффект попадания
                     // ОПТИМИЗАЦИЯ: Используем vector3Pool
                     if (data.hitPosition && this.deps.effectsManager) {
-                        const pos = vector3Pool.acquire((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z);
+                        const pos = vector3Pool.acquire((data.hitPosition as { x: number; y: number; z: number }).x, (data.hitPosition as { x: number; y: number; z: number }).y, (data.hitPosition as { x: number; y: number; z: number }).z);
                         this.deps.effectsManager.createHitSpark(pos);
                         vector3Pool.release(pos);
                     }
@@ -1265,7 +1277,7 @@ export class GameMultiplayerCallbacks {
                     // (только если мы находимся достаточно близко, чтобы слышать)
                     // ОПТИМИЗАЦИЯ: Используем vector3Pool
                     if (this.deps.soundManager && data.hitPosition) {
-                        const hitSoundPos = vector3Pool.acquire((data.hitPosition as any).x, (data.hitPosition as any).y, (data.hitPosition as any).z);
+                        const hitSoundPos = vector3Pool.acquire((data.hitPosition as { x: number; y: number; z: number }).x, (data.hitPosition as { x: number; y: number; z: number }).y, (data.hitPosition as { x: number; y: number; z: number }).z);
                         this.deps.soundManager.playHit("armor", hitSoundPos);
                         vector3Pool.release(hitSoundPos);
                     }
@@ -1303,8 +1315,9 @@ export class GameMultiplayerCallbacks {
 
         // КРИТИЧНО: Обработка обновлений мира и удаление уничтоженных снарядов
         mm.onWorldUpdate((data) => {
-            if ((data as any).destroyedObjects && (data as any).destroyedObjects.length > 0) {
-                (data as any).destroyedObjects.forEach((id: string) => {
+            const destroyed = (data as { destroyedObjects?: string[] }).destroyedObjects;
+            if (destroyed && destroyed.length > 0) {
+                destroyed.forEach((id: string) => {
                     // Проверяем, является ли объект снарядом
                     const netProjectile = this.networkProjectiles.get(id);
                     if (netProjectile) {
@@ -1406,6 +1419,16 @@ export class GameMultiplayerCallbacks {
             }
         });
 
+        // Update network consumables (bobbing/rotation)
+        for (let i = this.networkConsumablePickups.length - 1; i >= 0; i--) {
+            const p = this.networkConsumablePickups[i];
+            if (p.mesh.isDisposed()) {
+                this.networkConsumablePickups.splice(i, 1);
+            } else {
+                p.update(deltaTime);
+            }
+        }
+
         // Update debug visualizer
         if (this.syncVisualizer && this.syncVisualizer.getEnabled() && this.deps.tank && this.deps.tank.chassis) {
             // Если есть серверное состояние, обновляем визуализацию
@@ -1492,7 +1515,7 @@ export class GameMultiplayerCallbacks {
             } else {
                 // Если tracker уже существует, но матч не запущен - запускаем его
                 // Проверяем isTracking через приватное свойство или просто проверяем наличие localPlayerId
-                const tracker = this.deps.realtimeStatsTracker as any;
+                const tracker = this.deps.realtimeStatsTracker;
                 if (localPlayerId && (!tracker.isTracking || !tracker.localPlayerId)) {
                     const roomId = this.deps.multiplayerManager?.getRoomId?.() || null; // ИСПРАВЛЕНО: Получаем roomId
                     this.deps.realtimeStatsTracker.startMatch(localPlayerId, roomId || undefined);
@@ -1507,8 +1530,8 @@ export class GameMultiplayerCallbacks {
                 this.deps.setMapType(data.mapType);
             } else if (data.mapType) {
                 // Fallback: устанавливаем напрямую в gameInstance
-                if ((window as any).gameInstance) {
-                    (window as any).gameInstance.currentMapType = data.mapType;
+                if (getGameInstance()) {
+                    getGameInstance().currentMapType = data.mapType;
                     logger.log(`[Game] 🗺️ [onRoomJoined] Set mapType via fallback to ${data.mapType}`);
                 }
             }
@@ -1543,8 +1566,8 @@ export class GameMultiplayerCallbacks {
             // Если комната АКТИВНА (игра уже идёт)
             if (data.isActive && data.players && data.players.length > 0) {
                 // Set menu state to Active (Battle Mode)
-                if (this.deps.mainMenu && (this.deps.mainMenu as any).setRoomActive) {
-                    (this.deps.mainMenu as any).setRoomActive(true);
+                if (this.deps.mainMenu && (this.deps.mainMenu as { setRoomActive?: (v: boolean) => void }).setRoomActive) {
+                    (this.deps.mainMenu as { setRoomActive?: (v: boolean) => void }).setRoomActive(true);
                 }
 
                 // Обрабатываем всех игроков - добавляем в очередь
@@ -1717,11 +1740,11 @@ export class GameMultiplayerCallbacks {
                 body.setAngularVelocity(new Vector3(0, 0, 0));
                 body.disablePreStep = false;
                 body.setMotionType(PhysicsMotionType.DYNAMIC);
-                setTimeout(() => {
+                requestAnimationFrame(() => {
                     if (tank.physicsBody) {
                         tank.physicsBody.disablePreStep = true;
                     }
-                }, 0);
+                });
                 logger.log(`%c[Multiplayer] Initial spawn at (${targetPos.x.toFixed(1)}, ${targetPos.z.toFixed(1)})`, 'color: #22c55e; font-weight: bold;');
             } catch (e) {
                 logger.error("[updateLocalPlayerToServer] Spawn teleport error:", e);
@@ -1757,11 +1780,11 @@ export class GameMultiplayerCallbacks {
                 body.setAngularVelocity(new Vector3(0, 0, 0));
                 body.disablePreStep = false;
                 body.setMotionType(PhysicsMotionType.DYNAMIC);
-                setTimeout(() => {
+                requestAnimationFrame(() => {
                     if (tank.physicsBody) {
                         tank.physicsBody.disablePreStep = true;
                     }
-                }, 0);
+                });
                 logger.log(`%c[Sync] Force teleport to server position (${targetPos.x.toFixed(1)}, ${targetPos.z.toFixed(1)})`,
                     'color: #f59e0b; font-weight: bold;');
             } catch (e) {
@@ -2103,7 +2126,7 @@ export class GameMultiplayerCallbacks {
         // КРИТИЧНО: Если получены данные кастомной карты, сохраняем их СРАЗУ
         // Это должно произойти ДО любой проверки карты или reloadMap
         if (data.customMapData) {
-            const gameInstance = (window as any).gameInstance;
+            const gameInstance = getGameInstance();
             if (gameInstance) {
                 logger.log(`[Game] 📦 GAME_START: Received custom map data (name: ${data.customMapData.name}, size: ${JSON.stringify(data.customMapData).length}), storing in pendingCustomMapData`);
                 gameInstance.pendingCustomMapData = data.customMapData;
@@ -2150,7 +2173,7 @@ export class GameMultiplayerCallbacks {
         if (roomId && playerId) {
             try {
                 const voiceManager = getVoiceChatManager();
-                (window as any).voiceChatManager = voiceManager;
+                (window as Window & { voiceChatManager?: unknown }).voiceChatManager = voiceManager;
                 // КРИТИЧНО: initialize принимает (roomId, playerId), а не (serverUrl, roomId)
                 voiceManager.initialize(roomId, playerId);
             } catch (error) {
@@ -2163,7 +2186,7 @@ export class GameMultiplayerCallbacks {
         if (data.mapType) {
             logger.log(`%c[Game] 🗺️ GAME_START: Получен mapType от сервера: ${data.mapType}`, 'color: #22c55e; font-weight: bold; font-size: 14px;');
 
-            const gameInstance = (window as any).gameInstance;
+            const gameInstance = getGameInstance();
 
             // ПРИНУДИТЕЛЬНАЯ СИНХРОНИЗАЦИЯ: Всегда обновляем currentMapType из данных сервера
             if (gameInstance) {
@@ -2181,7 +2204,7 @@ export class GameMultiplayerCallbacks {
 
                     // Если ChunkSystem уже создан с неправильной картой - перезагружаем
                     if (gameInstance.chunkSystem) {
-                        const chunkMapType = (gameInstance.chunkSystem as any).mapType;
+                        const chunkMapType = gameInstance.chunkSystem?.mapType;
                         if (chunkMapType !== data.mapType) {
                             logger.log(`[Game] 🔄 ChunkSystem имеет mapType: ${chunkMapType}, перезагружаем на: ${data.mapType}`);
                             gameInstance.reloadMap(data.mapType).then(() => {
@@ -2204,14 +2227,14 @@ export class GameMultiplayerCallbacks {
                 gameInstance.currentMapType = data.mapType;
                 logger.log(`[Game] 🗺️ Updated gameInstance.currentMapType to ${data.mapType} (fallback)`);
             }
-            (window as any).currentMapType = data.mapType;
+            (window as Window & { currentMapType?: string }).currentMapType = data.mapType;
         } else {
             logger.warn(`%c[Game] ⚠️ GAME_START: mapType ОТСУТСТВУЕТ в данных!`, 'color: #f59e0b; font-weight: bold; font-size: 14px;', data);
             // Пытаемся использовать pendingMapType из MultiplayerManager как fallback
             const pendingMapType = mm?.getMapType();
             if (pendingMapType) {
                 logger.log(`[Game] 🗺️ Используем pendingMapType как fallback: ${pendingMapType}`);
-                const gameInstance = (window as any).gameInstance;
+                const gameInstance = getGameInstance();
                 if (gameInstance) {
                     gameInstance.currentMapType = pendingMapType;
                 }
@@ -2220,7 +2243,7 @@ export class GameMultiplayerCallbacks {
 
         // Сохраняем world seed
         if (data.worldSeed && mm) {
-            (mm as any).worldSeed = data.worldSeed;
+            mm.setWorldSeed(data.worldSeed);
         }
 
         // Сохраняем позицию спавна локального игрока
@@ -2228,11 +2251,11 @@ export class GameMultiplayerCallbacks {
             const localPlayerId = mm.getPlayerId();
             const localPlayerData = data.players.find((p: any) => p.id === localPlayerId);
             if (localPlayerData && localPlayerData.position) {
-                (mm as any).spawnPosition = new Vector3(
+                mm.setSpawnPosition(new Vector3(
                     localPlayerData.position.x,
                     localPlayerData.position.y,
                     localPlayerData.position.z
-                );
+                ));
             }
         }
 
@@ -2342,8 +2365,7 @@ export class GameMultiplayerCallbacks {
         // Это гарантирует создание танков даже если игра уже запущена
         if (this.deps.scene && (this.pendingNetworkPlayers.length > 0 || this.pendingEnemies.length > 0)) {
             logger.log(`[Game] 🔄 [GAME_START] Обрабатываем pending: игроков=${this.pendingNetworkPlayers.length}, ботов=${this.pendingEnemies.length}`);
-            logger.log(`[Game] 🔄 [GAME_START] Обрабатываем pending: игроков=${this.pendingNetworkPlayers.length}, ботов=${this.pendingEnemies.length}`);
-            setTimeout(() => this.processPendingNetworkPlayers(true), 100);
+            requestAnimationFrame(() => this.processPendingNetworkPlayers(true));
         } else if (this.pendingNetworkPlayers.length > 0 || this.pendingEnemies.length > 0) {
             logger.warn(`[Game] ⚠️ [GAME_START] Есть pending (игроков=${this.pendingNetworkPlayers.length}, ботов=${this.pendingEnemies.length}), но Scene не готова. Обработка произойдет позже.`);
         }
@@ -2370,32 +2392,32 @@ export class GameMultiplayerCallbacks {
 
             // Обрабатываем ожидающих игроков если есть (force=true для надёжности)
             if (this.pendingNetworkPlayers.length > 0 && this.deps.scene) {
-                setTimeout(() => this.processPendingNetworkPlayers(true), 100);
+                requestAnimationFrame(() => this.processPendingNetworkPlayers(true));
             }
             return;
         }
 
-        // Start the game
+        // Start the game (один кадр — только чтобы не блокировать текущий стек, без задержки 100ms)
         if (this.deps.startGame) {
-            setTimeout(async () => {
+            requestAnimationFrame(async () => {
                 try {
                     const result = this.deps.startGame!();
                     if (result instanceof Promise) {
                         await result.catch(() => { });
                     }
 
-                    // После запуска игры создаём танки для ожидающих игроков И ботов
-                    const tryProcessPending = (attempt: number, maxAttempts: number = 5) => {
+                    // После запуска игры создаём танки для ожидающих игроков И ботов (без искусственных задержек)
+                    const tryProcessPending = (attempt: number, maxAttempts: number = 8) => {
                         if (this.deps.scene && (this.pendingNetworkPlayers.length > 0 || this.pendingEnemies.length > 0)) {
                             logger.log(`[Game] 🔄 Обрабатываем pending: игроков=${this.pendingNetworkPlayers.length}, ботов=${this.pendingEnemies.length}`);
                             this.processPendingNetworkPlayers(true);
                         } else if ((this.pendingNetworkPlayers.length > 0 || this.pendingEnemies.length > 0) && attempt < maxAttempts) {
-                            setTimeout(() => tryProcessPending(attempt + 1, maxAttempts), 500 * attempt);
+                            requestAnimationFrame(() => tryProcessPending(attempt + 1, maxAttempts));
                         }
                     };
-                    setTimeout(() => tryProcessPending(1), 500);
+                    requestAnimationFrame(() => tryProcessPending(1));
                 } catch (error) { }
-            }, 100);
+            });
         }
     }
 
@@ -2457,10 +2479,10 @@ export class GameMultiplayerCallbacks {
 
             // Try to find winner name
             if (isVictory) {
-                winnerName = (this.deps.multiplayerManager as any)?.getRoomInfo()?.players?.find((p: any) => p.id === localPlayerId)?.name || "You";
+                winnerName = this.deps.multiplayerManager?.getRoomInfo()?.players?.find((p: any) => p.id === localPlayerId)?.name || "You";
             } else if (winnerId) {
                 const winner = this.deps.multiplayerManager?.getNetworkPlayer(winnerId);
-                winnerName = winner ? (winner as any).name : "Enemy";
+                winnerName = winner ? (winner as { name?: string }).name ?? "Enemy" : "Enemy";
             }
 
             this.deps.hud.showGameEndScreen({
@@ -2498,7 +2520,7 @@ export class GameMultiplayerCallbacks {
         mm.onPlayerDamaged((data) => {
             const localPlayerId = mm.getPlayerId();
             const damage = data.damage || 0;
-            const isCritical = (data as any).isCritical || false;
+            const isCritical = (data as { isCritical?: boolean }).isCritical ?? false;
 
             // Определяем позицию для плавающего текста
             let targetPos: Vector3 | null = null;
@@ -2744,7 +2766,7 @@ export class GameMultiplayerCallbacks {
             this.deps.gameEnemies.updateNetworkEnemies(enemies);
         } else {
             // Fallback через глобальный gameInstance
-            const game = (window as any).gameInstance;
+            const game = getGameInstance();
             if (game?.gameEnemies?.updateNetworkEnemies) {
                 game.gameEnemies.updateNetworkEnemies(enemies);
             }
@@ -2761,7 +2783,7 @@ export class GameMultiplayerCallbacks {
         logger.log(`[Game] 🤖 ENEMY_SPAWN received:`, data);
 
         // Получаем GameEnemies для создания бота
-        const gameEnemies = this.deps.gameEnemies || (window as any).gameInstance?.gameEnemies;
+        const gameEnemies = this.deps.gameEnemies || getGameInstance()?.gameEnemies;
         if (!gameEnemies) {
             logger.warn(`[Game] ⚠️ ENEMY_SPAWN: gameEnemies not available, queueing for later`);
             this.pendingEnemies.push(data);
@@ -2792,7 +2814,7 @@ export class GameMultiplayerCallbacks {
         logger.log(`[Game] 💀 ENEMY_DEATH received: ${data.id}`);
 
         // Получаем GameEnemies для удаления бота
-        const gameEnemies = this.deps.gameEnemies || (window as any).gameInstance?.gameEnemies;
+        const gameEnemies = this.deps.gameEnemies || getGameInstance()?.gameEnemies;
         if (!gameEnemies) {
             logger.warn(`[Game] ⚠️ ENEMY_DEATH: gameEnemies not available`);
             return;
@@ -2919,8 +2941,8 @@ export class GameMultiplayerCallbacks {
             this.deps.hud.updateMinimapPOIs(pois, { x: playerPos.x, z: playerPos.z }, tankRotationY);
             
             // Update full map markers
-            if (this.deps.hud && typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
-                (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+            if (this.deps.hud && typeof (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers === "function") {
+                (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers(pois.map(p => ({
                     id: p.id,
                     type: p.type,
                     position: p.worldPosition,
@@ -3009,8 +3031,8 @@ export class GameMultiplayerCallbacks {
             this.deps.hud.updateMinimapPOIs(pois, { x: playerPos.x, z: playerPos.z }, tankRotationY);
             
             // Update full map markers
-            if (this.deps.hud && typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
-                (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+            if (this.deps.hud && typeof (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers === "function") {
+                (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers(pois.map(p => ({
                     id: p.id,
                     type: p.type,
                     position: p.worldPosition,
@@ -3074,8 +3096,8 @@ export class GameMultiplayerCallbacks {
             this.deps.hud.updateMinimapPOIs(pois, { x: playerPos.x, z: playerPos.z }, tankRotationY);
             
             // Update full map markers
-            if (this.deps.hud && typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
-                (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+            if (this.deps.hud && typeof (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers === "function") {
+                (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers(pois.map(p => ({
                     id: p.id,
                     type: p.type,
                     position: p.worldPosition,
@@ -3111,12 +3133,12 @@ export class GameMultiplayerCallbacks {
         // Remove consumable from map
         if (this.deps.chunkSystem && data.consumableId) {
             const pickup = this.deps.chunkSystem.consumablePickups.find(
-                p => ((p as any).mesh.metadata as any)?.consumableId === data.consumableId ||
-                    (data.position && Math.abs((p as any).mesh.position.x - data.position.x) < 1 &&
-                        Math.abs((p as any).mesh.position.z - data.position.z) < 1)
+                p => (p.mesh.metadata as { consumableId?: string } | undefined)?.consumableId === data.consumableId ||
+                    (data.position && Math.abs(p.mesh.position.x - data.position.x) < 1 &&
+                        Math.abs(p.mesh.position.z - data.position.z) < 1)
             );
             if (pickup) {
-                (pickup as any).mesh.dispose();
+                (pickup as { mesh: { dispose: () => void } }).mesh.dispose();
                 const index = this.deps.chunkSystem.consumablePickups.indexOf(pickup);
                 if (index !== -1) {
                     this.deps.chunkSystem.consumablePickups.splice(index, 1);
@@ -3186,12 +3208,12 @@ export class GameMultiplayerCallbacks {
             }
 
             // Обновляем CTF HUD
-            if (this.deps.hud && typeof (this.deps.hud as any).updateCTFHUD === "function") {
+            if (this.deps.hud && typeof (this.deps.hud as HUD & HUDMultiplayerOptional).updateCTFHUD === "function") {
                 const localPlayerId = this.deps.multiplayerManager?.getPlayerId();
                 const localPlayer = this.deps.multiplayerManager?.getNetworkPlayer(localPlayerId || "");
-                const playerTeam = (localPlayer as any)?.team;
-                const gameTime = (this.deps.multiplayerManager as any)?.getGameTime?.() || 0;
-                const roomSettings = (this.deps.multiplayerManager as any)?.getRoomSettings?.() || {};
+                const playerTeam = (localPlayer as { team?: number } | undefined)?.team;
+                const gameTime = this.deps.multiplayerManager?.getGameTime?.() || 0;
+                const roomSettings = this.deps.multiplayerManager?.getRoomSettings?.() || {};
                 const maxScore = roomSettings.ctfSettings?.flagsToWin || 3;
 
                 // Находим флаги команд
@@ -3202,7 +3224,7 @@ export class GameMultiplayerCallbacks {
                 const team0Score = data.team0Score || 0;
                 const team1Score = data.team1Score || 0;
 
-                (this.deps.hud as any).updateCTFHUD({
+                (this.deps.hud as HUD & HUDMultiplayerOptional).updateCTFHUD({
                     team0Score,
                     team1Score,
                     maxScore,
@@ -3282,8 +3304,8 @@ export class GameMultiplayerCallbacks {
                     this.deps.hud.updateMinimapPOIs(pois, { x: playerPos.x, z: playerPos.z }, tankRotationY);
                     
                     // Update full map markers
-                    if (this.deps.hud && typeof (this.deps.hud as any).setFullMapModeMarkers === "function") {
-                        (this.deps.hud as any).setFullMapModeMarkers(pois.map(p => ({
+                    if (this.deps.hud && typeof (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers === "function") {
+                        (this.deps.hud as HUD & HUDMultiplayerOptional).setFullMapModeMarkers(pois.map(p => ({
                             id: p.id,
                             type: p.type,
                             position: p.worldPosition,
@@ -3334,14 +3356,12 @@ export class GameMultiplayerCallbacks {
         }
 
         if (!this.deps.scene) {
-            // Retry if scene not ready
             if (this.pendingNetworkPlayers.length > 0) {
-                logger.warn(`[Game] ⚠️ Scene не готова, повтор через 500ms. pendingNetworkPlayers=${this.pendingNetworkPlayers.length}`);
-                setTimeout(() => {
+                requestAnimationFrame(() => {
                     if (this.deps.scene) {
                         this.processPendingNetworkPlayers();
                     }
-                }, 500);
+                });
             }
             return;
         }
@@ -3375,7 +3395,7 @@ export class GameMultiplayerCallbacks {
                 let networkPlayer = this.deps.multiplayerManager?.getNetworkPlayer(playerData.id);
                 if (!networkPlayer) {
                     logger.log(`[Game] 🔨 Игрок ${playerData.id} не в networkPlayers, добавляем...`);
-                    (this.deps.multiplayerManager as any).addNetworkPlayer(playerData);
+                    this.deps.multiplayerManager.addNetworkPlayer(playerData);
                     networkPlayer = this.deps.multiplayerManager?.getNetworkPlayer(playerData.id);
                 }
 
@@ -3425,7 +3445,7 @@ export class GameMultiplayerCallbacks {
                 this.deps.gameEnemies.spawnNetworkEnemies(enemiesToCreate);
             } else {
                 logger.warn(`[Game] ⚠️ gameEnemies не доступен, пробуем через gameInstance...`);
-                const game = (window as any).gameInstance;
+                const game = getGameInstance();
                 if (game?.gameEnemies?.spawnNetworkEnemies) {
                     logger.log(`[Game] ✅ Вызываем gameInstance.gameEnemies.spawnNetworkEnemies(${enemiesToCreate.length} ботов)`);
                     game.gameEnemies.spawnNetworkEnemies(enemiesToCreate);
@@ -3468,11 +3488,11 @@ export class GameMultiplayerCallbacks {
 
         let networkPlayer = mm.getNetworkPlayer(playerData.id);
         if (!networkPlayer) {
-            (mm as any).addNetworkPlayer(playerData);
+            mm.addNetworkPlayer(playerData);
             networkPlayer = mm.getNetworkPlayer(playerData.id);
             if (!networkPlayer) return;
         } else {
-            (mm as any).updateNetworkPlayer(playerData, 0);
+            mm.updateNetworkPlayer(playerData, 0);
         }
 
         // Scene ready? Create tank now, else queue
@@ -3528,7 +3548,7 @@ export class GameMultiplayerCallbacks {
             logger.log(`[Game] 🔨 Creating NetworkPlayerTank for ${playerData.id}: roomId=${roomId}, worldSeed=${worldSeed}, mapType=${mapType}, position=(${networkPlayer.position.x.toFixed(1)}, ${networkPlayer.position.y.toFixed(1)}, ${networkPlayer.position.z.toFixed(1)})`);
 
             const tank = new NetworkPlayerTank(this.deps.scene, networkPlayer, this.deps.effectsManager);
-            (tank as any).multiplayerManager = this.deps.multiplayerManager;
+            (tank as { multiplayerManager?: MultiplayerManager }).multiplayerManager = this.deps.multiplayerManager;
             this.deps.networkPlayerTanks.set(playerData.id, tank);
 
             // Убеждаемся, что танк видим
@@ -3615,7 +3635,7 @@ export class GameMultiplayerCallbacks {
             return;
         }
 
-        // Fallback: создаём временный DOM элемент
+        // Если HUD недоступен — показываем уведомление через DOM
         const notification = document.createElement("div");
         notification.style.cssText = `
             position: fixed;
@@ -3797,7 +3817,15 @@ export class GameMultiplayerCallbacks {
             this.projectileTemplate = null;
         }
 
-        // 3. Clear metrics / lines
+        // 3. Network consumables
+        this.networkConsumablePickups.forEach(p => {
+            const idx = this.deps.chunkSystem?.consumablePickups.findIndex(c => c.mesh === p.mesh);
+            if (idx >= 0 && this.deps.chunkSystem) this.deps.chunkSystem.consumablePickups.splice(idx, 1);
+            p.dispose();
+        });
+        this.networkConsumablePickups = [];
+
+        // 4. Clear metrics / lines
         this.reconciliationLines.forEach(l => l.dispose());
         this.reconciliationLines = [];
 
@@ -3812,56 +3840,13 @@ export class GameMultiplayerCallbacks {
         if (!type) return;
 
         const pos = new Vector3(data.position.x, data.position.y, data.position.z);
-        // Use ConsumablePickup class for consistent behavior
-        // Note: We need to import ConsumablePickup if it's not exported or if we can use it directly
-        // Based on existing imports, we might need to use what's available
-        // Luckily we imported CONSUMABLE_TYPES, let's assume ConsumablePickup is available or we mimic it
-
-        // Actually, we can use the same logic as in ChunkSystem/ConsumablesManager
-        // But since we don't have direct access to ConsumablePickup constructor here (it is not imported),
-        // we might need to add the import or use a workaround.
-        // Wait, line 10 has CONSUMABLE_TYPES. I should check if ConsumablePickup is imported.
-        // It is NOT imported in line 1-24. 
-        // I will add the import first in a separate replace/multi_replace or just manually construct the mesh.
-
-        // Manual construction to avoid import issues for now, matching ConsumablePickup logic:
-        const mesh = MeshBuilder.CreateBox(`consumable_${data.id}`, {
-            width: 0.8, height: 0.8, depth: 0.8
-        }, this.deps.scene);
-
-        mesh.position.copyFrom(pos);
-        mesh.position.y += 0.4; // Bob offset
-
-        const mat = new StandardMaterial(`consumableMat_${data.id}`, this.deps.scene);
-        mat.diffuseColor = Color3.FromHexString(type.color);
-        mat.emissiveColor = Color3.FromHexString(type.color).scale(0.5);
-        mesh.material = mat;
-
-        // Metadata
-        mesh.metadata = {
-            type: "consumable",
-            consumableType: type.id,
-            consumableId: data.id
-        };
-
-        // Add to system for updates (rotation/bobbing needs manual update or registering)
-        // Since we don't have the class instance to update() it, we might lose animation unless we register it properly.
-        // But for gameplay logic (pickup), the mesh presence is enough.
+        const pickup = new ConsumablePickup(this.deps.scene, pos, type);
+        this.networkConsumablePickups.push(pickup);
 
         this.deps.chunkSystem.consumablePickups.push({
-            mesh: mesh,
+            mesh: pickup.mesh,
             type: type.id,
             position: pos
-        });
-
-        // Add simple animation observer — auto-remove when mesh is disposed
-        const observer = this.deps.scene.onBeforeRenderObservable.add(() => {
-            if (!mesh.isDisposed()) {
-                mesh.rotation.y += 0.02;
-            } else {
-                // Mesh was disposed — remove this observer to prevent leak
-                this.deps.scene?.onBeforeRenderObservable.remove(observer);
-            }
         });
     }
 }

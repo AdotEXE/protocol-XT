@@ -23,7 +23,7 @@ export interface ITankController {
     chassis: Mesh;
     turret: Mesh;
     barrel: Mesh;
-    physicsBody: PhysicsBody;
+    physicsBody: PhysicsBody | null;
     chassisType: ChassisType;
     cannonType: CannonType;
 

@@ -141,7 +141,7 @@ export class GameSystems implements Partial<IGameSystems> {
             
             // Create Chat System
             this.chatSystem = new ChatSystem(scene);
-            this.chatSystem.setGame(this as any); // Временный cast, будет исправлено
+            this.chatSystem.setGame(this);
             if (this.soundManager) {
                 this.chatSystem.setSoundManager(this.soundManager);
             }

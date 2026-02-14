@@ -266,9 +266,7 @@ function validateWebSocketUrl(url: string): boolean {
 }
 
 function getWebSocketUrl(defaultPort: number = 8000): string {
-    // Проверяем переменную окружения (приоритет)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const envUrl = (import.meta as any).env?.VITE_WS_SERVER_URL;
+    const envUrl = import.meta.env?.VITE_WS_SERVER_URL;
     if (envUrl) {
         if (validateWebSocketUrl(envUrl)) {
             logger.log(`[Multiplayer] Using WebSocket URL from environment: ${envUrl}`);
@@ -429,9 +427,10 @@ export class MultiplayerManager {
     private _gameTime: number = 0;
     private worldSeed: number | null = null;
     private pendingMapType: string | null = null; // КРИТИЧНО: mapType из ROOM_CREATED для использования до GAME_START
-    private _roomIsActive: boolean = false; // Статус активности комнаты
-    private _roomPlayersCount: number = 1; // Точное количество игроков в комнате (включая текущего)
-    private _serverSpawnPosition: { x: number; y: number; z: number } | null = null; // Позиция спавна от сервера
+    private _roomIsActive: boolean = false;
+    private _roomPlayersCount: number = 1;
+    private _roomSettings: Record<string, unknown> = {};
+    private _serverSpawnPosition: { x: number; y: number; z: number } | null = null;
 
     // Network players (excluding local player)
     private networkPlayers: Map<string, NetworkPlayer> = new Map();
@@ -469,7 +468,15 @@ export class MultiplayerManager {
     private readonly PING_INTERVAL_BASE = 1000; // 1s - default
     private currentPingInterval = 1000;         // Current adaptive interval
 
+    /** Возвращает пинг для отображения: медиана последних замеров, чтобы не прыгал 250↔800. */
     public getPing(): number {
+        const hist = this.networkMetrics.pingHistory;
+        if (hist.length >= 3) {
+            const sorted = [...hist].sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            const median = sorted[mid];
+            return median ?? this.networkMetrics.rtt;
+        }
         return this.networkMetrics.rtt;
     }
 
@@ -1211,9 +1218,7 @@ export class MultiplayerManager {
                     this.handleChatMessage(message.data);
                     break;
 
-                // Add handler for LOBBY_CHAT_MESSAGE
-                case "LOBBY_CHAT_MESSAGE" as any:
-                case (ServerMessageType as any).LOBBY_CHAT_MESSAGE:
+                case ServerMessageType.LOBBY_CHAT_MESSAGE:
                     this.handleLobbyChatMessage(message.data);
                     break;
 
@@ -1861,11 +1866,13 @@ export class MultiplayerManager {
         this.roomId = data.roomId;
         this.gameMode = data.mode;
         this._isRoomCreator = data.isCreator ?? false;
-        this._roomIsActive = data.isActive ?? false; // Сохраняем статус активности комнаты
+        this._roomIsActive = data.isActive ?? false;
+        this._roomSettings = { mode: data.mode, mapType: data.mapType, isActive: data.isActive };
 
-        // КРИТИЧНО: Обновляем синхронизацию времени с сервером
-        if ((data as any).serverTime) {
-            this.serverTimeOffset = (data as any).serverTime - Date.now();
+        // Синхронизация времени с сервером
+        const roomData = data as RoomJoinedData & { serverTime?: number };
+        if (roomData.serverTime != null) {
+            this.serverTimeOffset = roomData.serverTime - Date.now();
             logger.log(`[Multiplayer] 🕐 Server time offset updated in ROOM_JOINED: ${this.serverTimeOffset}ms`);
         }
 
@@ -2883,7 +2890,7 @@ export class MultiplayerManager {
         }
     }
 
-    private addNetworkPlayer(playerData: PlayerData): void {
+    public addNetworkPlayer(playerData: PlayerData): void {
         // Validate player data
         if (!playerData || !playerData.id) {
             logger.warn("[Multiplayer] Cannot add network player: invalid player data");
@@ -2977,8 +2984,8 @@ export class MultiplayerManager {
             angularVelocity: 0,
             turretAngularVelocity: 0,
             lastUpdateTime: Date.now(),
-            // Adaptive interpolation
-            interpolationDelay: 50 // Default 50ms delay
+            // Adaptive interpolation (сразу по текущему RTT для минимальной задержки)
+            interpolationDelay: this.getInterpolationDelayFromRtt(this.networkMetrics.rtt)
         };
 
         this.networkPlayers.set(playerData.id, networkPlayer);
@@ -2992,7 +2999,7 @@ export class MultiplayerManager {
         }
     }
 
-    private updateNetworkPlayer(playerData: PlayerData, _gameTime: number): void {
+    public updateNetworkPlayer(playerData: PlayerData, _gameTime: number): void {
         // Validate player data
         if (!playerData || !playerData.id) {
             logger.warn("[Multiplayer] Cannot update network player: invalid player data");
@@ -3095,7 +3102,7 @@ export class MultiplayerManager {
             networkPlayer.turretRotationHistory = [tRot, tRot, tRot];
         }
         if (networkPlayer.interpolationDelay === undefined) {
-            networkPlayer.interpolationDelay = 50;
+            networkPlayer.interpolationDelay = this.getInterpolationDelayFromRtt(this.networkMetrics.rtt);
         }
 
         const currentTime = Date.now();
@@ -3296,17 +3303,15 @@ export class MultiplayerManager {
         networkPlayer.interpolationTime = 0;
 
         // Update adaptive interpolation delay based on ping
-        // ОПТИМИЗИРОВАНО: Уменьшены задержки для более отзывчивого отображения
-        const rtt = this.networkMetrics.rtt;
-        if (rtt < 50) {
-            networkPlayer.interpolationDelay = 12; // LOW-PING OPTIMIZED: Minimal delay for EU servers
-        } else if (rtt < 100) {
-            networkPlayer.interpolationDelay = 25; // LOW-PING OPTIMIZED: Reduced from 35ms
-        } else if (rtt < 150) {
-            networkPlayer.interpolationDelay = 40; // LOW-PING OPTIMIZED: Reduced from 50ms
-        } else {
-            networkPlayer.interpolationDelay = 55; // HIGH PING: Slightly reduced from 60ms
-        }
+        networkPlayer.interpolationDelay = this.getInterpolationDelayFromRtt(this.networkMetrics.rtt);
+    }
+
+    /** Задержка интерполяции по RTT (один источник правды, без дублирования). */
+    private getInterpolationDelayFromRtt(rtt: number): number {
+        if (rtt < 50) return 12;   // низкий пинг — минимум задержки
+        if (rtt < 100) return 25;
+        if (rtt < 150) return 40;
+        return 55;                  // высокий пинг — чуть больше буфер
     }
 
     // Public API
@@ -4153,6 +4158,22 @@ export class MultiplayerManager {
         return null;
     }
 
+    /** Установить позицию спавна (вызывается из колбэков при GAME_START). */
+    setSpawnPosition(pos: Vector3 | { x: number; y: number; z: number } | null): void {
+        if (!pos) {
+            this._serverSpawnPosition = null;
+            return;
+        }
+        this._serverSpawnPosition = pos instanceof Vector3
+            ? { x: pos.x, y: pos.y, z: pos.z }
+            : { x: pos.x, y: pos.y, z: pos.z };
+    }
+
+    /** Установить world seed (вызывается из колбэков при GAME_START). */
+    setWorldSeed(seed: number): void {
+        this.worldSeed = seed;
+    }
+
     /**
      * Get raw server spawn position without Vector3 conversion
      */
@@ -4200,7 +4221,17 @@ export class MultiplayerManager {
         return this.serverUrl;
     }
 
+    /** Настройки комнаты (режим, лимиты и т.д.) для HUD и колбэков. */
+    getRoomSettings(): Record<string, unknown> {
+        return this._roomSettings ?? {};
+    }
 
+    /** Информация о комнате и списке игроков для отображения победителя и т.д. */
+    getRoomInfo(): { players?: Array<{ id: string; name?: string }> } {
+        const players = Array.from(this.networkPlayers.values()).map(p => ({ id: p.id, name: p.name }));
+        players.push({ id: this.playerId, name: this.playerName });
+        return { players };
+    }
 
     // Callbacks
     onConnected(callback: () => void): void {
@@ -4397,6 +4428,11 @@ export class MultiplayerManager {
         if (this.onWallSpawnCallback) {
             this.onWallSpawnCallback(data);
         }
+    }
+
+    /** Публичный API для отправки произвольного клиентского сообщения (используется колбэками). */
+    public sendClientMessage(message: ClientMessage): void {
+        this.send(message);
     }
 
     private send(message: ClientMessage): void {

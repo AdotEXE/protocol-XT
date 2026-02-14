@@ -978,7 +978,7 @@ export class TankHealthModule {
         // Отключаем основное физическое тело танка (но не удаляем, нужно для респавна)
         if (tank.physicsBody) {
             tank.physicsBody.dispose();
-            (tank as any).physicsBody = null; // Временно обнуляем, восстановим при респавне
+            tank.physicsBody = null;
         }
     }
 

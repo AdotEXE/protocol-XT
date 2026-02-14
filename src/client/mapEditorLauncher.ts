@@ -526,14 +526,9 @@ export class MapEditorLauncher {
                         }
 
                         // Fetch real data
-                        // We need a temporary scene to use WorldBuilder? No, we split logic.
-                        // We instantiate WorldBuilder with a dummy scene or just use its Service capabilities?
-                        // Wait, WorldBuilder takes a Scene in constructor.
-                        // We can't use WorldBuilder easily here without a scene.
-                        // We should probably pass the 'generation request' to the MapEditor to handle loading screen?
-                        // OR: We use the `downloadArea` method of WorldBuilder but we need instance.
+                        // World gen runs inside MapEditor (it has a scene); we only pass the request config.
 
-                        // Workaround: We will pass a special config to MapEditor telling it to generate this world on init.
+                        // Pass config to MapEditor so it runs world generation on init.
 
                         config = {
                             mapType: "world",

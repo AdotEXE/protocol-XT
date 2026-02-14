@@ -126,6 +126,8 @@ export class ChunkSystem {
     // ОПТИМИЗАЦИЯ: MaterialManager для централизованного управления материалами
     private materialManager: MaterialManager | null = null;
 
+    private _lastChunkUpdateTime = 0;
+
     // Позиции гаражей для спавна
     public garagePositions: Vector3[] = [];
 
@@ -1399,13 +1401,13 @@ export class ChunkSystem {
 
         // ОПТИМИЗАЦИЯ: Обновляем чанки только при смене чанка или раз в N кадров
         const now = performance.now();
-        const timeSinceLastUpdate = now - (this as any)._lastChunkUpdateTime || 0;
+        const timeSinceLastUpdate = now - this._lastChunkUpdateTime || 0;
         const shouldUpdate = cx !== this.lastPlayerChunk.x || cz !== this.lastPlayerChunk.z ||
-            (this.progressiveLoadingEnabled && timeSinceLastUpdate > 100); // Обновляем раз в 100мс при прогрессивной загрузке
+            (this.progressiveLoadingEnabled && timeSinceLastUpdate > 100);
 
         if (shouldUpdate) {
             this.lastPlayerChunk = { x: cx, z: cz };
-            (this as any)._lastChunkUpdateTime = now;
+            this._lastChunkUpdateTime = now;
             this.updateChunks(cx, cz);
         }
 
@@ -3198,7 +3200,7 @@ export class ChunkSystem {
             // Продолжаем если есть ещё элементы
             if (this.detailsQueue.length > 0) {
                 if ('requestIdleCallback' in window) {
-                    (window as any).requestIdleCallback(processOne, { timeout: 1000 });
+                    window.requestIdleCallback(processOne, { timeout: 1000 });
                 } else {
                     setTimeout(() => processOne({ timeRemaining: () => 50, didTimeout: true } as IdleDeadline), 16);
                 }
@@ -3208,7 +3210,7 @@ export class ChunkSystem {
         };
 
         if ('requestIdleCallback' in window) {
-            (window as any).requestIdleCallback(processOne, { timeout: 1000 });
+            window.requestIdleCallback(processOne, { timeout: 1000 });
         } else {
             // Fallback для браузеров без requestIdleCallback
             setTimeout(() => processOne({ timeRemaining: () => 50, didTimeout: true } as IdleDeadline), 16);
@@ -3761,8 +3763,8 @@ export class ChunkSystem {
         // Generate POIs (capture points, ammo depots, etc.)
         this.generatePOIs(chunkX, chunkZ, worldX, worldZ, size, biome, chunkParent);
 
-        // Scatter generic props for uniqueness (уменьшено количество)
-        // this.addScatteredProps(chunk, size, random); // Временно отключено для оптимизации
+        // Scatter generic props (отключено для производительности; можно включить при необходимости)
+        // this.addScatteredProps(chunk, size, random);
 
         // Генерируем припасы
         this.generateConsumables(chunkX, chunkZ, worldX, worldZ, size, random, chunkParent);

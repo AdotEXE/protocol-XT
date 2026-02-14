@@ -130,6 +130,7 @@ export enum ServerMessageType {
 
     // Chat
     CHAT_MESSAGE = "chat_message",
+    LOBBY_CHAT_MESSAGE = "lobby_chat_message",
 
     // Battle Royale
     SAFE_ZONE_UPDATE = "safe_zone_update",

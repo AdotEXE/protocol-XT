@@ -60,7 +60,7 @@ export class ChatSystem {
     private _commandHistory: string[] = [];
     private _commandHistoryIndex: number = -1;
 
-    private game: any = null;
+    private game: { playerId?: string } | null = null;
     public onMessageSent: ((message: string, channel: ChatChannel) => void) | null = null;
 
     // Chat channels system
@@ -104,7 +104,8 @@ export class ChatSystem {
         }
     }
 
-    setGame(game: any): void {
+    /** Минимальный контекст игры для чата (playerId и т.д.) */
+    setGame(game: { playerId?: string } | null): void {
         this.game = game;
         if (this.commandSystem) {
             this.commandSystem.setGame(game);

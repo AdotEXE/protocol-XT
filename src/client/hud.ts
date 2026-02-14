@@ -100,15 +100,38 @@ import { MobileControlsManager, type MobileInputState } from "./mobile";
 import { isMobileDevice } from "./mobile/MobileDetection";
 import { timerManager } from "./optimization/TimerManager";
 import { initializeInGameDialogs } from "./utils/inGameDialogs";
+import { getGameInstance } from "./utils/gameInstance";
+import type { ChatSystem } from "./chatSystem";
 
 // ULTRA SIMPLE HUD - NO gradients, NO shadows, NO alpha, NO transparency
 // Pure solid colors only!
+
+/** Объект врага для миникарты (альтернатива Vector3) */
+interface MinimapEnemyLike {
+    x: number;
+    z: number;
+    alive?: boolean;
+    turretRotation?: number;
+}
+
+/** Данные одного активного эффекта в слотах HUD */
+interface ActiveEffectData {
+    name: string;
+    icon: string;
+    color: string;
+    duration: number;
+    startTime: number;
+    slotIndex: number;
+    updateInterval: string;
+}
 
 export class HUD {
     private scene: Scene;
     private guiTexture: AdvancedDynamicTexture;
     // Ссылка на MissionSystem для обработки claim из HUD (инжектируется из Game)
     private missionSystem: MissionSystem | null = null;
+    /** ChatSystem для системных сообщений (инжектируется из Game) */
+    chatSystem: ChatSystem | null = null;
 
     // Health
     private healthBar!: Rectangle;
@@ -207,6 +230,8 @@ export class HUD {
     private pingText: TextBlock | null = null;
     private driftText: TextBlock | null = null;
     private packetLossIcon: Rectangle | null = null;
+    /** Сглаженное значение пинга для отображения (не прыгает 250↔800). */
+    private _displayPing: number = 0;
 
     // Editor Button (visible only in TEST mode)
     private editorButton: Button | null = null;
@@ -258,6 +283,30 @@ export class HUD {
     private _fuelBar: Rectangle | null = null;
     private _fuelFill: Rectangle | null = null;
     private _fuelText: TextBlock | null = null;
+    private _fuelBarGlow: Rectangle | null = null;
+    private _fuelBarWarningOverlay: Rectangle | null = null;
+
+    // Кэш ссылок на дочерние элементы (вместо (x as any)._field)
+    private _healthBarGlow: Rectangle | null = null;
+    private _healthBarWarningOverlay: Rectangle | null = null;
+    private _healthPercentText: TextBlock | null = null;
+    private _reloadBarGlow: Rectangle | null = null;
+    private _tankStatusKillsValue: TextBlock | null = null;
+    private _tankStatusAltValue: TextBlock | null = null;
+    private _minimapSpeedValue: TextBlock | null = null;
+    private _minimapBarrelAngleValue: TextBlock | null = null;
+    private _minimapCoordValue: TextBlock | null = null;
+    private _damageIndicatorLeftEdge: Rectangle | null = null;
+    private _damageIndicatorRightEdge: Rectangle | null = null;
+    private _messageTextBg: Rectangle | null = null;
+    private _comboBonusText: TextBlock | null = null;
+    private _comboMaxComboText: TextBlock | null = null;
+    private _fullMapPlayerMarker: Rectangle | null = null;
+    private _fullMapFovConeContainer: Rectangle | null = null;
+    private _fullMapFovLeftLine: Rectangle | null = null;
+    private _fullMapFovRightLine: Rectangle | null = null;
+    private _fullMapFovCenterLine: Rectangle | null = null;
+    private _centralXpTextOutline: TextBlock | null = null;
 
     // Tank status block (слева от радара)
     private tankStatusContainer: Rectangle | null = null;
@@ -306,7 +355,7 @@ export class HUD {
     private activeEffectsContainer: Rectangle | null = null;
     private activeEffectsSlots: Array<{ container: Rectangle, icon: TextBlock, nameText: TextBlock, timerText: TextBlock, progressBar: Rectangle }> = [];
     private readonly maxActiveEffectsSlots = 5; // 5 видимых слотов с прозрачностью
-    private activeEffects: Map<string, { container: Rectangle, text: TextBlock, timeout: number }> = new Map();
+    private activeEffects: Map<string, ActiveEffectData> = new Map();
 
     // Tank stats display
     private tankStatsContainer: Rectangle | null = null;
@@ -668,8 +717,8 @@ export class HUD {
         // Update tank status panel if available
         // Note: updateTankStatus might be defined elsewhere or we need to find it
         // We defer to updateTankStatus if it exists, otherwise we just updated the bars
-        if ((this as any).updateTankStatus) {
-            (this as any).updateTankStatus(this.currentHealth, this.maxHealth, this.currentFuel, this.maxFuel, this.currentArmor);
+        if (this.updateTankStatus) {
+            this.updateTankStatus(this.currentHealth, this.maxHealth, this.currentFuel, this.maxFuel, this.currentArmor);
         }
 
         // Low HP visual effect (порог в hud/healthBarHelpers)
@@ -729,7 +778,7 @@ export class HUD {
      * Флаг видимости HUD для внешних систем (скриншоты и т.п.)
      */
     public isVisible(): boolean {
-        const root = (this.guiTexture as any).rootContainer as Rectangle | undefined;
+        const root = this.guiTexture.rootContainer as Rectangle | undefined;
         return root ? root.isVisible !== false : true;
     }
 
@@ -737,7 +786,7 @@ export class HUD {
      * Скрыть весь HUD
      */
     public hide(): void {
-        const root = (this.guiTexture as any).rootContainer as Rectangle | undefined;
+        const root = this.guiTexture.rootContainer as Rectangle | undefined;
         if (root) {
             root.isVisible = false;
         }
@@ -747,7 +796,7 @@ export class HUD {
      * Показать весь HUD
      */
     public show(): void {
-        const root = (this.guiTexture as any).rootContainer as Rectangle | undefined;
+        const root = this.guiTexture.rootContainer as Rectangle | undefined;
         if (root) {
             root.isVisible = true;
         }
@@ -1453,25 +1502,29 @@ export class HUD {
     }
 
     /**
-     * ИСПРАВЛЕНО: Обновление индикатора сети (PING/DRIFT)
+     * ИСПРАВЛЕНО: Обновление индикатора сети (PING/DRIFT), использует то же сглаживание пинга
      */
     public updateNetworkIndicator(ping: number, drift: number): void {
-        if (!this.pingText || !this.driftText) return;
-        this.pingText.text = formatPingText(ping);
-        this.pingText.color = getPingColor(ping);
-        this.driftText.text = formatDriftText(drift);
-        this.driftText.color = getDriftColor(drift);
+        this.updateConnectionQuality(ping, drift);
     }
 
     /**
      * Обновить показатели качества соединения
-     * @param ping Пинг в мс
+     * @param ping Пинг в мс (уже медиана на стороне multiplayer; здесь дополнительно сглаживаем для экрана)
      * @param drift Расхождение позиций в метрах
      */
     public updateConnectionQuality(ping: number, drift: number): void {
+        // Плавное обновление отображаемого пинга, чтобы не прыгал 250↔800
+        if (ping <= 0) {
+            this._displayPing = 0;
+        } else {
+            if (this._displayPing === 0) this._displayPing = ping;
+            else this._displayPing += (ping - this._displayPing) * 0.08;
+        }
+        const showPing = Math.round(this._displayPing);
         if (this.pingText) {
-            this.pingText.text = formatPingText(ping);
-            this.pingText.color = getPingColor(ping, PING_THRESHOLDS_QUALITY);
+            this.pingText.text = formatPingText(showPing);
+            this.pingText.color = getPingColor(showPing, PING_THRESHOLDS_QUALITY);
         }
         if (this.driftText) {
             this.driftText.text = formatDriftText(drift);
@@ -1601,7 +1654,7 @@ export class HUD {
         healthGlow.alpha = 0.3;
         healthGlow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.healthBar.addControl(healthGlow);
-        (this.healthBar as any)._healthGlow = healthGlow;
+        this._healthBarGlow = healthGlow;
 
         // Предупреждающий оверлей
         const warningOverlay = new Rectangle("healthWarning");
@@ -1611,7 +1664,7 @@ export class HUD {
         warningOverlay.background = "#f00";
         warningOverlay.alpha = 0;
         this.healthBar.addControl(warningOverlay);
-        (this.healthBar as any)._warningOverlay = warningOverlay;
+        this._healthBarWarningOverlay = warningOverlay;
 
         // Текст здоровья (отображается поверх бара)
         this.healthText = new TextBlock("healthText");
@@ -1632,7 +1685,7 @@ export class HUD {
         const healthPercent = new TextBlock("healthPercent");
         healthPercent.isVisible = false;
         container.addControl(healthPercent);
-        (container as any)._healthPercent = healthPercent;
+        this._healthPercentText = healthPercent;
     }
 
     // Создать отображение времени игры (reserved for future use)
@@ -1770,7 +1823,7 @@ export class HUD {
         reloadGlow.alpha = 0.2;
         reloadGlow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this.reloadBar.addControl(reloadGlow);
-        (this.reloadBar as any)._reloadGlow = reloadGlow;
+        this._reloadBarGlow = reloadGlow;
 
         // Reload text
         this.reloadText = new TextBlock("reloadText");
@@ -3244,7 +3297,7 @@ export class HUD {
         killsText.height = scalePx(rowHeight); // КРИТИЧНО: Явная высота
         killsText.zIndex = 1000;
         this.tankStatusContainer.addControl(killsText);
-        (this.tankStatusContainer as any)._killsValue = killsText;
+        this._tankStatusKillsValue = killsText;
 
         // === ALT ROW ===
         const altText = new TextBlock("altText");
@@ -3261,7 +3314,7 @@ export class HUD {
         altText.height = scalePx(rowHeight); // КРИТИЧНО: Явная высота
         altText.zIndex = 1000;
         this.tankStatusContainer.addControl(altText);
-        (this.tankStatusContainer as any)._altValue = altText;
+        this._tankStatusAltValue = altText;
 
         // === КОНТЕЙНЕР РАДАРА (СПРАВА) ===
         const radarContainer = new Rectangle("radarContainer");
@@ -3511,7 +3564,7 @@ export class HUD {
         speedText.outlineWidth = 1;
         speedText.outlineColor = "#000";
         infoPanel.addControl(speedText);
-        (this.minimapContainer as any)._speedValue = speedText;
+        this._minimapSpeedValue = speedText;
 
         // НОВОЕ: Угол наклона ствола по центру (фиксированная позиция)
         const barrelAngleText = new TextBlock("barrelAngleText");
@@ -3533,7 +3586,7 @@ export class HUD {
         barrelAngleText.outlineWidth = 1;
         barrelAngleText.outlineColor = "#000";
         infoPanel.addControl(barrelAngleText);
-        (this.minimapContainer as any)._barrelAngleValue = barrelAngleText;
+        this._minimapBarrelAngleValue = barrelAngleText;
 
         // НОВОЕ: Разделители между элементами
         const separator1 = new Rectangle("separator1");
@@ -3578,7 +3631,7 @@ export class HUD {
         posText.outlineWidth = 1;
         posText.outlineColor = "#000";
         infoPanel.addControl(posText);
-        (this.minimapContainer as any)._coordValue = posText;
+        this._minimapCoordValue = posText;
     }
 
     // === АДРЕС ПОД РАДАРОМ (ОТДЕЛЬНО) ===
@@ -3641,7 +3694,7 @@ export class HUD {
         leftEdge.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         leftEdge.isPointerBlocker = false;
         this.guiTexture.addControl(leftEdge);
-        (this.damageIndicator as any)._leftEdge = leftEdge;
+        this._damageIndicatorLeftEdge = leftEdge;
 
         const rightEdge = new Rectangle("damageRightEdge");
         rightEdge.width = "10px";
@@ -3652,7 +3705,7 @@ export class HUD {
         rightEdge.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
         rightEdge.isPointerBlocker = false;
         this.guiTexture.addControl(rightEdge);
-        (this.damageIndicator as any)._rightEdge = rightEdge;
+        this._damageIndicatorRightEdge = rightEdge;
 
         // Low HP vignette (ИСПРАВЛЕНО: затемнение только по 25% периметра экрана)
         this.lowHpVignette = new Rectangle("lowHpVignette");
@@ -3712,7 +3765,6 @@ export class HUD {
         icon.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         icon.left = "8px";
         msgBg.addControl(icon);
-        (msgBg as any)._icon = icon;
 
         // Текст сообщения
         this.messageText = new TextBlock("messageText");
@@ -3730,7 +3782,7 @@ export class HUD {
         msgBg.addControl(this.messageText);
 
         // Store reference
-        (this.messageText as any)._msgBg = msgBg;
+        this._messageTextBg = msgBg;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -3934,32 +3986,31 @@ export class HUD {
         slot.progressBar.width = "100%";
 
         // Сохраняем данные эффекта
-        const effectData = {
+        const effectData: ActiveEffectData = {
             name,
             icon,
             color,
             duration,
             startTime: Date.now(),
             slotIndex,
-            // ОПТИМИЗАЦИЯ: Используем TimerManager вместо setInterval
-            updateInterval: timerManager.setInterval(() => {
-                const elapsed = Date.now() - effectData.startTime;
-                const remaining = Math.max(0, duration - elapsed);
-                const remainingSeconds = Math.ceil(remaining / 1000);
-                const progressPercent = Math.max(0, Math.min(100, (remaining / duration) * 100));
-
-                if (remainingSeconds > 0) {
-                    slot.timerText.text = `${remainingSeconds}s`;
-                    slot.progressBar.width = `${progressPercent}%`;
-                } else {
-                    // Эффект закончился
-                    timerManager.clear(effectData.updateInterval);
-                    this.removeActiveEffect(name);
-                }
-            }, 100) // Обновляем каждые 100мс для плавности
+            updateInterval: ""
         };
+        effectData.updateInterval = timerManager.setInterval(() => {
+            const elapsed = Date.now() - effectData.startTime;
+            const remaining = Math.max(0, duration - elapsed);
+            const remainingSeconds = Math.ceil(remaining / 1000);
+            const progressPercent = Math.max(0, Math.min(100, (remaining / duration) * 100));
 
-        this.activeEffects.set(name, effectData as any);
+            if (remainingSeconds > 0) {
+                slot.timerText.text = `${remainingSeconds}s`;
+                slot.progressBar.width = `${progressPercent}%`;
+            } else {
+                timerManager.clear(effectData.updateInterval);
+                this.removeActiveEffect(name);
+            }
+        }, 100);
+
+        this.activeEffects.set(name, effectData);
 
         // Обновляем прозрачность всех слотов
         this.updateActiveEffectsOpacity();
@@ -3971,12 +4022,12 @@ export class HUD {
         if (!effectData) return;
 
         // Останавливаем обновление таймера
-        if ((effectData as any).updateInterval) {
-            timerManager.clear((effectData as any).updateInterval);
+        if (effectData.updateInterval) {
+            timerManager.clear(effectData.updateInterval);
         }
 
         // Очищаем слот
-        const slotIndex = (effectData as any).slotIndex;
+        const slotIndex = effectData.slotIndex;
         if (slotIndex >= 0 && slotIndex < this.activeEffectsSlots.length) {
             const slot = this.activeEffectsSlots[slotIndex]!;
             slot.icon.text = "";
@@ -4007,7 +4058,7 @@ export class HUD {
             const [effectName, effectData] = entry;
             const slot = this.activeEffectsSlots[i];
             if (!slot) continue;
-            const data = effectData as any;
+            const data = effectData;
 
             slot.icon.text = data.icon;
             slot.icon.color = data.color;
@@ -4120,7 +4171,7 @@ export class HUD {
         this.editorButton = editorBtn;
 
         editorBtn.onPointerClickObservable.add(() => {
-            const game = (window as any).gameInstance;
+            const game = getGameInstance();
             if (game && game.mapEditor) {
                 // Проверяем состояние редактора
                 const restoreBtn = document.getElementById("map-editor-restore-btn");
@@ -4318,7 +4369,7 @@ export class HUD {
         this.healthBar.color = healthColor;
 
         // Update glow effect
-        const healthGlow = (this.healthBar as any)._healthGlow as Rectangle;
+        const healthGlow = this._healthBarGlow;
         if (healthGlow) {
             healthGlow.background = glowColor;
             healthGlow.width = this.healthFill.width;
@@ -4327,7 +4378,7 @@ export class HUD {
         // Update percentage text
         const container = this.healthBar.parent as Rectangle;
         if (container) {
-            const healthPercent = (container as any)._healthPercent as TextBlock;
+            const healthPercent = this._healthPercentText;
             if (healthPercent) {
                 healthPercent.text = `${Math.round(percent)}%`;
                 healthPercent.color = healthColor;
@@ -4335,7 +4386,7 @@ export class HUD {
         }
 
         // Warning overlay flash when critical
-        const warningOverlay = (this.healthBar as any)._warningOverlay as Rectangle;
+        const warningOverlay = this._healthBarWarningOverlay;
         if (warningOverlay) {
             if (percent < 20) {
                 // Пульсация при критическом здоровье
@@ -4890,8 +4941,8 @@ export class HUD {
         // this.damageIndicator больше не используется для полноэкранного эффекта
 
         // Edge indicators с УМЕНЬШЕННОЙ интенсивностью
-        const leftEdge = (this.damageIndicator as any)._leftEdge as Rectangle;
-        const rightEdge = (this.damageIndicator as any)._rightEdge as Rectangle;
+        const leftEdge = this._damageIndicatorLeftEdge;
+        const rightEdge = this._damageIndicatorRightEdge;
 
         if (leftEdge && rightEdge) {
             // ЗНАЧИТЕЛЬНО УМЕНЬШЕНА прозрачность - менее заметно
@@ -4921,8 +4972,8 @@ export class HUD {
         this.damageIndicator.isVisible = true;
 
         // Edge indicators (green)
-        const leftEdge = (this.damageIndicator as any)._leftEdge as Rectangle;
-        const rightEdge = (this.damageIndicator as any)._rightEdge as Rectangle;
+        const leftEdge = this._damageIndicatorLeftEdge;
+        const rightEdge = this._damageIndicatorRightEdge;
 
         if (leftEdge && rightEdge) {
             leftEdge.background = "#0f0";
@@ -4960,8 +5011,8 @@ export class HUD {
         this.damageIndicator.isVisible = true;
 
         // Edge indicators (cyan/shield color)
-        const leftEdge = (this.damageIndicator as any)._leftEdge as Rectangle;
-        const rightEdge = (this.damageIndicator as any)._rightEdge as Rectangle;
+        const leftEdge = this._damageIndicatorLeftEdge;
+        const rightEdge = this._damageIndicatorRightEdge;
 
         if (leftEdge && rightEdge) {
             leftEdge.background = "#00ffff"; // Cyan for shield
@@ -4973,9 +5024,9 @@ export class HUD {
         }
 
         // Показываем текст блокировки урона через chatSystem (если доступен)
-        if (blockedDamage > 0 && (this as any).chatSystem) {
+        if (blockedDamage > 0 && this.chatSystem) {
             const message = `🛡️ BLOCKED: ${blockedDamage} DMG`;
-            (this as any).chatSystem.addMessage(message, "system", "#00ffff");
+            this.chatSystem.addMessage(message, "system", "#00ffff");
         }
 
         // Короткая вспышка
@@ -5002,7 +5053,7 @@ export class HUD {
         this.reloadText.color = "#f50";
 
         // Reset glow
-        const reloadGlow = (this.reloadBar as any)?._reloadGlow as Rectangle;
+        const reloadGlow = this._reloadBarGlow;
         if (reloadGlow) {
             reloadGlow.width = getHealthBarFillWidth(0);
             reloadGlow.background = "#f93";
@@ -5018,7 +5069,7 @@ export class HUD {
 
         // Support legacy call with arguments
         if (progress !== undefined && isReloading !== undefined) {
-            const reloadGlow = (this.reloadBar as any)?._reloadGlow as Rectangle;
+            const reloadGlow = this._reloadBarGlow;
 
             // КРИТИЧНО: Убеждаемся, что элементы видимы
             this.reloadBar.isVisible = true;
@@ -5065,7 +5116,7 @@ export class HUD {
             this.reloadText.color = "#0f0";
 
             // Update glow
-            const reloadGlow = (this.reloadBar as any)?._reloadGlow as Rectangle;
+            const reloadGlow = this._reloadBarGlow;
             if (reloadGlow) {
                 reloadGlow.width = getHealthBarFillWidth(1);
                 reloadGlow.background = "#3f3";
@@ -5097,7 +5148,7 @@ export class HUD {
         this.reloadFill.background = reloadColor;
 
         // Update glow
-        const reloadGlow = (this.reloadBar as any)?._reloadGlow as Rectangle;
+        const reloadGlow = this._reloadBarGlow;
         if (reloadGlow) {
             reloadGlow.width = this.reloadFill.width;
             reloadGlow.background = glowColor;
@@ -5138,7 +5189,7 @@ export class HUD {
 
         // Обновляем скорость в радаре - ИСПРАВЛЕНО: Короткий формат для предотвращения перекрытия
         if (this.minimapContainer) {
-            const speedValue = (this.minimapContainer as any)._speedValue as TextBlock;
+            const speedValue = this._minimapSpeedValue;
             if (speedValue) {
                 speedValue.text = `${roundedSpeed}km/h`; // Убрали пробел для экономии места
                 speedValue.width = "35%"; // КРИТИЧНО: Ограничиваем ширину
@@ -5195,7 +5246,7 @@ export class HUD {
      */
     setBarrelAngle(angleDegrees: number): void {
         if (this.minimapContainer) {
-            const barrelAngleValue = (this.minimapContainer as any)._barrelAngleValue as TextBlock;
+            const barrelAngleValue = this._minimapBarrelAngleValue;
             if (barrelAngleValue) {
                 // Форматируем угол в градусах с точностью до 0.01° (два знака после запятой)
                 const formattedAngle = Math.abs(angleDegrees).toFixed(2);
@@ -5228,7 +5279,7 @@ export class HUD {
 
         // Обновляем координаты в радаре (С ВЫСОТОЙ) - формат [ X : Y : Z ]
         if (this.minimapContainer) {
-            const coordValue = (this.minimapContainer as any)._coordValue as TextBlock;
+            const coordValue = this._minimapCoordValue;
             if (coordValue) {
                 // Формат [x y z] - компактный через пробел
                 if (y !== undefined) {
@@ -5242,7 +5293,7 @@ export class HUD {
 
         // УЛУЧШЕНО: Обновляем высоту (ALT) в блоке статуса - компактный формат
         if (this.tankStatusContainer && y !== undefined) {
-            const altValue = (this.tankStatusContainer as any)._altValue as TextBlock;
+            const altValue = this._tankStatusAltValue;
             if (altValue) {
                 altValue.text = `A:${Math.round(y)}`;
                 // Цвет в зависимости от высоты
@@ -5651,7 +5702,7 @@ export class HUD {
             timerManager.clear(this.messageTimeout);
         }
 
-        const msgBg = (this.messageText as any)._msgBg as Rectangle;
+        const msgBg = this._messageTextBg;
 
         msgBg.isVisible = true;
         msgBg.color = color;
@@ -6399,10 +6450,10 @@ export class HUD {
         for (let i = 0; i < enemyCount; i++) {
             const enemy = enemies[i];
             const isVector = enemy instanceof Vector3;
-            const ex = isVector ? (enemy as Vector3).x : (enemy as any).x;
-            const ez = isVector ? (enemy as Vector3).z : (enemy as any).z;
-            const alive = isVector ? true : (enemy as any).alive;
-            const enemyTurretRotation = isVector ? undefined : (enemy as any).turretRotation;
+            const ex = isVector ? (enemy as Vector3).x : (enemy as MinimapEnemyLike).x;
+            const ez = isVector ? (enemy as Vector3).z : (enemy as MinimapEnemyLike).z;
+            const alive = isVector ? true : (enemy as MinimapEnemyLike).alive;
+            const enemyTurretRotation = isVector ? undefined : (enemy as MinimapEnemyLike).turretRotation;
 
             // КРИТИЧНО: НЕ пропускаем врагов, если alive не установлен явно
             // Если alive === undefined, считаем что враг жив
@@ -7080,7 +7131,7 @@ export class HUD {
         this.centralXpContainer.addControl(this.centralXpText);
 
         // Сохраняем ссылку на обводку для обновления
-        (this as any).centralXpTextOutline = xpTextOutline;
+        this._centralXpTextOutline = xpTextOutline;
 
         // Убеждаемся, что контейнер видим
         this.centralXpContainer.isVisible = true;
@@ -7282,7 +7333,7 @@ export class HUD {
             }
 
             // Обновляем обводку тоже
-            const xpTextOutline = (this as any).centralXpTextOutline;
+            const xpTextOutline = this._centralXpTextOutline;
             if (xpTextOutline) {
                 xpTextOutline.text = xpText;
             } else {
@@ -7423,7 +7474,7 @@ export class HUD {
         playerMarker.background = "#0f0";
         playerMarker.cornerRadius = 7;
         mapArea.addControl(playerMarker);
-        (this.fullMapContainer as any)._playerMarker = playerMarker;
+        this._fullMapPlayerMarker = playerMarker;
 
         // FOV конус для игрока на полной карте
         const fullMapFovConeContainer = new Rectangle("fullMapFovConeContainer");
@@ -7432,7 +7483,7 @@ export class HUD {
         fullMapFovConeContainer.thickness = 0;
         fullMapFovConeContainer.background = "transparent";
         mapArea.addControl(fullMapFovConeContainer);
-        (this.fullMapContainer as any)._fovConeContainer = fullMapFovConeContainer;
+        this._fullMapFovConeContainer = fullMapFovConeContainer;
 
         // Левая линия FOV
         const fullMapFovLeftLine = new Rectangle("fullMapFovLeftLine");
@@ -7447,7 +7498,7 @@ export class HUD {
         fullMapFovLeftLine.transformCenterX = 0.5;
         fullMapFovLeftLine.transformCenterY = 1;
         fullMapFovConeContainer.addControl(fullMapFovLeftLine);
-        (this.fullMapContainer as any)._fovLeftLine = fullMapFovLeftLine;
+        this._fullMapFovLeftLine = fullMapFovLeftLine;
 
         // Правая линия FOV
         const fullMapFovRightLine = new Rectangle("fullMapFovRightLine");
@@ -7462,7 +7513,7 @@ export class HUD {
         fullMapFovRightLine.transformCenterX = 0.5;
         fullMapFovRightLine.transformCenterY = 1;
         fullMapFovConeContainer.addControl(fullMapFovRightLine);
-        (this.fullMapContainer as any)._fovRightLine = fullMapFovRightLine;
+        this._fullMapFovRightLine = fullMapFovRightLine;
 
         // Центральная линия FOV
         const fullMapFovCenterLine = new Rectangle("fullMapFovCenterLine");
@@ -7474,7 +7525,7 @@ export class HUD {
         fullMapFovCenterLine.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
         fullMapFovCenterLine.top = "-60px";
         fullMapFovConeContainer.addControl(fullMapFovCenterLine);
-        (this.fullMapContainer as any)._fovCenterLine = fullMapFovCenterLine;
+        this._fullMapFovCenterLine = fullMapFovCenterLine;
 
         // Подсказка (улучшенная)
         const hint = new TextBlock("mapHint");
@@ -7591,11 +7642,11 @@ export class HUD {
         this.exploredAreas.add(`${chunkX},${chunkZ}`);
 
         // Обновляем позицию игрока на карте
-        const playerMarker = (this.fullMapContainer as any)._playerMarker as Rectangle;
-        const fovConeContainer = (this.fullMapContainer as any)._fovConeContainer as Rectangle;
-        const fovLeftLine = (this.fullMapContainer as any)._fovLeftLine as Rectangle;
-        const fovRightLine = (this.fullMapContainer as any)._fovRightLine as Rectangle;
-        const fovCenterLine = (this.fullMapContainer as any)._fovCenterLine as Rectangle;
+        const playerMarker = this._fullMapPlayerMarker;
+        const fovConeContainer = this._fullMapFovConeContainer;
+        const fovLeftLine = this._fullMapFovLeftLine;
+        const fovRightLine = this._fullMapFovRightLine;
+        const fovCenterLine = this._fullMapFovCenterLine;
 
         if (playerMarker) {
             // Масштаб: 1 единица мира = 0.5 пикселя на карте
@@ -8244,7 +8295,7 @@ export class HUD {
         bonusText.outlineWidth = 1;
         bonusText.outlineColor = "#000";
         this.comboContainer.addControl(bonusText);
-        (this.comboContainer as any)._bonusText = bonusText;
+        this._comboBonusText = bonusText;
 
         // Текст максимального комбо (показывается при достижении нового максимума)
         const maxComboText = new TextBlock("maxComboText");
@@ -8260,7 +8311,7 @@ export class HUD {
         maxComboText.outlineColor = "#000";
         maxComboText.isVisible = false;
         this.comboContainer.addControl(maxComboText);
-        (this.comboContainer as any)._maxComboText = maxComboText;
+        this._comboMaxComboText = maxComboText;
 
         // Таймер комбо (полоска внизу контейнера)
         this.comboTimerBar = new Rectangle("comboTimerBar");
@@ -8289,7 +8340,7 @@ export class HUD {
     public updateComboIndicator(comboCount: number): void {
         if (!this.comboContainer || !this.comboIndicator || !this.experienceSystem) return;
 
-        const bonusText = (this.comboContainer as any)._bonusText as TextBlock;
+        const bonusText = this._comboBonusText;
         const MAX_COMBO = 10;
         const comboBonus = Math.min(comboCount / MAX_COMBO, 1) * 100;
 
@@ -8395,7 +8446,7 @@ export class HUD {
                     this.maxComboReached = comboCount;
 
                     // Показываем текст максимального комбо
-                    const maxComboText = (this.comboContainer as any)._maxComboText as TextBlock;
+                    const maxComboText = this._comboMaxComboText;
                     if (maxComboText) {
                         maxComboText.text = `MAX: x${this.maxComboReached}`;
                         maxComboText.isVisible = true;
@@ -8542,7 +8593,7 @@ export class HUD {
         fuelGlow.alpha = 0.3;
         fuelGlow.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
         this._fuelBar.addControl(fuelGlow);
-        (this._fuelBar as any)._fuelGlow = fuelGlow;
+        this._fuelBarGlow = fuelGlow;
 
         // Предупреждающий оверлей (красный при низком топливе)
         const warningOverlay = new Rectangle("fuelWarning");
@@ -8552,7 +8603,7 @@ export class HUD {
         warningOverlay.background = "#f00";
         warningOverlay.alpha = 0;
         this._fuelBar.addControl(warningOverlay);
-        (this._fuelBar as any)._warningOverlay = warningOverlay;
+        this._fuelBarWarningOverlay = warningOverlay;
 
         // Текст топлива
         this._fuelText = new TextBlock("fuelText");
@@ -8593,7 +8644,7 @@ export class HUD {
             }
 
             // Предупреждающий оверлей при низком топливе
-            const warningOverlay = (this._fuelBar as any)._warningOverlay;
+            const warningOverlay = this._fuelBarWarningOverlay;
             if (warningOverlay) {
                 if (fuelPercent < 0.25) {
                     warningOverlay.alpha = (0.25 - fuelPercent) / 0.25 * 0.5; // Плавное появление

@@ -1291,9 +1291,9 @@ export class TankController {
 
         // Physics
         // Clean up old physics body
-        if ((this as any).physicsBody) {
-            try { (this as any).physicsBody.dispose(); } catch (e) { }
-            (this as any).physicsBody = null;
+        if (this.physicsBody) {
+            try { this.physicsBody.dispose(); } catch (e) { }
+            this.physicsBody = null;
         }
 
         // Create new physics shape

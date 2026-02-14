@@ -19,6 +19,7 @@ import type { EffectsManager } from "./effects";
 import { createUniqueChassis, type ChassisAnimationElements, CHASSIS_SIZE_MULTIPLIERS } from "./tank/tankChassis";
 import { getAttachmentOffset } from "./tank/tankEquipment";
 import { getModuleById } from "./config/moduleRegistry";
+import { getGameInstance } from "./utils/gameInstance";
 import type { TankModule } from "../shared/types/moduleTypes";
 // createVisualTracks removed - using createVisualWheels with trackType instead
 
@@ -111,6 +112,7 @@ export class NetworkPlayerTank {
     // HP Bar Refactor: Temporary on-hit display with distance
     private lastHitTime: number = 0;
     private readonly HP_BAR_VISIBLE_DURATION = 3000; // 3 seconds
+    private _lastDistInt: number = -1;
     private distanceTextPlane: Mesh | null = null;
     private distanceTexture: DynamicTexture | null = null;
 
@@ -684,7 +686,7 @@ export class NetworkPlayerTank {
             return;
         }
 
-        // Create Mesh (Placeholder logic similar to TankEquipmentModule)
+        // Create mesh for module (cylinder_pair / box_small / default box)
         let mesh: Mesh;
         const color = Color3.FromHexString(module.color || "#ffffff");
         const scale = module.scale || 1;
@@ -988,7 +990,7 @@ export class NetworkPlayerTank {
      * Вызывается с задержкой, чтобы карта успела загрузиться
      */
     private correctSpawnHeight(): void {
-        const game = (window as any).gameInstance;
+        const game = getGameInstance();
         let targetY = this.chassis.position.y;
 
         // Если позиция подозрительно низкая или равна 0, пересчитываем высоту террейна
@@ -1397,7 +1399,7 @@ export class NetworkPlayerTank {
         // ОТКЛЮЧЕНО: Конфликтует с сервером! Клиент не должен поднимать танк, если сервер говорит "0.4".
         // Оставляем только защиту от полного проваливания в бездну
         /*
-        const game = (window as any).gameInstance;
+        const game = getGameInstance();
         if (this.chassis.position.y < 0.5) {
              ... старая логика удалена ...
         }
@@ -1481,7 +1483,7 @@ export class NetworkPlayerTank {
         // Calculate interpolation factor based on time since last update
         const lastUpdateTime = this.networkPlayer.lastUpdateTime || Date.now();
         const timeSinceUpdate = Date.now() - lastUpdateTime;
-        const interpolationDelay = this.networkPlayer.interpolationDelay || 50;
+        const interpolationDelay = this.networkPlayer.interpolationDelay ?? 16;
         let t = Math.min(1.0, timeSinceUpdate / Math.max(interpolationDelay, 16)); // Normalize to [0, 1]
 
         // Hermite interpolation: smooth curve through p1 and p2
@@ -1529,7 +1531,7 @@ export class NetworkPlayerTank {
 
         const lastUpdateTime = this.networkPlayer.lastUpdateTime || Date.now();
         const timeSinceUpdate = Date.now() - lastUpdateTime;
-        const interpolationDelay = this.networkPlayer.interpolationDelay || 50;
+        const interpolationDelay = this.networkPlayer.interpolationDelay ?? 16;
         let t = Math.min(1.0, timeSinceUpdate / Math.max(interpolationDelay, 16));
 
         // Normalize angles
@@ -1577,7 +1579,7 @@ export class NetworkPlayerTank {
 
         const lastUpdateTime = this.networkPlayer.lastUpdateTime || Date.now();
         const timeSinceUpdate = Date.now() - lastUpdateTime;
-        const interpolationDelay = this.networkPlayer.interpolationDelay || 50;
+        const interpolationDelay = this.networkPlayer.interpolationDelay ?? 16;
         let t = Math.min(1.0, timeSinceUpdate / Math.max(interpolationDelay, 16));
 
         const normalizeAngle = (angle: number) => {
@@ -1689,7 +1691,7 @@ export class NetworkPlayerTank {
                 if (this.networkPlayer.position instanceof Vector3) {
                     this.networkPlayer.position.set(position.x, position.y, position.z);
                 } else {
-                    (this.networkPlayer.position as any) = new Vector3(position.x, position.y, position.z);
+                    (this.networkPlayer as { position: Vector3 }).position = new Vector3(position.x, position.y, position.z);
                 }
                 // Сбрасываем буфер интерполяции с новой позицией
                 this.positionBuffer = [{
@@ -1901,8 +1903,8 @@ export class NetworkPlayerTank {
                 // Throttling updates? Simple integer check is enough
                 const distInt = Math.round(dist);
                 // We could cache distInt to avoid canvas repaint
-                if ((this as any)._lastDistInt !== distInt) {
-                    (this as any)._lastDistInt = distInt;
+                if (this._lastDistInt !== distInt) {
+                    this._lastDistInt = distInt;
                     const ctx = this.distanceTexture?.getContext() as unknown as CanvasRenderingContext2D;
                     if (ctx && this.distanceTexture) {
                         ctx.clearRect(0, 0, 256, 85);
@@ -1969,7 +1971,7 @@ export class NetworkPlayerTank {
             // Прозрачность в конце
             if (progress > 0.7 && mesh.material) {
                 const fadeProgress = (progress - 0.7) / 0.3;
-                (mesh.material as any).alpha = 1 - fadeProgress * 0.3;
+                (mesh.material as { alpha: number }).alpha = 1 - fadeProgress * 0.3;
             }
 
             if (progress < 1.0) {
@@ -2076,8 +2078,8 @@ export class NetworkPlayerTank {
                     }
                 }
 
-                if (mesh.material && (mesh.material as any).alpha < 1) {
-                    (mesh.material as any).alpha = Math.min(1, (mesh.material as any).alpha + 0.05);
+                if (mesh.material && (mesh.material as { alpha: number }).alpha < 1) {
+                    (mesh.material as { alpha: number }).alpha = Math.min(1, (mesh.material as { alpha: number }).alpha + 0.05);
                 }
             }
 
@@ -2105,7 +2107,7 @@ export class NetworkPlayerTank {
                 if (alpha < 1) {
                     node.material.needDepthPrePass = true;
                 }
-                (node.material as any).alpha = alpha;
+                (node.material as { alpha: number }).alpha = alpha;
             }
         }
 
@@ -2116,7 +2118,7 @@ export class NetworkPlayerTank {
                 if (alpha < 1) {
                     child.material.needDepthPrePass = true;
                 }
-                (child.material as any).alpha = alpha;
+                (child.material as { alpha: number }).alpha = alpha;
             }
         }
     }
@@ -2141,7 +2143,7 @@ export class NetworkPlayerTank {
                 mesh.setEnabled(true);
                 mesh.isVisible = true;
                 // Restore alpha
-                if (mesh.material) (mesh.material as any).alpha = 1;
+                if (mesh.material) (mesh.material as { alpha: number }).alpha = 1;
             }
         }
         this.destroyedParts = [];

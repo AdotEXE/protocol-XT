@@ -808,7 +808,7 @@ export class ChassisDetailsGenerator {
         return toolBox;
     }
 
-    // [Opus 4.6] stub - creates vent bar details (multiple thin bars across a vent)
+    // creates vent bar details (multiple thin bars across a vent)
     static createVentBars(
         scene: Scene,
         chassis: Mesh,
@@ -834,7 +834,7 @@ export class ChassisDetailsGenerator {
         return bars;
     }
 
-    // [Opus 4.6] stub - creates roof vent (delegates to createVent)
+    // creates roof vent (delegates to createVent)
     static createRoofVent(
         scene: Scene,
         chassis: Mesh,
@@ -848,7 +848,7 @@ export class ChassisDetailsGenerator {
         return this.createVent(scene, chassis, position, width, height, depth, index, prefix);
     }
 
-    // [Opus 4.6] stub - creates side light (uses SideLightMaterial)
+    // creates side light (uses SideLightMaterial)
     static createSideLight(
         scene: Scene,
         chassis: Mesh,
@@ -866,7 +866,7 @@ export class ChassisDetailsGenerator {
         return sideLight;
     }
 
-    // [Opus 4.6] stub - creates spike detail (pointed protrusion)
+    // creates spike detail (pointed protrusion)
     static createSpike(
         scene: Scene,
         chassis: Mesh,
@@ -886,7 +886,7 @@ export class ChassisDetailsGenerator {
         return spike;
     }
 
-    // [Opus 4.6] stub - creates energy booster (glowing box)
+    // creates energy booster (glowing box)
     static createEnergyBooster(
         scene: Scene,
         chassis: Mesh,
@@ -906,7 +906,7 @@ export class ChassisDetailsGenerator {
         return booster;
     }
 
-    // [Opus 4.6] stub - creates stealth generator
+    // creates stealth generator
     static createStealthGenerator(
         scene: Scene,
         chassis: Mesh,
@@ -923,7 +923,7 @@ export class ChassisDetailsGenerator {
         return generator;
     }
 
-    // [Opus 4.6] stub - creates thruster (hover engine)
+    // creates thruster (hover engine)
     static createThruster(
         scene: Scene,
         chassis: Mesh,
@@ -944,7 +944,7 @@ export class ChassisDetailsGenerator {
         return thruster;
     }
 
-    // [Opus 4.6] stub - creates cylindrical roof vent
+    // creates cylindrical roof vent
     static createRoofVentCylindrical(
         scene: Scene,
         chassis: Mesh,
@@ -965,7 +965,7 @@ export class ChassisDetailsGenerator {
         return vent;
     }
 
-    // [Opus 4.6] stub - creates optical sensor
+    // creates optical sensor
     static createOpticalSensor(
         scene: Scene,
         chassis: Mesh,
@@ -986,7 +986,7 @@ export class ChassisDetailsGenerator {
         return sensor;
     }
 
-    // [Opus 4.6] stub - creates cylindrical tail light
+    // creates cylindrical tail light
     static createTailLightCylindrical(
         scene: Scene,
         chassis: Mesh,
@@ -1007,7 +1007,7 @@ export class ChassisDetailsGenerator {
         return tailLight;
     }
 
-    // [Opus 4.6] stub - creates cylindrical intake
+    // creates cylindrical intake
     static createIntakeCylindrical(
         scene: Scene,
         chassis: Mesh,
@@ -1027,7 +1027,7 @@ export class ChassisDetailsGenerator {
         return intake;
     }
 
-    // [Opus 4.6] stub - creates float (amphibious buoyancy element)
+    // creates float (amphibious buoyancy element)
     static createFloat(
         scene: Scene,
         chassis: Mesh,
@@ -1048,7 +1048,7 @@ export class ChassisDetailsGenerator {
         return floatMesh;
     }
 
-    // [Opus 4.6] stub - creates water seal panel
+    // creates water seal panel
     static createWaterSeal(
         scene: Scene,
         chassis: Mesh,
@@ -1066,7 +1066,7 @@ export class ChassisDetailsGenerator {
         return seal;
     }
 
-    // [Opus 4.6] stub - creates energy generator (shield-type)
+    // creates energy generator (shield-type)
     static createEnergyGenerator(
         scene: Scene,
         chassis: Mesh,
@@ -1085,7 +1085,7 @@ export class ChassisDetailsGenerator {
         return generator;
     }
 
-    // [Opus 4.6] stub - creates energy panel
+    // creates energy panel
     static createEnergyPanel(
         scene: Scene,
         chassis: Mesh,
@@ -1103,7 +1103,7 @@ export class ChassisDetailsGenerator {
         return panel;
     }
 
-    // [Opus 4.6] stub - creates energy coil
+    // creates energy coil
     static createEnergyCoil(
         scene: Scene,
         chassis: Mesh,
@@ -1126,7 +1126,7 @@ export class ChassisDetailsGenerator {
         return coil;
     }
 
-    // [Opus 4.6] stub - creates energy port
+    // creates energy port
     static createEnergyPort(
         scene: Scene,
         chassis: Mesh,
@@ -1149,7 +1149,7 @@ export class ChassisDetailsGenerator {
         return port;
     }
 
-    // [Opus 4.6] stub - creates drone platform
+    // creates drone platform
     static createDronePlatform(
         scene: Scene,
         chassis: Mesh,
@@ -1167,7 +1167,7 @@ export class ChassisDetailsGenerator {
         return platform;
     }
 
-    // [Opus 4.6] stub - creates sensor
+    // creates sensor
     static createSensor(
         scene: Scene,
         chassis: Mesh,
@@ -1185,7 +1185,7 @@ export class ChassisDetailsGenerator {
         return sensor;
     }
 
-    // [Opus 4.6] stub - creates cylindrical stabilizer
+    // creates cylindrical stabilizer
     static createStabilizerCylindrical(
         scene: Scene,
         chassis: Mesh,

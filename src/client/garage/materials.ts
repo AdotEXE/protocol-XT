@@ -620,7 +620,7 @@ export class MaterialFactory {
         return mat;
     }
 
-    // [Opus 4.6] stub - material for jet engines (dark metallic)
+    // material for jet engines (dark metallic)
     static createJetEngineMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
         const key = `${prefix}JetEngineMat${index}`;
         if (this.materialCache.has(key)) return this.materialCache.get(key)!;
@@ -631,7 +631,7 @@ export class MaterialFactory {
         return mat;
     }
 
-    // [Opus 4.6] stub - material for engine nozzles (dark with warm glow)
+    // material for engine nozzles (dark with warm glow)
     static createEngineMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
         const key = `${prefix}EngineMat${index}`;
         if (this.materialCache.has(key)) return this.materialCache.get(key)!;
@@ -642,7 +642,7 @@ export class MaterialFactory {
         return mat;
     }
 
-    // [Opus 4.6] stub - material for anti-gravity engines (blue glow)
+    // material for anti-gravity engines (blue glow)
     static createAntiGravMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
         const key = `${prefix}AntiGravMat${index}`;
         if (this.materialCache.has(key)) return this.materialCache.get(key)!;
@@ -653,7 +653,7 @@ export class MaterialFactory {
         return mat;
     }
 
-    // [Opus 4.6] stub - material for shield emitters (green glow)
+    // material for shield emitters (green glow)
     static createShieldEmitterMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
         const key = `${prefix}ShieldEmitterMat${index}`;
         if (this.materialCache.has(key)) return this.materialCache.get(key)!;
@@ -664,7 +664,7 @@ export class MaterialFactory {
         return mat;
     }
 
-    // [Opus 4.6] stub - material for drone launchers (purple/dark)
+    // material for drone launchers (purple/dark)
     static createDroneLauncherMaterial(scene: Scene, prefix: string = "preview"): StandardMaterial {
         const key = `${prefix}DroneLauncherMat`;
         if (this.materialCache.has(key)) return this.materialCache.get(key)!;
@@ -675,7 +675,7 @@ export class MaterialFactory {
         return mat;
     }
 
-    // [Opus 4.6] stub - material for mini drones (purple/dark)
+    // material for mini drones (purple/dark)
     static createMiniDroneMaterial(scene: Scene, index: number, prefix: string = "preview"): StandardMaterial {
         const key = `${prefix}MiniDroneMat${index}`;
         if (this.materialCache.has(key)) return this.materialCache.get(key)!;
@@ -686,7 +686,7 @@ export class MaterialFactory {
         return mat;
     }
 
-    // [Opus 4.6] stub - material for radar dishes (dark with slight glow)
+    // material for radar dishes (dark with slight glow)
     static createRadarMaterial(scene: Scene, prefix: string = "preview"): StandardMaterial {
         const key = `${prefix}RadarMat`;
         if (this.materialCache.has(key)) return this.materialCache.get(key)!;
