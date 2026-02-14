@@ -549,6 +549,9 @@ export class NetworkPlayerTank {
         // Используем общую фабрику для создания корпуса, как у локального танка
         this.chassisAnimationElements = {};
 
+        // КРИТИЧНО: Логируем цвета для отладки
+        console.log(`[NetworkPlayerTank] 🎨 Creating chassis for ${this.playerId}: tankColor="${this.networkPlayer.tankColor}", turretColor="${this.networkPlayer.turretColor}"`);
+
         // createUniqueChassis возвращает готовый mesh с примененными материалами и деталями
         const chassis = createUniqueChassis(
             this.chassisType,

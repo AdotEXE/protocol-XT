@@ -127,19 +127,27 @@ export function createUniqueChassis(
     const uniqueMatId = `tankMat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const mat = new StandardMaterial(uniqueMatId, scene);
 
-    // Применяем скин если выбран, иначе используем цвет из chassisType
-    const selectedSkinId = loadSelectedSkin();
-    if (selectedSkinId) {
-        const skin = getSkinById(selectedSkinId);
-        if (skin) {
-            const skinColors = applySkinToTank(skin);
-            mat.diffuseColor = skinColors.chassisColor;
-            console.log(`[SKIN] Applied skin "${skin.name}" to chassis during creation`);
+    // КРИТИЧНО: Если передан overrideColor (например, для сетевых танков), используем его напрямую
+    // Иначе применяем локальный скин (только для локального игрока)
+    if (overrideColor) {
+        // Для сетевых танков используем переданный цвет, БЕЗ применения локального скина
+        mat.diffuseColor = color;
+        console.log(`[CHASSIS] Applied network tank color: ${overrideColor}`);
+    } else {
+        // Для локального танка применяем скин если выбран
+        const selectedSkinId = loadSelectedSkin();
+        if (selectedSkinId) {
+            const skin = getSkinById(selectedSkinId);
+            if (skin) {
+                const skinColors = applySkinToTank(skin);
+                mat.diffuseColor = skinColors.chassisColor;
+                console.log(`[SKIN] Applied skin "${skin.name}" to chassis during creation`);
+            } else {
+                mat.diffuseColor = color;
+            }
         } else {
             mat.diffuseColor = color;
         }
-    } else {
-        mat.diffuseColor = color;
     }
 
     mat.specularColor = Color3.Black();

@@ -538,16 +538,39 @@ export class GameGarage {
             const currentChassisId = localStorage.getItem("selectedChassis") || "medium";
             const currentCannonId = localStorage.getItem("selectedCannon") || "standard";
             const currentTrackId = localStorage.getItem("selectedTrack") || "standard";
-            const currentSkinId = loadSelectedSkin() || "default";
-            const currentSkin = getSkinById(currentSkinId);
+            const currentSkinId = loadSelectedSkin();
+
+            // КРИТИЧНО: Если скин не выбран, используем цвет типа корпуса (не зеленый!)
+            let tankColor: string;
+            let turretColor: string;
+
+            if (currentSkinId && currentSkinId !== "default") {
+                // Скин выбран - используем его цвета
+                const currentSkin = getSkinById(currentSkinId);
+                if (currentSkin) {
+                    tankColor = currentSkin.chassisColor;
+                    turretColor = currentSkin.turretColor;
+                } else {
+                    // Скин не найден - используем цвет корпуса
+                    const chassisTypeObj = getChassisById(currentChassisId);
+                    tankColor = chassisTypeObj.color;
+                    turretColor = chassisTypeObj.color;
+                }
+            } else {
+                // Скин не выбран - используем цвет корпуса по умолчанию
+                const chassisTypeObj = getChassisById(currentChassisId);
+                tankColor = chassisTypeObj.color;
+                turretColor = chassisTypeObj.color;
+            }
+
             gameInstance.multiplayerManager.sendRpc("DRESS_UPDATE", {
                 chassisType: currentChassisId,
                 cannonType: currentCannonId,
                 trackType: currentTrackId,
-                tankColor: currentSkin?.chassisColor || "#00ff00",
-                turretColor: currentSkin?.turretColor || "#00ff00",
+                tankColor: tankColor,
+                turretColor: turretColor,
             });
-            logger.log(`[GameGarage] Sent DRESS_UPDATE RPC: chassis=${currentChassisId}, cannon=${currentCannonId}, track=${currentTrackId}`);
+            logger.log(`[GameGarage] 🎨 Sent DRESS_UPDATE RPC: chassis=${currentChassisId}, cannon=${currentCannonId}, track=${currentTrackId}, skin=${currentSkinId || "none (chassis color)"}, tankColor=${tankColor}, turretColor=${turretColor}`);
         }
 
         // Для пересоздания визуальных частей нужен respawn

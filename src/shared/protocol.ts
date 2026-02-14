@@ -330,13 +330,17 @@ function serializePlayerStates(writer: BinaryWriter, data: any): void {
 
         writer.writeInt8(p.team !== undefined ? p.team : -1);
 
-        // Dynamic/Rare fields (Name, Colors) - send only if Full State or Changed? 
-        // For simpler protocol, let's include Name only if isFullState=true or just always for now 
+        // Dynamic/Rare fields (Name, Colors) - send only if Full State or Changed?
+        // For simpler protocol, let's include Name only if isFullState=true or just always for now
         // to avoid complexity of delta-tracking in serializer.
         // Actually, let's just write strings. Bandwidth saving comes from omitted field names primarily.
         writer.writeString(p.name || "");
         writer.writeString(p.chassisType || "");
         writer.writeString(p.cannonType || "");
+
+        // КРИТИЧНО: Добавлены цвета танка и башни для мультиплеера
+        writer.writeString(p.tankColor || "");
+        writer.writeString(p.turretColor || "");
 
         // Modules serialization
         const modules = p.modules || [];
@@ -393,6 +397,10 @@ function deserializePlayerStates(reader: BinaryReader): any {
         const chassisType = reader.readString();
         const cannonType = reader.readString();
 
+        // КРИТИЧНО: Читаем цвета танка и башни для мультиплеера
+        const tankColor = reader.readString();
+        const turretColor = reader.readString();
+
         // Modules deserialization
         const modulesCount = reader.readUint8();
         const modules: string[] = [];
@@ -418,6 +426,8 @@ function deserializePlayerStates(reader: BinaryReader): any {
             name,
             chassisType,
             cannonType,
+            tankColor,     // Добавлен цвет танка
+            turretColor,   // Добавлен цвет башни
             modules // Add modules to player data
         });
     }

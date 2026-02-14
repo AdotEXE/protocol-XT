@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 import { logger } from "./utils/logger";
 import { ENABLE_DIAGNOSTIC_LOGS } from "./utils/diagnosticLogs";
 import { getSkinById, getDefaultSkin } from "./tank/tankSkins";
+import { getChassisById } from "./tankTypes";
 import { firebaseService } from "./firebaseService";
 import { getVoiceChatManager } from "./voiceChat";
 import { timerManager } from "./optimization/TimerManager";
@@ -3771,15 +3772,34 @@ export class MultiplayerManager {
         const chassisType = localStorage.getItem("selectedChassis") || "medium";
         const cannonType = localStorage.getItem("selectedCannon") || "standard";
         const trackType = localStorage.getItem("selectedTrack") || "standard";
-        const skinId = localStorage.getItem("selectedTankSkin") || "default";
+        const skinId = localStorage.getItem("selectedTankSkin");
 
-        // Получаем цвета из скина
-        const skin = getSkinById(skinId) || getDefaultSkin();
-        const tankColor = skin.chassisColor;
-        const turretColor = skin.turretColor;
+        // КРИТИЧНО: Получаем цвета - если скин не выбран, используем цвет типа корпуса вместо дефолтного зеленого
+        let tankColor: string;
+        let turretColor: string;
+
+        if (skinId && skinId !== "default") {
+            // Если выбран конкретный скин, используем его цвета
+            const skin = getSkinById(skinId);
+            if (skin) {
+                tankColor = skin.chassisColor;
+                turretColor = skin.turretColor;
+            } else {
+                // Скин не найден - используем цвет корпуса по умолчанию
+                const chassisTypeObj = getChassisById(chassisType);
+                tankColor = chassisTypeObj.color;
+                turretColor = chassisTypeObj.color;
+            }
+        } else {
+            // Скин не выбран - используем цвет корпуса по умолчанию (не зеленый!)
+            const chassisTypeObj = getChassisById(chassisType);
+            tankColor = chassisTypeObj.color;
+            turretColor = chassisTypeObj.color;
+        }
+
         const modules = getLocallyEquippedModules();
 
-        logger.log(`[Multiplayer] Creating room with customization: ${chassisType}/${cannonType}/${trackType}, skin=${skinId}, modules=${modules.length}`);
+        logger.log(`[Multiplayer] 🎨 Creating room with customization: ${chassisType}/${cannonType}/${trackType}, skin=${skinId || "none (using chassis color)"}, tankColor=${tankColor}, turretColor=${turretColor}, modules=${modules.length}`);
         if (mapType === 'custom') {
             logger.log(`[Multiplayer] 🔍 DEBUG: createRoom called with mapType='custom'. Has data: ${!!customMapData}`);
             if (customMapData) {
@@ -3821,14 +3841,32 @@ export class MultiplayerManager {
         const chassisType = localStorage.getItem("selectedChassis") || "medium";
         const cannonType = localStorage.getItem("selectedCannon") || "standard";
         const trackType = localStorage.getItem("selectedTrack") || "standard";
-        const skinId = localStorage.getItem("selectedTankSkin") || "default";
+        const skinId = localStorage.getItem("selectedTankSkin");
 
-        // Получаем цвета из скина
-        const skin = getSkinById(skinId) || getDefaultSkin();
-        const tankColor = skin.chassisColor;
-        const turretColor = skin.turretColor;
+        // КРИТИЧНО: Получаем цвета - если скин не выбран, используем цвет типа корпуса вместо дефолтного зеленого
+        let tankColor: string;
+        let turretColor: string;
 
-        logger.log(`[Multiplayer] Joining room with customization: ${chassisType}/${cannonType}/${trackType}, skin=${skinId}`);
+        if (skinId && skinId !== "default") {
+            // Если выбран конкретный скин, используем его цвета
+            const skin = getSkinById(skinId);
+            if (skin) {
+                tankColor = skin.chassisColor;
+                turretColor = skin.turretColor;
+            } else {
+                // Скин не найден - используем цвет корпуса по умолчанию
+                const chassisTypeObj = getChassisById(chassisType);
+                tankColor = chassisTypeObj.color;
+                turretColor = chassisTypeObj.color; // Башня чуть темнее (серверная сторона применит scale)
+            }
+        } else {
+            // Скин не выбран - используем цвет корпуса по умолчанию (не зеленый!)
+            const chassisTypeObj = getChassisById(chassisType);
+            tankColor = chassisTypeObj.color;
+            turretColor = chassisTypeObj.color;
+        }
+
+        logger.log(`[Multiplayer] 🎨 Joining room with customization: ${chassisType}/${cannonType}/${trackType}, skin=${skinId || "none (using chassis color)"}, tankColor=${tankColor}, turretColor=${turretColor}`);
         const modules = getLocallyEquippedModules();
 
         this.send(createClientMessage(ClientMessageType.JOIN_ROOM, {
