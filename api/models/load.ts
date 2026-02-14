@@ -23,9 +23,26 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
     if (!fs.existsSync(modelsDir)) {
         modelsDir = path.resolve(__dirname, '../../json_models');
     }
+    
+    // If still not found, try one more common Vercel pattern (root relative to function)
+    if (!fs.existsSync(modelsDir)) {
+        modelsDir = path.join(process.cwd(), 'api', 'json_models');
+    }
 
     if (!fs.existsSync(modelsDir)) {
-        return res.status(500).json({ error: 'Models directory not found' });
+        // List directories in CWD to help debugging
+        let cwdList: string[] = [];
+        try {
+            cwdList = fs.readdirSync(process.cwd());
+        } catch (e) {
+            cwdList = ['Error reading CWD'];
+        }
+
+        return res.status(500).json({ 
+            error: 'Models directory not found',
+            debugSum: `CWD: ${process.cwd()}, expected: ${modelsDir}`,
+            cwdContents: cwdList
+        });
     }
 
     const categories: { [key: string]: string } = {
