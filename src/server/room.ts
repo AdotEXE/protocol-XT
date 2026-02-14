@@ -95,8 +95,13 @@ export class GameRoom {
 
     // Damage events queue for broadcasting
     damageEvents: any[] = [];
-    private readonly MAX_DAMAGE_EVENTS = 1000; // Максимальное количество событий урона
-    private readonly DAMAGE_EVENT_MAX_AGE = 5000; // Максимальный возраст события в мс (5 секунд)
+    private readonly MAX_DAMAGE_EVENTS = 1000;
+    private readonly DAMAGE_EVENT_MAX_AGE = 5000;
+
+    // PERF: Lightweight spatial grid for collision queries (rebuilt each tick)
+    // Replaces O(projectiles × players) brute force with O(projectiles × k) where k ≈ 1-3 nearby players.
+    private _collisionGrid: Map<string, ServerPlayer[]> = new Map();
+    private readonly COLLISION_CELL_SIZE = 25; // 25 unit cells → 3×3 query covers 75×75 area
 
     // CTF system
     // CTF system
@@ -254,6 +259,51 @@ export class GameRoom {
         this._cachedPlayerDataArray = null;
     }
 
+    // ── Collision Spatial Grid ──────────────────────────────────────────
+
+    /** Rebuild the collision grid with current alive player positions. Call once per tick. */
+    private rebuildCollisionGrid(): void {
+        // Clear all cells but keep the Map (avoids full GC of the Map itself)
+        for (const cell of this._collisionGrid.values()) {
+            cell.length = 0; // reuse arrays
+        }
+        for (const player of this.players.values()) {
+            if (player.status !== "alive") continue;
+            const key = this._collisionCellKey(player.position.x, player.position.z);
+            let cell = this._collisionGrid.get(key);
+            if (!cell) {
+                cell = [];
+                this._collisionGrid.set(key, cell);
+            }
+            cell.push(player);
+        }
+    }
+
+    private _collisionCellKey(x: number, z: number): string {
+        const cx = (x / this.COLLISION_CELL_SIZE) | 0;
+        const cz = (z / this.COLLISION_CELL_SIZE) | 0;
+        return `${cx},${cz}`;
+    }
+
+    /** Get alive players in the 3×3 neighborhood of position (x, z). */
+    private getNearbyPlayersForCollision(x: number, z: number): ServerPlayer[] {
+        const result: ServerPlayer[] = [];
+        const cx = (x / this.COLLISION_CELL_SIZE) | 0;
+        const cz = (z / this.COLLISION_CELL_SIZE) | 0;
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+                const key = `${cx + dx},${cz + dz}`;
+                const cell = this._collisionGrid.get(key);
+                if (cell) {
+                    for (let i = 0; i < cell.length; i++) {
+                        result.push(cell[i]!);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
     startMatch(): void {
         if (this.isActive) return;
 
@@ -388,6 +438,9 @@ export class GameRoom {
 
         this.gameTime += deltaTime;
 
+        // PERF: Rebuild collision spatial grid once per tick (used for projectile-player collision)
+        this.rebuildCollisionGrid();
+
         // ОПТИМИЗАЦИЯ: Очищаем старые события урона для предотвращения утечек памяти
         const now = Date.now();
         this.damageEvents = this.damageEvents.filter(event => {
@@ -493,10 +546,11 @@ export class GameRoom {
             }
             if (wallHit) continue;
 
-            // Check hits on players
-            for (const player of this.players.values()) {
+            // Check hits on players (PERF: spatial grid query instead of brute force)
+            const nearbyPlayers = this.getNearbyPlayersForCollision(projectile.position.x, projectile.position.z);
+            for (const player of nearbyPlayers) {
                 if (player.id === projectile.ownerId) continue; // Can't hit self
-                if (player.status !== "alive") continue;
+                // status check already done by rebuildCollisionGrid (only alive players in grid)
 
                 // Enhanced lag compensation: check hit at position when shot was fired
                 // Rewind to when the shooter saw the target (accounting for network latency)
