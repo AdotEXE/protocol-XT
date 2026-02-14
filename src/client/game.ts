@@ -610,6 +610,8 @@ export class Game {
     private cameraShakeIntensity = 0;
     private cameraShakeDecay = 0.95; // Скорость затухания тряски
     private cameraShakeOffset = Vector3.Zero();
+    // PERF: Pre-allocated camera look-at offset to avoid new Vector3(0,1,0) per frame
+    private readonly _cameraLookAtOffset = new Vector3(0, 1.0, 0);
     private cameraShakeTime = 0;
 
     // Input map for camera controls
@@ -2571,7 +2573,7 @@ export class Game {
             if (this.tank && this.tank.chassis) {
                 // ОПТИМИЗАЦИЯ: Используем кэшированную позицию танка
                 const tankPos = this.tank.getCachedChassisPosition();
-                const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
+                const lookAt = tankPos.add(this._cameraLookAtOffset);
                 this.camera.setTarget(lookAt);
                 this.camera.radius = this.settings.cameraDistance;
             }
@@ -5174,7 +5176,7 @@ export class Game {
                 if (this.camera && this.tank && this.tank.chassis) {
                     // ОПТИМИЗАЦИЯ: Используем кэшированную позицию танка
                     const tankPos = this.tank.getCachedChassisPosition();
-                    const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
+                    const lookAt = tankPos.add(this._cameraLookAtOffset);
                     this.camera.setTarget(lookAt);
                     this.camera.radius = this.settings.cameraDistance;
                     this.camera.alpha = -Math.PI / 2; // Сброс угла камеры
@@ -8272,7 +8274,7 @@ export class Game {
 
             // ИСПРАВЛЕНИЕ JITTER: Используем интерполяцию для сглаживания движения камеры
             const tankPos = this.tank.chassis.absolutePosition;
-            const lookAt = tankPos.add(new Vector3(0, 1.0, 0));
+            const lookAt = tankPos.add(this._cameraLookAtOffset);
 
             // Fix camera for planes
             const isCurrentTankPlane = this.tank && this.tank.chassisType && this.tank.chassisType.id === "plane";
@@ -8328,7 +8330,8 @@ export class Game {
             const shakeY = (Math.random() - 0.5) * effectiveIntensity;
             const shakeZ = (Math.random() - 0.5) * effectiveIntensity;
 
-            this.cameraShakeOffset = new Vector3(shakeX, shakeY, shakeZ);
+            // PERF: set in-place instead of allocating new Vector3 per frame
+            this.cameraShakeOffset.set(shakeX, shakeY, shakeZ);
 
             // Уменьшаем интенсивность
             this.cameraShakeIntensity *= this.cameraShakeDecay;

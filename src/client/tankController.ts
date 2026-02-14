@@ -5328,7 +5328,8 @@ export class TankController {
 
                 // Apply torque around Local X axis (Pitch)
                 // Use a temporary vector to transform local X to world space
-                const localX = this.chassis.getDirection(new Vector3(1, 0, 0));
+                // PERF: reuse tmp vector instead of allocating per frame
+                const localX = this.chassis.getDirection(this._tmpVector4.set(1, 0, 0));
                 const torqueVector = localX.scale(currentTorque);
                 this.applyTorque(torqueVector);
             }
@@ -5481,7 +5482,8 @@ export class TankController {
                 // Применяем только корректирующий момент для выравнивания танка
                 const tiltX = Math.asin(Math.max(-1, Math.min(1, up.z)));
                 const tiltZ = Math.asin(Math.max(-1, Math.min(1, -up.x)));
-                const emergencyTorque = new Vector3(
+                // PERF: reuse tmp vector instead of allocating per frame
+                const emergencyTorque = this._tmpVector5.set(
                     -tiltX * 20000,  // Выравнивание по X
                     0,
                     -tiltZ * 20000   // Выравнивание по Z
@@ -5593,10 +5595,11 @@ export class TankController {
                     // Применяем импульс для выталкивания танка вверх
                     const pushUpForce = (groundHeight + 1.5 - pos.y) * 50000;
                     if (this.physicsBody) {
-                        this.physicsBody.applyForce(new Vector3(0, pushUpForce, 0), pos);
+                        // PERF: reuse tmp vectors for per-frame physics ops
+                        this.physicsBody.applyForce(this._tmpVector6.set(0, pushUpForce, 0), pos);
                         // Гасим вертикальную скорость вниз
                         if (vel.y < -5) {
-                            this.physicsBody.setLinearVelocity(new Vector3(vel.x, -5, vel.z));
+                            this.physicsBody.setLinearVelocity(this._tmpVector6.set(vel.x, -5, vel.z));
                         }
                     }
                 }
@@ -6424,7 +6427,7 @@ export class TankController {
                     const downwardForce = -vel.y * this.mass * 30; // Уменьшено с 50 до 30 для более плавного поведения
                     if (isFinite(downwardForce)) {
                         try {
-                            body.applyForce(new Vector3(0, downwardForce, 0), pos);
+                            body.applyForce(this._tmpVector7.set(0, downwardForce, 0), pos);
                         } catch (e) { /* ignore */ }
                     }
                 }
@@ -6489,7 +6492,7 @@ export class TankController {
                 // Угловое сопротивление
                 const angularDragVal = -angVel.y * this.angularDrag;
                 if (isFinite(angularDragVal)) {
-                    this.applyTorque(new Vector3(0, angularDragVal, 0));
+                    this.applyTorque(this._tmpVector7.set(0, angularDragVal, 0));
                 }
 
                 if (shouldLog) {
@@ -6708,7 +6711,8 @@ export class TankController {
                     // Сначала применяем откат
                     const baseZ = this._baseBarrelZ + this.barrelRecoilOffset;
                     // Ствол всегда по центру башни по X
-                    this.barrel.position = new Vector3(0, this._baseBarrelY + this._barrelRecoilY, baseZ);
+                    // PERF: set in-place instead of allocating new Vector3 every frame
+                    this.barrel.position.set(0, this._baseBarrelY + this._barrelRecoilY, baseZ);
 
                     // Затем проверяем и скрываем части ствола, которые пересекаются с башней или корпусом
                     // Это изменит позицию и масштаб для скрытия пересечений
