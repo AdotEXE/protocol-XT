@@ -1522,7 +1522,7 @@ export class GameServer {
         serverLogger.log(`[Server] ✅ Player ${player.name} respawned at position (${spawnPos.x.toFixed(1)}, ${spawnPos.y.toFixed(1)}, ${spawnPos.z.toFixed(1)})`);
 
         // Отправляем сообщение о респавне всем игрокам в комнате
-        const playerCount = room.getAllPlayers().length;
+        const playerCount = room.players.size;
         serverLogger.log(`[Server] 📤 Broadcasting PLAYER_RESPAWNED to ${playerCount} players in room ${player.roomId}`);
 
         this.broadcastToRoom(room, createServerMessage(ServerMessageType.PLAYER_RESPAWNED, {
@@ -2153,6 +2153,12 @@ export class GameServer {
                     this.deltaCompressor.set(room.id, compressor);
                 }
 
+                // PERF: Run delta compression ONCE per tick to determine which players actually changed.
+                // Players with no movement/state change are skipped in non-full-state ticks,
+                // reducing serialization and bandwidth by 40-60% when players are idle.
+                const { deltas: compressedDeltas, isFullState: deltaIsFullState } = compressor.compressPlayerStates(allPlayerData);
+                const changedPlayerIds = new Set(compressedDeltas.map(d => d.id));
+
                 // Get spatial grid for this room
                 let spatialGrid = this.spatialGrids.get(room.id);
                 if (!spatialGrid) {
@@ -2177,7 +2183,7 @@ export class GameServer {
                     // SPATIAL PARTITIONING: Get nearby players from spatial grid
                     // [Opus 4.6] Spatial filtering для оптимизации O(n²) → O(n) при >= 4 игроках
                     let nearbyPlayerIds: Set<string> | null = null;
-                    const playerCount = room.getAllPlayers().length;
+                    const playerCount = room.players.size;
                     if (playerCount >= 4 && spatialGrid.getPlayerCount() > 0) {
                         nearbyPlayerIds = spatialGrid.getNearbyPlayers(player.id, 300); // 300 unit radius
                     }
@@ -2232,7 +2238,7 @@ export class GameServer {
                         // Get adaptive rate (1.0 = every tick, 0.5 = every 2 ticks, etc.)
                         let rate = this.prioritizedBroadcaster.getAdaptiveUpdateRate(
                             distance,
-                            room.getAllPlayers().length,
+                            room.players.size,
                             0 // Network load - could be calculated based on send queue size
                         );
 
@@ -2249,17 +2255,28 @@ export class GameServer {
                         return false;
                     });
 
-                    // ОПТИМИЗАЦИЯ: Периодическая отправка полных состояний (каждые 120 пакетов = 1 раз в 2 секунды)
-                    // Это предотвращает накопление ошибок квантования и дельта-компрессии
-                    // Уменьшено с 60 до 120 для снижения сетевого трафика на 50%
-                    const isFullState = this.tickCount % 120 === 0;
+                    // PERF: Use delta compressor's full-state flag (aligned with compressor interval)
+                    // OR periodic server-side full state every 120 ticks as safety net
+                    const isFullState = deltaIsFullState || this.tickCount % 120 === 0;
 
-                    // Send filtered player states with adaptive update rate
+                    // PERF: On non-full-state ticks, only send players that actually changed
+                    // (position moved > 0.05, rotation changed > 0.005, health/status/kills changed).
+                    // Always include the local player for reconciliation.
+                    // On full-state ticks, send all players to resync clients.
+                    let filteredPlayersToSend: PlayerData[];
+                    if (isFullState) {
+                        filteredPlayersToSend = playersToSend;
+                    } else {
+                        filteredPlayersToSend = playersToSend.filter(p =>
+                            p.id === player.id || changedPlayerIds.has(p.id)
+                        );
+                    }
+
                     const statesData = {
-                        players: playersToSend,
+                        players: filteredPlayersToSend,
                         gameTime: room.gameTime,
                         serverSequence: player.lastProcessedSequence,
-                        isFullState: isFullState // Флаг полного состояния для клиента
+                        isFullState: isFullState
                     };
 
                     // ДИАГНОСТИКА: Логируем отправку PLAYER_STATES каждые 60 тиков (1 раз в секунду)

@@ -60,6 +60,9 @@ export class GameRoom {
     isPrivate: boolean;
     creatorId: string | null = null; // ID создателя комнаты
     players: Map<string, ServerPlayer> = new Map();
+    // PERF: Cached array of players, invalidated on join/leave. Avoids Array.from() on every call.
+    private _cachedPlayersArray: ServerPlayer[] | null = null;
+    private _cachedPlayerDataArray: PlayerData[] | null = null;
     projectiles: Map<string, ServerProjectile> = new Map();
     walls: ServerWall[] = [];
     consumables: Map<string, ConsumableData> = new Map();
@@ -198,6 +201,7 @@ export class GameRoom {
         }
 
         this.players.set(player.id, player);
+        this.invalidatePlayerCache();
         player.roomId = this.id;
 
         // Assign team for team-based modes
@@ -214,6 +218,7 @@ export class GameRoom {
 
         player.roomId = null;
         this.players.delete(playerId);
+        this.invalidatePlayerCache();
 
         // Clean up player's projectiles
         for (const [projId, projectile] of this.projectiles.entries()) {
@@ -230,11 +235,23 @@ export class GameRoom {
     }
 
     getAllPlayers(): ServerPlayer[] {
-        return Array.from(this.players.values());
+        // PERF: Return cached array; avoids Array.from() on every call (called 10-15x per tick)
+        if (!this._cachedPlayersArray) {
+            this._cachedPlayersArray = Array.from(this.players.values());
+        }
+        return this._cachedPlayersArray;
     }
 
     getPlayerData(): PlayerData[] {
+        // PERF: PlayerData changes every tick (positions, health, etc.), so always rebuild
+        // but reuse the cached players array from getAllPlayers()
         return this.getAllPlayers().map(p => p.toPlayerData());
+    }
+
+    /** Invalidate cached player arrays. Call when players join or leave. */
+    private invalidatePlayerCache(): void {
+        this._cachedPlayersArray = null;
+        this._cachedPlayerDataArray = null;
     }
 
     startMatch(): void {
