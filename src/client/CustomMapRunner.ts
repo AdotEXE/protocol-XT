@@ -537,15 +537,12 @@ export class CustomMapRunner {
         const rot = obj.rotation || { x: 0, y: 0, z: 0 };
         const colorHex = obj.properties?.color || '#808080';
 
-        // DEBUG: Log first 5 objects to see actual data
-        if (this.createdMeshes.length < 5) {
-            // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
-            if (process.env.NODE_ENV === 'development') {
-                console.log(`[CustomMapRunner] Object #${this.createdMeshes.length + 1}: ` +
-                    `pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) ` +
-                    `scale=(${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)}) ` +
-                    `color=${colorHex} type=${obj.type} isPolygon=${obj.isPolygon || false}`);
-            }
+        // DEBUG: Log first 3 objects only at debug level
+        if (this.createdMeshes.length < 3) {
+            console.debug(`[CustomMapRunner] Object #${this.createdMeshes.length + 1}: ` +
+                `pos=(${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}) ` +
+                `scale=(${scale.x.toFixed(2)}, ${scale.y.toFixed(2)}, ${scale.z.toFixed(2)}) ` +
+                `color=${colorHex} type=${obj.type}`);
         }
 
         const meshName = `customObj_${obj.id}`;
@@ -556,9 +553,9 @@ export class CustomMapRunner {
         const height = Math.max(0.5, scale.y);
         const depth = Math.max(0.5, scale.z);
 
-        // ОПТИМИЗАЦИЯ: Логируем только в dev режиме
-        if (process.env.NODE_ENV === 'development' && this.createdMeshes.length < 50) {
-            console.log(`[CustomMapRunner] #${this.createdMeshes.length + 1} "${obj.properties?.name || obj.id}": ` +
+        // Log only at debug level
+        if (this.createdMeshes.length < 3) {
+            console.debug(`[CustomMapRunner] #${this.createdMeshes.length + 1} "${obj.properties?.name || obj.id}": ` +
                 `pos=(${pos.x.toFixed(0)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(0)}) ` +
                 `size=(${width.toFixed(1)}x${height.toFixed(1)}x${depth.toFixed(1)}) ` +
                 `color=${colorHex}`);
@@ -593,10 +590,10 @@ export class CustomMapRunner {
 
             // Dynamic texture needs to be created safely
             try {
-                const dt = new DynamicTexture(`garageLabelTex_${obj.id}`, { width: 128, height: 128 }, this.scene);
-                const ctx = dt.getContext() as CanvasRenderingContext2D;
-                ctx.fillStyle = "transparent";
-                ctx.fillRect(0, 0, 128, 128);
+                const dt = new DynamicTexture(`garageLabelTex_${obj.id}`, { width: 128, height: 128 }, this.scene, false);
+                const ctx = dt.getContext() as CanvasRenderingContext2D | null;
+                if (!ctx) return mesh;
+                ctx.clearRect(0, 0, 128, 128);
                 ctx.font = "bold 80px Arial";
                 ctx.fillStyle = "white";
                 ctx.textAlign = "center";

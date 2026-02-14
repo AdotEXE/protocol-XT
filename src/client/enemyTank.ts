@@ -1677,7 +1677,7 @@ export class EnemyTank {
         // КРИТИЧНО: Проверяем что barrel не был случайно удален
         if (this.barrel && this.barrel.isDisposed()) {
             // Если barrel был удален - пересоздаем его
-            console.warn(`[EnemyTank ${this.id}] Barrel was disposed, recreating...`);
+            console.debug(`[EnemyTank ${this.id}] Barrel was disposed, recreating...`);
             this.barrel = this.createBarrel();
         }
 
@@ -2218,7 +2218,7 @@ export class EnemyTank {
 
         // ИСПРАВЛЕНО: Получаем границы карты и масштабируем расстояние
         const game = (window as any).gameInstance;
-        const currentMapType = game?.mapType || "normal";
+        const currentMapType = game?.currentMapType || "normal";
         const mapBounds = getMapBoundsFromConfig(currentMapType);
         // [Opus 4.6] Guard against null mapBounds
         if (!mapBounds) return;
@@ -2398,7 +2398,7 @@ export class EnemyTank {
 
         // ИСПРАВЛЕНО: Получаем реальные границы карты из MapConstants
         const game = (window as any).gameInstance;
-        const currentMapType = game?.mapType || "normal";
+        const currentMapType = game?.currentMapType || "normal";
         const mapBounds = getMapBoundsFromConfig(currentMapType);
 
         // ИСПРАВЛЕНО: Обрабатываем случай когда mapBounds = null (используем дефолт)

@@ -5672,7 +5672,7 @@ export class Game {
                 });
 
                 if (hit && hit.hit && hit.distance < checkRadius) {
-                    logger.warn(`[Game] validateSpawnPosition: Obstacle detected at distance ${hit.distance.toFixed(2)}m in direction (${dir.x}, ${dir.z})`);
+                    logger.debug(`validateSpawnPosition: Obstacle detected at distance ${hit.distance.toFixed(2)}m in direction (${dir.x}, ${dir.z})`);
                     // Освобождаем векторы перед return
                     vector3Pool.release(rayStart);
                     directions.forEach(d => vector3Pool.release(d));
@@ -5824,13 +5824,13 @@ export class Game {
         if (downHit?.hit && downHit.distance < tankHeight * 0.5) {
             isInsideGeometry = true;
             needsVerticalEject = true;
-            logger.warn(`[Game] ⚠️ Tank stuck below geometry! Distance: ${downHit.distance.toFixed(2)}m`);
+            logger.debug(`Tank stuck below geometry! Distance: ${downHit.distance.toFixed(2)}m`);
         }
 
         if (upHit?.hit && upHit.distance < tankHeight * 0.5) {
             isInsideGeometry = true;
             needsVerticalEject = true;
-            logger.warn(`[Game] ⚠️ Tank stuck above geometry! Distance: ${upHit.distance.toFixed(2)}m`);
+            logger.debug(`Tank stuck above geometry! Distance: ${upHit.distance.toFixed(2)}m`);
         }
 
         // Проверяем горизонтальные коллизии

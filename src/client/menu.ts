@@ -16788,7 +16788,7 @@ line - height: 1.4;
             if (e.key !== "Escape" && e.key !== "Esc" && e.code !== "Escape") return;
 
             // ЛОГИРОВАНИЕ для отладки
-            console.log("[Menu] ESC detected in setupUniversalMenuCloseHandlers", e);
+            debugLog("[Menu] ESC detected in setupUniversalMenuCloseHandlers");
 
             // Игнорируем если пользователь вводит текст (кроме модальных окон)
             const activeEl = document.activeElement;
@@ -16803,12 +16803,12 @@ line - height: 1.4;
 
             // ПРОСТАЯ ПРОВЕРКА: Проверяем все панели напрямую по ID
             const panelIds = ['stats-panel', 'skills-panel', 'settings-panel', 'progress-panel', 'map-selection-panel'];
-            console.log("[Menu] Checking panels for ESC...");
+            debugLog("[Menu] Checking panels for ESC...");
 
             for (const panelId of panelIds) {
                 const panel = document.getElementById(panelId);
                 if (!panel) {
-                    console.log(`[Menu] Panel ${panelId} not found in DOM`);
+                    debugLog(`[Menu] Panel ${panelId} not found in DOM`);
                     continue;
                 }
 
@@ -16819,14 +16819,7 @@ line - height: 1.4;
                 const hasVisibleClass = panel.classList.contains("visible");
                 const inlineDisplay = panel.style.display;
 
-                console.log(`[Menu] Panel ${panelId}:`, {
-                    display,
-                    visibility,
-                    hasOffsetParent,
-                    hasVisibleClass,
-                    inlineDisplay,
-                    classes: panel.className
-                });
+                debugLog(`[Menu] Panel ${panelId}: display=${display}, visible=${hasVisibleClass}`);
 
                 // Более мягкая проверка видимости
                 const isVisible = (
@@ -16886,7 +16879,7 @@ line - height: 1.4;
                 }
             }
 
-            console.log("[Menu] No visible panels found via ID check, checking other methods...");
+            debugLog("[Menu] No visible panels found via ID check, checking other methods...");
 
             // 1. GARAGE (Самый высокий приоритет)
             if (this.garage && (this.garage as any).isGarageOpen && (this.garage as any).isGarageOpen()) {

@@ -1455,7 +1455,7 @@ export class TankController {
                     respawnPos.y = 5.0;
                 }
             }
-            console.log(`[TankController] Respawning at LOCAL position (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)})`);
+            console.debug(`[TankController] Respawning at LOCAL position (${respawnPos.x.toFixed(1)}, ${respawnPos.y.toFixed(1)}, ${respawnPos.z.toFixed(1)})`);
         }
 
         // Проверяем изменения конфигурации и пересоздаём если нужно
@@ -6563,7 +6563,7 @@ export class TankController {
 
                     // ЛОГИРОВАНИЕ: Состояние поворота башни (только если есть значительное вращение)
                     if (Math.abs(rotationDelta) > 0.0001 && Math.random() < 0.01) { // Логируем 1% кадров
-                        console.log(`[TANK] [updatePhysics] Turret rotation:`, {
+                        console.debug(`[TANK] [updatePhysics] Turret rotation:`, {
                             turretTurnTarget: this.turretTurnTarget.toFixed(4),
                             turretTurnSmooth: this.turretTurnSmooth.toFixed(4),
                             rotationDelta: rotationDelta.toFixed(4),

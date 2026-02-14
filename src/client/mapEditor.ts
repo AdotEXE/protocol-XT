@@ -5039,10 +5039,10 @@ export class MapEditor {
                     plane.rotation.x = Math.PI / 2;
                     plane.rotation.y = Math.PI; // Чтобы читалось сверху правильно
 
-                    const dynamicTexture = new DynamicTexture(`garageLabelTex_${obj.id}`, { width: 128, height: 128 }, this.scene);
-                    const ctx = dynamicTexture.getContext() as CanvasRenderingContext2D;
-                    ctx.fillStyle = "transparent";
-                    ctx.fillRect(0, 0, 128, 128);
+                    const dynamicTexture = new DynamicTexture(`garageLabelTex_${obj.id}`, { width: 128, height: 128 }, this.scene, false);
+                    const ctx = dynamicTexture.getContext() as CanvasRenderingContext2D | null;
+                    if (!ctx) break;
+                    ctx.clearRect(0, 0, 128, 128);
                     ctx.font = "bold 80px Arial";
                     ctx.fillStyle = "white";
                     ctx.textAlign = "center";
@@ -5197,10 +5197,10 @@ export class MapEditor {
                     iconPlane.position.y = 0.45;
                     iconPlane.rotation.x = -Math.PI / 2;
 
-                    const iconTexture = new DynamicTexture(`moduleIconTex_${obj.id}`, { width: 64, height: 64 }, this.scene);
-                    const ctx = iconTexture.getContext() as CanvasRenderingContext2D;
-                    ctx.fillStyle = "transparent";
-                    ctx.fillRect(0, 0, 64, 64);
+                    const iconTexture = new DynamicTexture(`moduleIconTex_${obj.id}`, { width: 64, height: 64 }, this.scene, false);
+                    const ctx = iconTexture.getContext() as CanvasRenderingContext2D | null;
+                    if (!ctx) break;
+                    ctx.clearRect(0, 0, 64, 64);
                     ctx.font = "40px Arial";
                     ctx.textAlign = "center";
                     ctx.textBaseline = "middle";
