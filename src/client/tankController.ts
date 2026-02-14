@@ -332,7 +332,9 @@ export class TankController {
     maxTracerCount = 5; // Максимум трассеров
     tracerDamage = 10; // Урон трассера (меньше обычного)
     tracerMarkDuration = 15000; // Время метки на враге (15 секунд)
-    private tracerMat: StandardMaterial | null = null; // Материал трассера (яркий)
+    private tracerMat: StandardMaterial | null = null;
+    // PERF: Per-cannon-type material cache (1 material per type, reused for all shots)
+    private _projectileMaterialCache: Map<string, StandardMaterial> | null = null;
     // ОПТИМИЗАЦИЯ: Массив для ручного обновления движения трассеров (без физики)
     private manualProjectiles: { mesh: Mesh, velocity: Vector3, intervalId?: number, timeoutId?: number }[] = [];
 
@@ -3327,16 +3329,22 @@ export class TankController {
             projectileMesh.position.copyFrom(muzzlePos);
             projectileMesh.lookAt(projectileMesh.position.add(forward));
 
-            // Create unique material for projectile - ЯРЧЕ для видимости
-            projectileMaterial = new StandardMaterial("projectileMat", this.scene);
-            projectileMaterial.diffuseColor = projectileColor;
-            projectileMaterial.emissiveColor = projectileColor.scale(2.0); // УВЕЛИЧЕНО свечение до 2.0
-            projectileMaterial.disableLighting = true;
-            // Добавляем свечение для лучшей видимости
-            (projectileMaterial as any).emissiveIntensity = 3.0; // УВЕЛИЧЕНО до 3.0
-            // Добавляем глосси для лучшей видимости
-            projectileMaterial.specularColor = projectileColor.scale(0.5);
-            // metallicFactor не существует в StandardMaterial, используем emissiveColor для эффекта
+            // PERF: Reuse cached material per cannon type instead of creating new one per shot.
+            // Each unique cannon type creates exactly 1 material on first shot, then reuses it.
+            const matKey = `projMat_${this.cannonType.id}`;
+            if (!this._projectileMaterialCache) {
+                this._projectileMaterialCache = new Map<string, StandardMaterial>();
+            }
+            projectileMaterial = this._projectileMaterialCache.get(matKey)!;
+            if (!projectileMaterial) {
+                projectileMaterial = new StandardMaterial(matKey, this.scene);
+                projectileMaterial.diffuseColor = projectileColor;
+                projectileMaterial.emissiveColor = projectileColor.scale(2.0);
+                projectileMaterial.disableLighting = true;
+                projectileMaterial.specularColor = projectileColor.scale(0.5);
+                projectileMaterial.freeze();
+                this._projectileMaterialCache.set(matKey, projectileMaterial);
+            }
             projectileMesh.material = projectileMaterial;
 
             // Enhanced metadata with special properties
@@ -4049,10 +4057,17 @@ export class TankController {
             vector3Pool.release(spreadDir);
             vector3Pool.release(pelletPos);
 
-            const pelletMat = new StandardMaterial("pelletMat", this.scene);
-            pelletMat.diffuseColor = new Color3(1, 0.7, 0.2);
-            pelletMat.emissiveColor = new Color3(1, 0.5, 0.1);
-            pelletMat.disableLighting = true;
+            // PERF: Reuse cached shotgun pellet material
+            if (!this._projectileMaterialCache) this._projectileMaterialCache = new Map();
+            let pelletMat = this._projectileMaterialCache.get("pellet");
+            if (!pelletMat) {
+                pelletMat = new StandardMaterial("projMat_pellet", this.scene);
+                pelletMat.diffuseColor = new Color3(1, 0.7, 0.2);
+                pelletMat.emissiveColor = new Color3(1, 0.5, 0.1);
+                pelletMat.disableLighting = true;
+                pelletMat.freeze();
+                this._projectileMaterialCache.set("pellet", pelletMat);
+            }
             pellet.material = pelletMat;
 
             pellet.metadata = {
@@ -4124,12 +4139,18 @@ export class TankController {
             bullet.position.copyFrom(spawnPos);
             bullet.lookAt(spawnPos.add(direction));
 
-            // Яркий жёлтый материал трассера
-            const bulletMat = new StandardMaterial("aircraftMgMat", this.scene);
-            bulletMat.diffuseColor = bulletColor;
-            bulletMat.emissiveColor = bulletColor.scale(2.5);
-            bulletMat.disableLighting = true;
-            bullet.material = bulletMat;
+            // PERF: Reuse cached aircraft MG material
+            if (!this._projectileMaterialCache) this._projectileMaterialCache = new Map();
+            let aircraftMgMat = this._projectileMaterialCache.get("aircraft_mg");
+            if (!aircraftMgMat) {
+                aircraftMgMat = new StandardMaterial("projMat_aircraft_mg", this.scene);
+                aircraftMgMat.diffuseColor = bulletColor;
+                aircraftMgMat.emissiveColor = bulletColor.scale(2.5);
+                aircraftMgMat.disableLighting = true;
+                aircraftMgMat.freeze();
+                this._projectileMaterialCache.set("aircraft_mg", aircraftMgMat);
+            }
+            bullet.material = aircraftMgMat;
 
             bullet.metadata = {
                 type: "bullet",
@@ -4208,11 +4229,8 @@ export class TankController {
         ball.position = pos.clone();
         ball.lookAt(ball.position.add(dir));
 
-        const mat = new StandardMaterial("bulletMat", this.scene);
-        mat.diffuseColor = new Color3(1, 1, 0);
-        mat.emissiveColor = new Color3(1, 0.8, 0);
-        mat.disableLighting = true;
-        ball.material = mat;
+        // PERF: Reuse the pre-created bulletMat instead of creating per sub-projectile
+        ball.material = this.bulletMat;
 
         ball.metadata = {
             type: "bullet",
