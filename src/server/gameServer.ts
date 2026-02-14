@@ -2280,9 +2280,8 @@ export class GameServer {
                     };
 
                     // ДИАГНОСТИКА: Логируем отправку PLAYER_STATES каждые 60 тиков (1 раз в секунду)
-                    if (this.tickCount % 60 === 0 && playersToSend.length > 1) {
-                        // PERF: avoid .filter() allocation — just subtract 1 for self
-                        serverLogger.log(`[Server] 📤 PLAYER_STATES для ${player.name}: отправляю ${playersToSend.length - 1} других игроков (всего в комнате: ${room.players.size})`);
+                    if (this.tickCount % 60 === 0 && filteredPlayersToSend.length > 1) {
+                        serverLogger.log(`[Server] 📤 PLAYER_STATES для ${player.name}: отправляю ${filteredPlayersToSend.length - 1} других игроков (${isFullState ? "full" : "delta"}, всего в комнате: ${room.players.size})`);
                     }
 
                     // Add batched updates for this specific player (AOI filtered)
