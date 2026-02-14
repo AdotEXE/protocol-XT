@@ -11056,16 +11056,16 @@ export class HUD {
 
         // === ШАССИ ===
         allRows.push({ text: `▼ ${data.chassis.name.toUpperCase()}`, color: data.chassis.color, isSectionHeader: true });
-        allRows.push({ text: formatTankStatsRow("HP:", formatStatWithBonus(data.chassis.maxHealth, 0)), color: "#00ff00" });
-        allRows.push({ text: formatTankStatsRow("СКОР:", formatStatWithBonus(data.chassis.moveSpeed, 1)), color: "#00ccff" });
-        allRows.push({ text: formatTankStatsRow("ПОВОРОТ:", formatStatWithBonus(data.chassis.turnSpeed, 2)), color: "#00ccff" });
-        allRows.push({ text: formatTankStatsRow("УСКОР:", formatStatWithBonus(data.chassis.acceleration, 0)), color: "#00ccff" });
+        allRows.push({ text: formatTankStatsRow("HP:", formatStatWithBonus(data.chassis.maxHealth.total, 0)), color: "#00ff00" });
+        allRows.push({ text: formatTankStatsRow("СКОР:", formatStatWithBonus(data.chassis.moveSpeed.total, 1)), color: "#00ccff" });
+        allRows.push({ text: formatTankStatsRow("ПОВОРОТ:", formatStatWithBonus(data.chassis.turnSpeed.total, 2)), color: "#00ccff" });
+        allRows.push({ text: formatTankStatsRow("УСКОР:", formatStatWithBonus(data.chassis.acceleration.total, 0)), color: "#00ccff" });
         allRows.push({ text: formatTankStatsRow("МАССА:", `${data.chassis.mass}кг`), color: "#888888" });
         allRows.push({ text: formatTankStatsRow("РАЗМЕР:", `${data.chassis.width.toFixed(1)}×${data.chassis.height.toFixed(1)}×${data.chassis.depth.toFixed(1)}м`), color: "#888888" });
 
         // === ПУШКА ===
         allRows.push({ text: `▼ ${data.cannon.name.toUpperCase()}`, color: data.cannon.color, isSectionHeader: true });
-        allRows.push({ text: formatTankStatsRow("УРОН:", formatStatWithBonus(data.cannon.damage, 0)), color: "#ff4444" });
+        allRows.push({ text: formatTankStatsRow("УРОН:", formatStatWithBonus(data.cannon.damage.total, 0)), color: "#ff4444" });
         // DPS (Damage Per Second) - calculateDPS поддерживает CannonStatsData
         const dps = calculateDPS({
             damage: data.cannon.damage,
@@ -11073,8 +11073,8 @@ export class HUD {
             dps: undefined
         });
         allRows.push({ text: formatTankStatsRow("DPS:", dps.toFixed(1)), color: "#ff6666" });
-        allRows.push({ text: formatTankStatsRow("ПЕРЕЗАР:", formatStatWithBonus(data.cannon.cooldown, 0, "мс")), color: "#ffcc00" });
-        allRows.push({ text: formatTankStatsRow("СКР.СНР:", formatStatWithBonus(data.cannon.projectileSpeed, 0)), color: "#00ccff" });
+        allRows.push({ text: formatTankStatsRow("ПЕРЕЗАР:", formatStatWithBonus(data.cannon.cooldown.total, 0, "мс")), color: "#ffcc00" });
+        allRows.push({ text: formatTankStatsRow("СКР.СНР:", formatStatWithBonus(data.cannon.projectileSpeed.total, 0)), color: "#00ccff" });
         allRows.push({ text: formatTankStatsRow("РАЗМЕР:", data.cannon.projectileSize.toFixed(2)), color: "#888888" });
         allRows.push({ text: formatTankStatsRow("ОТДАЧА:", `x${data.cannon.recoilMultiplier.toFixed(1)}`), color: "#ff8800" });
         allRows.push({ text: formatTankStatsRow("СТВОЛ:", `${data.cannon.barrelLength.toFixed(1)}м`), color: "#888888" });

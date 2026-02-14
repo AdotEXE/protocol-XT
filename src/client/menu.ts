@@ -94,6 +94,7 @@ import { LANG, getLang } from "./localization";
 import { SettingsPanel } from "./settingsPanel";
 import { MultiplayerManager } from "./multiplayer";
 import { SocialSystem } from "./socialSystem";
+import { getModeDisplayName as getGameModeDisplayName } from "../shared/gameModeUtils";
 
 
 export interface TankConfig {
@@ -4404,6 +4405,14 @@ export class MainMenu {
                 color: #0f0;
             }
 
+            /* Кнопка "Создать комнату" — принудительно кликабельна */
+            #mp-create-room-start-btn {
+                pointer-events: auto !important;
+                cursor: pointer !important;
+                position: relative;
+                z-index: 1;
+            }
+
             .menu-btn.danger {
                 background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
                 border: 2px solid #ff6666;
@@ -5374,12 +5383,15 @@ export class MainMenu {
         if (firebaseService.isInitialized() && !this.authListenerAttached) {
             const auth = (firebaseService as any).auth;
             if (auth) {
-                const { onAuthStateChanged } = require("firebase/auth");
-                this.authListenerUnsubscribe = onAuthStateChanged(auth, () => {
-                    this.updateAuthUI();
+                import("firebase/auth").then(({ onAuthStateChanged }) => {
+                    this.authListenerUnsubscribe = onAuthStateChanged(auth, () => {
+                        this.updateAuthUI();
+                    });
+                    this.authListenerAttached = true;
+                    debugLog("[Menu] Auth state listener registered");
+                }).catch((err) => {
+                    logger.warn("[Menu] Failed to load firebase/auth for auth listener", err);
                 });
-                this.authListenerAttached = true;
-                debugLog("[Menu] Auth state listener registered");
             }
         }
 
@@ -8001,6 +8013,24 @@ transition: all 0.2s;
 
         document.body.appendChild(this.playMenuPanel);
 
+        // Делегирование клика по кнопке "Создать комнату": срабатывает даже если кнопка не получает события (pointer-events и т.п.)
+        this.playMenuPanel.addEventListener("click", (e) => {
+            const btn = document.getElementById("mp-create-room-start-btn");
+            if (!btn) return;
+            const rect = btn.getBoundingClientRect();
+            const x = e.clientX;
+            const y = e.clientY;
+            if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (typeof (window as any).startMpCreateRoom === "function") {
+                    (window as any).startMpCreateRoom();
+                } else {
+                    window.alert("Нет подключения к серверу. Запустите сервер (порт 8000) и обновите страницу.");
+                }
+            }
+        });
+
         // Заполняем опции танков
         this.populateTankOptions();
 
@@ -9599,8 +9629,7 @@ transition: all 0.2s;
             const mapType = room.mapType || "normal";
             const safeRoomId = this.escapeHtml(String(room.id ?? ""));
             // КРИТИЧНО: Конвертируем серверный режим в читаемое название
-            const { getModeDisplayName } = require("./shared/gameModeUtils");
-            const safeMode = this.escapeHtml(getModeDisplayName(room.mode ?? "ffa"));
+            const safeMode = this.escapeHtml(getGameModeDisplayName(room.mode ?? "ffa"));
             const safeMapType = this.escapeHtml(mapType);
 
             roomItem.innerHTML = `
@@ -9657,8 +9686,7 @@ transition: all 0.2s;
         const modeEl = document.getElementById("mp-room-panel-mode");
         if (modeEl) {
             // КРИТИЧНО: Используем функцию конвертации для читаемого названия
-            const { getModeDisplayName } = require("./shared/gameModeUtils");
-            modeEl.textContent = getModeDisplayName(mode);
+            modeEl.textContent = getGameModeDisplayName(mode);
 
             // Показываем блок команд только для режимов с командами
             const teamsBlock = document.getElementById("mp-room-panel-teams");
@@ -13449,8 +13477,7 @@ line - height: 1.4;
         if (roomIdEl) roomIdEl.textContent = room.id;
         if (roomModeEl) {
             // КРИТИЧНО: Используем функцию конвертации для читаемого названия
-            const { getModeDisplayName } = require("./shared/gameModeUtils");
-            roomModeEl.textContent = getModeDisplayName(room.mode);
+            roomModeEl.textContent = getGameModeDisplayName(room.mode);
         }
         if (roomPlayersEl) roomPlayersEl.textContent = `${room.players}/${room.maxPlayers}`;
 
@@ -14743,6 +14770,30 @@ line - height: 1.4;
             this.loadCustomMaps();
             // Добавляем обработчики для карточек карт при открытии панели
             if (id === "mp-create-room-map") {
+                // Кнопка "Создать комнату": всегда кликабельна, подсказка при отсутствии подключения
+                const startBtn = document.getElementById("mp-create-room-start-btn") as HTMLButtonElement | null;
+                const game = (window as any).gameInstance;
+                const connected = game?.multiplayerManager?.isConnected?.() ?? false;
+                if (startBtn) {
+                    startBtn.disabled = false;
+                    startBtn.style.opacity = "1";
+                    startBtn.style.cursor = "pointer";
+                    startBtn.style.pointerEvents = "auto";
+                    startBtn.title = connected ? "" : "Нет подключения к серверу. Нажмите — появится подсказка.";
+                    // Явный обработчик клика (на случай если inline onclick не срабатывает)
+                    if (!(startBtn as any).__createRoomClickAttached) {
+                        (startBtn as any).__createRoomClickAttached = true;
+                        startBtn.addEventListener("click", (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (typeof (window as any).startMpCreateRoom === "function") {
+                                (window as any).startMpCreateRoom();
+                            } else {
+                                window.alert("Нет подключения к серверу. Запустите сервер (порт 8000) и обновите страницу.");
+                            }
+                        });
+                    }
+                }
                 setTimeout(() => {
                     const mapCards = document.querySelectorAll("#mp-create-room-map .map-card");
                     debugLog(`[Menu] Adding click handlers to ${mapCards.length} map cards`);
@@ -17834,6 +17885,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 });
 
+// Показ сообщения с гарантированным fallback на window.alert (чтобы пользователь всегда видел ответ при отсутствии соединения и т.п.)
+function alertWithFallback(message: string, title: string): void {
+    inGameAlert(message, title).catch(() => {
+        try {
+            window.alert((title ? title + "\n\n" : "") + message);
+        } catch (_) { /* ignore */ }
+    });
+}
+
 // Глобальная функция для запуска создания комнаты
 (window as any).startMpCreateRoom = async function () {
     debugLog("[Menu] startMpCreateRoom called");
@@ -17869,23 +17929,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (!multiplayerManager) {
             logger.error("[Menu] MultiplayerManager not available");
-            inGameAlert("Подключение к серверу не установлено. Попробуйте обновить страницу.", "Ошибка").catch(() => { });
+            alertWithFallback("Подключение к серверу не установлено. Попробуйте обновить страницу.", "Ошибка");
             return;
         }
 
         // Проверяем подключение
         if (!multiplayerManager.isConnected()) {
-            inGameAlert("Нет подключения к серверу. Ожидание...", "Ожидание").catch(() => { });
-            // Ждём подключения
-            let attempts = 0;
-            while (!multiplayerManager.isConnected() && attempts < 10) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-                attempts++;
-            }
-            if (!multiplayerManager.isConnected()) {
-                inGameAlert("Не удалось подключиться к серверу.", "Ошибка").catch(() => { });
-                return;
-            }
+            const currentUrl = multiplayerManager.getServerUrl?.() || "ws://localhost:8000";
+            const cleanUrl = currentUrl.replace(/^wss?:\/\//, "");
+            alertWithFallback(
+                "Нет подключения к серверу.\n\n" +
+                "1) Запустите сервер в папке проекта: npm run server (порт 8000)\n\n" +
+                "2) Сейчас используется адрес: " + cleanUrl + "\n" +
+                "   Он подставляется автоматически по текущему хосту. После запуска сервера в меню мультиплеера нажмите «Переподключиться» или обновите страницу.",
+                "Нет соединения"
+            );
+            return;
         }
 
         // Устанавливаем временный callback для открытия панели комнаты после создания
@@ -17953,17 +18012,17 @@ document.addEventListener("DOMContentLoaded", () => {
             const success = multiplayerManager.createRoom(mode as any, 32, false, mapType, enableBots, botCount, customMapData);
             if (!success) {
                 logger.error("[Menu] Failed to create room");
-                inGameAlert("Не удалось создать комнату. Проверьте подключение.", "Ошибка").catch(() => { });
+                alertWithFallback("Не удалось создать комнату. Проверьте подключение к серверу.", "Ошибка");
             } else {
                 debugLog("[Menu] Room creation request sent:", mode, mapType, "bots:", enableBots, botCount);
             }
         } catch (error) {
             logger.error("[Menu] Error creating room:", error);
-            inGameAlert("Ошибка создания комнаты: " + error, "Ошибка").catch(() => { });
+            alertWithFallback("Ошибка создания комнаты: " + (error instanceof Error ? error.message : String(error)), "Ошибка");
         }
     } else {
         logger.error("[Menu] Game or mainMenu not found");
-        inGameAlert("Игра не инициализирована. Попробуйте обновить страницу.", "Ошибка").catch(() => { });
+        alertWithFallback("Игра не инициализирована. Попробуйте обновить страницу.", "Ошибка");
     }
 };
 

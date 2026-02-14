@@ -12,6 +12,7 @@ import { getVoiceChatManager } from "./voiceChat";
 import { timerManager } from "./optimization/TimerManager";
 import { vector3Pool } from "./optimization/Vector3Pool";
 import { getGameInstance } from "./utils/gameInstance";
+import { convertClientModeToServerMode } from "../shared/gameModeUtils";
 
 /**
  * Safely convert any position object to Vector3
@@ -409,6 +410,10 @@ export class MultiplayerManager {
     private _lastBlobErrorTime: number = 0; // Throttling для ошибок Blob conversion
     private _lastPacketLossLogTime: number = 0; // Throttling для логов packet loss
     private _lastErrorLogTime: number = 0; // Throttling для ошибок обработки сообщений
+    private _lastSendWarnTime: number = 0; // Throttling для предупреждения "WebSocket is not open"
+    private _lastConnectionWarnTime: number = 0; // Throttling для connection timeout / WebSocket error
+    private static readonly SEND_WARN_THROTTLE_MS = 5000;
+    private static readonly CONNECTION_LOG_THROTTLE_MS = 5000;
     private playerId: string = getOrCreatePlayerId();
     private playerName: string = getSavedPlayerName();
     private connected: boolean = false;
@@ -771,7 +776,11 @@ export class MultiplayerManager {
             // Set connection timeout (10 seconds)
             this.connectionTimeout = setTimeout(() => {
                 if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
-                    logger.warn("[Multiplayer] Connection timeout - server may still be starting");
+                    const now = Date.now();
+                    if (now - this._lastConnectionWarnTime >= MultiplayerManager.CONNECTION_LOG_THROTTLE_MS) {
+                        this._lastConnectionWarnTime = now;
+                        logger.warn("[Multiplayer] Connection timeout - server may still be starting");
+                    }
                     this.isConnecting = false;
                     try {
                         this.ws.close();
@@ -889,16 +898,20 @@ export class MultiplayerManager {
                 this.isConnecting = false;
                 // Suppress excessive error logging for localhost, но логируем первую попытку
                 if (!isLocalhost || this.reconnectAttempts === 0) {
-                    const errorMessage = isLocalhost
-                        ? `WebSocket connection failed to ${normalizedUrl}. Убедитесь, что сервер запущен: npm run server`
-                        : `WebSocket connection failed to ${normalizedUrl}. Проверьте доступность сервера`;
-                    logger.error("[Multiplayer] WebSocket error observed", {
-                        url: normalizedUrl,
-                        reconnectAttempts: this.reconnectAttempts,
-                        isLocalhost,
-                        error: error,
-                        hint: errorMessage
-                    });
+                    const now = Date.now();
+                    if (now - this._lastConnectionWarnTime >= MultiplayerManager.CONNECTION_LOG_THROTTLE_MS) {
+                        this._lastConnectionWarnTime = now;
+                        const errorMessage = isLocalhost
+                            ? `WebSocket connection failed to ${normalizedUrl}. Убедитесь, что сервер запущен: npm run server`
+                            : `WebSocket connection failed to ${normalizedUrl}. Проверьте доступность сервера`;
+                        logger.error("[Multiplayer] WebSocket error observed", {
+                            url: normalizedUrl,
+                            reconnectAttempts: this.reconnectAttempts,
+                            isLocalhost,
+                            error: error,
+                            hint: errorMessage
+                        });
+                    }
                 }
             };
         } catch (error) {
@@ -2671,6 +2684,7 @@ export class MultiplayerManager {
 
         const gameTime = statesData.gameTime || 0;
         const serverSequence = statesData.serverSequence;
+        const isFullState = statesData.isFullState === true;
 
         // КРИТИЧНО: Очистка networkPlayers от локального игрока и игроков, которых нет в списке
         // ОПТИМИЗАЦИЯ: Используем Set для быстрой проверки, но создаем его через цикл вместо map/filter
@@ -2695,7 +2709,7 @@ export class MultiplayerManager {
             }
             // Удаляем игроков, которых нет в текущем списке (возможно, они отключились)
             // Strict AOI: Если это полное состояние, удаляем тех, кого нет в списке
-            else if (statesData.isFullState && !validPlayerIds.has(id)) {
+            else if (isFullState && !validPlayerIds.has(id)) {
                 playersToRemove.push(id);
                 // logger.log(`[Multiplayer] 🗑️ Pruning AOI invisible player: ${id}`);
             }
@@ -3852,7 +3866,6 @@ export class MultiplayerManager {
         }
 
         // КРИТИЧНО: Конвертируем клиентский формат режима в серверный
-        const { convertClientModeToServerMode } = require("../shared/gameModeUtils");
         const serverMode = convertClientModeToServerMode(mode as string);
 
         logger.log(`[Multiplayer] Creating room: clientMode=${mode}, serverMode=${serverMode}, maxPlayers=${maxPlayers}, isPrivate=${isPrivate}, mapType=${mapType}, enableBots=${enableBots}, botCount=${botCount}`);
@@ -4438,7 +4451,11 @@ export class MultiplayerManager {
     private send(message: ClientMessage): void {
         try {
             if (!this.ws) {
-                logger.warn("[Multiplayer] Cannot send message: WebSocket is null");
+                const now = Date.now();
+                if (now - this._lastSendWarnTime >= MultiplayerManager.SEND_WARN_THROTTLE_MS) {
+                    this._lastSendWarnTime = now;
+                    logger.warn("[Multiplayer] Cannot send message: WebSocket is null");
+                }
                 // Queue message for later if critical
                 if (this.isCriticalMessage(message.type)) {
                     this.messageQueue.push(message);
@@ -4447,7 +4464,11 @@ export class MultiplayerManager {
             }
 
             if (this.ws.readyState !== WebSocket.OPEN) {
-                logger.warn(`[Multiplayer] Cannot send message: WebSocket is not open(state: ${this.ws.readyState})`);
+                const now = Date.now();
+                if (now - this._lastSendWarnTime >= MultiplayerManager.SEND_WARN_THROTTLE_MS) {
+                    this._lastSendWarnTime = now;
+                    logger.warn(`[Multiplayer] Cannot send message: WebSocket is not open(state: ${this.ws.readyState})`);
+                }
                 // Queue message for later if critical
                 if (this.isCriticalMessage(message.type)) {
                     this.messageQueue.push(message);

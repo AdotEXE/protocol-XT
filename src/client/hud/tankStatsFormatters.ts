@@ -23,7 +23,8 @@ export function formatBonusValue(val: number, negativeIsGood?: boolean): string 
 
 /** Число с опциональными десятичными и суффиксом (например "100 мс"). */
 export function formatStatWithBonus(base: number, decimals: number = 0, suffix: string = ""): string {
-    const s = decimals >= 0 ? base.toFixed(decimals) : String(base);
+    const num = Number(base);
+    const s = decimals >= 0 && Number.isFinite(num) ? num.toFixed(decimals) : "—";
     return suffix ? `${s} ${suffix}` : s;
 }
 
