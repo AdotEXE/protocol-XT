@@ -1,5 +1,5 @@
-import { ClientMessageType, ServerMessageType } from "./messages";
 import type { ClientMessage, ServerMessage } from "./messages";
+import { ClientMessageType, ServerMessageType } from "./messages";
 import { binaryWriterPool } from "./protocolPool";
 // Dynamic import for MessagePack (only loaded when USE_BINARY_SERIALIZATION is true)
 // import { encode, decode } from "@msgpack/msgpack";
@@ -212,7 +212,7 @@ function dequantizeRot(val: number): number {
 // ==========================================
 
 function serializePlayerInput(writer: BinaryWriter, data: any): void {
-    // Schema: 
+    // Schema:
     // [Throttle(i8)][Steer(i8)][IsShooting(bool)]
     // [TurretRot(i16)][AimPitch(i16)]
     // [Timestamp(u32)]
@@ -295,7 +295,7 @@ function serializePlayerStates(writer: BinaryWriter, data: any): void {
         // [Health(u8)][MaxHealth(u8)][Status(u8 enum)][Team(i8)]
         // [Color(u8 flags for existence) + strings if exist] ?? Keep it simple for now strings
 
-        // For ID, we use standard writeString (u16 len) for safety, 
+        // For ID, we use standard writeString (u16 len) for safety,
         // but could optimize to u8 len if IDs are short
         writer.writeString(p.id || "");
 
@@ -313,7 +313,7 @@ function serializePlayerStates(writer: BinaryWriter, data: any): void {
 
         // Velocities for prediction
         const vel = p.velocity || { x: 0, y: 0, z: 0 };
-        writer.writeInt16(quantizePos(vel.x)); // Velocity reuse pos scale? usually velocities are small. 0.1 is 10cm/s precision. 
+        writer.writeInt16(quantizePos(vel.x)); // Velocity reuse pos scale? usually velocities are small. 0.1 is 10cm/s precision.
         writer.writeInt16(quantizePos(vel.y));
         writer.writeInt16(quantizePos(vel.z));
         writer.writeFloat32(p.angularVelocity || 0); // Keep float for smooth rotation pred
@@ -688,10 +688,13 @@ export function serializeMessage(message: ClientMessage | ServerMessage): string
 
         try {
             // CRITICAL FIX: Force JSON for CREATE_ROOM to avoid binary serialization issues with complex map data
+            // REVERTED: Switching to binary to avoid text-frame issues on hosting
+            /*
             if (message.type === ClientMessageType.CREATE_ROOM) {
                  const plainObj = messageToPlainObject(message);
                  return JSON.stringify(plainObj);
             }
+            */
 
             if (message.type === ClientMessageType.PLAYER_INPUT) {
                 writer.writeUint8(PacketType.PLAYER_INPUT);
