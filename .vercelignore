@@ -1,0 +1,4 @@
+# Force rebuild by preventing cache of critical files
+.vercel
+.git
+node_modules
