@@ -442,10 +442,14 @@ export class GameRoom {
         this.rebuildCollisionGrid();
 
         // ОПТИМИЗАЦИЯ: Очищаем старые события урона для предотвращения утечек памяти
+        // PERF: Remove old damage events in-place instead of creating new array every tick
         const now = Date.now();
-        this.damageEvents = this.damageEvents.filter(event => {
-            return event.timestamp && (now - event.timestamp) < this.DAMAGE_EVENT_MAX_AGE;
-        });
+        for (let i = this.damageEvents.length - 1; i >= 0; i--) {
+            const ev = this.damageEvents[i];
+            if (!ev.timestamp || (now - ev.timestamp) >= this.DAMAGE_EVENT_MAX_AGE) {
+                this.damageEvents.splice(i, 1);
+            }
+        }
 
         // Update player positions based on input
         for (const player of this.players.values()) {
@@ -523,7 +527,13 @@ export class GameRoom {
 
 
         // Update walls (remove expired)
-        this.walls = this.walls.filter(wall => !wall.isExpired(Date.now()));
+        // PERF: Remove expired walls in-place instead of creating new array
+        const wallNow = Date.now();
+        for (let i = this.walls.length - 1; i >= 0; i--) {
+            if (this.walls[i]!.isExpired(wallNow)) {
+                this.walls.splice(i, 1);
+            }
+        }
 
         // Update projectiles
         const currentTime = Date.now();

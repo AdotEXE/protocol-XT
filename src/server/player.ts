@@ -62,9 +62,22 @@ export class ServerPlayer {
     shootCount: number = 0;
     shootCountResetTime: number = Date.now();
 
-    // Anti-cheat tracking - using ring buffer for position history (max 60 entries = 1 second at 60Hz)
-    positionHistory: Array<{ time: number; position: Vector3 }> = [];
+    // PERF: True circular buffer for position history — O(1) insert instead of O(n) shift()
+    // Max 60 entries = 1 second at 60Hz
     private readonly MAX_POSITION_HISTORY = 60;
+    private _posHistoryBuffer: Array<{ time: number; position: Vector3 }> = new Array(60);
+    private _posHistoryHead: number = 0;  // next write index
+    private _posHistorySize: number = 0;  // current number of entries
+    // Legacy accessor for any external code that reads positionHistory
+    get positionHistory(): Array<{ time: number; position: Vector3 }> {
+        // Return a view of the ring buffer in chronological order
+        const result: Array<{ time: number; position: Vector3 }> = [];
+        const start = (this._posHistoryHead - this._posHistorySize + this.MAX_POSITION_HISTORY) % this.MAX_POSITION_HISTORY;
+        for (let i = 0; i < this._posHistorySize; i++) {
+            result.push(this._posHistoryBuffer[(start + i) % this.MAX_POSITION_HISTORY]!);
+        }
+        return result;
+    }
     suspiciousMovementCount: number = 0;
     violationCount: number = 0;
     lastViolationTime: number = 0;
@@ -158,30 +171,30 @@ export class ServerPlayer {
         this.lastTurretRotation = this.turretRotation;
         this.lastVelocityUpdateTime = now;
 
-        this.positionHistory.push({
-            time: now,
-            position: position.clone()
-        });
-
-        // Ring buffer: remove oldest entries if exceeding max size (O(1) instead of O(n) filter)
-        while (this.positionHistory.length > this.MAX_POSITION_HISTORY) {
-            this.positionHistory.shift();
+        // PERF: O(1) ring buffer insert — overwrites oldest entry when full
+        this._posHistoryBuffer[this._posHistoryHead] = { time: now, position: position.clone() };
+        this._posHistoryHead = (this._posHistoryHead + 1) % this.MAX_POSITION_HISTORY;
+        if (this._posHistorySize < this.MAX_POSITION_HISTORY) {
+            this._posHistorySize++;
         }
     }
 
     /**
      * Get position at a specific time for lag compensation
+     * PERF: Reads ring buffer directly without allocating a new array.
      */
     getPositionAtTime(targetTime: number): Vector3 | null {
-        if (this.positionHistory.length === 0) {
-            return this.position.clone(); // Fallback to current position
+        if (this._posHistorySize === 0) {
+            return this.position.clone();
         }
 
-        // Find closest snapshots
+        // Iterate ring buffer in chronological order
+        const start = (this._posHistoryHead - this._posHistorySize + this.MAX_POSITION_HISTORY) % this.MAX_POSITION_HISTORY;
         let before: { time: number; position: Vector3 } | null = null;
         let after: { time: number; position: Vector3 } | null = null;
 
-        for (const entry of this.positionHistory) {
+        for (let i = 0; i < this._posHistorySize; i++) {
+            const entry = this._posHistoryBuffer[(start + i) % this.MAX_POSITION_HISTORY]!;
             if (entry.time <= targetTime) {
                 before = entry;
             }
@@ -191,14 +204,10 @@ export class ServerPlayer {
             }
         }
 
-        if (!before && !after) {
-            return this.position.clone(); // Fallback to current position
-        }
-
+        if (!before && !after) return this.position.clone();
         if (!before) return after!.position.clone();
         if (!after) return before.position.clone();
 
-        // Interpolate between before and after
         const timeDelta = after.time - before.time;
         if (timeDelta === 0) return before.position.clone();
 

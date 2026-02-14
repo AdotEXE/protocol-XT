@@ -2281,21 +2281,23 @@ export class GameServer {
 
                     // ДИАГНОСТИКА: Логируем отправку PLAYER_STATES каждые 60 тиков (1 раз в секунду)
                     if (this.tickCount % 60 === 0 && playersToSend.length > 1) {
-                        const otherPlayers = playersToSend.filter(p => p.id !== player.id);
-                        serverLogger.log(`[Server] 📤 PLAYER_STATES для ${player.name}: отправляю ${otherPlayers.length} других игроков (всего в комнате: ${room.players.size})`);
+                        // PERF: avoid .filter() allocation — just subtract 1 for self
+                        serverLogger.log(`[Server] 📤 PLAYER_STATES для ${player.name}: отправляю ${playersToSend.length - 1} других игроков (всего в комнате: ${room.players.size})`);
                     }
 
                     // Add batched updates for this specific player (AOI filtered)
                     const playerBatchMessages: ServerMessage[] = [];
 
-                    // AOI for Projectiles
-                    const visibleProjectiles = Array.from(room.projectiles.values())
-                        // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance (избегаем вычисления корня)
-                        .filter(p => {
-                            const distSq = Vector3.DistanceSquared(playerPos, p.position);
-                            return distSq < 122500; // 350^2
-                        }) // 350 unit radius (slightly larger than player AOI)
-                        .map(p => p.toProjectileData());
+                    // PERF: AOI for Projectiles — manual loop avoids 3 array allocations per player per tick
+                    const visibleProjectiles: any[] = [];
+                    const aoiDistSq = 122500; // 350^2
+                    for (const proj of room.projectiles.values()) {
+                        const dx = playerPos.x - proj.position.x;
+                        const dz = playerPos.z - proj.position.z;
+                        if (dx * dx + dz * dz < aoiDistSq) {
+                            visibleProjectiles.push(proj.toProjectileData());
+                        }
+                    }
 
                     if (visibleProjectiles.length > 0) {
                         playerBatchMessages.push(createServerMessage(ServerMessageType.PROJECTILE_UPDATE, {
@@ -2303,15 +2305,16 @@ export class GameServer {
                         }));
                     }
 
-                    // AOI for Enemies (Bots)
+                    // PERF: AOI for Enemies — manual loop avoids 3 array allocations per player per tick
                     if (room.enemies.size > 0 && (room.mode === "coop" || room.mode === "ffa" || room.mode === "tdm" || room.mode === "survival" || room.mode === "raid")) {
-                        const visibleEnemies = Array.from(room.enemies.values())
-                            // ОПТИМИЗАЦИЯ: Используем DistanceSquared вместо Distance (избегаем вычисления корня)
-                            .filter(e => {
-                                const distSq = Vector3.DistanceSquared(playerPos, e.position);
-                                return distSq < 122500; // 350^2
-                            })
-                            .map(e => e.toEnemyData());
+                        const visibleEnemies: any[] = [];
+                        for (const enemy of room.enemies.values()) {
+                            const dx = playerPos.x - enemy.position.x;
+                            const dz = playerPos.z - enemy.position.z;
+                            if (dx * dx + dz * dz < aoiDistSq) {
+                                visibleEnemies.push(enemy.toEnemyData());
+                            }
+                        }
 
                         // ALWAYS send enemy update, even if empty, to clear distant enemies from client
                         playerBatchMessages.push(createServerMessage(ServerMessageType.ENEMY_UPDATE, {
@@ -2492,8 +2495,15 @@ export class GameServer {
         let estimatedSize = 0;
 
         for (const msg of messages) {
-            // Rough estimate of message size
-            const msgSize = JSON.stringify(msg).length;
+            // PERF: Estimate message size without JSON.stringify (which serialized every message every tick).
+            // Use a rough heuristic: base overhead + data array length estimate.
+            const data = (msg as any).data;
+            let msgSize = 128; // base overhead for headers/type/timestamp
+            if (data) {
+                if (data.players) msgSize += data.players.length * 120; // ~120 bytes per player
+                if (data.projectiles) msgSize += data.projectiles.length * 80;
+                if (data.enemies) msgSize += data.enemies.length * 100;
+            }
 
             // Check if adding this message would exceed limits
             if (currentBatch.length >= MAX_BATCH_SIZE ||
