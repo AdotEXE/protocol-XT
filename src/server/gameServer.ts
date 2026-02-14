@@ -1,6 +1,6 @@
-import { WebSocketServer, WebSocket } from "ws";
+import { GeckosServer } from "@geckos.io/server";
 import { nanoid } from "nanoid";
-import { GeckosServer, ChannelId } from "@geckos.io/server";
+import { WebSocket, WebSocketServer } from "ws";
 // @geckos.io/server does not export GeckosChannel directly in all versions, using any for now or specific interface if available
 // If GeckosChannel is needed as a type, we might need to rely on inference or a custom interface matching the library's structure.
 // For now, let's remove GeckosChannel from named imports if it fails.
@@ -8,23 +8,22 @@ import { GeckosServer, ChannelId } from "@geckos.io/server";
 // Often it's named 'ServerChannel' or similar, or just 'Channel'.
 // Let's try importing just GeckosServer and ChannelId first.
 import { Vector3 } from "@babylonjs/core";
-import * as os from "os";
-import { getLocalIP, getAllLocalIPs } from "../../scripts/get-local-ip";
-import { ServerPlayer } from "./player";
-import { GameRoom } from "./room";
-import { ServerProjectile } from "./projectile";
-import { ServerWall } from "./wall";
-import { MatchmakingSystem } from "./matchmaking";
-import { createServerMessage, deserializeMessage, serializeMessage } from "../shared/protocol";
-import type { ClientMessage, ServerMessage, PongData } from "../shared/messages";
+import { getAllLocalIPs, getLocalIP } from "../../scripts/get-local-ip";
+import type { ClientMessage, PongData, ServerMessage } from "../shared/messages";
 import { ClientMessageType, ServerMessageType } from "../shared/messages";
+import { createServerMessage, deserializeMessage, serializeMessage } from "../shared/protocol";
 import type { GameMode } from "../shared/types";
-import { InputValidator, RateLimiter } from "./validation";
-import { DeltaCompressor, PrioritizedBroadcaster } from "./deltaCompression";
 import { initializeFirebaseAdmin, verifyIdToken } from "./auth";
-import { MonitoringAPI } from "./monitoring";
+import { DeltaCompressor, PrioritizedBroadcaster } from "./deltaCompression";
 import { serverLogger } from "./logger";
+import { MatchmakingSystem } from "./matchmaking";
+import { MonitoringAPI } from "./monitoring";
+import { ServerPlayer } from "./player";
+import { ServerProjectile } from "./projectile";
+import { GameRoom } from "./room";
 import { SpatialHashGrid } from "./spatialHash";
+import { RateLimiter } from "./validation";
+import { ServerWall } from "./wall";
 
 const TICK_RATE = 60; // 60 Hz
 const TICK_INTERVAL = 1000 / TICK_RATE; // ~16.67ms
@@ -435,6 +434,10 @@ export class GameServer {
                 if (player) this.handleChangeRoomSettings(player, message.data);
                 break;
 
+            case ClientMessageType.RPC:
+                if (player) this.handleRpc(player, message.data);
+                break;
+
             case ClientMessageType.UPDATE_PROFILE:
                 if (player) this.handleUpdateProfile(player, message.data);
                 break;
@@ -506,6 +509,30 @@ export class GameServer {
         }
     }
 
+    private handleRpc(player: ServerPlayer, data: any): void {
+        if (!player.roomId || !data?.event) return;
+        const room = this.rooms.get(player.roomId);
+        if (!room) return;
+
+        // For DRESS_UPDATE: persist customization on server so PLAYER_STATES stays consistent
+        if (data.event === "DRESS_UPDATE" && data.payload) {
+            const p = data.payload;
+            if (p.chassisType) player.chassisType = p.chassisType;
+            if (p.cannonType)  player.cannonType  = p.cannonType;
+            if (p.trackType)   player.trackType   = p.trackType;
+            if (p.tankColor)   player.tankColor   = p.tankColor;
+            if (p.turretColor) player.turretColor = p.turretColor;
+            serverLogger.log(`[Server] 🎨 DRESS_UPDATE from ${player.id}: chassis=${p.chassisType}, cannon=${p.cannonType}, track=${p.trackType}, tankColor=${p.tankColor}, turretColor=${p.turretColor}`);
+        }
+
+        // Relay RPC to all other players in room
+        const rpcMsg = createServerMessage(ServerMessageType.RPC, {
+            ...data,
+            sourceId: player.id // Ensure sourceId is the actual sender
+        });
+        this.broadcastToRoom(room, rpcMsg, player.id);
+    }
+
     private handleUpdateProfile(player: ServerPlayer, data: any): void {
         const { playerName } = data;
         if (!playerName || typeof playerName !== 'string') return;
@@ -550,8 +577,8 @@ export class GameServer {
         //         serverLogger.warn(`[Server] 🚫 Banned player tried to connect: ${playerId} - ${banStatus.reason}`);
         //         this.send(ws, createServerMessage(ServerMessageType.ERROR, {
         //             code: "BANNED",
-        //             message: banStatus.remaining === -1 
-        //                 ? `You are permanently banned: ${banStatus.reason}` 
+        //             message: banStatus.remaining === -1
+        //                 ? `You are permanently banned: ${banStatus.reason}`
         //                 : `You are banned for ${Math.ceil((banStatus.remaining || 0) / 60000)} more minutes: ${banStatus.reason}`
         //         }));
         //         ws.close();
@@ -1233,24 +1260,24 @@ export class GameServer {
 
         /* Original implementation:
         const now = Date.now();
-        
+
         if (!this.turretHistory.has(_player.id)) {
             this.turretHistory.set(_player.id, []);
         }
-        
+
         const history = this.turretHistory.get(_player.id)!;
         history.push({ time: now, rotation: _turretRotation });
-        
+
         if (history.length > 60) {
             history.shift();
         }
-        
+
         if (history.length >= 30 && history.length % 30 === 0) {
             const aimbotCheck = InputValidator.detectAimbot(history);
             if (aimbotCheck.suspicious) {
                 serverLogger.warn(`[Server] Potential aimbot detected for player ${_player.id}`);
                 player.violationCount += aimbotCheck.score;
-                
+
                 if (player.violationCount > 150) {
                     this.kickPlayer(_player, "Suspected aimbot");
                 }
@@ -1274,12 +1301,12 @@ export class GameServer {
         if (!banInfo) {
             return { banned: false };
         }
-        
+
         // Permanent ban (expiry = 0)
         if (banInfo.expiry === 0) {
             return { banned: true, reason: banInfo.reason, remaining: -1 };
         }
-        
+
         // Check if ban has expired
         const now = Date.now();
         if (now >= banInfo.expiry) {
@@ -1287,7 +1314,7 @@ export class GameServer {
             this.bannedPlayers.delete(_playerId);
             return { banned: false };
         }
-        
+
         return { banned: true, reason: banInfo.reason, remaining: banInfo.expiry - now };
         */
     }
@@ -1313,10 +1340,10 @@ export class GameServer {
         const score = player.violationCount;
         let banDuration: number = 0;
         let banType: string = "";
-        
+
         const existingBan = this.bannedPlayers.get(player.id);
         const banCount = existingBan ? existingBan.banCount + 1 : 1;
-        
+
         if (score > 500 || banCount >= 5) {
             banDuration = 0;
             banType = "permanent";
@@ -1330,24 +1357,24 @@ export class GameServer {
             this.kickPlayer(player, reason);
             return;
         }
-        
+
         const expiry = banDuration === 0 ? 0 : Date.now() + banDuration;
-        
+
         this.bannedPlayers.set(player.id, {
             expiry,
             reason: `${reason} (${banType} ban, offense #${banCount})`,
             banCount
         });
-        
+
         serverLogger.warn(`[Server] 🚫 BANNED player ${player.id} (${player.name}): ${banType} - ${reason}`);
-        
+
         this.send(player.socket, createServerMessage(ServerMessageType.ERROR, {
             code: "BANNED",
-            message: banDuration === 0 
-                ? `You have been permanently banned: ${reason}` 
+            message: banDuration === 0
+                ? `You have been permanently banned: ${reason}`
                 : `You have been banned for ${banType}: ${reason}`
         }));
-        
+
         this.handleDisconnect(player.socket);
     }
     */

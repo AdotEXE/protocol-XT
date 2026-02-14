@@ -1,32 +1,26 @@
 // Garage System - HTML/CSS based UI for reliability
-import { CurrencyManager } from "./currencyManager";
-import { inGameAlert, inGameConfirm, inGamePrompt } from "./utils/inGameDialogs";
-import { safeLocalStorage } from "./utils/safeLocalStorage";
 import {
-    Scene,
-    Mesh,
-    MeshBuilder,
-    StandardMaterial,
     Color3,
+    Mesh,
+    Scene,
+    StandardMaterial,
     Vector3
 } from "@babylonjs/core";
-import { CHASSIS_TYPES, CANNON_TYPES, getChassisById, getCannonById, calculateDPS } from "./tankTypes";
-import { TRACK_TYPES, getTrackById } from "./trackTypes";
-import { MaterialFactory } from "./garage/materials";
-import { ChassisDetailsGenerator } from "./garage/chassisDetails";
-import { initPreviewScene, cleanupPreviewScene, updatePreviewTank, type PreviewScene, type PreviewTank } from "./garage/preview";
+import { MODULES } from "./config/moduleRegistry";
+import { CurrencyManager } from "./currencyManager";
+import { cleanupPreviewScene, initPreviewScene, updatePreviewTank, type PreviewScene, type PreviewTank } from "./garage/preview";
 import {
-    updateTrajectoryVisualization,
     disposeTrajectoryVisualization,
-    setTrajectoryVisibility,
-    type TrajectoryVisualization
+    setTrajectoryVisibility
 } from "./garage/trajectoryVisualization";
 import { injectGarageStyles } from "./garage/ui";
-import { TankEditor, TankConfiguration } from "./tank/tankEditor";
-import { SKIN_PRESETS, saveSelectedSkin, loadSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMaterial } from "./tank/tankSkins";
-import { MODULES, getModuleById } from "./config/moduleRegistry";
-import { TankEquipmentModule } from "./tank/tankEquipment";
+import { TankConfiguration, TankEditor } from "./tank/tankEditor";
+import { SKIN_PRESETS, applySkinColorToMaterial, applySkinToTank, getSkinById, loadSelectedSkin, saveSelectedSkin } from "./tank/tankSkins";
+import { CANNON_TYPES, CHASSIS_TYPES, calculateDPS, getCannonById, getChassisById } from "./tankTypes";
+import { TRACK_TYPES, getTrackById } from "./trackTypes";
 import { upgradeUI } from "./upgrade";
+import { inGameConfirm, inGamePrompt } from "./utils/inGameDialogs";
+import { safeLocalStorage } from "./utils/safeLocalStorage";
 
 // ============ INTERFACES ============
 
@@ -433,14 +427,14 @@ export class Garage {
                 transition: all 0.2s ease;
                 position: relative;
             }
-            .garage-tab:hover { 
-                background: rgba(0,255,0,0.1); 
+            .garage-tab:hover {
+                background: rgba(0,255,0,0.1);
                 color: #0f0;
                 transform: translateY(-1px);
             }
-            .garage-tab.active { 
-                background: rgba(0,255,0,0.2); 
-                color: #0f0; 
+            .garage-tab.active {
+                background: rgba(0,255,0,0.2);
+                color: #0f0;
                 font-weight: bold;
                 box-shadow: inset 0 -2px 0 #0f0;
             }
@@ -521,18 +515,18 @@ export class Garage {
                 min-height: 60px;
                 position: relative;
             }
-            .garage-item:hover { 
-                border-color: #0a0; 
+            .garage-item:hover {
+                border-color: #0a0;
                 background: rgba(0,255,0,0.08);
                 transform: translateX(2px);
                 box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
             }
-            .garage-item.selected { 
-                border-color: #0f0; 
+            .garage-item.selected {
+                border-color: #0f0;
                 background: rgba(0,255,0,0.15);
                 box-shadow: 0 0 15px rgba(0, 255, 0, 0.3);
             }
-            .garage-item.equipped { 
+            .garage-item.equipped {
                 border-color: #0ff;
                 box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
             }
@@ -607,18 +601,18 @@ export class Garage {
                 0% { left: -100%; }
                 100% { left: 100%; }
             }
-            .garage-preview-title { 
-                color: #080; 
-                font-size: 9px; 
+            .garage-preview-title {
+                color: #080;
+                font-size: 9px;
                 position: relative; /* Нужно для z-index */
                 z-index: 15; /* Выше canvas */
                 text-transform: uppercase;
                 letter-spacing: 2px;
                 pointer-events: none; /* Не блокировать события мыши */
             }
-            .garage-preview-info { 
-                color: #0f0; 
-                font-size: 13px; 
+            .garage-preview-info {
+                color: #0f0;
+                font-size: 13px;
                 margin: 8px 0;
                 position: relative; /* Нужно для z-index */
                 z-index: 15; /* Выше canvas */
@@ -676,7 +670,7 @@ export class Garage {
                 font-size: clamp(8px, 0.9vw, 9px);
                 flex-shrink: 0;
             }
-            
+
             @media (max-width: 768px) {
                 .garage-container {
                     width: 95vw;
@@ -896,6 +890,21 @@ export class Garage {
 
         if (applied) {
             this.lastAppliedSkinId = targetSkinId;
+
+            // Sync skin colors to other players via RPC
+            const gameInstance = (window as any).gameInstance;
+            if (gameInstance?.multiplayerManager?.sendRpc) {
+                const chassisId = safeLocalStorage.get("selectedChassis", "medium");
+                const cannonId = safeLocalStorage.get("selectedCannon", "standard");
+                const trackId = safeLocalStorage.get("selectedTrack", "standard");
+                gameInstance.multiplayerManager.sendRpc("DRESS_UPDATE", {
+                    chassisType: chassisId,
+                    cannonType: cannonId,
+                    trackType: trackId,
+                    tankColor: skinColors.chassisColor,
+                    turretColor: skinColors.turretColor,
+                });
+            }
         }
 
         return applied;
@@ -1259,7 +1268,7 @@ export class Garage {
     }
 
     // NOTE: Preview methods moved to garage/preview.ts
-    // Methods createUniqueChassisPreview, createTurretPreview, createUniqueCannonPreview, 
+    // Methods createUniqueChassisPreview, createTurretPreview, createUniqueCannonPreview,
     // and createPreviewTracks have been moved to garage/preview.ts module
 
     // Add chassis details - ПОЛНАЯ КОПИЯ из TankController
@@ -1276,11 +1285,11 @@ export class Garage {
         const w = chassisType.width;
         const h = chassisType.height;
         const d = chassisType.depth;
-        
+
         // Используем MaterialFactory для создания материалов
         const armorMat = MaterialFactory.createArmorMaterial(scene, baseColor, "preview");
         const accentMat = MaterialFactory.createAccentMaterial(scene, baseColor, "preview");
-        
+
         switch (chassisType.id) {
             case "light":
                 // Light - Прототип: БТ-7 - Наклонная лобовая броня, воздухозаборники, спойлер
@@ -1291,7 +1300,7 @@ export class Garage {
                     w * 0.88, h * 0.6, 0.2,
                     -Math.PI / 6, armorMat, "previewLight"
                 );
-                
+
                 // Воздухозаборники (угловатые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createIntake(
@@ -1301,7 +1310,7 @@ export class Garage {
                         accentMat, `previewLight${i}`
                     );
                 }
-                
+
                 // Задний спойлер (угловатый)
                 ChassisDetailsGenerator.createSpoiler(
                     scene, chassis,
@@ -1309,7 +1318,7 @@ export class Garage {
                     w * 1.2, 0.2, 0.25,
                     accentMat, "previewLight"
                 );
-                
+
                 // Боковые обтекатели (угловатые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createFairing(
@@ -1319,7 +1328,7 @@ export class Garage {
                         accentMat, `previewLight${i}`
                     );
                 }
-                
+
                 // Люки на крыше (2 штуки)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHatch(
@@ -1329,7 +1338,7 @@ export class Garage {
                         armorMat, `previewLight${i}`
                     );
                 }
-                
+
                 // Выхлопная труба сзади
                 ChassisDetailsGenerator.createExhaust(
                     scene, chassis,
@@ -1337,7 +1346,7 @@ export class Garage {
                     0.15, 0.15, 0.2,
                     armorMat, "previewLight"
                 );
-                
+
                 // Фары спереди (маленькие, угловатые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -1347,7 +1356,7 @@ export class Garage {
                         i, "previewLight"
                     );
                 }
-                
+
                 // Инструменты: лопата и топор на корме
                 ChassisDetailsGenerator.createShovel(
                     scene, chassis,
@@ -1355,14 +1364,14 @@ export class Garage {
                     0.12, 0.3, 0.02,
                     armorMat, "previewLight"
                 );
-                
+
                 ChassisDetailsGenerator.createAxe(
                     scene, chassis,
                     new Vector3(-w * 0.3, h * 0.25, -d * 0.48),
                     0.25, 0.08, 0.02,
                     armorMat, "previewLight"
                 );
-                
+
                 // Вентиляционные решетки по бокам (улучшенные)
                 for (let i = 0; i < 2; i++) {
                     const ventPos = new Vector3((i === 0 ? -1 : 1) * w * 0.45, h * 0.1, d * 0.1);
@@ -1371,7 +1380,7 @@ export class Garage {
                         0.05, 0.12, 0.15,
                         i, "previewLight"
                     );
-                    
+
                     // Детали решетки
                     const ventMat = MaterialFactory.createVentMaterial(scene, i, "previewLight");
                     ChassisDetailsGenerator.createVentBars(
@@ -1380,7 +1389,7 @@ export class Garage {
                         i, ventMat, "previewLight"
                     );
                 }
-                
+
                 // Перископ на люке
                 ChassisDetailsGenerator.createPeriscope(
                     scene, chassis,
@@ -1388,7 +1397,7 @@ export class Garage {
                     0.15, 0.06,
                     0, "previewLight"
                 );
-                
+
                 // Дополнительная оптика - бинокль на корпусе
                 ChassisDetailsGenerator.createBinocular(
                     scene, chassis,
@@ -1396,7 +1405,7 @@ export class Garage {
                     0.2, 0.08, 0.12,
                     "previewLight"
                 );
-                
+
                 // Дополнительные броневые накладки на лобовой части
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createArmorPlate(
@@ -1406,7 +1415,7 @@ export class Garage {
                         armorMat, `previewLight${i}`
                     );
                 }
-                
+
                 // Верхние вентиляционные решетки на крыше (улучшенные)
                 for (let i = 0; i < 3; i++) {
                     const roofVentPos = new Vector3((i - 1) * w * 0.3, h * 0.47, d * 0.2);
@@ -1415,7 +1424,7 @@ export class Garage {
                         0.2, 0.05, 0.15,
                         i, "previewLight"
                     );
-                    
+
                     // Детали решетки
                     const roofVentMat = MaterialFactory.createRoofVentMaterial(scene, i, "previewLight");
                     ChassisDetailsGenerator.createVentBars(
@@ -1424,7 +1433,7 @@ export class Garage {
                         i, roofVentMat, "previewLightRoof"
                     );
                 }
-                
+
                 // Радиоантенна сзади
                 ChassisDetailsGenerator.createAntenna(
                     scene, chassis,
@@ -1432,7 +1441,7 @@ export class Garage {
                     0.4, 0.02,
                     "previewLight"
                 );
-                
+
                 // Основание антенны
                 ChassisDetailsGenerator.createAntennaBase(
                     scene, chassis,
@@ -1440,7 +1449,7 @@ export class Garage {
                     0.08,
                     armorMat, "previewLight"
                 );
-                
+
                 // Боковые броневые экраны
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createArmorScreen(
@@ -1450,7 +1459,7 @@ export class Garage {
                         0, armorMat, `previewLight${i}`
                     );
                 }
-                
+
                 // Дополнительные фары на боковых панелях
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createSideLight(
@@ -1460,7 +1469,7 @@ export class Garage {
                         i, "previewLight"
                     );
                 }
-                
+
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -1471,7 +1480,7 @@ export class Garage {
                     );
                 }
                 break;
-            case "scout": 
+            case "scout":
                 // Scout - Прототип: Т-70 - Острый клиновидный нос, минимальный профиль
                 // Острый клиновидный нос (угол 45°)
                 ChassisDetailsGenerator.createSlopedArmor(
@@ -1480,7 +1489,7 @@ export class Garage {
                     w * 0.8, h * 0.7, 0.4,
                     -Math.PI / 4, accentMat, "previewScout"
                 );
-                
+
                 // Боковые крылья (угловатые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createWing(
@@ -1490,7 +1499,7 @@ export class Garage {
                         accentMat, `previewScout${i}`
                     );
                 }
-                
+
                 // Задний диффузор (угловатый)
                 ChassisDetailsGenerator.createDiffuser(
                     scene, chassis,
@@ -1498,7 +1507,7 @@ export class Garage {
                     w * 0.9, 0.15, 0.2,
                     accentMat, "previewScout"
                 );
-                
+
                 // Один люк на крыше
                 ChassisDetailsGenerator.createHatch(
                     scene, chassis,
@@ -1506,7 +1515,7 @@ export class Garage {
                     0.18, 0.06, 0.18,
                     armorMat, "previewScout"
                 );
-                
+
                 // Радиоантенна на корме (угловатая)
                 ChassisDetailsGenerator.createAntenna(
                     scene, chassis,
@@ -1514,7 +1523,7 @@ export class Garage {
                     0.3, 0.02,
                     "previewScout"
                 );
-                
+
                 // Две фары (очень маленькие, скрытые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -1524,7 +1533,7 @@ export class Garage {
                         i, "previewScout"
                     );
                 }
-                
+
                 // Скрытые вентиляционные решетки
                 for (let i = 0; i < 2; i++) {
                     const vent = MeshBuilder.CreateBox(`previewScoutVent${i}`, { width: 0.04, height: 0.08, depth: 0.12 }, scene);
@@ -1533,7 +1542,7 @@ export class Garage {
                     const ventMat = new StandardMaterial(`previewScoutVentMat${i}`, scene);
                     ventMat.diffuseColor = new Color3(0.1, 0.1, 0.1);
                     vent.material = ventMat;
-                    
+
                     // Детали решетки
                     for (let j = 0; j < 3; j++) {
                         const ventBar = MeshBuilder.CreateBox(`previewScoutVentBar${i}_${j}`, { width: 0.02, height: 0.06, depth: 0.1 }, scene);
@@ -1542,7 +1551,7 @@ export class Garage {
                         ventBar.material = ventMat;
                     }
                 }
-                
+
                 // Перископ на люке
                 const scoutPeriscope = MeshBuilder.CreateBox("previewScoutPeriscope", { width: 0.05, height: 0.12, depth: 0.05 }, scene);
                 scoutPeriscope.position = new Vector3(0, h * 0.5, 0);
@@ -1550,7 +1559,7 @@ export class Garage {
                 const scoutPeriscopeMat = new StandardMaterial("previewScoutPeriscopeMat", scene);
                 scoutPeriscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
                 scoutPeriscope.material = scoutPeriscopeMat;
-                
+
                 // Оптический прицел на передней части
                 const scoutSight = MeshBuilder.CreateBox("previewScoutSight", { width: 0.1, height: 0.06, depth: 0.08 }, scene);
                 scoutSight.position = new Vector3(0, h * 0.2, d * 0.48);
@@ -1558,7 +1567,7 @@ export class Garage {
                 const scoutSightMat = new StandardMaterial("previewScoutSightMat", scene);
                 scoutSightMat.diffuseColor = new Color3(0.15, 0.15, 0.15);
                 scoutSight.material = scoutSightMat;
-                
+
                 // Линза прицела
                 const scoutSightLens = MeshBuilder.CreateBox("previewScoutSightLens", { width: 0.05, height: 0.02, depth: 0.05 }, scene);
                 scoutSightLens.position = new Vector3(0, 0, 0.05);
@@ -1567,7 +1576,7 @@ export class Garage {
                 scoutLensMat.diffuseColor = new Color3(0.1, 0.2, 0.3);
                 scoutLensMat.emissiveColor = new Color3(0.05, 0.1, 0.15);
                 scoutSightLens.material = scoutLensMat;
-                
+
                 // Легкие броневые накладки на лобовой части
                 for (let i = 0; i < 2; i++) {
                     const frontArmor = MeshBuilder.CreateBox(`previewScoutFrontArmor${i}`, { width: w * 0.25, height: h * 0.12, depth: 0.06 }, scene);
@@ -1575,13 +1584,13 @@ export class Garage {
                     frontArmor.parent = chassis;
                     frontArmor.material = armorMat;
                 }
-                
+
                 // Выхлопная труба сзади (маленькая)
                 const scoutExhaust = MeshBuilder.CreateBox("previewScoutExhaust", { width: 0.1, height: 0.1, depth: 0.15 }, scene);
                 scoutExhaust.position = new Vector3(w * 0.3, h * 0.15, -d * 0.48);
                 scoutExhaust.parent = chassis;
                 scoutExhaust.material = armorMat;
-                
+
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
                     const tailLight = MeshBuilder.CreateBox(`previewScoutTailLight${i}`, { width: 0.04, height: 0.06, depth: 0.03 }, scene);
@@ -1592,7 +1601,7 @@ export class Garage {
                     tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
                     tailLight.material = tailLightMat;
                 }
-                
+
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
                     const sideLight = MeshBuilder.CreateBox(`previewScoutSideLight${i}`, { width: 0.04, height: 0.05, depth: 0.04 }, scene);
@@ -1603,7 +1612,7 @@ export class Garage {
                     sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
                     sideLight.material = sideLightMat;
                 }
-                
+
                 // Верхняя вентиляционная решетка на крыше
                 const scoutRoofVent = MeshBuilder.CreateBox("previewScoutRoofVent", { width: 0.15, height: 0.04, depth: 0.1 }, scene);
                 scoutRoofVent.position = new Vector3(0, h * 0.44, d * 0.2);
@@ -1611,7 +1620,7 @@ export class Garage {
                 const scoutRoofVentMat = new StandardMaterial("previewScoutRoofVentMat", scene);
                 scoutRoofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
                 scoutRoofVent.material = scoutRoofVentMat;
-                
+
                 // Детали решетки
                 for (let i = 0; i < 4; i++) {
                     const ventBar = MeshBuilder.CreateBox(`previewScoutRoofVentBar${i}`, { width: 0.02, height: 0.03, depth: 0.08 }, scene);
@@ -1619,7 +1628,7 @@ export class Garage {
                     ventBar.parent = chassis;
                     ventBar.material = scoutRoofVentMat;
                 }
-                
+
                 // Легкие броневые экраны по бокам - уменьшены
                 for (let i = 0; i < 2; i++) {
                     const sideArmor = MeshBuilder.CreateBox(`previewScoutSideArmor${i}`, { width: 0.07, height: h * 0.3, depth: d * 0.18 }, scene);
@@ -1675,7 +1684,7 @@ export class Garage {
                         armorMat, `previewHeavy${i}`
                     );
                 }
-                
+
                 // Фары
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -1685,7 +1694,7 @@ export class Garage {
                         i, "previewHeavy"
                     );
                 }
-                
+
                 // Выхлопные трубы
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createExhaust(
@@ -1695,7 +1704,7 @@ export class Garage {
                         armorMat, `previewHeavy${i}`
                     );
                 }
-                
+
                 // Инструменты: лопата, топор, канистра
                 ChassisDetailsGenerator.createShovel(
                     scene, chassis,
@@ -1703,21 +1712,21 @@ export class Garage {
                     0.15, 0.4, 0.02,
                     armorMat, "previewHeavy"
                 );
-                
+
                 ChassisDetailsGenerator.createAxe(
                     scene, chassis,
                     new Vector3(-w * 0.35, h * 0.25, -d * 0.45),
                     0.3, 0.1, 0.02,
                     armorMat, "previewHeavy"
                 );
-                
+
                 ChassisDetailsGenerator.createCanister(
                     scene, chassis,
                     new Vector3(w * 0.45, h * 0.22, -d * 0.4),
                     0.14, 0.25, 0.14,
                     armorMat, "previewHeavy"
                 );
-                
+
                 // Вентиляционные решетки (большие, с деталями)
                 for (let i = 0; i < 4; i++) {
                     const posX = (i % 2 === 0 ? -1 : 1) * w * 0.4;
@@ -1735,7 +1744,7 @@ export class Garage {
                         i, MaterialFactory.createVentMaterial(scene, i, "previewHeavy"), "previewHeavy"
                     );
                 }
-                
+
                 // Перископы на люках (три штуки)
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createPeriscope(
@@ -1745,7 +1754,7 @@ export class Garage {
                         i, "previewHeavy"
                     );
                 }
-                
+
                 // Люки на крыше (два больших)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHatch(
@@ -1755,7 +1764,7 @@ export class Garage {
                         armorMat, `previewHeavy${i}`
                     );
                 }
-                
+
                 // Энергетические усилители брони (футуристические элементы)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createEnergyBooster(
@@ -1788,7 +1797,7 @@ export class Garage {
                     0.12, h * 0.6, d * 0.4,
                     armorMat, "previewAssault2"
                 );
-                
+
                 // Шипы спереди
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createSpike(
@@ -1798,7 +1807,7 @@ export class Garage {
                         0, accentMat, `previewAssault${i}`
                     );
                 }
-                
+
                 // Фары с защитой
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -1815,7 +1824,7 @@ export class Garage {
                         i, armorMat, "previewAssault"
                     );
                 }
-                
+
                 // Выхлоп
                 ChassisDetailsGenerator.createExhaust(
                     scene, chassis,
@@ -1823,7 +1832,7 @@ export class Garage {
                     0.13, 0.13, 0.18,
                     armorMat, "previewAssault"
                 );
-                
+
                 // Инструменты
                 ChassisDetailsGenerator.createShovel(
                     scene, chassis,
@@ -1831,14 +1840,14 @@ export class Garage {
                     0.13, 0.32, 0.02,
                     armorMat, "previewAssault"
                 );
-                
+
                 ChassisDetailsGenerator.createCanister(
                     scene, chassis,
                     new Vector3(w * 0.38, h * 0.2, -d * 0.4),
                     0.11, 0.18, 0.11,
                     armorMat, "previewAssault"
                 );
-                
+
                 // Вентиляционные решетки (улучшенные)
                 for (let i = 0; i < 2; i++) {
                     const ventPos = new Vector3((i === 0 ? -1 : 1) * w * 0.35, h * 0.35, -d * 0.25);
@@ -1854,7 +1863,7 @@ export class Garage {
                         i, MaterialFactory.createVentMaterial(scene, i, "previewAssault"), "previewAssault"
                     );
                 }
-                
+
                 // Перископы (улучшенные)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createPeriscope(
@@ -1864,7 +1873,7 @@ export class Garage {
                         i, "previewAssault"
                     );
                 }
-                
+
                 // Агрессивные боковые шипы (дополнительные)
                 for (let i = 0; i < 2; i++) {
                     for (let j = 0; j < 3; j++) {
@@ -1876,7 +1885,7 @@ export class Garage {
                         );
                     }
                 }
-                
+
                 // Броневые экраны на лобовой части (угловатые)
                 for (let i = 0; i < 4; i++) {
                     ChassisDetailsGenerator.createSlopedArmor(
@@ -1886,7 +1895,7 @@ export class Garage {
                         -Math.PI / 12, armorMat, `previewAssault${i}`
                     );
                 }
-                
+
                 // Угловые броневые накладки (агрессивный стиль)
                 for (let i = 0; i < 4; i++) {
                     const posX = (i % 2 === 0 ? -1 : 1) * w * 0.55;
@@ -1898,7 +1907,7 @@ export class Garage {
                         armorMat, `previewAssault${i}`
                     );
                 }
-                
+
                 // Верхние вентиляционные решетки (агрессивные, угловатые)
                 for (let i = 0; i < 5; i++) {
                     ChassisDetailsGenerator.createRoofVent(
@@ -1908,7 +1917,7 @@ export class Garage {
                         i, "previewAssault"
                     );
                 }
-                
+
                 // Задние шипы (агрессивный стиль)
                 for (let i = 0; i < 4; i++) {
                     ChassisDetailsGenerator.createSpike(
@@ -1918,7 +1927,7 @@ export class Garage {
                         0, accentMat, `previewAssault${i}`
                     );
                 }
-                
+
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -1928,7 +1937,7 @@ export class Garage {
                         i, "previewAssault"
                     );
                 }
-                
+
                 // Оптический прицел на лобовой части
                 ChassisDetailsGenerator.createSight(
                     scene, chassis,
@@ -1936,7 +1945,7 @@ export class Garage {
                     0.14, 0.09, 0.11,
                     "previewAssault"
                 );
-                
+
                 // Радиоантенна сзади
                 ChassisDetailsGenerator.createAntenna(
                     scene, chassis,
@@ -1944,14 +1953,14 @@ export class Garage {
                     0.45, 0.025,
                     "previewAssault"
                 );
-                
+
                 // Основание антенны
                 ChassisDetailsGenerator.createAntennaBase(
                     scene, chassis,
                     new Vector3(0, h * 0.54, -d * 0.3),
                     0.1, armorMat, "previewAssault"
                 );
-                
+
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
                     const sideLight = MeshBuilder.CreateBox(`previewAssaultSideLight${i}`, { width: 0.05, height: 0.07, depth: 0.05 }, scene);
@@ -1962,13 +1971,13 @@ export class Garage {
                     sideLightMat.emissiveColor = new Color3(0.15, 0.12, 0.08);
                     sideLight.material = sideLightMat;
                 }
-                
+
                 // Выхлопная труба (улучшенная, больше)
                 const assaultExhaustUpgraded = MeshBuilder.CreateBox("previewAssaultExhaustUpgraded", { width: 0.13, height: 0.22, depth: 0.13 }, scene);
                 assaultExhaustUpgraded.position = new Vector3(w * 0.38, h * 0.2, -d * 0.48);
                                 assaultExhaustUpgraded.parent = chassis;
                 assaultExhaustUpgraded.material = armorMat;
-                
+
                 // Выхлопное отверстие
                 const assaultExhaustHole = MeshBuilder.CreateBox("previewAssaultExhaustHole", { width: 0.11, height: 0.04, depth: 0.11 }, scene);
                 assaultExhaustHole.position = new Vector3(w * 0.38, h * 0.2, -d * 0.52);
@@ -1987,7 +1996,7 @@ export class Garage {
                     w * 0.9, h * 0.7, 0.18,
                     -Math.PI / 4, armorMat, "previewMedium"
                 );
-                
+
                 // Вентиляционные решетки (угловатые)
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createVent(
@@ -1997,7 +2006,7 @@ export class Garage {
                         i, "previewMedium"
                     );
                 }
-                
+
                 // Два люка на крыше
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHatch(
@@ -2007,7 +2016,7 @@ export class Garage {
                         armorMat, `previewMedium${i}`
                     );
                 }
-                
+
                 // Выхлопные трубы сзади
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createExhaust(
@@ -2017,7 +2026,7 @@ export class Garage {
                         armorMat, `previewMedium${i}`
                     );
                 }
-                
+
                 // Фары спереди
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -2027,7 +2036,7 @@ export class Garage {
                         i, "previewMedium"
                     );
                 }
-                
+
                 // Инструменты: лопата, канистра
                 ChassisDetailsGenerator.createShovel(
                     scene, chassis,
@@ -2035,14 +2044,14 @@ export class Garage {
                     0.14, 0.35, 0.02,
                     armorMat, "previewMedium"
                 );
-                
+
                 ChassisDetailsGenerator.createCanister(
                     scene, chassis,
                     new Vector3(w * 0.42, h * 0.2, -d * 0.4),
                     0.12, 0.2, 0.12,
                     armorMat, "previewMedium"
                 );
-                
+
                 // Вентиляционные решетки (улучшенные)
                 for (let i = 0; i < 3; i++) {
                     const ventPos = new Vector3((i - 1) * w * 0.3, h * 0.4, -d * 0.3);
@@ -2058,7 +2067,7 @@ export class Garage {
                         i, MaterialFactory.createVentMaterial(scene, i, "previewMedium"), "previewMedium"
                     );
                 }
-                
+
                 // Перископы на люках
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createPeriscope(
@@ -2068,7 +2077,7 @@ export class Garage {
                         i, "previewMedium"
                     );
                 }
-                
+
                 // Броневые накладки на лобовой части (характерные для Т-34)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createArmorPlate(
@@ -2078,7 +2087,7 @@ export class Garage {
                         armorMat, `previewMedium${i}`
                     );
                 }
-                
+
                 // Центральная броневая накладка на лбу
                 ChassisDetailsGenerator.createArmorPlate(
                     scene, chassis,
@@ -2086,7 +2095,7 @@ export class Garage {
                     w * 0.2, h * 0.15, 0.12,
                     armorMat, "previewMedium"
                 );
-                
+
                 // Боковые броневые экраны (противокумулятивные)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createArmorScreen(
@@ -2096,7 +2105,7 @@ export class Garage {
                         0, armorMat, `previewMedium${i}`
                     );
                 }
-                
+
                 // Дополнительные вентиляционные решетки на крыше
                 for (let i = 0; i < 4; i++) {
                     ChassisDetailsGenerator.createRoofVent(
@@ -2106,7 +2115,7 @@ export class Garage {
                         i, "previewMedium"
                     );
                 }
-                
+
                 // Радиоантенна сзади (характерная для Т-34)
                 ChassisDetailsGenerator.createAntenna(
                     scene, chassis,
@@ -2114,14 +2123,14 @@ export class Garage {
                     0.5, 0.025,
                     "previewMedium"
                 );
-                
+
                 // Основание антенны
                 ChassisDetailsGenerator.createAntennaBase(
                     scene, chassis,
                     new Vector3(0, h * 0.54, -d * 0.35),
                     0.1, armorMat, "previewMedium"
                 );
-                
+
                 // Оптический прицел на лобовой части
                 ChassisDetailsGenerator.createSight(
                     scene, chassis,
@@ -2129,7 +2138,7 @@ export class Garage {
                     0.12, 0.08, 0.1,
                     "previewMedium"
                 );
-                
+
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -2139,7 +2148,7 @@ export class Garage {
                         i, "previewMedium"
                     );
                 }
-                
+
                 // Дополнительные инструменты на корме
                 ChassisDetailsGenerator.createToolBox(
                     scene, chassis,
@@ -2147,7 +2156,7 @@ export class Garage {
                     0.18, 0.12, 0.14,
                     armorMat, "previewMedium"
                 );
-                
+
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createSideLight(
@@ -2179,7 +2188,7 @@ export class Garage {
                     w * 0.4, h * 0.25, w * 0.3,
                     armorMat, "previewStealth2"
                 );
-                
+
                 // Генератор невидимости
                 ChassisDetailsGenerator.createStealthGenerator(
                     scene, chassis,
@@ -2187,7 +2196,7 @@ export class Garage {
                     w * 0.35, h * 0.45, w * 0.35,
                     "previewStealth"
                 );
-                
+
                 // Две фары (очень маленькие, скрытые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -2197,7 +2206,7 @@ export class Garage {
                         i, "previewStealth"
                     );
                 }
-                
+
                 // Две задние фары (скрытые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -2207,7 +2216,7 @@ export class Garage {
                         i, "previewStealth"
                     );
                 }
-                
+
                 // Скрытые вентиляционные решетки по бокам
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createVent(
@@ -2228,7 +2237,7 @@ export class Garage {
                         accentMat, `previewHover${i}`
                     );
                 }
-                
+
                 // Реактивные двигатели (4 штуки)
                 for (let i = 0; i < 4; i++) {
                     const posX = (i % 2 === 0 ? -1 : 1) * w * 0.38;
@@ -2240,7 +2249,7 @@ export class Garage {
                         i, "previewHover"
                     );
                 }
-                
+
                 // Обтекаемые фары спереди
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlightCylindrical(
@@ -2250,13 +2259,13 @@ export class Garage {
                         i, "previewHover"
                     );
                 }
-                
+
                 // Обтекаемый люк на крыше (цилиндрический)
                 const hoverHatch = MeshBuilder.CreateBox("previewHoverHatch", { width: 0.28, height: 0.08, depth: 0.28 }, scene);
                 hoverHatch.position = new Vector3(0, h * 0.52, -d * 0.1);
                 hoverHatch.parent = chassis;
                 hoverHatch.material = armorMat;
-                
+
                 // Перископ на люке (обтекаемый)
                 ChassisDetailsGenerator.createPeriscope(
                     scene, chassis,
@@ -2264,7 +2273,7 @@ export class Garage {
                     0.18, 0.06,
                     0, "previewHover"
                 );
-                
+
                 // Вентиляционные решетки на крыше (обтекаемые)
                 for (let i = 0; i < 4; i++) {
                     ChassisDetailsGenerator.createRoofVentCylindrical(
@@ -2274,7 +2283,7 @@ export class Garage {
                         i, "previewHover"
                     );
                 }
-                
+
                 // Оптические сенсоры (округлые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createOpticalSensor(
@@ -2284,7 +2293,7 @@ export class Garage {
                         i, "previewHover"
                     );
                 }
-                
+
                 // Задние огни (округлые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLightCylindrical(
@@ -2294,7 +2303,7 @@ export class Garage {
                         i, "previewHover"
                     );
                 }
-                
+
                 // Обтекаемые воздухозаборники по бокам
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createIntakeCylindrical(
@@ -2304,7 +2313,7 @@ export class Garage {
                         `previewHover${i}`
                     );
                 }
-                
+
                 // Стабилизационные панели (обтекаемые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createStabilizer(
@@ -2351,7 +2360,7 @@ export class Garage {
                     w * 0.9, 0.15, d * 0.8,
                     armorMat, "previewSiege4"
                 );
-                
+
                 // Дополнительные угловые бронеплиты
                 for (let i = 0; i < 4; i++) {
                     const angle = (i * Math.PI * 2) / 4;
@@ -2362,7 +2371,7 @@ export class Garage {
                         armorMat, `previewSiege${i}`
                     );
                 }
-                
+
                 // Три люка
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createHatch(
@@ -2372,7 +2381,7 @@ export class Garage {
                         armorMat, `previewSiege${i}`
                     );
                 }
-                
+
                 // Фары
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -2382,7 +2391,7 @@ export class Garage {
                         i, "previewSiege"
                     );
                 }
-                
+
                 // Две выхлопные трубы
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createExhaust(
@@ -2392,7 +2401,7 @@ export class Garage {
                         armorMat, `previewSiege${i}`
                     );
                 }
-                
+
                 // Множество инструментов
                 ChassisDetailsGenerator.createShovel(
                     scene, chassis,
@@ -2400,21 +2409,21 @@ export class Garage {
                     0.16, 0.45, 0.02,
                     armorMat, "previewSiege"
                 );
-                
+
                 ChassisDetailsGenerator.createAxe(
                     scene, chassis,
                     new Vector3(-w * 0.38, h * 0.28, -d * 0.45),
                     0.35, 0.12, 0.02,
                     armorMat, "previewSiege"
                 );
-                
+
                 ChassisDetailsGenerator.createCanister(
                     scene, chassis,
                     new Vector3(w * 0.48, h * 0.25, -d * 0.4),
                     0.16, 0.3, 0.16,
                     armorMat, "previewSiege"
                 );
-                
+
                 // Антенны (большие)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createAntenna(
@@ -2424,7 +2433,7 @@ export class Garage {
                         `previewSiege${i}`
                     );
                 }
-                
+
                 // Перископы на люках
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createPeriscope(
@@ -2434,7 +2443,7 @@ export class Garage {
                         i, "previewSiege"
                     );
                 }
-                
+
                 // Большие вентиляционные решетки на крыше
                 for (let i = 0; i < 5; i++) {
                     const ventPos = new Vector3((i - 2) * w * 0.25, h * 0.68, d * 0.25);
@@ -2450,7 +2459,7 @@ export class Garage {
                         i, MaterialFactory.createRoofVentMaterial(scene, i, "previewSiege"), "previewSiege"
                     );
                 }
-                
+
                 // Массивные выхлопные трубы (большие)
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createExhaustCylindrical(
@@ -2467,7 +2476,7 @@ export class Garage {
                         i, `previewSiege${i}`
                     );
                 }
-                
+
                 // Оптический прицел на лобовой части (огромный)
                 ChassisDetailsGenerator.createSight(
                     scene, chassis,
@@ -2475,7 +2484,7 @@ export class Garage {
                     0.22, 0.15, 0.18,
                     "previewSiege"
                 );
-                
+
                 // Дополнительные броневые накладки на лобовой части (огромные)
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createArmorPlate(
@@ -2485,7 +2494,7 @@ export class Garage {
                         armorMat, `previewSiege${i}`
                     );
                 }
-                
+
                 // Задние огни (стоп-сигналы, большие)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -2495,7 +2504,7 @@ export class Garage {
                         i, "previewSiege"
                     );
                 }
-                
+
                 // Боковые вентиляционные решетки (большие)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createVent(
@@ -2515,7 +2524,7 @@ export class Garage {
                     w * 0.9, 0.12, 0.15,
                     accentMat, "previewRacer"
                 );
-                
+
                 // Задний спойлер (большой)
                 ChassisDetailsGenerator.createSpoiler(
                     scene, chassis,
@@ -2523,7 +2532,7 @@ export class Garage {
                     w * 1.1, 0.25, 0.2,
                     accentMat, "previewRacer"
                 );
-                
+
                 // Боковые обтекатели (низкопрофильные)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createFairing(
@@ -2533,7 +2542,7 @@ export class Garage {
                         accentMat, `previewRacer${i}`
                     );
                 }
-                
+
                 // Передние фары (большие, агрессивные)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -2543,7 +2552,7 @@ export class Garage {
                         i, "previewRacer"
                     );
                 }
-                
+
                 // Центральная воздухозаборная решетка
                 ChassisDetailsGenerator.createIntake(
                     scene, chassis,
@@ -2551,7 +2560,7 @@ export class Garage {
                     w * 0.4, h * 0.25, 0.08,
                     MaterialFactory.createVentMaterial(scene, 0, "previewRacer"), "previewRacer"
                 );
-                
+
                 // Детали решетки
                 const intakePos = new Vector3(0, h * 0.15, d * 0.48);
                 ChassisDetailsGenerator.createVentBars(
@@ -2559,7 +2568,7 @@ export class Garage {
                     5, 0.02, h * 0.2, 0.06, w * 0.09,
                     0, MaterialFactory.createVentMaterial(scene, 0, "previewRacer"), "previewRacer"
                 );
-                
+
                 // Верхние воздухозаборники на крыше
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createIntake(
@@ -2569,7 +2578,7 @@ export class Garage {
                         MaterialFactory.createVentMaterial(scene, i, "previewRacer"), `previewRacer${i}`
                     );
                 }
-                
+
                 // Выхлопные трубы (большие, по бокам)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createExhaustCylindrical(
@@ -2586,7 +2595,7 @@ export class Garage {
                         i, `previewRacer${i}`
                     );
                 }
-                
+
                 // Боковые зеркала
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createMirror(
@@ -2596,7 +2605,7 @@ export class Garage {
                         i, "previewRacer"
                     );
                 }
-                
+
                 // Задние огни (большие стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -2606,7 +2615,7 @@ export class Garage {
                         i, "previewRacer"
                     );
                 }
-                
+
                 // Вентиляционные отверстия на боковых панелях
                 for (let i = 0; i < 2; i++) {
                     for (let j = 0; j < 3; j++) {
@@ -2618,7 +2627,7 @@ export class Garage {
                         );
                     }
                 }
-                
+
                 // Люк на крыше (спортивный стиль)
                 ChassisDetailsGenerator.createHatch(
                     scene, chassis,
@@ -2626,7 +2635,7 @@ export class Garage {
                     0.3, 0.06, 0.25,
                     armorMat, "previewRacer"
                 );
-                
+
                 // Перископ на люке
                 ChassisDetailsGenerator.createPeriscope(
                     scene, chassis,
@@ -2645,7 +2654,7 @@ export class Garage {
                         accentMat, `previewAmphibious${i}`
                     );
                 }
-                
+
                 // Водонепроницаемые панели
                 ChassisDetailsGenerator.createWaterSeal(
                     scene, chassis,
@@ -2653,7 +2662,7 @@ export class Garage {
                     w * 1.05, 0.08, d * 1.05,
                     armorMat, "previewAmphibious"
                 );
-                
+
                 // Люки
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHatch(
@@ -2663,7 +2672,7 @@ export class Garage {
                         armorMat, `previewAmphibious${i}`
                     );
                 }
-                
+
                 // Фары
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -2673,7 +2682,7 @@ export class Garage {
                         i, "previewAmphibious"
                     );
                 }
-                
+
                 // Вентиляционные решетки (водонепроницаемые)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createVent(
@@ -2683,7 +2692,7 @@ export class Garage {
                         i, "previewAmphibious"
                     );
                 }
-                
+
                 // Перископы
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createPeriscope(
@@ -2702,7 +2711,7 @@ export class Garage {
                     w * 0.45,
                     "previewShield"
                 );
-                
+
                 // Энергетические панели по бокам
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createEnergyPanel(
@@ -2712,7 +2721,7 @@ export class Garage {
                         i, "previewShield"
                     );
                 }
-                
+
                 // Люки
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHatch(
@@ -2722,7 +2731,7 @@ export class Garage {
                         armorMat, `previewShield${i}`
                     );
                 }
-                
+
                 // Фары
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -2732,7 +2741,7 @@ export class Garage {
                         i, "previewShield"
                     );
                 }
-                
+
                 // Вентиляционные решетки (энергетические)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createVent(
@@ -2742,7 +2751,7 @@ export class Garage {
                         i, "previewShield"
                     );
                 }
-                
+
                 // Энергетические катушки вокруг генератора
                 for (let i = 0; i < 4; i++) {
                     const angle = (i * Math.PI * 2) / 4;
@@ -2754,7 +2763,7 @@ export class Garage {
                         i, "previewShield"
                     );
                 }
-                
+
                 // Перископы на люках
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createPeriscope(
@@ -2764,7 +2773,7 @@ export class Garage {
                         i, "previewShield"
                     );
                 }
-                
+
                 // Энергетические порты (для зарядки щита)
                 for (let i = 0; i < 4; i++) {
                     const angle = (i * Math.PI * 2) / 4;
@@ -2776,7 +2785,7 @@ export class Garage {
                         i, "previewShield"
                     );
                 }
-                
+
                 // Верхние вентиляционные решетки (энергетические)
                 for (let i = 0; i < 4; i++) {
                     ChassisDetailsGenerator.createRoofVent(
@@ -2786,7 +2795,7 @@ export class Garage {
                         i, "previewShield"
                     );
                 }
-                
+
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -2796,7 +2805,7 @@ export class Garage {
                         i, "previewShield"
                     );
                 }
-                
+
                 // Радиоантенна сзади
                 ChassisDetailsGenerator.createAntenna(
                     scene, chassis,
@@ -2804,14 +2813,14 @@ export class Garage {
                     0.5, 0.025,
                     "previewShield"
                 );
-                
+
                 // Основание антенны
                 ChassisDetailsGenerator.createAntennaBase(
                     scene, chassis,
                     new Vector3(0, h * 0.54, -d * 0.3),
                     0.1, armorMat, "previewShield"
                 );
-                
+
                 // Оптический прицел на лобовой части
                 ChassisDetailsGenerator.createSight(
                     scene, chassis,
@@ -2819,7 +2828,7 @@ export class Garage {
                     0.14, 0.09, 0.11,
                     "previewShield"
                 );
-                
+
                 // Выхлопные трубы сзади
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createExhaustCylindrical(
@@ -2839,7 +2848,7 @@ export class Garage {
                         w * 0.45, 0.12, w * 0.45,
                         i, "previewDrone"
                     );
-                    
+
                     // Антенны на платформах
                     ChassisDetailsGenerator.createAntenna(
                         scene, chassis,
@@ -2848,7 +2857,7 @@ export class Garage {
                         `previewDrone${i}`
                     );
                 }
-                
+
                 // Люки
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHatch(
@@ -2858,7 +2867,7 @@ export class Garage {
                         armorMat, `previewDrone${i}`
                     );
                 }
-                
+
                 // Фары
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -2868,7 +2877,7 @@ export class Garage {
                         i, "previewDrone"
                     );
                 }
-                
+
                 // Вентиляционные решетки (для охлаждения систем управления дронами)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createVent(
@@ -2878,7 +2887,7 @@ export class Garage {
                         i, "previewDrone"
                     );
                 }
-                
+
                 // Перископы
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createPeriscope(
@@ -2888,7 +2897,7 @@ export class Garage {
                         i, "previewDrone"
                     );
                 }
-                
+
                 // Сенсорные панели на платформах
                 for (let i = 0; i < 2; i++) {
                     for (let j = 0; j < 2; j++) {
@@ -2900,7 +2909,7 @@ export class Garage {
                         );
                     }
                 }
-                
+
                 // Верхние вентиляционные решетки на крыше
                 for (let i = 0; i < 4; i++) {
                     ChassisDetailsGenerator.createRoofVent(
@@ -2910,7 +2919,7 @@ export class Garage {
                         i, "previewDrone"
                     );
                 }
-                
+
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -2920,7 +2929,7 @@ export class Garage {
                         i, "previewDrone"
                     );
                 }
-                
+
                 // Оптический прицел на лобовой части
                 ChassisDetailsGenerator.createSight(
                     scene, chassis,
@@ -2928,7 +2937,7 @@ export class Garage {
                     0.14, 0.09, 0.11,
                     "previewDrone"
                 );
-                
+
                 // Радиоантенна сзади (для связи с дронами)
                 ChassisDetailsGenerator.createAntenna(
                     scene, chassis,
@@ -2936,14 +2945,14 @@ export class Garage {
                     0.55, 0.025,
                     "previewDrone"
                 );
-                
+
                 // Основание антенны
                 ChassisDetailsGenerator.createAntennaBase(
                     scene, chassis,
                     new Vector3(0, h * 0.6, -d * 0.3),
                     0.1, armorMat, "previewDrone"
                 );
-                
+
                 // Выхлопные трубы сзади
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createExhaustCylindrical(
@@ -2964,7 +2973,7 @@ export class Garage {
                         0.35, 0.25,
                         armorMat, `previewArtillery${i}`
                     );
-                    
+
                     // Опорные лапы
                     ChassisDetailsGenerator.createArmorPlate(
                         scene, chassis,
@@ -2973,7 +2982,7 @@ export class Garage {
                         armorMat, `previewArtilleryLeg${i}`
                     );
                 }
-                
+
                 // Люки
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHatch(
@@ -2983,7 +2992,7 @@ export class Garage {
                         armorMat, `previewArtillery${i}`
                     );
                 }
-                
+
                 // Фары
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -2993,7 +3002,7 @@ export class Garage {
                         i, "previewArtillery"
                     );
                 }
-                
+
                 // Выхлоп
                 ChassisDetailsGenerator.createExhaust(
                     scene, chassis,
@@ -3001,7 +3010,7 @@ export class Garage {
                     0.14, 0.14, 0.2,
                     armorMat, "previewArtillery"
                 );
-                
+
                 // Вентиляционные решетки (большие для артиллерии)
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createVent(
@@ -3011,7 +3020,7 @@ export class Garage {
                         i, "previewArtillery"
                     );
                 }
-                
+
                 // Перископы
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createPeriscope(
@@ -3021,7 +3030,7 @@ export class Garage {
                         i, "previewArtillery"
                     );
                 }
-                
+
                 // Системы наведения (оптические прицелы)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createSight(
@@ -3031,7 +3040,7 @@ export class Garage {
                         `previewArtillery${i}`
                     );
                 }
-                
+
                 // Верхние вентиляционные решетки на крыше (большие)
                 for (let i = 0; i < 5; i++) {
                     const ventPos = new Vector3((i - 2) * w * 0.28, h * 0.72, d * 0.25);
@@ -3047,7 +3056,7 @@ export class Garage {
                         i, MaterialFactory.createRoofVentMaterial(scene, i, "previewArtillery"), "previewArtillery"
                     );
                 }
-                
+
                 // Радиоантенна сзади
                 ChassisDetailsGenerator.createAntenna(
                     scene, chassis,
@@ -3055,14 +3064,14 @@ export class Garage {
                     0.6, 0.03,
                     "previewArtillery"
                 );
-                
+
                 // Основание антенны
                 ChassisDetailsGenerator.createAntennaBase(
                     scene, chassis,
                     new Vector3(0, h * 0.76, -d * 0.3),
                     0.12, armorMat, "previewArtillery"
                 );
-                
+
                 // Задние огни (стоп-сигналы, большие)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -3072,7 +3081,7 @@ export class Garage {
                         i, "previewArtillery"
                     );
                 }
-                
+
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createSideLight(
@@ -3082,7 +3091,7 @@ export class Garage {
                         i, "previewArtillery"
                     );
                 }
-                
+
                 // Выхлопная труба (большая)
                 ChassisDetailsGenerator.createExhaustCylindrical(
                     scene, chassis,
@@ -3090,7 +3099,7 @@ export class Garage {
                     0.28, 0.18,
                     "previewArtillery"
                 );
-                
+
                 // Выхлопное отверстие
                 ChassisDetailsGenerator.createExhaustHole(
                     scene, chassis,
@@ -3107,7 +3116,7 @@ export class Garage {
                     w * 0.85, h * 0.55, 0.35,
                     -Math.PI / 6, accentMat, "previewDestroyer"
                 );
-                
+
                 // Боковые бронеплиты
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createArmorPlate(
@@ -3117,7 +3126,7 @@ export class Garage {
                         armorMat, `previewDestroyer${i}`
                     );
                 }
-                
+
                 // Люки
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHatch(
@@ -3127,7 +3136,7 @@ export class Garage {
                         armorMat, `previewDestroyer${i}`
                     );
                 }
-                
+
                 // Фары
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createHeadlight(
@@ -3137,7 +3146,7 @@ export class Garage {
                         i, "previewDestroyer"
                     );
                 }
-                
+
                 // Вентиляционные решетки
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createVent(
@@ -3147,7 +3156,7 @@ export class Garage {
                         i, "previewDestroyer"
                     );
                 }
-                
+
                 // Перископы
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createPeriscope(
@@ -3157,7 +3166,7 @@ export class Garage {
                         i, "previewDestroyer"
                     );
                 }
-                
+
                 // Оптический прицел на лобовой части (большой)
                 ChassisDetailsGenerator.createSight(
                     scene, chassis,
@@ -3165,7 +3174,7 @@ export class Garage {
                     0.15, 0.1, 0.12,
                     "previewDestroyer"
                 );
-                
+
                 // Дополнительные броневые накладки на лобовой части
                 for (let i = 0; i < 3; i++) {
                     ChassisDetailsGenerator.createArmorPlate(
@@ -3175,7 +3184,7 @@ export class Garage {
                         armorMat, `previewDestroyer${i}`
                     );
                 }
-                
+
                 // Верхние вентиляционные решетки на крыше
                 for (let i = 0; i < 4; i++) {
                     const ventPos = new Vector3((i % 2 === 0 ? -1 : 1) * w * 0.28, h * 0.46, (i < 2 ? -1 : 1) * d * 0.2);
@@ -3191,7 +3200,7 @@ export class Garage {
                         i, MaterialFactory.createRoofVentMaterial(scene, i, "previewDestroyer"), "previewDestroyer"
                     );
                 }
-                
+
                 // Выхлопные трубы сзади (большие)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createExhaustCylindrical(
@@ -3208,7 +3217,7 @@ export class Garage {
                         i, `previewDestroyer${i}`
                     );
                 }
-                
+
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createTailLight(
@@ -3218,7 +3227,7 @@ export class Garage {
                         i, "previewDestroyer"
                     );
                 }
-                
+
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
                     ChassisDetailsGenerator.createSideLight(
@@ -3243,7 +3252,7 @@ export class Garage {
                     auraMat.emissiveColor = new Color3(0.6, 0.5, 0);
                     auraMat.disableLighting = true;
                     commandAura.material = auraMat;
-                    
+
                     // Командный модуль сверху
                     const commandModule = MeshBuilder.CreateBox("previewCommandModule", { width: w * 0.6, height: h * 0.3, depth: d * 0.4 }, scene);
                     commandModule.position = new Vector3(0, h * 0.6, -d * 0.3);
@@ -3252,7 +3261,7 @@ export class Garage {
                     moduleMat.diffuseColor = new Color3(1, 0.9, 0.3);
                     moduleMat.emissiveColor = new Color3(0.3, 0.27, 0.1);
                     commandModule.material = moduleMat;
-                    
+
                     // Множественные антенны
                     for (let i = 0; i < 4; i++) {
                         const antenna = MeshBuilder.CreateBox(`previewCmdAntenna${i}`, { width: 0.025 , height: 0.5, depth: 0.025  }, scene);
@@ -3263,7 +3272,7 @@ export class Garage {
                         antenna.material = antennaMat;
                     }
                 }
-                
+
                 // Люки
                 for (let i = 0; i < 2; i++) {
                     const hatch = MeshBuilder.CreateBox(`previewCommandHatch${i}`, { width: 0.22, height: 0.08, depth: 0.22 }, scene);
@@ -3271,7 +3280,7 @@ export class Garage {
                     hatch.parent = chassis;
                     hatch.material = armorMat;
                 }
-                
+
                 // Фары
                 for (let i = 0; i < 2; i++) {
                     const headlight = MeshBuilder.CreateBox(`previewCommandHeadlight${i}`, { width: 0.1, height: 0.1, depth: 0.08 }, scene);
@@ -3282,7 +3291,7 @@ export class Garage {
                     headlightMat.emissiveColor = new Color3(0.3, 0.3, 0.2);
                     headlight.material = headlightMat;
                 }
-                
+
                 // Перископы на люках
                 for (let i = 0; i < 2; i++) {
                     const periscope = MeshBuilder.CreateBox(`previewCommandPeriscope${i}`, { width: 0.08, height: 0.2, depth: 0.08 }, scene);
@@ -3292,7 +3301,7 @@ export class Garage {
                     periscopeMat.diffuseColor = new Color3(0.2, 0.2, 0.2);
                     periscope.material = periscopeMat;
                 }
-                
+
                 // Радиостанции на командном модуле
                 for (let i = 0; i < 2; i++) {
                     const radio = MeshBuilder.CreateBox(`previewCommandRadio${i}`, { width: 0.15, height: 0.12, depth: 0.1 }, scene);
@@ -3303,7 +3312,7 @@ export class Garage {
                     radioMat.emissiveColor = new Color3(0.2, 0.15, 0.05);
                     radio.material = radioMat;
                 }
-                
+
                 // Сенсорные панели на командном модуле
                 for (let i = 0; i < 3; i++) {
                     const sensor = MeshBuilder.CreateBox(`previewCommandSensor${i}`, { width: 0.1, height: 0.06, depth: 0.08 }, scene);
@@ -3314,7 +3323,7 @@ export class Garage {
                     sensorMat.emissiveColor = new Color3(0.3, 0.25, 0);
                     sensor.material = sensorMat;
                 }
-                
+
                 // Верхние вентиляционные решетки на крыше
                 for (let i = 0; i < 4; i++) {
                     const roofVent = MeshBuilder.CreateBox(`previewCommandRoofVent${i}`, { width: 0.15, height: 0.04, depth: 0.12 }, scene);
@@ -3324,7 +3333,7 @@ export class Garage {
                     roofVentMat.diffuseColor = new Color3(0.12, 0.12, 0.12);
                     roofVent.material = roofVentMat;
                 }
-                
+
                 // Задние огни (стоп-сигналы)
                 for (let i = 0; i < 2; i++) {
                     const tailLight = MeshBuilder.CreateBox(`previewCommandTailLight${i}`, { width: 0.06, height: 0.1, depth: 0.04 }, scene);
@@ -3335,7 +3344,7 @@ export class Garage {
                     tailLightMat.emissiveColor = new Color3(0.3, 0.05, 0.05);
                     tailLight.material = tailLightMat;
                 }
-                
+
                 // Радиоантенна сзади (главная)
                 const commandAntenna = MeshBuilder.CreateBox("previewCommandAntenna", { width: 0.03, height: 0.6, depth: 0.03 }, scene);
                 commandAntenna.position = new Vector3(0, h * 0.8, -d * 0.3);
@@ -3343,13 +3352,13 @@ export class Garage {
                 const commandAntennaMat = new StandardMaterial("previewCommandAntennaMat", scene);
                 commandAntennaMat.diffuseColor = new Color3(1, 0.9, 0.2);
                 commandAntenna.material = commandAntennaMat;
-                
+
                 // Основание антенны
                 const commandAntennaBase = MeshBuilder.CreateBox("previewCommandAntennaBase", { width: 0.12, height: 0.12, depth: 0.12 }, scene);
                 commandAntennaBase.position = new Vector3(0, h * 0.66, -d * 0.3);
                 commandAntennaBase.parent = chassis;
                 commandAntennaBase.material = armorMat;
-                
+
                 // Выхлопные трубы сзади
                 for (let i = 0; i < 2; i++) {
                     const exhaust = MeshBuilder.CreateBox(`previewCommandExhaust${i}`, { width: 0.12, height: 0.2, depth: 0.12 }, scene);
@@ -3357,7 +3366,7 @@ export class Garage {
                                         exhaust.parent = chassis;
                     exhaust.material = armorMat;
                 }
-                
+
                 // Боковые фары (сигнальные)
                 for (let i = 0; i < 2; i++) {
                     const sideLight = MeshBuilder.CreateBox(`previewCommandSideLight${i}`, { width: 0.05, height: 0.07, depth: 0.05 }, scene);
@@ -3621,7 +3630,7 @@ export class Garage {
             console.error('[Garage] Failed to open Workshop:', e);
         });
     }
-    
+
     /**
      * Проверяет, открыт ли Workshop
      */
@@ -4836,7 +4845,7 @@ export class Garage {
                     <div class="garage-stats-row">
                         <span class="garage-stat-name">HP</span>
                         <span class="garage-stat-value">
-                            <span style="color: #080;">${current.maxHealth}</span> → 
+                            <span style="color: #080;">${current.maxHealth}</span> →
                             <span style="color: #0f0;">${next.maxHealth}</span>
                             <span class="garage-stat-change ${hpDiff >= 0 ? 'positive' : 'negative'}">(${hpDiff >= 0 ? '+' : ''}${hpDiff})</span>
                         </span>
@@ -4844,7 +4853,7 @@ export class Garage {
                     <div class="garage-stats-row">
                         <span class="garage-stat-name">Speed</span>
                         <span class="garage-stat-value">
-                            <span style="color: #080;">${current.moveSpeed}</span> → 
+                            <span style="color: #080;">${current.moveSpeed}</span> →
                             <span style="color: #0f0;">${next.moveSpeed}</span>
                             <span class="garage-stat-change ${spdDiff >= 0 ? 'positive' : 'negative'}">(${spdDiff >= 0 ? '+' : ''}${spdDiff.toFixed(1)})</span>
                         </span>
@@ -4852,7 +4861,7 @@ export class Garage {
                     <div class="garage-stats-row">
                         <span class="garage-stat-name">Armor</span>
                         <span class="garage-stat-value">
-                            <span style="color: #080;">${(current.maxHealth / 50).toFixed(1)}</span> → 
+                            <span style="color: #080;">${(current.maxHealth / 50).toFixed(1)}</span> →
                             <span style="color: #0f0;">${(next.maxHealth / 50).toFixed(1)}</span>
                             <span class="garage-stat-change ${armorDiff >= 0 ? 'positive' : 'negative'}">(${armorDiff >= 0 ? '+' : ''}${armorDiff.toFixed(1)})</span>
                         </span>
@@ -4871,7 +4880,7 @@ export class Garage {
                     <div class="garage-stats-row">
                         <span class="garage-stat-name">Damage</span>
                         <span class="garage-stat-value">
-                            <span style="color: #080;">${current.damage}</span> → 
+                            <span style="color: #080;">${current.damage}</span> →
                             <span style="color: #0f0;">${next.damage}</span>
                             <span class="garage-stat-change ${dmgDiff >= 0 ? 'positive' : 'negative'}">(${dmgDiff >= 0 ? '+' : ''}${dmgDiff})</span>
                         </span>
@@ -4879,7 +4888,7 @@ export class Garage {
                     <div class="garage-stats-row">
                         <span class="garage-stat-name">Reload</span>
                         <span class="garage-stat-value">
-                            <span style="color: #080;">${current.cooldown}ms</span> → 
+                            <span style="color: #080;">${current.cooldown}ms</span> →
                             <span style="color: #0f0;">${next.cooldown}ms</span>
                             <span class="garage-stat-change ${rldDiff <= 0 ? 'positive' : 'negative'}">(${rldDiff >= 0 ? '+' : ''}${rldDiff}ms)</span>
                         </span>
@@ -4887,7 +4896,7 @@ export class Garage {
                     <div class="garage-stats-row">
                         <span class="garage-stat-name">Proj. Speed</span>
                         <span class="garage-stat-value">
-                            <span style="color: #080;">${current.projectileSpeed}</span> → 
+                            <span style="color: #080;">${current.projectileSpeed}</span> →
                             <span style="color: #0f0;">${next.projectileSpeed}</span>
                             <span class="garage-stat-change ${projSpeedDiff >= 0 ? 'positive' : 'negative'}">(${projSpeedDiff >= 0 ? '+' : ''}${projSpeedDiff})</span>
                         </span>
@@ -4900,7 +4909,7 @@ export class Garage {
                         <div class="garage-stats-row">
                             <span class="garage-stat-name">DPS</span>
                             <span class="garage-stat-value">
-                                <span style="color: #080;">${currentDps.toFixed(1)}</span> → 
+                                <span style="color: #080;">${currentDps.toFixed(1)}</span> →
                                 <span style="color: #0f0;">${nextDps.toFixed(1)}</span>
                                 <span class="garage-stat-change ${dpsDiff >= 0 ? 'positive' : 'negative'}">(${dpsDiff >= 0 ? '+' : ''}${dpsDiff.toFixed(1)})</span>
                             </span>
@@ -5116,7 +5125,7 @@ export class Garage {
                     this.workshopUI.hide();
                     return;
                 }
-                
+
                 // Если Workshop не открыт, закрываем гараж
                 e.preventDefault();
                 e.stopPropagation();

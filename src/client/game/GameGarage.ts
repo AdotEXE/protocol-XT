@@ -2,22 +2,22 @@
 // GAME GARAGE - Логика гаражей (respawn, capture, doors)
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { Vector3, Mesh, StandardMaterial, Color3, Quaternion, MeshBuilder } from "@babylonjs/core";
-import { TextBlock, AdvancedDynamicTexture } from "@babylonjs/gui";
-import { logger } from "../utils/logger";
 import type { Scene } from "@babylonjs/core";
+import { Color3, Mesh, MeshBuilder, Quaternion, StandardMaterial, Vector3 } from "@babylonjs/core";
+import { AdvancedDynamicTexture, TextBlock } from "@babylonjs/gui";
 import type { ChunkSystem } from "../chunkSystem";
-import type { TankController } from "../tankController";
-import type { HUD } from "../hud";
 import type { EnemyTank } from "../enemyTank";
-import { saveSelectedSkin, getSkinById, applySkinToTank, applySkinColorToMaterial } from "../tank/tankSkins";
+import type { HUD } from "../hud";
 import { ChassisTransformAnimation } from "../tank/chassisTransformAnimation";
-import { getChassisById, getCannonById } from "../tankTypes";
+import { applySkinColorToMaterial, applySkinToTank, getSkinById, loadSelectedSkin, saveSelectedSkin } from "../tank/tankSkins";
+import type { TankController } from "../tankController";
+import { getCannonById, getChassisById } from "../tankTypes";
 import { getTrackById } from "../trackTypes";
+import { logger } from "../utils/logger";
 
 /**
  * GameGarage - Логика гаражей
- * 
+ *
  * Отвечает за:
  * - Позицию гаража игрока для респавна
  * - Таймеры респавна гаражей
@@ -531,6 +531,24 @@ export class GameGarage {
         localStorage.removeItem("pendingCannon");
         localStorage.removeItem("pendingTrack");
         localStorage.removeItem("pendingSkin");
+
+        // Send customization update to other players via RPC
+        const gameInstance = (window as any).gameInstance;
+        if (gameInstance?.multiplayerManager?.sendRpc) {
+            const currentChassisId = localStorage.getItem("selectedChassis") || "medium";
+            const currentCannonId = localStorage.getItem("selectedCannon") || "standard";
+            const currentTrackId = localStorage.getItem("selectedTrack") || "standard";
+            const currentSkinId = loadSelectedSkin() || "default";
+            const currentSkin = getSkinById(currentSkinId);
+            gameInstance.multiplayerManager.sendRpc("DRESS_UPDATE", {
+                chassisType: currentChassisId,
+                cannonType: currentCannonId,
+                trackType: currentTrackId,
+                tankColor: currentSkin?.chassisColor || "#00ff00",
+                turretColor: currentSkin?.turretColor || "#00ff00",
+            });
+            logger.log(`[GameGarage] Sent DRESS_UPDATE RPC: chassis=${currentChassisId}, cannon=${currentCannonId}, track=${currentTrackId}`);
+        }
 
         // Для пересоздания визуальных частей нужен respawn
         // (setChassisType/setCannonType только обновляют статистику, не пересоздают визуал)
